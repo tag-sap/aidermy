@@ -72,7 +72,6 @@ export function ResultSheet({
 
   useEffect(() => {
     if (isOpen) {
-      // Небольшая задержка, чтобы не было резкого появления
       const timer = setTimeout(() => setIsVisible(true), 10)
       return () => clearTimeout(timer)
     } else {
@@ -91,12 +90,10 @@ export function ResultSheet({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${
-        isVisible ? 'opacity-100' : 'opacity-0'
-      }`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${isVisible ? 'opacity-100' : 'opacity-0'
+        }`}
       style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
     >
-      {/* Оверлей */}
       <button
         type="button"
         aria-label="Закрыть"
@@ -104,11 +101,9 @@ export function ResultSheet({
         className="absolute inset-0"
       />
 
-      {/* Карточка */}
       <div
-        className={`relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl transition-all duration-300 ${
-          isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-        }`}
+        className={`relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl transition-all duration-300 ${isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+          }`}
         style={{
           transform: isVisible ? 'scale(1)' : 'scale(0.92)',
           opacity: isVisible ? 1 : 0,
@@ -166,10 +161,6 @@ export function ResultSheet({
                 className="mt-2 block text-sm leading-relaxed text-gray-700"
               />
             </div>
-
-            <p className="text-sm text-gray-500">
-              Тип кожи: <span className="font-medium text-gray-900">{result.skinType}</span>
-            </p>
 
             <div className="flex w-full gap-3">
               <button

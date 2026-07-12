@@ -88,11 +88,19 @@ export default function Page() {
 
       const data = await response.json()
 
-      setResult(data)
+      // 🔥 ОБЪЕДИНЯЕМ ответ с фронтовыми данными
+      const fullResult = {
+        ...data,
+        product: product,        // ← добавляем название
+        skinType: skinType,      // ← добавляем тип кожи
+        createdAt: Date.now(),   // ← добавляем время
+      }
+
+      setResult(fullResult)
       setLoading(false)
 
       setHistory((prev) => {
-        const next = [data, ...prev].slice(0, 50)
+        const next = [fullResult, ...prev].slice(0, 50)
         saveHistory(next)
         return next
       })
