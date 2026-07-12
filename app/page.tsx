@@ -70,7 +70,13 @@ export default function Page() {
       const res = mockCheck(product, skinType)
       setLoading(false)
       setResult(res)
-      // Панель остаётся открытой
+
+      // 3. Сохраняем в историю
+      setHistory((prev) => {
+        const next = [res, ...prev].slice(0, 50) // последние 50 проверок
+        saveHistory(next) // ← сохраняем в localStorage
+        return next
+      })
     }, 1000)
   }
 
