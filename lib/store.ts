@@ -14,6 +14,8 @@ export type CheckResult = {
   score: number
   verdict: string
   summary: string
+  safe_ingredients?: string[]   // ← добавил
+  caution_ingredients?: string[] // ← добавил
   createdAt: number
 }
 
@@ -102,6 +104,8 @@ export function mockCheck(product: string, skinType: string): CheckResult {
     score,
     verdict: match.verdict,
     summary: match.summary,
+    safe_ingredients: [],
+    caution_ingredients: [],
     createdAt: Date.now(),
   }
 }
