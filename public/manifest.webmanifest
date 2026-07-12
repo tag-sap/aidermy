@@ -1,0 +1,18 @@
+{
+  "name": "Aidermy — AI-проверка косметики",
+  "short_name": "Aidermy",
+  "description": "Футуристичный сервис проверки косметики с AI.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0e14",
+  "theme_color": "#0b0e14",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
