@@ -99,7 +99,7 @@ async def admin_panel(_: bool = Depends(verify_admin)):
     ingredients = get_all_ingredients()
     return templates.TemplateResponse(
         "admin.html",
-        {"ingredients": ingredients}
+        {"ingredients": list(ingredients)}  # ← ключевое исправление
     )
 
 @app.delete("/admin/delete/{ingredient_id}")
