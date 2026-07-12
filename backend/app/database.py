@@ -40,10 +40,10 @@ def get_ingredients(product_name: str) -> str | None:
     cursor = conn.cursor()
     cursor.execute('''
         SELECT ingredients FROM ingredients
-        WHERE product_name = ?
+        WHERE product_name LIKE ?
         ORDER BY created_at DESC
         LIMIT 1
-    ''', (product_name.lower().strip(),))
+    ''', (f'%{product_name.lower().strip()}%',))
     row = cursor.fetchone()
     conn.close()
     return row['ingredients'] if row else None
