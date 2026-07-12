@@ -33,7 +33,7 @@ security = HTTPBasic()
 templates = Jinja2Templates(directory="templates")
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    if credentials.username != "admin" or credentials.password != "aidermy2026":
+    if credentials.username != "admin" or credentials.password != "aezakmi2026":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный логин или пароль",
@@ -92,7 +92,7 @@ async def health():
         "deepseek": "connected" if DEEPSEEK_API_KEY else "missing"
     }
 
-# === АДМИНКА (БЕЗ JINJA2) ===
+# === АДМИНКА ===
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(_: bool = Depends(verify_admin)):
