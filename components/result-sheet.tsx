@@ -137,8 +137,8 @@ export function ResultSheet({
 
   if (!isOpen) return null
 
-  // === ПОКАЗЫВАЕМ ПОЛЕ, ЕСЛИ AI НЕ ЗНАЕТ СОСТАВ ===
-  const showIngredientsInput = result?.summary?.toLowerCase().includes("не знаю") ||
+  const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ") ||
+    result?.summary?.toLowerCase().includes("не знаю") ||
     result?.summary?.toLowerCase().includes("неизвестный") ||
     (result?.safe_ingredients?.length === 0 && result?.caution_ingredients?.length === 0)
 
@@ -216,7 +216,6 @@ export function ResultSheet({
               />
             </div>
 
-            {/* === ПОЛЕ ДЛЯ РУЧНОГО ВВОДА СОСТАВА === */}
             {showIngredientsInput && (
               <div className="w-full mt-2">
                 <p className="text-sm text-gray-500">
