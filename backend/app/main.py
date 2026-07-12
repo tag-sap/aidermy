@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import HTMLResponse
 from .models import CheckRequest, CheckResponse, CheckWithIngredientsRequest
 from .services import check_product_with_ai, check_product_with_ingredients
 from .cache import save_ingredients
+from .database import init_db, get_all_ingredients
 import os
-from .database import init_db
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,6 +26,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# === ЗАЩИТА ДЛЯ АДМИНКИ ===
+security = HTTPBasic()
+
+def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    if credentials.username != "admin" or credentials.password != "aidermy2026":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный логин или пароль",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return True
+
+# === ЭНДПОИНТЫ ===
 
 @app.post("/api/check", response_model=CheckResponse)
 async def check_product(request: CheckRequest):
@@ -54,7 +70,6 @@ async def check_with_ingredients(request: CheckWithIngredientsRequest):
             request.ingredients
         )
 
-        # Сохраняем состав в кеш (позже — в БД)
         save_ingredients(request.product_name, request.ingredients)
 
         return CheckResponse(
@@ -74,3 +89,83 @@ async def health():
         "status": "ok",
         "deepseek": "connected" if DEEPSEEK_API_KEY else "missing"
     }
+
+# === АДМИНКА ===
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(_: bool = Depends(verify_admin)):
+    ingredients = get_all_ingredients()
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Aidermy Admin</title>
+        <style>
+            body { font-family: sans-serif; padding: 20px; background: #f4f4f4; }
+            table { border-collapse: collapse; width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+            th { background: #FF4F00; color: white; }
+            tr:hover { background: #f9f9f9; }
+            .status { padding: 10px 20px; background: #27ae60; color: white; border-radius: 8px; margin-bottom: 20px; display: inline-block; }
+            a { color: #FF4F00; text-decoration: none; }
+            .delete-btn { color: red; cursor: pointer; font-size: 14px; }
+        </style>
+    </head>
+    <body>
+        <h1>🧴 Aidermy Admin</h1>
+        <div class="status">✅ База данных работает</div>
+        <h2>📋 Сохранённые составы (%d)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Продукт</th>
+                    <th>Состав</th>
+                    <th>Дата</th>
+                    <th>Действие</th>
+                </tr>
+            </thead>
+            <tbody>
+    """ % len(ingredients)
+
+    for row in ingredients:
+        html += f"""
+                <tr>
+                    <td>{row['id']}</td>
+                    <td><strong>{row['product_name']}</strong></td>
+                    <td style="font-size: 13px; max-width: 400px; word-break: break-word;">{row['ingredients']}</td>
+                    <td>{row['created_at']}</td>
+                    <td><a href="#" class="delete-btn" data-id="{row['id']}">🗑️</a></td>
+                </tr>
+        """
+
+    html += """
+            </tbody>
+        </table>
+        <p style="margin-top: 20px;"><a href="/">← На главную</a></p>
+        <script>
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    const id = btn.dataset.id;
+                    if (confirm('Удалить этот состав?')) {
+                        const res = await fetch('/admin/delete/' + id, { method: 'DELETE' });
+                        if (res.ok) location.reload();
+                    }
+                });
+            });
+        </script>
+    </body>
+    </html>
+    """
+    return html
+
+@app.delete("/admin/delete/{ingredient_id}")
+async def delete_ingredient(ingredient_id: int, _: bool = Depends(verify_admin)):
+    from .database import get_connection
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM ingredients WHERE id = ?", (ingredient_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True}
