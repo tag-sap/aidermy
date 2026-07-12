@@ -137,13 +137,15 @@ export function ResultSheet({
 
   if (!isOpen) return null
 
-  const showIngredientsInput = result?.verdict === "С осторожностью" && result?.score === 50
+  // === ПОКАЗЫВАЕМ ПОЛЕ, ЕСЛИ AI НЕ ЗНАЕТ СОСТАВ ===
+  const showIngredientsInput = result?.summary?.toLowerCase().includes("не знаю") ||
+    result?.summary?.toLowerCase().includes("неизвестный") ||
+    (result?.safe_ingredients?.length === 0 && result?.caution_ingredients?.length === 0)
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${
-        isVisible ? 'opacity-100' : 'opacity-0'
-      }`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${isVisible ? 'opacity-100' : 'opacity-0'
+        }`}
       style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
     >
       <button
@@ -154,9 +156,8 @@ export function ResultSheet({
       />
 
       <div
-        className={`relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl transition-all duration-300 ${
-          isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-        }`}
+        className={`relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl transition-all duration-300 ${isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+          }`}
         style={{
           transform: isVisible ? 'scale(1)' : 'scale(0.92)',
           opacity: isVisible ? 1 : 0,
@@ -215,7 +216,7 @@ export function ResultSheet({
               />
             </div>
 
-            {/* === ПОЛЕ ДЛЯ ВВОДА СОСТАВА === */}
+            {/* === ПОЛЕ ДЛЯ РУЧНОГО ВВОДА СОСТАВА === */}
             {showIngredientsInput && (
               <div className="w-full mt-2">
                 <p className="text-sm text-gray-500">
