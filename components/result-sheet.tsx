@@ -73,6 +73,7 @@ export function ResultSheet({
   onResultUpdate: (data: CheckResult) => void
 }) {
   const [isVisible, setIsVisible] = useState(false)
+  const [productNameInput, setProductNameInput] = useState('')
   const [ingredientsInput, setIngredientsInput] = useState('')
   const [isCheckingIngredients, setIsCheckingIngredients] = useState(false)
 
@@ -82,6 +83,7 @@ export function ResultSheet({
       return () => clearTimeout(timer)
     } else {
       setIsVisible(false)
+      setProductNameInput('')
       setIngredientsInput('')
     }
   }, [isOpen])
@@ -102,7 +104,7 @@ export function ResultSheet({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          product_name: result.product,
+          product_name: productNameInput.trim() || result.product,
           skin_type: result.skinType || profile.skinType,
           profile: {
             name: profile.name || '',
@@ -122,11 +124,12 @@ export function ResultSheet({
       const data = await response.json()
       const fullResult = {
         ...data,
-        product: result.product,
+        product: productNameInput.trim() || result.product,
         skinType: result.skinType || profile.skinType,
         createdAt: Date.now(),
       }
       onResultUpdate(fullResult)
+      setProductNameInput('')
       setIngredientsInput('')
     } catch (error) {
       console.error('Ошибка проверки с составом:', error)
@@ -137,14 +140,8 @@ export function ResultSheet({
 
   if (!isOpen) return null
 
-  // === РАСШИРЕННОЕ УСЛОВИЕ ДЛЯ ПОЛЯ ===
-  const showIngredientsInput =
-    result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ") ||
-    result?.summary?.toLowerCase().includes("не знаю") ||
-    result?.summary?.toLowerCase().includes("неизвестный") ||
-    result?.summary?.toLowerCase().includes("не могу подтвердить") ||
-    result?.summary?.toLowerCase().includes("не знаю точный состав") ||
-    (result?.safe_ingredients?.length === 0 && result?.caution_ingredients?.length === 0)
+  // === ОДНА ПРОВЕРКА ===
+  const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
 
   return (
     <div
@@ -220,12 +217,18 @@ export function ResultSheet({
               />
             </div>
 
-            {/* === ПОЛЕ ДЛЯ ВВОДА СОСТАВА === */}
             {showIngredientsInput && (
               <div className="w-full mt-2">
                 <p className="text-sm text-gray-500">
-                  AI не знает точный состав этого продукта. Введите его вручную:
+                  Уточните название продукта и введите его состав (INCI):
                 </p>
+                <input
+                  type="text"
+                  value={productNameInput}
+                  onChange={(e) => setProductNameInput(e.target.value)}
+                  placeholder="Название продукта (например: Сыворотка с витамином C)"
+                  className="w-full rounded-md border border-gray-300 p-2 mt-2 text-sm focus:border-orange-500 focus:outline-none"
+                />
                 <textarea
                   value={ingredientsInput}
                   onChange={(e) => setIngredientsInput(e.target.value)}
@@ -238,7 +241,7 @@ export function ResultSheet({
                   disabled={!ingredientsInput.trim() || isCheckingIngredients}
                   className="w-full rounded-md bg-primary py-2.5 mt-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
                 >
-                  {isCheckingIngredients ? 'Анализируем...' : 'Отправить состав'}
+                  {isCheckingIngredients ? 'Анализируем...' : 'Отправить'}
                 </button>
               </div>
             )}
