@@ -3,7 +3,6 @@ from typing import List, Optional
 
 class Profile(BaseModel):
     name: Optional[str] = Field(default="", description="Имя пользователя")
-    skin_type: str = Field(..., description="Тип кожи: Сухая, Жирная, Комбинированная и т.д.")
     age: str = Field(..., description="Возрастная группа")
     concerns: List[str] = Field(default=[], description="Проблемы кожи")
     allergies: List[str] = Field(default=[], description="Аллергии")
@@ -12,7 +11,7 @@ class Profile(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "name": "Аня",
+                "name": "Оля",
                 "skin_type": "Сухая",
                 "age": "25–35",
                 "concerns": ["Акне", "Пигментация"],
@@ -32,7 +31,7 @@ class CheckRequest(BaseModel):
                 "product_name": "Erborian BB крем",
                 "skin_type": "Сухая",
                 "profile": {
-                    "name": "Аня",
+                    "name": "Оля",
                     "age": "25–35",
                     "concerns": ["Акне"],
                     "allergies": ["Отдушки"],
