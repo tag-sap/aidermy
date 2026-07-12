@@ -5,20 +5,36 @@ import { ScrambleText } from '@/components/scramble-text'
 import type { CheckResult } from '@/lib/store'
 
 function formatDate(ts: number) {
-  return new Date(ts).toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  // Защита от некорректных данных
+  if (!ts || ts === 0 || isNaN(ts)) {
+    return 'Дата неизвестна'
+  }
+
+  try {
+    const date = new Date(ts)
+    // Проверяем, что дата валидная
+    if (isNaN(date.getTime())) {
+      return 'Дата неизвестна'
+    }
+    return date.toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return 'Дата неизвестна'
+  }
 }
 
 export function HistoryTab({
   history,
   onClear,
+  onSelect,
 }: {
   history: CheckResult[]
   onClear: () => void
+  onSelect: (item: CheckResult) => void
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -55,7 +71,8 @@ export function HistoryTab({
           {history.map((item) => (
             <li
               key={item.id}
-              className="card-soft relative flex items-center justify-between gap-4 rounded-md px-5 py-4"
+              onClick={() => onSelect(item)}
+              className="card-soft relative flex cursor-pointer items-center justify-between gap-4 rounded-md px-5 py-4 transition-all hover:border-primary/30 hover:shadow-[0_0_20px_rgba(255,79,0,0.06)]"
             >
               <div className="bubble-1 bubble" />
               <div className="bubble-2 bubble" />

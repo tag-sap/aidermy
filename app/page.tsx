@@ -32,7 +32,6 @@ export default function Page() {
   const [result, setResult] = useState<CheckResult | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
 
-  // Для отслеживания несохранённых изменений в профиле
   const [profileDirty, setProfileDirty] = useState(false)
   const [pendingTab, setPendingTab] = useState<TabId | null>(null)
 
@@ -59,55 +58,50 @@ export default function Page() {
     saveHistory([])
   }
 
-const handleCheck = async (product: string, skinType: string) => {
-  // 1. Открываем панель
-  setIsSheetOpen(true)
-  setResult(null)
-  setLoading(true)
+  const handleCheck = async (product: string, skinType: string) => {
+    setIsSheetOpen(true)
+    setResult(null)
+    setLoading(true)
 
-  try {
-    // 2. Отправляем запрос на бэкенд
-    const response = await fetch('/api/check', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        product_name: product,
-        skin_type: skinType,
-        profile: {
-          name: profile.name || '',
-          age: profile.age || '',
-          concerns: profile.concerns || [],
-          allergies: profile.allergies || [],
-          custom_text: profile.customText || '',
+    try {
+      const response = await fetch('/api/check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      }),
-    })
+        body: JSON.stringify({
+          product_name: product,
+          skin_type: skinType,
+          profile: {
+            name: profile.name || '',
+            age: profile.age || '',
+            concerns: profile.concerns || [],
+            allergies: profile.allergies || [],
+            custom_text: profile.customText || '',
+          },
+        }),
+      })
 
-    if (!response.ok) {
-      throw new Error(`Ошибка: ${response.status}`)
+      if (!response.ok) {
+        throw new Error(`Ошибка: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      setResult(data)
+      setLoading(false)
+
+      setHistory((prev) => {
+        const next = [data, ...prev].slice(0, 50)
+        saveHistory(next)
+        return next
+      })
+
+    } catch (error) {
+      console.error('Ошибка проверки:', error)
+      setLoading(false)
     }
-
-    const data = await response.json()
-
-    // 3. Показываем результат
-    setResult(data)
-    setLoading(false)
-
-    // 4. Сохраняем в историю
-    setHistory((prev) => {
-      const next = [data, ...prev].slice(0, 50)
-      saveHistory(next)
-      return next
-    })
-
-  } catch (error) {
-    console.error('Ошибка проверки:', error)
-    setLoading(false)
-    // Можно показать уведомление пользователю
   }
-}
 
   const closeSheet = () => {
     setIsSheetOpen(false)
@@ -120,7 +114,6 @@ const handleCheck = async (product: string, skinType: string) => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // --- Переключение вкладки с проверкой на несохранённые изменения ---
   const handleTabChange = (newTab: TabId) => {
     if (newTab === tab) return
 
@@ -179,7 +172,15 @@ const handleCheck = async (product: string, skinType: string) => {
               )}
               {tab === 'history' && (
                 <div className="tab-content">
-                  <HistoryTab history={history} onClear={handleClearHistory} />
+                  <HistoryTab
+                    history={history}
+                    onClear={handleClearHistory}
+                    onSelect={(item) => {
+                      setIsSheetOpen(true)
+                      setResult(item)
+                      setLoading(false)
+                    }}
+                  />
                 </div>
               )}
               {tab === 'profile' && (
@@ -207,7 +208,6 @@ const handleCheck = async (product: string, skinType: string) => {
         />
       </div>
 
-      {/* === ПОПАП ПРИ ВЫХОДЕ С НЕСОХРАНЁННЫМИ ДАННЫМИ === */}
       {pendingTab && (
         <>
           <div
