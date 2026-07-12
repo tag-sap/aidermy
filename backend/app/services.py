@@ -3,6 +3,7 @@ import os
 import json
 import re
 from dotenv import load_dotenv
+from .database import get_ingredients
 
 load_dotenv()
 
@@ -10,6 +11,17 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
 
 async def check_product_with_ai(product_name: str, skin_type: str, profile: dict) -> dict:
+    # 1. Проверяем БД — есть ли уже состав для этого продукта
+    saved_ingredients = get_ingredients(product_name)
+    if saved_ingredients:
+        return await check_product_with_ingredients(
+            product_name,
+            skin_type,
+            profile,
+            saved_ingredients
+        )
+
+    # 2. Если нет — обычная проверка
     prompt = f"""
 Ты — профессиональный дерматолог-косметолог.
 
@@ -21,7 +33,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
 - поставить score = 0
 - поставить verdict = "Неизвестный состав"
 
-Пример для такого случая:
+Пример:
 {{
   "score": 0,
   "verdict": "Неизвестный состав",
@@ -47,11 +59,6 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
 - 70–100: ПОДХОДИТ
 
 Верни ТОЛЬКО JSON.
-
-ЕЩЁ РАЗ: ЕСЛИ НЕ ЗНАЕШЬ СОСТАВ, БРЕНД ИЛИ НЕ КОСМЕТИКА — ПИШИ ТОЛЬКО:
-"score": 0,
-"verdict": "Неизвестный состав",
-"summary": "НЕИЗВЕСТНЫЙ СОСТАВ"
 """
 
     async with httpx.AsyncClient() as client:
