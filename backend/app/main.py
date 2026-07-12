@@ -92,16 +92,15 @@ async def health():
         "deepseek": "connected" if DEEPSEEK_API_KEY else "missing"
     }
 
-# === АДМИНКА ===
+# === АДМИНКА (ИСПРАВЛЕННАЯ) ===
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_panel(request: Request, _: bool = Depends(verify_admin)):
+async def admin_panel(_: bool = Depends(verify_admin)):
     ingredients = get_all_ingredients()
-    return templates.TemplateResponse("admin.html", {
-        "request": request,
-        "ingredients": ingredients,
-        "len": len
-    })
+    return templates.TemplateResponse(
+        "admin.html",
+        {"ingredients": ingredients}
+    )
 
 @app.delete("/admin/delete/{ingredient_id}")
 async def delete_ingredient(ingredient_id: int, _: bool = Depends(verify_admin)):
