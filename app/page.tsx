@@ -88,12 +88,11 @@ export default function Page() {
 
       const data = await response.json()
 
-      // 🔥 ОБЪЕДИНЯЕМ ответ с фронтовыми данными
       const fullResult = {
         ...data,
-        product: product,        // ← добавляем название
-        skinType: skinType,      // ← добавляем тип кожи
-        createdAt: Date.now(),   // ← добавляем время
+        product: product,
+        skinType: skinType,
+        createdAt: Date.now(),
       }
 
       setResult(fullResult)
@@ -213,6 +212,15 @@ export default function Page() {
           result={result}
           loading={loading}
           onClose={closeSheet}
+          profile={profile}
+          onResultUpdate={(data) => {
+            setResult(data)
+            setHistory((prev) => {
+              const next = [data, ...prev].slice(0, 50)
+              saveHistory(next)
+              return next
+            })
+          }}
         />
       </div>
 

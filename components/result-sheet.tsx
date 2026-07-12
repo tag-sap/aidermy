@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { ScrambleText } from '@/components/scramble-text'
-import type { CheckResult } from '@/lib/store'
+import type { CheckResult, SkinProfile } from '@/lib/store'
 
 function ScoreRing({ score }: { score: number }) {
   const size = 160
@@ -62,13 +62,19 @@ export function ResultSheet({
   result,
   loading,
   onClose,
+  profile,
+  onResultUpdate,
 }: {
   isOpen: boolean
   result: CheckResult | null
   loading: boolean
   onClose: () => void
+  profile: SkinProfile
+  onResultUpdate: (data: CheckResult) => void
 }) {
   const [isVisible, setIsVisible] = useState(false)
+  const [ingredientsInput, setIngredientsInput] = useState('')
+  const [isCheckingIngredients, setIsCheckingIngredients] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -76,6 +82,7 @@ export function ResultSheet({
       return () => clearTimeout(timer)
     } else {
       setIsVisible(false)
+      setIngredientsInput('')
     }
   }, [isOpen])
 
@@ -86,12 +93,57 @@ export function ResultSheet({
     }, 300)
   }
 
+  const handleCheckWithIngredients = async () => {
+    if (!ingredientsInput.trim() || !result) return
+
+    setIsCheckingIngredients(true)
+    try {
+      const response = await fetch('/api/check-with-ingredients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_name: result.product,
+          skin_type: result.skinType || profile.skinType,
+          profile: {
+            name: profile.name || '',
+            age: profile.age || '',
+            concerns: profile.concerns || [],
+            allergies: profile.allergies || [],
+            custom_text: profile.customText || '',
+          },
+          ingredients: ingredientsInput,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Ошибка: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const fullResult = {
+        ...data,
+        product: result.product,
+        skinType: result.skinType || profile.skinType,
+        createdAt: Date.now(),
+      }
+      onResultUpdate(fullResult)
+      setIngredientsInput('')
+    } catch (error) {
+      console.error('Ошибка проверки с составом:', error)
+    } finally {
+      setIsCheckingIngredients(false)
+    }
+  }
+
   if (!isOpen) return null
+
+  const showIngredientsInput = result?.verdict === "С осторожностью" && result?.score === 50
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${isVisible ? 'opacity-100' : 'opacity-0'
-        }`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${
+        isVisible ? 'opacity-100' : 'opacity-0'
+      }`}
       style={{ backgroundColor: 'rgba(0,0,0,0.4)' }}
     >
       <button
@@ -102,8 +154,9 @@ export function ResultSheet({
       />
 
       <div
-        className={`relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl transition-all duration-300 ${isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-          }`}
+        className={`relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl transition-all duration-300 ${
+          isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        }`}
         style={{
           transform: isVisible ? 'scale(1)' : 'scale(0.92)',
           opacity: isVisible ? 1 : 0,
@@ -161,6 +214,29 @@ export function ResultSheet({
                 className="mt-2 block text-sm leading-relaxed text-gray-700"
               />
             </div>
+
+            {/* === ПОЛЕ ДЛЯ ВВОДА СОСТАВА === */}
+            {showIngredientsInput && (
+              <div className="w-full mt-2">
+                <p className="text-sm text-gray-500">
+                  AI не знает точный состав этого продукта. Введите его вручную:
+                </p>
+                <textarea
+                  value={ingredientsInput}
+                  onChange={(e) => setIngredientsInput(e.target.value)}
+                  placeholder="Aqua, Glycerin, Cetearyl Alcohol..."
+                  className="w-full rounded-md border border-gray-300 p-2 mt-2 text-sm focus:border-orange-500 focus:outline-none"
+                  rows={2}
+                />
+                <button
+                  onClick={handleCheckWithIngredients}
+                  disabled={!ingredientsInput.trim() || isCheckingIngredients}
+                  className="w-full rounded-md bg-primary py-2.5 mt-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                >
+                  {isCheckingIngredients ? 'Анализируем...' : 'Отправить состав'}
+                </button>
+              </div>
+            )}
 
             <div className="flex w-full gap-3">
               <button
