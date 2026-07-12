@@ -59,3 +59,8 @@ class CheckResponse(BaseModel):
                 "cached": False
             }
         }
+class CheckWithIngredientsRequest(BaseModel):
+    product_name: str
+    skin_type: str
+    profile: Profile
+    ingredients: str
