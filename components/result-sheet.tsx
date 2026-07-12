@@ -137,9 +137,13 @@ export function ResultSheet({
 
   if (!isOpen) return null
 
-  const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ") ||
+  // === РАСШИРЕННОЕ УСЛОВИЕ ДЛЯ ПОЛЯ ===
+  const showIngredientsInput =
+    result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ") ||
     result?.summary?.toLowerCase().includes("не знаю") ||
     result?.summary?.toLowerCase().includes("неизвестный") ||
+    result?.summary?.toLowerCase().includes("не могу подтвердить") ||
+    result?.summary?.toLowerCase().includes("не знаю точный состав") ||
     (result?.safe_ingredients?.length === 0 && result?.caution_ingredients?.length === 0)
 
   return (
@@ -216,6 +220,7 @@ export function ResultSheet({
               />
             </div>
 
+            {/* === ПОЛЕ ДЛЯ ВВОДА СОСТАВА === */}
             {showIngredientsInput && (
               <div className="w-full mt-2">
                 <p className="text-sm text-gray-500">
