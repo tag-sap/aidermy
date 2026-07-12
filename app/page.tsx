@@ -59,26 +59,55 @@ export default function Page() {
     saveHistory([])
   }
 
-  const handleCheck = (product: string, skinType: string) => {
-    // 1. Сразу открываем панель
-    setIsSheetOpen(true)
-    setResult(null)
-    setLoading(true)
+const handleCheck = async (product: string, skinType: string) => {
+  // 1. Открываем панель
+  setIsSheetOpen(true)
+  setResult(null)
+  setLoading(true)
 
-    // 2. Загружаем результат
-    setTimeout(() => {
-      const res = mockCheck(product, skinType)
-      setLoading(false)
-      setResult(res)
+  try {
+    // 2. Отправляем запрос на бэкенд
+    const response = await fetch('/api/check', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        product_name: product,
+        skin_type: skinType,
+        profile: {
+          name: profile.name || '',
+          age: profile.age || '',
+          concerns: profile.concerns || [],
+          allergies: profile.allergies || [],
+          custom_text: profile.customText || '',
+        },
+      }),
+    })
 
-      // 3. Сохраняем в историю
-      setHistory((prev) => {
-        const next = [res, ...prev].slice(0, 50) // последние 50 проверок
-        saveHistory(next) // ← сохраняем в localStorage
-        return next
-      })
-    }, 1000)
+    if (!response.ok) {
+      throw new Error(`Ошибка: ${response.status}`)
+    }
+
+    const data = await response.json()
+
+    // 3. Показываем результат
+    setResult(data)
+    setLoading(false)
+
+    // 4. Сохраняем в историю
+    setHistory((prev) => {
+      const next = [data, ...prev].slice(0, 50)
+      saveHistory(next)
+      return next
+    })
+
+  } catch (error) {
+    console.error('Ошибка проверки:', error)
+    setLoading(false)
+    // Можно показать уведомление пользователю
   }
+}
 
   const closeSheet = () => {
     setIsSheetOpen(false)
