@@ -1,11 +1,12 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from .models import CheckRequest, CheckResponse, CheckWithIngredientsRequest
 from .services import check_product_with_ai, check_product_with_ingredients
 from .cache import save_ingredients
-from .database import init_db, get_all_ingredients
+from .database import init_db, get_all_ingredients, get_connection
 import os
 from dotenv import load_dotenv
 
@@ -27,8 +28,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# === ЗАЩИТА ДЛЯ АДМИНКИ ===
+# === ЗАЩИТА ===
 security = HTTPBasic()
+templates = Jinja2Templates(directory="templates")
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     if credentials.username != "admin" or credentials.password != "aidermy2026":
@@ -93,76 +95,12 @@ async def health():
 # === АДМИНКА ===
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_panel(_: bool = Depends(verify_admin)):
+async def admin_panel(request: Request, _: bool = Depends(verify_admin)):
     ingredients = get_all_ingredients()
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Aidermy Admin</title>
-        <style>
-            body { font-family: sans-serif; padding: 20px; background: #f4f4f4; }
-            table { border-collapse: collapse; width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-            th { background: #FF4F00; color: white; }
-            tr:hover { background: #f9f9f9; }
-            .status { padding: 10px 20px; background: #27ae60; color: white; border-radius: 8px; margin-bottom: 20px; display: inline-block; }
-            a { color: #FF4F00; text-decoration: none; }
-            .delete-btn { color: red; cursor: pointer; font-size: 14px; }
-        </style>
-    </head>
-    <body>
-        <h1>🧴 Aidermy Admin</h1>
-        <div class="status">✅ База данных работает</div>
-        <h2>📋 Сохранённые составы (%d)</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Продукт</th>
-                    <th>Состав</th>
-                    <th>Дата</th>
-                    <th>Действие</th>
-                </tr>
-            </thead>
-            <tbody>
-    """ % len(ingredients)
-
-    for row in ingredients:
-        html += f"""
-                <tr>
-                    <td>{row['id']}</td>
-                    <td><strong>{row['product_name']}</strong></td>
-                    <td style="font-size: 13px; max-width: 400px; word-break: break-word;">{row['ingredients']}</td>
-                    <td>{row['created_at']}</td>
-                    <td><a href="#" class="delete-btn" data-id="{row['id']}">🗑️</a></td>
-                </tr>
-        """
-
-    html += """
-            </tbody>
-        </table>
-        <p style="margin-top: 20px;"><a href="/">← На главную</a></p>
-        <script>
-            document.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    const id = btn.dataset.id;
-                    if (confirm('Удалить этот состав?')) {
-                        const res = await fetch('/admin/delete/' + id, { method: 'DELETE' });
-                        if (res.ok) location.reload();
-                    }
-                });
-            });
-        </script>
-    </body>
-    </html>
-    """
-    return html
+    return templates.TemplateResponse("admin.html", {"request": request, "ingredients": ingredients})
 
 @app.delete("/admin/delete/{ingredient_id}")
 async def delete_ingredient(ingredient_id: int, _: bool = Depends(verify_admin)):
-    from .database import get_connection
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM ingredients WHERE id = ?", (ingredient_id,))
