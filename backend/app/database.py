@@ -32,6 +32,7 @@ def init_db():
             score INTEGER NOT NULL,
             verdict TEXT NOT NULL,
             summary TEXT NOT NULL,
+            ingredients TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -72,15 +73,15 @@ def get_all_ingredients():
     conn.close()
     return [dict(row) for row in rows]
 
-# === НОВЫЕ ФУНКЦИИ ДЛЯ ИСТОРИИ ПРОВЕРОК ===
+# === ИСТОРИЯ ПРОВЕРОК ===
 
-def save_check_result(product_name: str, skin_type: str, score: int, verdict: str, summary: str):
+def save_check_result(product_name: str, skin_type: str, score: int, verdict: str, summary: str, ingredients: str = ""):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO check_history (product_name, skin_type, score, verdict, summary, created_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ''', (product_name, skin_type, score, verdict, summary))
+        INSERT INTO check_history (product_name, skin_type, score, verdict, summary, ingredients, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ''', (product_name, skin_type, score, verdict, summary, ingredients))
     conn.commit()
     conn.close()
     print(f"📊 Проверка сохранена: {product_name} — {score}%")
@@ -101,15 +102,12 @@ def get_check_stats():
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Всего проверок
     cursor.execute('SELECT COUNT(*) as total FROM check_history')
     total = cursor.fetchone()['total']
     
-    # Уникальных продуктов
     cursor.execute('SELECT COUNT(DISTINCT product_name) as unique_products FROM check_history')
     unique = cursor.fetchone()['unique_products']
     
-    # Средний балл
     cursor.execute('SELECT AVG(score) as avg_score FROM check_history')
     avg = cursor.fetchone()['avg_score'] or 0
     

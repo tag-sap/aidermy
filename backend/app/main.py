@@ -50,13 +50,13 @@ async def check_product(request: CheckRequest):
             request.profile.dict()
         )
         
-        # Сохраняем ВСЕ проверки в БД
         save_check_result(
             request.product_name,
             request.skin_type,
             result.get("score", 50),
             result.get("verdict", "Нейтрально"),
-            result.get("summary", "Не удалось получить рекомендацию.")
+            result.get("summary", "Не удалось получить рекомендацию."),
+            ""  # состав не передан
         )
         
         return CheckResponse(
@@ -82,13 +82,13 @@ async def check_with_ingredients(request: CheckWithIngredientsRequest):
 
         save_ingredients(request.product_name, request.ingredients)
         
-        # Сохраняем результат в историю проверок
         save_check_result(
             request.product_name,
             request.skin_type,
             result.get("score", 50),
             result.get("verdict", "С осторожностью"),
-            result.get("summary", "Не удалось проанализировать состав.")
+            result.get("summary", "Не удалось проанализировать состав."),
+            request.ingredients  # состав передан
         )
 
         return CheckResponse(
@@ -113,13 +113,15 @@ async def health():
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(_: bool = Depends(verify_admin)):
-    # Получаем данные из check_history (все проверки)
     history = get_all_check_history(limit=100)
     stats = get_check_stats()
     
-    # Генерируем строки таблицы
     table_rows = ""
     for row in history:
+        ingredients_display = row.get('ingredients', '') or '—'
+        if len(ingredients_display) > 100:
+            ingredients_display = ingredients_display[:100] + '...'
+        
         table_rows += f"""
                         <tr>
                             <td>{row['id']}</td>
@@ -127,9 +129,10 @@ async def admin_panel(_: bool = Depends(verify_admin)):
                             <td>{row['skin_type']}</td>
                             <td><span class="badge">{row['score']}%</span></td>
                             <td>{row['verdict']}</td>
-                            <td style="font-size: 12px; max-width: 300px; word-break: break-word;">{row['summary'][:100]}{'...' if len(row['summary']) > 100 else ''}</td>
-                            <td>{row['created_at']}</td>
-                            <td><a href="#" class="delete-btn" data-id="{row['id']}" data-table="check_history">🗑️</a></td>
+                            <td style="font-size: 12px; max-width: 250px; word-break: break-word;">{row['summary'][:80]}{'...' if len(row['summary']) > 80 else ''}</td>
+                            <td style="font-size: 12px; max-width: 200px; word-break: break-word;">{ingredients_display}</td>
+                            <td style="font-size: 12px;">{row['created_at']}</td>
+                            <td><a href="#" class="delete-btn" data-id="{row['id']}">🗑️</a></td>
                         </tr>
         """
     
@@ -200,6 +203,7 @@ async def admin_panel(_: bool = Depends(verify_admin)):
                             <th>Оценка</th>
                             <th>Вердикт</th>
                             <th>Резюме</th>
+                            <th>Состав</th>
                             <th>Дата</th>
                             <th>Действие</th>
                         </tr>
@@ -218,9 +222,8 @@ async def admin_panel(_: bool = Depends(verify_admin)):
                 btn.addEventListener('click', async (e) => {{
                     e.preventDefault();
                     const id = btn.dataset.id;
-                    const table = btn.dataset.table || 'check_history';
-                    if (confirm('Удалить эту запись?')) {{
-                        const res = await fetch('/admin/delete/' + id + '?table=' + table, {{ method: 'DELETE' }});
+                    if (confirm('Удалить эту проверку?')) {{
+                        const res = await fetch('/admin/delete/' + id, {{ method: 'DELETE' }});
                         if (res.ok) location.reload();
                     }}
                 }});
@@ -233,15 +236,10 @@ async def admin_panel(_: bool = Depends(verify_admin)):
     return HTMLResponse(content=html)
 
 @app.delete("/admin/delete/{record_id}")
-async def delete_record(record_id: int, table: str = "check_history", _: bool = Depends(verify_admin)):
+async def delete_record(record_id: int, _: bool = Depends(verify_admin)):
     conn = get_connection()
     cursor = conn.cursor()
-    
-    # Проверяем, что таблица существует и безопасна
-    if table not in ["check_history", "ingredients"]:
-        raise HTTPException(status_code=400, detail="Invalid table name")
-    
-    cursor.execute(f"DELETE FROM {table} WHERE id = ?", (record_id,))
+    cursor.execute("DELETE FROM check_history WHERE id = ?", (record_id,))
     conn.commit()
     conn.close()
     return {"success": True}
