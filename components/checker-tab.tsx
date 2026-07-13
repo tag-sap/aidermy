@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Search, ScanSearch, ArrowRight } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { ScrambleText } from '@/components/scramble-text'
@@ -48,7 +48,6 @@ export function CheckerTab({
       }
     }
 
-    // Дебаунс — не дёргаем API на каждое нажатие
     const timer = setTimeout(fetchProducts, 300)
     return () => clearTimeout(timer)
   }, [query])
