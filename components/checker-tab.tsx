@@ -26,7 +26,7 @@ export function CheckerTab({
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
-  // === АВТОКОМПЛИТ ИЗ БД ===
+  // === АВТОКОМПЛИТ ИЗ БД (БЕЗ МОКОВ) ===
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
@@ -68,7 +68,6 @@ export function CheckerTab({
 
   return (
     <div className="flex flex-col items-center gap-6 text-center">
-      {/* === ПРИВЕТСТВИЕ === */}
       <div className="w-full max-w-md min-h-[28px]">
         <WaveText
           text={getGreeting()}
@@ -77,7 +76,6 @@ export function CheckerTab({
         />
       </div>
 
-      {/* === БЛОК: ПОИСК === */}
       <div className="relative w-full max-w-md">
         <div className="card-dense relative">
           <div className="bubble-1 bubble" />
@@ -137,7 +135,6 @@ export function CheckerTab({
         )}
       </div>
 
-      {/* === БЛОК: ТИП КОЖИ === */}
       {!profile.skinType && (
         <section className="card-dense w-full max-w-md">
           <div className="bubble-1 bubble" />
@@ -174,7 +171,6 @@ export function CheckerTab({
         </div>
       )}
 
-      {/* === КНОПКА ПРОВЕРИТЬ === */}
       <button
         type="button"
         onClick={handleCheck}
@@ -188,7 +184,6 @@ export function CheckerTab({
         Проверить
       </button>
 
-      {/* === БЛОК: ПОПУЛЯРНОЕ === */}
       <section className="card-soft w-full max-w-md">
         <div className="bubble-1 bubble" />
         <div className="bubble-2 bubble" />
@@ -209,7 +204,6 @@ export function CheckerTab({
         </div>
       </section>
 
-      {/* === БЛОК: АНКЕТА === */}
       {!profileComplete && (
         <button
           type="button"
