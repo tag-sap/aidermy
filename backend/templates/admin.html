@@ -1,108 +1,143 @@
 <!DOCTYPE html>
 <html>
-
 <head>
     <title>Aidermy Admin</title>
     <style>
-        body {
-            font-family: sans-serif;
-            padding: 20px;
-            background: #f4f4f4;
-        }
-
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        }
-
-        th,
-        td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-
-        th {
-            background: #FF4F00;
-            color: white;
-        }
-
-        tr:hover {
-            background: #f9f9f9;
-        }
-
-        .status {
-            padding: 10px 20px;
-            background: #27ae60;
-            color: white;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: inline-block;
-        }
-
-        a {
-            color: #FF4F00;
-            text-decoration: none;
-        }
-
-        .delete-btn {
-            color: red;
-            cursor: pointer;
-            font-size: 14px;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, sans-serif; padding: 20px; background: #f4f4f4; margin: 0; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 20px 0; }
+        .stat-card { background: white; padding: 16px 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .stat-card .number { font-size: 28px; font-weight: 700; color: #FF4F00; }
+        .stat-card .label { font-size: 14px; color: #666; margin-top: 4px; }
+        .table-wrap { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #FF4F00; color: white; padding: 12px 16px; text-align: left; font-size: 14px; }
+        td { padding: 12px 16px; border-bottom: 1px solid #eee; font-size: 14px; vertical-align: middle; }
+        tr:hover { background: #f9f9f9; }
+        .product-name { font-weight: 600; }
+        .ingredients-cell { max-width: 400px; word-break: break-word; font-size: 13px; color: #444; cursor: pointer; }
+        .ingredients-cell .short { display: inline; }
+        .ingredients-cell .full { display: none; }
+        .ingredients-cell .full.show { display: inline; }
+        .ingredients-cell .short.hide { display: none; }
+        .toggle-btn { color: #FF4F00; cursor: pointer; background: none; border: none; font-size: 13px; text-decoration: underline; padding: 0; margin-left: 8px; }
+        .badge { background: #FF4F00; color: white; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .delete-btn { color: #e74c3c; cursor: pointer; font-size: 16px; text-decoration: none; }
+        .delete-btn:hover { color: #c0392b; }
+        .footer { margin-top: 30px; text-align: center; color: #999; font-size: 13px; }
+        .refresh-btn { background: #FF4F00; color: white; border: none; padding: 8px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .refresh-btn:hover { opacity: 0.9; }
+        .top-products { list-style: none; padding: 0; margin: 0; }
+        .top-products li { padding: 4px 0; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; }
+        @media (max-width: 600px) {
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .table-wrap { overflow-x: auto; }
+            td, th { padding: 8px 10px; font-size: 12px; }
         }
     </style>
 </head>
-
 <body>
     <div class="container">
-        <h1>🧴 Aidermy Admin</h1>
-        <div class="status">✅ База данных работает</div>
-        <h2>📋 Сохранённые составы ({{ ingredients|length }})</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Продукт</th>
-                    <th>Состав</th>
-                    <th>Дата</th>
-                    <th>Действие</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in ingredients %}
-                <tr>
-                    <td>{{ row.id }}</td>
-                    <td><strong>{{ row.product_name }}</strong></td>
-                    <td style="font-size: 13px; max-width: 400px; word-break: break-word;">{{ row.ingredients }}</td>
-                    <td>{{ row.created_at }}</td>
-                    <td><a href="#" class="delete-btn" data-id="{{ row.id }}">🗑️</a></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        <p style="margin-top: 20px;"><a href="/">← На главную</a></p>
-        <script>
-            document.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    const id = btn.dataset.id;
-                    if (confirm('Удалить этот состав?')) {
-                        const res = await fetch('/admin/delete/' + id, { method: 'DELETE' });
-                        if (res.ok) location.reload();
-                    }
-                });
-            });
-        </script>
-    </div>
-</body>
+        <div class="header">
+            <h1>🧴 Aidermy Admin</h1>
+            <div>
+                <button class="refresh-btn" onclick="location.reload()">🔄 Обновить</button>
+            </div>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="number">{{ total_checks }}</div>
+                <div class="label">📊 Всего проверок</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ unique_products }}</div>
+                <div class="label">🧴 Уникальных продуктов</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ total_ingredients }}</div>
+                <div class="label">💾 Сохранённых составов</div>
+            </div>
+            <div class="stat-card">
+                <div class="number">{{ top_count if top_count else 0 }}</div>
+                <div class="label">🏆 Самый частый продукт</div>
+            </div>
+        </div>
 
+        {% if top_products %}
+        <div style="background: white; border-radius: 12px; padding: 16px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px;">
+            <h3>🏆 Топ-5 популярных продуктов</h3>
+            <ul class="top-products">
+                {% for item in top_products %}
+                <li>
+                    <span>{{ loop.index }}. {{ item.name }}</span>
+                    <span class="badge">{{ item.count }} проверок</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Продукт</th>
+                        <th>Состав</th>
+                        <th>Дата</th>
+                        <th>Действие</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in ingredients %}
+                    <tr>
+                        <td>{{ row.id }}</td>
+                        <td><span class="product-name">{{ row.product_name }}</span></td>
+                        <td class="ingredients-cell" onclick="toggleIngredients(this)">
+                            <span class="short">{{ row.short_ingredients }}</span>
+                            <span class="full">{{ row.ingredients }}</span>
+                            <button class="toggle-btn">показать всё</button>
+                        </td>
+                        <td>{{ row.created_at }}</td>
+                        <td><a href="#" class="delete-btn" data-id="{{ row.id }}">🗑️</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="footer">
+            <p>🟢 База данных работает · Всего записей: {{ total_ingredients }}</p>
+        </div>
+    </div>
+    <script>
+        function toggleIngredients(cell) {
+            const short = cell.querySelector('.short');
+            const full = cell.querySelector('.full');
+            const btn = cell.querySelector('.toggle-btn');
+            if (full.classList.contains('show')) {
+                full.classList.remove('show');
+                short.classList.remove('hide');
+                btn.textContent = 'показать всё';
+            } else {
+                full.classList.add('show');
+                short.classList.add('hide');
+                btn.textContent = 'свернуть';
+            }
+        }
+        
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const id = btn.dataset.id;
+                if (confirm('Удалить этот состав?')) {
+                    const res = await fetch('/admin/delete/' + id, { method: 'DELETE' });
+                    if (res.ok) location.reload();
+                }
+            });
+        });
+    </script>
+</body>
 </html>
