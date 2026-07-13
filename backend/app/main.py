@@ -108,7 +108,11 @@ async def health():
         "status": "ok",
         "deepseek": "connected" if DEEPSEEK_API_KEY else "missing"
     }
-
+@app.get("/api/products")
+async def get_products(q: str = ""):
+    from .database import search_products
+    products = search_products(q)
+    return {"products": products}
 # === АДМИНКА ===
 
 @app.get("/admin", response_class=HTMLResponse)

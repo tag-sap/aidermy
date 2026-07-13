@@ -1,11 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Search, ScanSearch, ArrowRight } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { ScrambleText } from '@/components/scramble-text'
 import { WaveText } from '@/components/wave-text'
-import { PRODUCTS, QUICK_PRODUCTS, SKIN_TYPES } from '@/lib/products'
+import { QUICK_PRODUCTS, SKIN_TYPES } from '@/lib/products'
 import { cn } from '@/lib/utils'
 import type { SkinProfile } from '@/lib/store'
 
@@ -23,11 +23,34 @@ export function CheckerTab({
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
   const [skinType, setSkinType] = useState(profile.skinType || '')
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(false)
 
-  const suggestions = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return []
-    return PRODUCTS.filter((p) => p.toLowerCase().includes(q)).slice(0, 6)
+  // === АВТОКОМПЛИТ ИЗ БД ===
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) {
+      setSuggestions([])
+      return
+    }
+
+    setIsLoading(true)
+    const fetchProducts = async () => {
+      try {
+        const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`)
+        const data = await res.json()
+        setSuggestions(data.products || [])
+      } catch (error) {
+        console.error('Ошибка загрузки продуктов:', error)
+        setSuggestions([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    // Дебаунс — не дёргаем API на каждое нажатие
+    const timer = setTimeout(fetchProducts, 300)
+    return () => clearTimeout(timer)
   }, [query])
 
   const activeSkinType = profileComplete ? profile.skinType : skinType
@@ -46,14 +69,15 @@ export function CheckerTab({
 
   return (
     <div className="flex flex-col items-center gap-6 text-center">
-{/* === ПРИВЕТСТВИЕ === */}
-<div className="w-full max-w-md min-h-[28px]">
-  <WaveText
-    text={getGreeting()}
-    className="text-base font-semibold text-foreground"
-    startDelay={200}
-  />
-</div>
+      {/* === ПРИВЕТСТВИЕ === */}
+      <div className="w-full max-w-md min-h-[28px]">
+        <WaveText
+          text={getGreeting()}
+          className="text-base font-semibold text-foreground"
+          startDelay={200}
+        />
+      </div>
+
       {/* === БЛОК: ПОИСК === */}
       <div className="relative w-full max-w-md">
         <div className="card-dense relative">
@@ -92,20 +116,24 @@ export function CheckerTab({
 
         {focused && suggestions.length > 0 && (
           <ul className="absolute left-0 top-[calc(100%-8px)] z-50 w-full overflow-hidden rounded-b-md border border-primary/15 bg-white shadow-xl">
-            {suggestions.map((s) => (
-              <li key={s}>
-                <button
-                  type="button"
-                  onMouseDown={() => {
-                    setQuery(s)
-                    setFocused(false)
-                  }}
-                  className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-primary/10"
-                >
-                  {s}
-                </button>
-              </li>
-            ))}
+            {isLoading && (
+              <li className="px-4 py-2 text-sm text-muted-foreground">Загрузка...</li>
+            )}
+            {!isLoading &&
+              suggestions.map((s) => (
+                <li key={s}>
+                  <button
+                    type="button"
+                    onMouseDown={() => {
+                      setQuery(s)
+                      setFocused(false)
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-primary/10"
+                  >
+                    {s}
+                  </button>
+                </li>
+              ))}
           </ul>
         )}
       </div>

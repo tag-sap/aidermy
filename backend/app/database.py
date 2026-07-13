@@ -62,10 +62,10 @@ def get_ingredients(product_name: str) -> str | None:
     cursor = conn.cursor()
     cursor.execute('''
         SELECT ingredients FROM ingredients
-        WHERE product_name LIKE ?
+        WHERE product_name = ?
         ORDER BY created_at DESC
         LIMIT 1
-    ''', (f'%{product_name.lower().strip()}%',))
+    ''', (product_name.lower().strip(),))
     row = cursor.fetchone()
     conn.close()
     return row['ingredients'] if row else None
@@ -122,3 +122,16 @@ def get_check_stats():
         'unique_products': unique,
         'avg_score': round(avg, 1)
     }
+
+def search_products(query: str, limit: int = 10):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT DISTINCT product_name FROM ingredients
+        WHERE product_name LIKE ?
+        ORDER BY product_name
+        LIMIT ?
+    ''', (f'%{query.lower().strip()}%', limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [row['product_name'] for row in rows]
