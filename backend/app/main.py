@@ -113,28 +113,10 @@ async def health():
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(_: bool = Depends(verify_admin)):
+    # Получаем данные из обеих таблиц
     history = get_all_check_history(limit=100)
+    ingredients = get_all_ingredients()
     stats = get_check_stats()
-    
-    table_rows = ""
-    for row in history:
-        ingredients_display = row.get('ingredients', '') or '—'
-        if len(ingredients_display) > 100:
-            ingredients_display = ingredients_display[:100] + '...'
-        
-        table_rows += f"""
-                        <tr>
-                            <td>{row['id']}</td>
-                            <td><span class="product-name">{row['product_name']}</span></td>
-                            <td>{row['skin_type']}</td>
-                            <td><span class="badge">{row['score']}%</span></td>
-                            <td>{row['verdict']}</td>
-                            <td style="font-size: 12px; max-width: 250px; word-break: break-word;">{row['summary'][:80]}{'...' if len(row['summary']) > 80 else ''}</td>
-                            <td style="font-size: 12px; max-width: 200px; word-break: break-word;">{ingredients_display}</td>
-                            <td style="font-size: 12px;">{row['created_at']}</td>
-                            <td><a href="#" class="delete-btn" data-id="{row['id']}">🗑️</a></td>
-                        </tr>
-        """
     
     html = f"""
     <!DOCTYPE html>
@@ -150,6 +132,11 @@ async def admin_panel(_: bool = Depends(verify_admin)):
             .stat-card {{ background: white; padding: 16px 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
             .stat-card .number {{ font-size: 28px; font-weight: 700; color: #FF4F00; }}
             .stat-card .label {{ font-size: 14px; color: #666; margin-top: 4px; }}
+            .tabs {{ display: flex; gap: 8px; margin: 20px 0; }}
+            .tab-btn {{ padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; background: #e0e0e0; }}
+            .tab-btn.active {{ background: #FF4F00; color: white; }}
+            .tab-content {{ display: none; }}
+            .tab-content.active {{ display: block; }}
             .table-wrap {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-top: 20px; }}
             table {{ width: 100%; border-collapse: collapse; }}
             th {{ background: #FF4F00; color: white; padding: 12px 16px; text-align: left; font-size: 14px; }}
@@ -193,41 +180,112 @@ async def admin_panel(_: bool = Depends(verify_admin)):
                 </div>
             </div>
 
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Продукт</th>
-                            <th>Тип кожи</th>
-                            <th>Оценка</th>
-                            <th>Вердикт</th>
-                            <th>Резюме</th>
-                            <th>Состав</th>
-                            <th>Дата</th>
-                            <th>Действие</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {table_rows}
-                    </tbody>
-                </table>
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('history')">📋 История проверок ({len(history)})</button>
+                <button class="tab-btn" onclick="switchTab('ingredients')">📦 Составы ({len(ingredients)})</button>
             </div>
+
+            <!-- Вкладка: История проверок -->
+            <div id="tab-history" class="tab-content active">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Продукт</th>
+                                <th>Тип кожи</th>
+                                <th>Оценка</th>
+                                <th>Вердикт</th>
+                                <th>Резюме</th>
+                                <th>Состав</th>
+                                <th>Дата</th>
+                                <th>Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+    """
+    
+    for row in history:
+        ingredients_display = row.get('ingredients', '') or '—'
+        if len(ingredients_display) > 100:
+            ingredients_display = ingredients_display[:100] + '...'
+        
+        html += f"""
+                            <tr>
+                                <td>{row['id']}</td>
+                                <td><span class="product-name">{row['product_name']}</span></td>
+                                <td>{row['skin_type']}</td>
+                                <td><span class="badge">{row['score']}%</span></td>
+                                <td>{row['verdict']}</td>
+                                <td style="font-size: 12px; max-width: 250px; word-break: break-word;">{row['summary'][:80]}{'...' if len(row['summary']) > 80 else ''}</td>
+                                <td style="font-size: 12px; max-width: 200px; word-break: break-word;">{ingredients_display}</td>
+                                <td style="font-size: 12px;">{row['created_at']}</td>
+                                <td><a href="#" class="delete-btn" data-id="{row['id']}" data-table="check_history">🗑️</a></td>
+                            </tr>
+        """
+    
+    html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Вкладка: Составы (ingredients) -->
+            <div id="tab-ingredients" class="tab-content">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Продукт</th>
+                                <th>Состав (INCI)</th>
+                                <th>Дата</th>
+                                <th>Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+    """
+    
+    for row in ingredients:
+        html += f"""
+                            <tr>
+                                <td>{row['id']}</td>
+                                <td><span class="product-name">{row['product_name']}</span></td>
+                                <td style="font-size: 12px; max-width: 400px; word-break: break-word;">{row['ingredients']}</td>
+                                <td style="font-size: 12px;">{row['created_at']}</td>
+                                <td><a href="#" class="delete-btn" data-id="{row['id']}" data-table="ingredients">🗑️</a></td>
+                            </tr>
+        """
+    
+    html += """
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="footer">
-                <p>🟢 База данных работает · Показано последних {len(history)} проверок</p>
+                <p>🟢 База данных работает · Показано последних {len(history)} проверок · {len(ingredients)} составов</p>
             </div>
         </div>
         <script>
-            document.querySelectorAll('.delete-btn').forEach(btn => {{
-                btn.addEventListener('click', async (e) => {{
+            function switchTab(tab) {
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+                document.getElementById('tab-' + tab).classList.add('active');
+                document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`).classList.add('active');
+            }
+            
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
                     e.preventDefault();
                     const id = btn.dataset.id;
-                    if (confirm('Удалить эту проверку?')) {{
-                        const res = await fetch('/admin/delete/' + id, {{ method: 'DELETE' }});
+                    const table = btn.dataset.table || 'check_history';
+                    if (confirm('Удалить эту запись?')) {
+                        const res = await fetch('/admin/delete/' + id + '?table=' + table, { method: 'DELETE' });
                         if (res.ok) location.reload();
-                    }}
-                }});
-            }});
+                    }
+                });
+            });
         </script>
     </body>
     </html>
@@ -236,10 +294,15 @@ async def admin_panel(_: bool = Depends(verify_admin)):
     return HTMLResponse(content=html)
 
 @app.delete("/admin/delete/{record_id}")
-async def delete_record(record_id: int, _: bool = Depends(verify_admin)):
+async def delete_record(record_id: int, table: str = "check_history", _: bool = Depends(verify_admin)):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM check_history WHERE id = ?", (record_id,))
+    
+    # Проверяем, что таблица существует и безопасна
+    if table not in ["check_history", "ingredients"]:
+        raise HTTPException(status_code=400, detail="Invalid table name")
+    
+    cursor.execute(f"DELETE FROM {table} WHERE id = ?", (record_id,))
     conn.commit()
     conn.close()
     return {"success": True}
