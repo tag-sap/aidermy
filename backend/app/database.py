@@ -32,10 +32,15 @@ def init_db():
             score INTEGER NOT NULL,
             verdict TEXT NOT NULL,
             summary TEXT NOT NULL,
-            ingredients TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Добавляем колонку ingredients, если её нет
+    cursor.execute("PRAGMA table_info(check_history)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'ingredients' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN ingredients TEXT DEFAULT ""')
     
     conn.commit()
     conn.close()
