@@ -105,6 +105,7 @@ async def admin_panel(_: bool = Depends(verify_admin)):
     sorted_stats = sorted(product_stats.items(), key=lambda x: x[1], reverse=True)
     total_checks = len(ingredients)
     unique_products = len(product_stats)
+    top_count = sorted_stats[0][1] if sorted_stats else 0
     top_products = sorted_stats[:5]
     
     # Генерируем строки таблицы
@@ -271,7 +272,7 @@ async def admin_panel(_: bool = Depends(verify_admin)):
     # Подставляем данные
     html = html.replace("{total_checks}", str(total_checks))
     html = html.replace("{unique_products}", str(unique_products))
-    html = html.replace("{top_count}", str(sorted_stats[0][1] if sorted_stats else 0))
+    html = html.replace("{top_count}", str(top_count))
     html = html.replace("{top_html}", top_html)
     html = html.replace("{table_rows}", table_rows)
     
