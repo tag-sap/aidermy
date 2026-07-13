@@ -21,70 +21,14 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             saved_ingredients
         )
 
-    # 2. Если нет — обычная проверка
-    prompt = f"""
-Ты — профессиональный дерматолог-косметолог.
-
-Твоя задача — оценить продукт ТОЛЬКО если ты знаешь его точный состав (INCI).
-
-ПРАВИЛА:
-1. ЕСЛИ ты НЕ ЗНАЕШЬ точный состав продукта — 
-   НЕ ПЫТАЙСЯ ЕГО АНАЛИЗИРОВАТЬ.
-   Напиши в summary ровно: "НЕИЗВЕСТНЫЙ СОСТАВ"
-   поставь score = 0, verdict = "Неизвестный состав".
-   НЕ ДОМЫШЛЯЙ ингредиенты.
-   НЕ ПИШИ общие фразы.
-
-2. ЕСЛИ ты знаешь точный состав — дай честную оценку по шкале 0–100.
-
-Данные пользователя:
-- Тип кожи: {skin_type}
-- Возраст: {profile.get('age', 'не указан')}
-- Проблемы: {', '.join(profile.get('concerns', [])) or 'не указаны'}
-- Аллергии: {', '.join(profile.get('allergies', [])) or 'не указаны'}
-- Дополнительно: {profile.get('custom_text', 'нет')}
-
-Продукт: {product_name}
-
-Верни ТОЛЬКО JSON в формате:
-{{
-  "score": число,
-  "verdict": "Подходит" или "С осторожностью" или "Не рекомендуется",
-  "summary": "Краткое пояснение. Если не знаешь состав — напиши ровно: НЕИЗВЕСТНЫЙ СОСТАВ",
-  "safe_ingredients": [],
-  "caution_ingredients": []
-}}
-"""
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            DEEPSEEK_API_URL,
-            headers={
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "deepseek-chat",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "max_tokens": 500
-            },
-            timeout=30
-        )
-
-    if response.status_code != 200:
-        raise Exception(f"DeepSeek API error: {response.status_code} - {response.text}")
-
-    data = response.json()
-    content = data["choices"][0]["message"]["content"]
-
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        match = re.search(r'\{.*\}', content, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-        raise Exception("DeepSeek вернул невалидный JSON")
+    # 2. Если нет состава в БД — НЕ вызываем AI, возвращаем заглушку
+    return {
+        "score": 0,
+        "verdict": "Неизвестный состав",
+        "summary": "НЕИЗВЕСТНЫЙ СОСТАВ",
+        "safe_ingredients": [],
+        "caution_ingredients": []
+    }
 
 
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
