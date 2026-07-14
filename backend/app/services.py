@@ -21,7 +21,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             saved_ingredients
         )
     
-    # 2. Проверяем основную базу (products.db) — нормализованный поиск
+    # 2. Проверяем основную базу (products.db) — прямой поиск
     from .database import get_connection, PRODUCTS_DB
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
@@ -38,9 +38,8 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
     conn.close()
     
     if row and row['ingredients']:
-        # Нашли состав — анализируем
         return await check_product_with_ingredients(
-            product_name,
+            row['name'],  # используем название из базы
             skin_type,
             profile,
             row['ingredients']
