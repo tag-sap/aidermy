@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, ScanSearch, ArrowRight } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { ScrambleText } from '@/components/scramble-text'
@@ -25,32 +25,115 @@ export function CheckerTab({
   const [skinType, setSkinType] = useState(profile.skinType || '')
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1)
 
-  // === АВТОКОМПЛИТ ИЗ БД (БЕЗ МОКОВ) ===
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // === АВТОКОМПЛИТ С ДЕБАУНСОМ И ОТМЕННОЙ ЗАПРОСОВ ===
   useEffect(() => {
     const q = query.trim()
+
+    // 1. Не показываем подсказки, если меньше 2 символов
     if (q.length < 2) {
       setSuggestions([])
+      setHighlightedIndex(-1)
       return
     }
 
+    // 2. Отменяем предыдущий запрос
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+
+    // 3. Создаём новый контроллер
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setIsLoading(true)
-    const fetchProducts = async () => {
+
+    // 4. Дебаунс — ждём 250ms после последнего ввода
+    const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`)
+        const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`, {
+          signal: controller.signal,
+        })
+
+        if (!res.ok) throw new Error('Ошибка загрузки')
+
         const data = await res.json()
-        setSuggestions(data.products || [])
+
+        // 5. Сортируем по релевантности
+        const sorted = (data.products || []).sort((a: string, b: string) => {
+          const aLower = a.toLowerCase()
+          const bLower = b.toLowerCase()
+          const qLower = q.toLowerCase()
+
+          // Сначала те, что начинаются с запроса
+          const aStarts = aLower.startsWith(qLower)
+          const bStarts = bLower.startsWith(qLower)
+          if (aStarts && !bStarts) return -1
+          if (!aStarts && bStarts) return 1
+
+          // Потом по длине (короткие названия выше)
+          return a.length - b.length
+        })
+
+        // 6. Ограничиваем количество (не больше 8)
+        setSuggestions(sorted.slice(0, 8))
+        setHighlightedIndex(-1)
       } catch (error) {
-        console.error('Ошибка загрузки продуктов:', error)
-        setSuggestions([])
+        if ((error as Error).name !== 'AbortError') {
+          console.error('Ошибка загрузки продуктов:', error)
+          setSuggestions([])
+        }
       } finally {
         setIsLoading(false)
       }
-    }
+    }, 250)
 
-    const timer = setTimeout(fetchProducts, 300)
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
   }, [query])
+
+  // === КЛАВИАТУРНАЯ НАВИГАЦИЯ ===
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!suggestions.length) return
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        setHighlightedIndex((prev) =>
+          prev < suggestions.length - 1 ? prev + 1 : prev
+        )
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : -1))
+        break
+      case 'Enter':
+        e.preventDefault()
+        if (highlightedIndex >= 0 && highlightedIndex < suggestions.length) {
+          setQuery(suggestions[highlightedIndex])
+          setSuggestions([])
+          setFocused(false)
+          setHighlightedIndex(-1)
+        } else if (canCheck) {
+          handleCheck()
+        }
+        break
+      case 'Escape':
+        setSuggestions([])
+        setFocused(false)
+        setHighlightedIndex(-1)
+        break
+    }
+  }
 
   const activeSkinType = profileComplete ? profile.skinType : skinType
   const canCheck = query.trim().length > 0 && activeSkinType.length > 0
@@ -58,6 +141,15 @@ export function CheckerTab({
   const handleCheck = () => {
     if (!canCheck) return
     onCheck(query.trim(), activeSkinType)
+    setSuggestions([])
+    setFocused(false)
+  }
+
+  const handleSelectSuggestion = (s: string) => {
+    setQuery(s)
+    setSuggestions([])
+    setFocused(false)
+    setHighlightedIndex(-1)
   }
 
   const getGreeting = () => {
@@ -99,35 +191,63 @@ export function CheckerTab({
             >
               <Search className="size-4 shrink-0 text-muted-foreground" />
               <input
+                ref={inputRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setTimeout(() => setFocused(false), 150)}
                 placeholder="Название средства…"
                 className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
                 aria-label="Название средства"
               />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery('')
+                    setSuggestions([])
+                    inputRef.current?.focus()
+                  }}
+                  className="text-muted-foreground/50 hover:text-foreground"
+                >
+                  ✕
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {focused && suggestions.length > 0 && (
-          <ul className="absolute left-0 top-[calc(100%-8px)] z-50 w-full overflow-hidden rounded-b-md border border-primary/15 bg-white shadow-xl">
+        {focused && (suggestions.length > 0 || isLoading) && (
+          <ul
+            ref={listRef}
+            className="absolute left-0 top-[calc(100%-8px)] z-50 w-full overflow-hidden rounded-b-md border border-primary/15 bg-white shadow-xl max-h-64 overflow-y-auto"
+          >
             {isLoading && (
-              <li className="px-4 py-2 text-sm text-muted-foreground">Загрузка...</li>
+              <li className="px-4 py-2 text-sm text-muted-foreground text-center">
+                Загрузка...
+              </li>
+            )}
+            {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
+              <li className="px-4 py-2 text-sm text-muted-foreground text-center">
+                Ничего не найдено
+              </li>
             )}
             {!isLoading &&
-              suggestions.map((s) => (
+              suggestions.map((s, index) => (
                 <li key={s}>
                   <button
                     type="button"
-                    onMouseDown={() => {
-                      setQuery(s)
-                      setFocused(false)
-                    }}
-                    className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-primary/10"
+                    onMouseDown={() => handleSelectSuggestion(s)}
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    className={cn(
+                      'w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors',
+                      index === highlightedIndex
+                        ? 'bg-primary/10 text-primary'
+                        : 'hover:bg-primary/5'
+                    )}
                   >
-                    {s}
+                    {highlightQuery(s, query)}
                   </button>
                 </li>
               ))}
@@ -215,5 +335,21 @@ export function CheckerTab({
         </button>
       )}
     </div>
+  )
+}
+
+// === ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПОДСВЕТКИ ===
+function highlightQuery(text: string, query: string) {
+  if (!query.trim()) return text
+
+  const index = text.toLowerCase().indexOf(query.toLowerCase())
+  if (index === -1) return text
+
+  return (
+    <>
+      {text.slice(0, index)}
+      <span className="font-bold text-primary">{text.slice(index, index + query.length)}</span>
+      {text.slice(index + query.length)}
+    </>
   )
 }
