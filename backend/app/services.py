@@ -21,17 +21,17 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             saved_ingredients
         )
     
-    # 2. Проверяем основную базу (products.db) — прямой поиск
+    # 2. Проверяем основную базу (products.db) — поиск без учёта пробелов и переносов
     from .database import get_connection, PRODUCTS_DB
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    # Очищаем запрос от лишних пробелов и переносов
-    clean_query = ' '.join(product_name.split())
+    # Убираем ВСЕ пробелы, переносы и лишние символы из запроса
+    clean_query = ''.join(product_name.split())
     
     cursor.execute('''
         SELECT name, ingredients FROM products 
-        WHERE REPLACE(REPLACE(name, '\n', ' '), '\r', ' ') LIKE ?
+        WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
         LIMIT 1
     ''', (f'%{clean_query}%',))
     row = cursor.fetchone()
@@ -39,7 +39,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
     
     if row and row['ingredients']:
         return await check_product_with_ingredients(
-            row['name'],  # используем название из базы
+            product_name,
             skin_type,
             profile,
             row['ingredients']
