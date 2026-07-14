@@ -21,25 +21,35 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             saved_ingredients
         )
     
-    # 2. Проверяем основную базу продуктов (products.db)
-    # Ищем по названию
-    products = search_products(product_name, limit=1)
-    if products:
-        # Нашли продукт, нужно получить его состав
-        # search_products возвращает только названия, нужно получить полные данные
-        from .database import get_connection, PRODUCTS_DB
-        conn = get_connection(PRODUCTS_DB)
-        cursor = conn.cursor()
-        cursor.execute('SELECT ingredients FROM products WHERE name = ? LIMIT 1', (products[0],))
-        row = cursor.fetchone()
-        conn.close()
-        if row and row['ingredients']:
-            return await check_product_with_ingredients(
-                product_name,
-                skin_type,
-                profile,
-                row['ingredients']
-            )
+    # 2. Проверяем основную базу (products.db) — поиск по части названия
+    from .database import get_connection, PRODUCTS_DB
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT name, ingredients FROM products 
+        WHERE LOWER(name) LIKE LOWER(?)
+        LIMIT 1
+    ''', (f'%{product_name}%',))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row and row['ingredients']:
+        return await check_product_with_ingredients(
+            product_name,
+            skin_type,
+            profile,
+            row['ingredients']
+        )
+    
+    # 3. Если нет нигде — возвращаем заглушку
+    return {
+        "score": 0,
+        "verdict": "Неизвестный состав",
+        "summary": "НЕИЗВЕСТНЫЙ СОСТАВ",
+        "safe_ingredients": [],
+        "caution_ingredients": []
+    }
     
     # 3. Если нет нигде — возвращаем заглушку
     return {
