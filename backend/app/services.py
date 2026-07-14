@@ -3,7 +3,7 @@ import os
 import json
 import re
 from dotenv import load_dotenv
-from .database import get_ingredients
+from .database import get_ingredients, search_products, get_product_by_slug
 
 load_dotenv()
 
@@ -11,7 +11,7 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
 
 async def check_product_with_ai(product_name: str, skin_type: str, profile: dict) -> dict:
-    # 1. Проверяем БД — есть ли уже состав для этого продукта
+    # 1. Проверяем ручные составы (aidermy.db)
     saved_ingredients = get_ingredients(product_name)
     if saved_ingredients:
         return await check_product_with_ingredients(
@@ -20,8 +20,28 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             profile,
             saved_ingredients
         )
-
-    # 2. Если нет состава в БД — НЕ вызываем AI, возвращаем заглушку
+    
+    # 2. Проверяем основную базу продуктов (products.db)
+    # Ищем по названию
+    products = search_products(product_name, limit=1)
+    if products:
+        # Нашли продукт, нужно получить его состав
+        # search_products возвращает только названия, нужно получить полные данные
+        from .database import get_connection, PRODUCTS_DB
+        conn = get_connection(PRODUCTS_DB)
+        cursor = conn.cursor()
+        cursor.execute('SELECT ingredients FROM products WHERE name = ? LIMIT 1', (products[0],))
+        row = cursor.fetchone()
+        conn.close()
+        if row and row['ingredients']:
+            return await check_product_with_ingredients(
+                product_name,
+                skin_type,
+                profile,
+                row['ingredients']
+            )
+    
+    # 3. Если нет нигде — возвращаем заглушку
     return {
         "score": 0,
         "verdict": "Неизвестный состав",
