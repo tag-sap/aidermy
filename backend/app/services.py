@@ -3,7 +3,7 @@ import os
 import json
 import re
 from dotenv import load_dotenv
-from .database import get_ingredients, search_products, get_product_by_slug
+from .database import get_ingredients
 
 load_dotenv()
 
@@ -21,7 +21,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             saved_ingredients
         )
     
-    # 2. Проверяем основную базу (products.db) — поиск по части названия
+    # 2. Проверяем основную базу (products.db)
     from .database import get_connection, PRODUCTS_DB
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
@@ -41,15 +41,6 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             profile,
             row['ingredients']
         )
-    
-    # 3. Если нет нигде — возвращаем заглушку
-    return {
-        "score": 0,
-        "verdict": "Неизвестный состав",
-        "summary": "НЕИЗВЕСТНЫЙ СОСТАВ",
-        "safe_ingredients": [],
-        "caution_ingredients": []
-    }
     
     # 3. Если нет нигде — возвращаем заглушку
     return {
