@@ -21,20 +21,24 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             saved_ingredients
         )
     
-    # 2. Проверяем основную базу (products.db)
+    # 2. Проверяем основную базу (products.db) — нормализованный поиск
     from .database import get_connection, PRODUCTS_DB
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
+    # Очищаем запрос от лишних пробелов и переносов
+    clean_query = ' '.join(product_name.split())
+    
     cursor.execute('''
         SELECT name, ingredients FROM products 
-        WHERE LOWER(name) LIKE LOWER(?)
+        WHERE REPLACE(REPLACE(name, '\n', ' '), '\r', ' ') LIKE ?
         LIMIT 1
-    ''', (f'%{product_name}%',))
+    ''', (f'%{clean_query}%',))
     row = cursor.fetchone()
     conn.close()
     
     if row and row['ingredients']:
+        # Нашли состав — анализируем
         return await check_product_with_ingredients(
             product_name,
             skin_type,
