@@ -26,7 +26,7 @@ export function CheckerTab({
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
-  // === АВТОКОМПЛИТ ТОЛЬКО ИЗ БД ===
+  // === АВТОКОМПЛИТ ИЗ БД (БЕЗ МОКОВ) ===
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
