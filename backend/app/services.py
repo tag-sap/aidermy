@@ -14,23 +14,24 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
     # 1. Проверяем ручные составы (aidermy.db)
     saved_ingredients = get_ingredients(product_name)
     if saved_ingredients:
-        return await check_product_with_ingredients(
+        result = await check_product_with_ingredients(
             product_name,
             skin_type,
             profile,
             saved_ingredients
         )
+        result['slug'] = generate_slug(product_name)
+        return result
     
-    # 2. Проверяем основную базу (products.db) — поиск без учёта пробелов и переносов
+    # 2. Проверяем основную базу (products.db)
     from .database import get_connection, PRODUCTS_DB
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    # Убираем ВСЕ пробелы, переносы и лишние символы из запроса
     clean_query = ''.join(product_name.split())
     
     cursor.execute('''
-        SELECT name, ingredients FROM products 
+        SELECT name, ingredients, slug FROM products   # <- ДОБАВИЛИ slug
         WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
         LIMIT 1
     ''', (f'%{clean_query}%',))
@@ -38,12 +39,15 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
     conn.close()
     
     if row and row['ingredients']:
-        return await check_product_with_ingredients(
+        result = await check_product_with_ingredients(
             product_name,
             skin_type,
             profile,
             row['ingredients']
         )
+        # ВОЗВРАЩАЕМ SLUG ИЗ БД
+        result['slug'] = row['slug']
+        return result
     
     # 3. Если нет нигде — возвращаем заглушку
     return {
@@ -51,7 +55,8 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         "verdict": "Неизвестный состав",
         "summary": "НЕИЗВЕСТНЫЙ СОСТАВ",
         "safe_ingredients": [],
-        "caution_ingredients": []
+        "caution_ingredients": [],
+        "slug": generate_slug(product_name)  # генерируем из названия
     }
 
 

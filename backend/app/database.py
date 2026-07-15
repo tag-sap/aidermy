@@ -146,19 +146,18 @@ def get_all_ingredients():
 # === ГЛАВНАЯ ФУНКЦИЯ ПОИСКА ПРОДУКТОВ (products.db) ===
 
 def search_products(query: str, limit: int = 10):
-    """Поиск продуктов ТОЛЬКО в products.db"""
+    """Поиск продуктов с возвратом slug"""
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT DISTINCT name FROM products
+        SELECT DISTINCT name, slug FROM products
         WHERE name LIKE ?
         ORDER BY name
         LIMIT ?
     ''', (f'%{query.lower().strip()}%', limit))
     rows = cursor.fetchall()
     conn.close()
-    return [row['name'] for row in rows]
-
+    return [{'name': row['name'], 'slug': row['slug']} for row in rows]
 def get_all_products(limit: int = 100):
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()

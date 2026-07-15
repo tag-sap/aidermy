@@ -50,13 +50,16 @@ async def check_product(request: CheckRequest):
             request.profile.dict()
         )
         
+        slug = result.get('slug')  # <- получаем slug
+        
         save_check_result(
             request.product_name,
             request.skin_type,
             result.get("score", 50),
             result.get("verdict", "Нейтрально"),
             result.get("summary", "Не удалось получить рекомендацию."),
-            ""  # состав не передан
+            "",
+            slug  # <- сохраняем
         )
         
         return CheckResponse(
@@ -65,11 +68,11 @@ async def check_product(request: CheckRequest):
             summary=result.get("summary", "Не удалось получить рекомендацию."),
             safe_ingredients=result.get("safe_ingredients", []),
             caution_ingredients=result.get("caution_ingredients", []),
-            cached=False
+            cached=False,
+            slug=slug  # <- возвращаем
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
-
 @app.post("/api/check-with-ingredients", response_model=CheckResponse)
 async def check_with_ingredients(request: CheckWithIngredientsRequest):
     try:

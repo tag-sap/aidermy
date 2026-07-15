@@ -41,13 +41,13 @@ class CheckRequest(BaseModel):
         }
 
 class CheckResponse(BaseModel):
-    score: int = Field(..., description="Оценка совместимости от 0 до 100")
-    verdict: str = Field(..., description="Вердикт: Подходит / С осторожностью / Не рекомендуется")
-    summary: str = Field(..., description="Краткое пояснение на русском")
-    safe_ingredients: List[str] = Field(default=[], description="Безопасные ингредиенты")
-    caution_ingredients: List[str] = Field(default=[], description="Ингредиенты, требующие внимания")
-    cached: bool = Field(default=False, description="Взят ли ответ из кеша")
-
+    score: int
+    verdict: str
+    summary: str
+    safe_ingredients: List[str] = []
+    caution_ingredients: List[str] = []
+    cached: bool = False
+    slug: Optional[str] = None  # <- ДОБАВИТЬ
     class Config:
         json_schema_extra = {
             "example": {
