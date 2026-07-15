@@ -14,8 +14,9 @@ export type CheckResult = {
   score: number
   verdict: string
   summary: string
-  safe_ingredients?: string[]   // ← добавил
-  caution_ingredients?: string[] // ← добавил
+  safe_ingredients?: string[]
+  caution_ingredients?: string[]
+  slug?: string  // ← ДОБАВЛЕНО
   createdAt: number
 }
 
@@ -95,7 +96,7 @@ const VERDICTS: { min: number; verdict: string; summary: string }[] = [
 ]
 
 export function mockCheck(product: string, skinType: string): CheckResult {
-  const score = Math.floor(Math.random() * 61) + 40 // 40–100
+  const score = Math.floor(Math.random() * 61) + 40
   const match = VERDICTS.find((v) => score >= v.min) ?? VERDICTS[VERDICTS.length - 1]
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -106,6 +107,7 @@ export function mockCheck(product: string, skinType: string): CheckResult {
     summary: match.summary,
     safe_ingredients: [],
     caution_ingredients: [],
+    slug: undefined,  // ← ДОБАВЛЕНО
     createdAt: Date.now(),
   }
 }
