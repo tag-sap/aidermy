@@ -147,8 +147,9 @@ export function ResultSheet({
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
 
   // === ГЕНЕРИРУЕМ ССЫЛКУ НА КАРТИНКУ ===
+  // Используем правильный URL с UUID для ARAVIA
   const imageUrl = result?.slug
-    ? `https://incidecoder-content.storage.googleapis.com/products/${result.slug}/${result.slug}_front_photo.jpg`
+    ? `https://incidecoder-content.storage.googleapis.com/ff5a28f7-5a15-4a94-8424-bc82e7e01943/products/${result.slug}/${result.slug}_front_photo_original.jpeg`
     : null
 
   return (
@@ -206,9 +207,9 @@ export function ResultSheet({
             </div>
 
             {/* === КАРТИНКА ПРОДУКТА === */}
-            {imageUrl && !imageError && (
-              <div className="w-full flex justify-center">
-                <div className="w-32 h-32 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200 relative">
+            <div className="w-full flex justify-center">
+              <div className="w-32 h-32 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200 relative">
+                {imageUrl && !imageError ? (
                   <img
                     src={imageUrl}
                     alt={result.product}
@@ -217,14 +218,16 @@ export function ResultSheet({
                     onLoad={() => setImageLoaded(true)}
                     onError={() => setImageError(true)}
                   />
-                  {!imageLoaded && (
-                    <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
-                      🧴
-                    </div>
-                  )}
-                </div>
+                ) : (
+                  <span className="text-6xl">🧴</span>
+                )}
+                {imageUrl && !imageError && !imageLoaded && (
+                  <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+                    Загрузка...
+                  </div>
+                )}
               </div>
-            )}
+            </div>
 
             <ScoreRing score={result.score} />
 
