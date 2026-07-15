@@ -14,7 +14,6 @@ def get_connection(db_path=None):
     return conn
 
 def init_db():
-    # === aidermy.db ===
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     
@@ -23,6 +22,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             product_name TEXT NOT NULL,
             ingredients TEXT NOT NULL,
+            slug TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -36,6 +36,7 @@ def init_db():
             verdict TEXT NOT NULL,
             summary TEXT NOT NULL,
             ingredients TEXT DEFAULT '',
+            slug TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -44,11 +45,17 @@ def init_db():
     columns = [col[1] for col in cursor.fetchall()]
     if 'ingredients' not in columns:
         cursor.execute('ALTER TABLE check_history ADD COLUMN ingredients TEXT DEFAULT ""')
+    if 'slug' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN slug TEXT')
+    
+    cursor.execute("PRAGMA table_info(ingredients)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'slug' not in columns:
+        cursor.execute('ALTER TABLE ingredients ADD COLUMN slug TEXT')
     
     conn.commit()
     conn.close()
     
-    # === products.db ===
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     cursor.execute('''
@@ -66,20 +73,20 @@ def init_db():
     conn.commit()
     conn.close()
     
-    print("✅ Базы данных инициализированы")
+    print("Databases initialized")
 
 # === РАБОТА С ИСТОРИЕЙ (aidermy.db) ===
 
-def save_check_result(product_name: str, skin_type: str, score: int, verdict: str, summary: str, ingredients: str = ""):
+def save_check_result(product_name: str, skin_type: str, score: int, verdict: str, summary: str, ingredients: str = "", slug: str = None):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO check_history (product_name, skin_type, score, verdict, summary, ingredients, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ''', (product_name, skin_type, score, verdict, summary, ingredients))
+        INSERT INTO check_history (product_name, skin_type, score, verdict, summary, ingredients, slug, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ''', (product_name, skin_type, score, verdict, summary, ingredients, slug))
     conn.commit()
     conn.close()
-    print(f"📊 Проверка сохранена: {product_name} — {score}%")
+    print(f"Check saved: {product_name} - {score}%")
 
 def get_all_check_history(limit: int = 100):
     conn = get_connection(AIDERMY_DB)
@@ -111,17 +118,17 @@ def get_check_stats():
 
 # === РАБОТА С РУЧНЫМИ СОСТАВАМИ (aidermy.db) ===
 
-def save_ingredients(product_name: str, ingredients: str):
+def save_ingredients(product_name: str, ingredients: str, slug: str = None):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO ingredients (product_name, ingredients)
-        VALUES (?, ?)
-    ''', (product_name.lower().strip(), ingredients))
+        INSERT OR REPLACE INTO ingredients (product_name, ingredients, slug)
+        VALUES (?, ?, ?)
+    ''', (product_name.lower().strip(), ingredients, slug))
     conn.commit()
     conn.close()
-    print(f"💾 Состав сохранён в БД: {product_name}")
-
+    print(f"Ingredients saved: {product_name}")
+    
 def get_ingredients(product_name: str) -> str | None:
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
