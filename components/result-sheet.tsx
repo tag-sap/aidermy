@@ -145,7 +145,7 @@ export function ResultSheet({
   if (!isOpen) return null
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
-  
+
   // === ГЕНЕРИРУЕМ ССЫЛКУ НА КАРТИНКУ ===
   const imageUrl = result?.slug
     ? `https://incidecoder-content.storage.googleapis.com/ff5a28f7-5a15-4a94-8424-bc82e7e01943/products/${result.slug}/${result.slug}_front_photo_original.jpeg`
