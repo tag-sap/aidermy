@@ -3,15 +3,19 @@ import os
 import json
 import re
 from dotenv import load_dotenv
-from .database import get_ingredients
+from .database import get_ingredients, get_connection, PRODUCTS_DB
 
 load_dotenv()
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
 
+def generate_slug(name: str) -> str:
+    slug = re.sub(r'[^a-zA-Z0-9\s-]', '', name)
+    slug = re.sub(r'[-\s]+', '-', slug)
+    return slug.lower().strip('-')
+
 async def check_product_with_ai(product_name: str, skin_type: str, profile: dict) -> dict:
-    # 1. Проверяем ручные составы (aidermy.db)
     saved_ingredients = get_ingredients(product_name)
     if saved_ingredients:
         result = await check_product_with_ingredients(
@@ -23,15 +27,13 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         result['slug'] = generate_slug(product_name)
         return result
     
-    # 2. Проверяем основную базу (products.db)
-    from .database import get_connection, PRODUCTS_DB
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
     clean_query = ''.join(product_name.split())
     
     cursor.execute('''
-        SELECT name, ingredients, slug FROM products   # <- ДОБАВИЛИ slug
+        SELECT name, ingredients, slug FROM products
         WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
         LIMIT 1
     ''', (f'%{clean_query}%',))
@@ -45,45 +47,42 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             profile,
             row['ingredients']
         )
-        # ВОЗВРАЩАЕМ SLUG ИЗ БД
-        result['slug'] = row['slug']
+        result['slug'] = row['slug'] or generate_slug(product_name)
         return result
     
-    # 3. Если нет нигде — возвращаем заглушку
     return {
         "score": 0,
-        "verdict": "Неизвестный состав",
-        "summary": "НЕИЗВЕСТНЫЙ СОСТАВ",
+        "verdict": "Unknown composition",
+        "summary": "UNKNOWN COMPOSITION",
         "safe_ingredients": [],
         "caution_ingredients": [],
-        "slug": generate_slug(product_name)  # генерируем из названия
+        "slug": generate_slug(product_name)
     }
-
 
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
     prompt = f"""
-Ты — профессиональный дерматолог-косметолог.
+You are a professional dermatologist-cosmetologist.
 
-Пользователь предоставил точный состав продукта:
+User provided exact product composition:
 {ingredients}
 
-Продукт: {product_name}
-Тип кожи: {skin_type}
-Возраст: {profile.get('age', 'не указан')}
-Проблемы: {', '.join(profile.get('concerns', [])) or 'не указаны'}
-Аллергии: {', '.join(profile.get('allergies', [])) or 'не указаны'}
-Дополнительно: {profile.get('custom_text', 'нет')}
+Product: {product_name}
+Skin type: {skin_type}
+Age: {profile.get('age', 'not specified')}
+Concerns: {', '.join(profile.get('concerns', [])) or 'none'}
+Allergies: {', '.join(profile.get('allergies', [])) or 'none'}
+Additional: {profile.get('custom_text', 'none')}
 
-Оцени продукт по шкале 0–100 и верни ТОЛЬКО JSON:
+Rate the product on a scale of 0-100 and return ONLY JSON:
 {{
-  "score": число,
-  "verdict": "Подходит" или "С осторожностью" или "Не рекомендуется",
-  "summary": "Краткое пояснение на русском с оценкой состава, влиянием на проблемы и рисками",
-  "safe_ingredients": ["ингредиент1", "ингредиент2"],
-  "caution_ingredients": ["ингредиент1"]
+  "score": number,
+  "verdict": "Suitable" or "Use with caution" or "Not recommended",
+  "summary": "Brief explanation in Russian",
+  "safe_ingredients": ["ingredient1", "ingredient2"],
+  "caution_ingredients": ["ingredient1"]
 }}
 
-Ответ должен быть ТОЛЬКО JSON, без пояснений, без воды.
+Response must be ONLY JSON, no explanations.
 """
 
     async with httpx.AsyncClient() as client:
@@ -114,4 +113,4 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         match = re.search(r'\{.*\}', content, re.DOTALL)
         if match:
             return json.loads(match.group())
-        raise Exception("DeepSeek вернул невалидный JSON")
+        raise Exception("DeepSeek returned invalid JSON")
