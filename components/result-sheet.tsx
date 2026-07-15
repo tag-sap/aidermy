@@ -145,9 +145,8 @@ export function ResultSheet({
   if (!isOpen) return null
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
-
+  
   // === ГЕНЕРИРУЕМ ССЫЛКУ НА КАРТИНКУ ===
-  // Используем правильный URL с UUID для ARAVIA
   const imageUrl = result?.slug
     ? `https://incidecoder-content.storage.googleapis.com/ff5a28f7-5a15-4a94-8424-bc82e7e01943/products/${result.slug}/${result.slug}_front_photo_original.jpeg`
     : null
@@ -207,27 +206,28 @@ export function ResultSheet({
             </div>
 
             {/* === КАРТИНКА ПРОДУКТА === */}
-            <div className="w-full flex justify-center">
-              <div className="w-32 h-32 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200 relative">
-                {imageUrl && !imageError ? (
+            {imageUrl && (
+              <div className="w-full flex justify-center">
+                <div className="w-32 h-32 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200">
                   <img
                     src={imageUrl}
                     alt={result.product}
-                    className="w-full h-full object-cover transition-opacity duration-300"
-                    style={{ opacity: imageLoaded ? 1 : 0 }}
+                    className="w-full h-full object-cover"
                     onLoad={() => setImageLoaded(true)}
                     onError={() => setImageError(true)}
+                    style={{ display: imageError ? 'none' : 'block' }}
                   />
-                ) : (
-                  <span className="text-6xl">🧴</span>
-                )}
-                {imageUrl && !imageError && !imageLoaded && (
-                  <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
-                    Загрузка...
-                  </div>
-                )}
+                  {!imageLoaded && !imageError && (
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+                      Загрузка...
+                    </div>
+                  )}
+                  {imageError && (
+                    <span className="text-6xl">🧴</span>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             <ScoreRing score={result.score} />
 
