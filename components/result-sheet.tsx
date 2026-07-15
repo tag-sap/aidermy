@@ -76,6 +76,8 @@ export function ResultSheet({
   const [productNameInput, setProductNameInput] = useState('')
   const [ingredientsInput, setIngredientsInput] = useState('')
   const [isCheckingIngredients, setIsCheckingIngredients] = useState(false)
+  const [imageLoaded, setImageLoaded] = useState(false)
+  const [imageError, setImageError] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -85,6 +87,8 @@ export function ResultSheet({
       setIsVisible(false)
       setProductNameInput('')
       setIngredientsInput('')
+      setImageLoaded(false)
+      setImageError(false)
     }
   }, [isOpen])
 
@@ -140,8 +144,12 @@ export function ResultSheet({
 
   if (!isOpen) return null
 
-  // === ОДНА ПРОВЕРКА ===
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
+
+  // === ГЕНЕРИРУЕМ ССЫЛКУ НА КАРТИНКУ ===
+  const imageUrl = result?.slug
+    ? `https://incidecoder-content.storage.googleapis.com/products/${result.slug}/${result.slug}_front_photo.jpg`
+    : null
 
   return (
     <div
@@ -196,6 +204,27 @@ export function ResultSheet({
                 className="mt-1 block text-2xl font-bold text-gray-900"
               />
             </div>
+
+            {/* === КАРТИНКА ПРОДУКТА === */}
+            {imageUrl && !imageError && (
+              <div className="w-full flex justify-center">
+                <div className="w-32 h-32 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200 relative">
+                  <img
+                    src={imageUrl}
+                    alt={result.product}
+                    className="w-full h-full object-cover transition-opacity duration-300"
+                    style={{ opacity: imageLoaded ? 1 : 0 }}
+                    onLoad={() => setImageLoaded(true)}
+                    onError={() => setImageError(true)}
+                  />
+                  {!imageLoaded && (
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+                      🧴
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <ScoreRing score={result.score} />
 
