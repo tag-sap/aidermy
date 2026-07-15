@@ -9,6 +9,11 @@ import { QUICK_PRODUCTS, SKIN_TYPES } from '@/lib/products'
 import { cn } from '@/lib/utils'
 import type { SkinProfile } from '@/lib/store'
 
+interface ProductSuggestion {
+  name: string
+  slug: string
+}
+
 export function CheckerTab({
   profile,
   profileComplete,
@@ -23,7 +28,7 @@ export function CheckerTab({
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
   const [skinType, setSkinType] = useState(profile.skinType || '')
-  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestions, setSuggestions] = useState<ProductSuggestion[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
 
@@ -35,25 +40,21 @@ export function CheckerTab({
   useEffect(() => {
     const q = query.trim()
 
-    // 1. Не показываем подсказки, если меньше 2 символов
     if (q.length < 2) {
       setSuggestions([])
       setHighlightedIndex(-1)
       return
     }
 
-    // 2. Отменяем предыдущий запрос
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
 
-    // 3. Создаём новый контроллер
     const controller = new AbortController()
     abortControllerRef.current = controller
 
     setIsLoading(true)
 
-    // 4. Дебаунс — ждём 250ms после последнего ввода
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`, {
@@ -64,23 +65,19 @@ export function CheckerTab({
 
         const data = await res.json()
 
-        // 5. Сортируем по релевантности
-        const sorted = (data.products || []).sort((a: string, b: string) => {
-          const aLower = a.toLowerCase()
-          const bLower = b.toLowerCase()
+        // Сортируем по релевантности
+        const sorted = (data.products || []).sort((a: ProductSuggestion, b: ProductSuggestion) => {
+          const aLower = a.name.toLowerCase()
+          const bLower = b.name.toLowerCase()
           const qLower = q.toLowerCase()
 
-          // Сначала те, что начинаются с запроса
           const aStarts = aLower.startsWith(qLower)
           const bStarts = bLower.startsWith(qLower)
           if (aStarts && !bStarts) return -1
           if (!aStarts && bStarts) return 1
-
-          // Потом по длине (короткие названия выше)
-          return a.length - b.length
+          return a.name.length - b.name.length
         })
 
-        // 6. Ограничиваем количество (не больше 8)
         setSuggestions(sorted.slice(0, 8))
         setHighlightedIndex(-1)
       } catch (error) {
@@ -119,7 +116,7 @@ export function CheckerTab({
       case 'Enter':
         e.preventDefault()
         if (highlightedIndex >= 0 && highlightedIndex < suggestions.length) {
-          setQuery(suggestions[highlightedIndex])
+          setQuery(suggestions[highlightedIndex].name)
           setSuggestions([])
           setFocused(false)
           setHighlightedIndex(-1)
@@ -145,8 +142,8 @@ export function CheckerTab({
     setFocused(false)
   }
 
-  const handleSelectSuggestion = (s: string) => {
-    setQuery(s)
+  const handleSelectSuggestion = (product: ProductSuggestion) => {
+    setQuery(product.name)
     setSuggestions([])
     setFocused(false)
     setHighlightedIndex(-1)
@@ -234,11 +231,11 @@ export function CheckerTab({
               </li>
             )}
             {!isLoading &&
-              suggestions.map((s, index) => (
-                <li key={s}>
+              suggestions.map((product, index) => (
+                <li key={product.slug}>
                   <button
                     type="button"
-                    onMouseDown={() => handleSelectSuggestion(s)}
+                    onMouseDown={() => handleSelectSuggestion(product)}
                     onMouseEnter={() => setHighlightedIndex(index)}
                     className={cn(
                       'w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors',
@@ -247,7 +244,7 @@ export function CheckerTab({
                         : 'hover:bg-primary/5'
                     )}
                   >
-                    {highlightQuery(s, query)}
+                    {highlightQuery(product.name, query)}
                   </button>
                 </li>
               ))}
