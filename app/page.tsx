@@ -161,7 +161,13 @@ export default function Page() {
         <CyberGrid />
         <div className="grid-shimmer" aria-hidden="true" />
 
-        <AppHeader onProfile={handleGoToProfile} />
+        <AppHeader
+          onProfile={handleGoToProfile}
+          onAuth={() => setIsAuthModalOpen(true)}
+          isAuthenticated={isAuthenticated}
+          userName={userName}
+          onLogout={handleLogout}
+        />
 
         <main className="relative z-10 mx-auto flex min-h-screen max-w-md flex-col px-5 pb-36 pt-4">
           <div className="mt-6 flex-1">
