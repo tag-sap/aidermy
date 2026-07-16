@@ -5,6 +5,7 @@ from typing import Optional, List
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
+import yagmail
 import os
 
 from .database import get_connection, AIDERMY_DB
@@ -31,6 +32,64 @@ oauth.register(
     client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={'scope': 'openid email profile'}
+    @router.post("/register", response_model=TokenResponse)
+async def register(user_data: UserRegister):
+    existing = get_user_by_email(user_data.email)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Пользователь с таким email уже существует"
+        )
+    
+    user_id, verification_token = create_user_with_verification(
+        email=user_data.email,
+        password=user_data.password,
+        name=user_data.name
+    )
+    
+    user = get_user_by_email(user_data.email)
+    access_token = create_access_token(data={"sub": str(user_id)})
+    
+    # === ОТПРАВКА ПИСЬМА ===
+    try:
+        yag = yagmail.SMTP(
+            user=os.getenv('EMAIL_USER'),
+            password=os.getenv('EMAIL_PASSWORD'),
+            host=os.getenv('EMAIL_HOST', 'smtp.gmail.com'),
+            port=int(os.getenv('EMAIL_PORT', 587))
+        )
+        
+        link = f"http://138.124.231.42/api/auth/verify?token={verification_token}"
+        
+        yag.send(
+            to=user_data.email,
+            subject="Подтверждение email — Aidermy",
+            contents=f"""
+            <h1>Добро пожаловать в Aidermy!</h1>
+            <p>Перейдите по ссылке, чтобы подтвердить email:</p>
+            <a href="{link}">{link}</a>
+            <p>Ссылка действительна 24 часа.</p>
+            """
+        )
+        print(f"✅ Письмо отправлено на {user_data.email}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки письма: {e}")
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": UserResponse(
+            id=user["id"],
+            email=user["email"],
+            name=user["name"] or "",
+            skin_type=user.get("skin_type"),
+            age=user.get("age"),
+            concerns=user.get("concerns", "").split(",") if user.get("concerns") else [],
+            allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
+            custom_text=user.get("custom_text"),
+            created_at=user["created_at"]
+        )
+    }
 )
 
 # === МОДЕЛИ ===
