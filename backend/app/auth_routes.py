@@ -16,6 +16,9 @@ from .auth import (
     get_current_user,
     update_user_profile,
     create_user_oauth,
+    create_user_with_verification,
+    verify_user,
+    resend_verification,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -82,14 +85,11 @@ async def google_callback(request: Request):
         email = user_info.get('email')
         name = user_info.get('name', email.split('@')[0])
         
-        # Проверяем, есть ли пользователь
         user = get_user_by_email(email)
         if not user:
-            # Создаем пользователя (пароль не нужен, т.к. OAuth)
             user_id = create_user_oauth(email, name)
             user = get_user_by_email(email)
         
-        # Создаем JWT токен
         access_token = create_access_token(data={"sub": str(user['id'])})
         
         return {
@@ -110,7 +110,7 @@ async def google_callback(request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# === РЕГИСТРАЦИЯ ===
+# === РЕГИСТРАЦИЯ С ВЕРИФИКАЦИЕЙ ===
 @router.post("/register", response_model=TokenResponse)
 async def register(user_data: UserRegister):
     existing = get_user_by_email(user_data.email)
@@ -120,7 +120,7 @@ async def register(user_data: UserRegister):
             detail="Пользователь с таким email уже существует"
         )
     
-    user_id = create_user(
+    user_id, verification_token = create_user_with_verification(
         email=user_data.email,
         password=user_data.password,
         name=user_data.name
@@ -128,6 +128,9 @@ async def register(user_data: UserRegister):
     
     user = get_user_by_email(user_data.email)
     access_token = create_access_token(data={"sub": str(user_id)})
+    
+    # TODO: Отправить письмо с verification_token
+    print(f"🔑 Токен верификации для {user_data.email}: {verification_token}")
     
     return {
         "access_token": access_token,
@@ -145,6 +148,24 @@ async def register(user_data: UserRegister):
         )
     }
 
+# === ВЕРИФИКАЦИЯ ===
+@router.get("/verify")
+async def verify_email(token: str):
+    success = verify_user(token)
+    if success:
+        return {"message": "Email успешно подтверждён!"}
+    else:
+        raise HTTPException(status_code=400, detail="Неверный или просроченный токен")
+
+@router.post("/resend-verification")
+async def resend_verification_email(email: EmailStr):
+    new_token = resend_verification(email)
+    if not new_token:
+        raise HTTPException(status_code=404, detail="Пользователь не найден или уже верифицирован")
+    
+    print(f"🔑 Новый токен для {email}: {new_token}")
+    return {"message": "Новое письмо отправлено"}
+
 # === ЛОГИН ===
 @router.post("/login", response_model=TokenResponse)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -153,6 +174,12 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль"
+        )
+    
+    if not user.get("is_verified", 0):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email не подтверждён. Проверьте почту."
         )
     
     if not verify_password(form_data.password, user["password_hash"]):

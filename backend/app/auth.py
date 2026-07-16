@@ -113,6 +113,76 @@ def create_user_oauth(email: str, name: str = ""):
         conn.close()
         raise e
 
+# === ВЕРИФИКАЦИЯ EMAIL ===
+def create_user_with_verification(email: str, password: str, name: str = ""):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    
+    hashed_password = get_password_hash(password)
+    verification_token = secrets.token_urlsafe(32)
+    token_expires_at = datetime.utcnow() + timedelta(hours=24)
+    
+    try:
+        cursor.execute("""
+            INSERT INTO users (
+                email, password_hash, name, 
+                is_verified, verification_token, token_expires_at,
+                created_at, updated_at
+            )
+            VALUES (?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """, (email.lower().strip(), hashed_password, name.strip(), verification_token, token_expires_at))
+        conn.commit()
+        user_id = cursor.lastrowid
+        conn.close()
+        return user_id, verification_token
+    except Exception as e:
+        conn.close()
+        raise e
+
+def verify_user(token: str):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT * FROM users 
+        WHERE verification_token = ? AND token_expires_at > CURRENT_TIMESTAMP
+    """, (token,))
+    user = cursor.fetchone()
+    
+    if not user:
+        conn.close()
+        return False
+    
+    cursor.execute("""
+        UPDATE users 
+        SET is_verified = 1, email_verified_at = CURRENT_TIMESTAMP, verification_token = NULL
+        WHERE id = ?
+    """, (user['id'],))
+    conn.commit()
+    conn.close()
+    return True
+
+def resend_verification(email: str):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    
+    new_token = secrets.token_urlsafe(32)
+    token_expires_at = datetime.utcnow() + timedelta(hours=24)
+    
+    cursor.execute("""
+        UPDATE users 
+        SET verification_token = ?, token_expires_at = ?
+        WHERE email = ? AND is_verified = 0
+    """, (new_token, token_expires_at, email.lower().strip()))
+    
+    if cursor.rowcount == 0:
+        conn.close()
+        return None
+    
+    conn.commit()
+    conn.close()
+    return new_token
+
 def update_user_profile(user_id: int, data: dict):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
