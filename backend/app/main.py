@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 from .models import CheckRequest, CheckResponse, CheckWithIngredientsRequest
 from .services import check_product_with_ai, check_product_with_ingredients
 from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, search_products
+from .auth_routes import router as auth_router
 import os
 from dotenv import load_dotenv
 
@@ -18,7 +19,7 @@ app = FastAPI(
     version="1.0",
     description="API for cosmetic checking with AI"
 )
-
+app.include_router(auth_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

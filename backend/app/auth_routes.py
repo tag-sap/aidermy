@@ -1,0 +1,195 @@
+from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel, EmailStr
+from typing import Optional, List
+from starlette.requests import Request
+from starlette.responses import RedirectResponse
+from authlib.integrations.starlette_client import OAuth
+import os
+
+from .database import get_connection, AIDERMY_DB
+from .auth import (
+    get_user_by_email,
+    create_user,
+    verify_password,
+    create_access_token,
+    get_current_user,
+    update_user_profile,
+    create_user_oauth,
+)
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# === OAuth настройка ===
+oauth = OAuth()
+oauth.register(
+    name='google',
+    client_id=os.getenv('GOOGLE_CLIENT_ID'),
+    client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'}
+)
+
+# === МОДЕЛИ ===
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    name: Optional[str] = ""
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    skin_type: Optional[str] = None
+    age: Optional[str] = None
+    concerns: Optional[List[str]] = None
+    allergies: Optional[List[str]] = None
+    custom_text: Optional[str] = None
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    name: str
+    skin_type: Optional[str] = None
+    age: Optional[str] = None
+    concerns: List[str] = []
+    allergies: List[str] = []
+    custom_text: Optional[str] = None
+    created_at: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserResponse
+
+# === GOOGLE OAuth ===
+@router.get("/google")
+async def google_login(request: Request):
+    redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:3000/api/auth/google/callback')
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@router.get("/google/callback")
+async def google_callback(request: Request):
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        user_info = token.get('userinfo')
+        
+        if not user_info:
+            raise HTTPException(status_code=400, detail="Could not get user info")
+        
+        email = user_info.get('email')
+        name = user_info.get('name', email.split('@')[0])
+        
+        # Проверяем, есть ли пользователь
+        user = get_user_by_email(email)
+        if not user:
+            # Создаем пользователя (пароль не нужен, т.к. OAuth)
+            user_id = create_user_oauth(email, name)
+            user = get_user_by_email(email)
+        
+        # Создаем JWT токен
+        access_token = create_access_token(data={"sub": str(user['id'])})
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": UserResponse(
+                id=user["id"],
+                email=user["email"],
+                name=user["name"] or "",
+                skin_type=user.get("skin_type"),
+                age=user.get("age"),
+                concerns=user.get("concerns", "").split(",") if user.get("concerns") else [],
+                allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
+                custom_text=user.get("custom_text"),
+                created_at=user["created_at"]
+            )
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# === РЕГИСТРАЦИЯ ===
+@router.post("/register", response_model=TokenResponse)
+async def register(user_data: UserRegister):
+    existing = get_user_by_email(user_data.email)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Пользователь с таким email уже существует"
+        )
+    
+    user_id = create_user(
+        email=user_data.email,
+        password=user_data.password,
+        name=user_data.name
+    )
+    
+    user = get_user_by_email(user_data.email)
+    access_token = create_access_token(data={"sub": str(user_id)})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": UserResponse(
+            id=user["id"],
+            email=user["email"],
+            name=user["name"] or "",
+            skin_type=user.get("skin_type"),
+            age=user.get("age"),
+            concerns=user.get("concerns", "").split(",") if user.get("concerns") else [],
+            allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
+            custom_text=user.get("custom_text"),
+            created_at=user["created_at"]
+        )
+    }
+
+# === ЛОГИН ===
+@router.post("/login", response_model=TokenResponse)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = get_user_by_email(form_data.username)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный email или пароль"
+        )
+    
+    if not verify_password(form_data.password, user["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный email или пароль"
+        )
+    
+    access_token = create_access_token(data={"sub": str(user["id"])})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": UserResponse(
+            id=user["id"],
+            email=user["email"],
+            name=user["name"] or "",
+            skin_type=user.get("skin_type"),
+            age=user.get("age"),
+            concerns=user.get("concerns", "").split(",") if user.get("concerns") else [],
+            allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
+            custom_text=user.get("custom_text"),
+            created_at=user["created_at"]
+        )
+    }
+
+# === ТЕКУЩИЙ ПОЛЬЗОВАТЕЛЬ ===
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: dict = Depends(get_current_user)):
+    return UserResponse(
+        id=current_user["id"],
+        email=current_user["email"],
+        name=current_user["name"] or "",
+        skin_type=current_user.get("skin_type"),
+        age=current_user.get("age"),
+        concerns=current_user.get("concerns", "").split(",") if current_user.get("concerns") else [],
+        allergies=current_user.get("allergies", "").split(",") if current_user.get("allergies") else [],
+        custom_text=current_user.get("custom_text"),
+        created_at=current_user["created_at"]
+    )
