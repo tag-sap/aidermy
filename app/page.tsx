@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
 import { CyberGrid } from '@/components/cyber-grid'
 import { AppHeader } from '@/components/app-header'
+import { AuthModal } from '@/components/auth-modal'
 import { TabBar, type TabId } from '@/components/tab-bar'
 import { CheckerTab } from '@/components/checker-tab'
 import { HistoryTab } from '@/components/history-tab'
@@ -37,11 +38,50 @@ export default function Page() {
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
 
+  // === АВТОРИЗАЦИЯ ===
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [userName, setUserName] = useState('')
+
+  // Проверяем токен при загрузке
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      setIsAuthenticated(true)
+      const savedName = localStorage.getItem('userName')
+      if (savedName) setUserName(savedName)
+    }
+  }, [])
+
   useEffect(() => {
     setProfile(loadProfile())
     setHistory(loadHistory())
     setHydrated(true)
   }, [])
+
+  // === ОБРАБОТЧИКИ АВТОРИЗАЦИИ ===
+  const handleLogin = async (email: string, password: string) => {
+    console.log('Login:', email, password)
+    setIsAuthenticated(true)
+    setUserName(email.split('@')[0])
+    localStorage.setItem('token', 'fake-token')
+    localStorage.setItem('userName', email.split('@')[0])
+  }
+
+  const handleRegister = async (email: string, password: string, name: string) => {
+    console.log('Register:', email, password, name)
+    setIsAuthenticated(true)
+    setUserName(name || email.split('@')[0])
+    localStorage.setItem('token', 'fake-token')
+    localStorage.setItem('userName', name || email.split('@')[0])
+  }
+
+  const handleLogout = () => {
+    setIsAuthenticated(false)
+    setUserName('')
+    localStorage.removeItem('token')
+    localStorage.removeItem('userName')
+  }
 
   const handleSaveProfile = (p: SkinProfile) => {
     setProfile(p)
@@ -68,6 +108,7 @@ export default function Page() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(isAuthenticated && { Authorization: `Bearer ${localStorage.getItem('token')}` }),
         },
         body: JSON.stringify({
           product_name: product,
@@ -117,6 +158,10 @@ export default function Page() {
   }
 
   const handleGoToProfile = () => {
+    if (!isAuthenticated) {
+      setIsAuthModalOpen(true)
+      return
+    }
     setTab('profile')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -229,6 +274,14 @@ export default function Page() {
           }}
         />
       </div>
+
+      {/* === МОДАЛКА АВТОРИЗАЦИИ === */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+      />
 
       {pendingTab && (
         <>
