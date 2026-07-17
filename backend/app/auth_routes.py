@@ -217,7 +217,32 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             created_at=user["created_at"]
         )
     }
-
+@router.get("/google/callback")
+async def google_callback(request: Request):
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        user_info = token.get('userinfo')
+        
+        if not user_info:
+            raise HTTPException(status_code=400, detail="Could not get user info")
+        
+        email = user_info.get('email')
+        name = user_info.get('name', email.split('@')[0])
+        
+        user = get_user_by_email(email)
+        if not user:
+            user_id = create_user_oauth(email, name)
+            user = get_user_by_email(email)
+        
+        access_token = create_access_token(data={"sub": str(user['id'])})
+        
+        # РЕДИРЕКТ НА ФРОНТЕНД С ТОКЕНОМ
+        redirect_url = f"http://aidermy.ru?token={access_token}"
+        return RedirectResponse(url=redirect_url)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 # === ТЕКУЩИЙ ПОЛЬЗОВАТЕЛЬ ===
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
