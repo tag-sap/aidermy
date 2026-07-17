@@ -112,7 +112,8 @@ async def google_callback(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 # === РЕГИСТРАЦИЯ С ОТПРАВКОЙ ПИСЬМА ===
-@router.post("/register", response_model=TokenResponse)
+# === РЕГИСТРАЦИЯ С ВЕРИФИКАЦИЕЙ ===
+@router.post("/register")
 async def register(user_data: UserRegister):
     existing = get_user_by_email(user_data.email)
     if existing:
@@ -127,11 +128,9 @@ async def register(user_data: UserRegister):
         name=user_data.name
     )
     
-    user = get_user_by_email(user_data.email)
-    access_token = create_access_token(data={"sub": str(user_id)})
-    
     # === ОТПРАВКА ПИСЬМА ===
     try:
+        import yagmail
         yag = yagmail.SMTP(
             user=os.getenv('EMAIL_USER'),
             password=os.getenv('EMAIL_PASSWORD'),
@@ -154,21 +153,11 @@ async def register(user_data: UserRegister):
         print(f"✅ Письмо отправлено на {user_data.email}")
     except Exception as e:
         print(f"❌ Ошибка отправки письма: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка отправки письма. Попробуйте позже.")
     
     return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": UserResponse(
-            id=user["id"],
-            email=user["email"],
-            name=user["name"] or "",
-            skin_type=user.get("skin_type"),
-            age=user.get("age"),
-            concerns=user.get("concerns", "").split(",") if user.get("concerns") else [],
-            allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
-            custom_text=user.get("custom_text"),
-            created_at=user["created_at"]
-        )
+        "message": "Письмо с подтверждением отправлено на ваш email. Перейдите по ссылке, чтобы активировать аккаунт.",
+        "email": user_data.email
     }
 
 # === ВЕРИФИКАЦИЯ ===
