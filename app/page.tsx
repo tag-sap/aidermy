@@ -45,11 +45,34 @@ export default function Page() {
 
   // Проверяем токен при загрузке
   useEffect(() => {
+    // Проверка токена из localStorage
     const token = localStorage.getItem('token')
     if (token) {
       setIsAuthenticated(true)
       const savedName = localStorage.getItem('userName')
       if (savedName) setUserName(savedName)
+    }
+
+    // Обработка токена из URL (Google OAuth)
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlToken = urlParams.get('token')
+    if (urlToken) {
+      localStorage.setItem('token', urlToken)
+      setIsAuthenticated(true)
+      fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${urlToken}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          const name = data.name || 'Пользователь'
+          setUserName(name)
+          localStorage.setItem('userName', name)
+        })
+        .catch(() => {
+          setUserName('Пользователь')
+          localStorage.setItem('userName', 'Пользователь')
+        })
+      window.history.replaceState({}, '', '/')
     }
   }, [])
 
