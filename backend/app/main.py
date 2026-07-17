@@ -35,3 +35,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "deepseek": "connected" if DEEPSEEK_API_KEY else "missing"}
