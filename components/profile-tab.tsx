@@ -10,7 +10,8 @@ import type { SkinProfile } from '@/lib/store'
 interface ProfileTabProps {
   profile: SkinProfile
   onSave: (p: SkinProfile) => void
-  onDirtyChange?: (dirty: boolean) => void
+  onDirtyChange: (dirty: boolean) => void
+  onStartQuiz?: () => void  // ← ДОБАВИТЬ
 }
 
 export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTabProps>(
@@ -263,11 +264,10 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
               type="button"
               onClick={handleSave}
               disabled={!hasChanges || saved}
-              className={`flex-1 flex items-center justify-center gap-2 rounded-md px-6 py-3 font-bold uppercase tracking-wider transition-all ${
-                !hasChanges || saved
+              className={`flex-1 flex items-center justify-center gap-2 rounded-md px-6 py-3 font-bold uppercase tracking-wider transition-all ${!hasChanges || saved
                   ? 'bg-transparent text-primary hover:bg-transparent hover:shadow-none cursor-default'
                   : 'bg-primary text-primary-foreground hover:shadow-[0_0_28px_rgba(255,79,0,0.5)] active:scale-[0.97]'
-              }`}
+                }`}
             >
               {saved || !hasChanges ? (
                 <>
