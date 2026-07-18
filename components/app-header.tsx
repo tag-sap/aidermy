@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { User, X, LogOut, Settings, Heart, History } from 'lucide-react'
+import { User, X, LogOut, Settings, Heart, History, LogIn } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
 
 interface AppHeaderProps {
@@ -70,23 +70,10 @@ export function AppHeader({
             <button
               type="button"
               onClick={onAuth}
-              className={`flex items-center justify-center rounded-md border border-primary/20 bg-white/5 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10 ${isCentered ? 'flex-col px-1.5 py-1.5 text-[11px] leading-none' : ''
-                }`}
+              className="flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
+              aria-label="Войти"
             >
-              {isCentered ? (
-                <>
-                  <span>В</span>
-                  <span>о</span>
-                  <span>й</span>
-                  <span>т</span>
-                  <span>и</span>
-                </>
-              ) : (
-                <>
-                  <User className="size-4 mr-1.5" />
-                  Войти
-                </>
-              )}
+              <LogIn className="size-5" />
             </button>
           )}
         </div>
