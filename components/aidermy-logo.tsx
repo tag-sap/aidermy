@@ -6,13 +6,9 @@ interface AidermyLogoProps {
 
 export function AidermyLogo({ isCompact = false }: AidermyLogoProps) {
   return (
-    <div className={`logo-enter flex flex-col items-center transition-all duration-300 ${
-      isCompact ? 'scale-75 origin-top-left' : ''
-    }`}>
+    <div className="logo-enter flex flex-col items-center transition-all duration-500">
       <span className="logo-shell">
-        <span className={`logo-metallic font-black tracking-[0.12em] select-none ${
-          isCompact ? 'text-2xl' : 'text-5xl'
-        }`}>
+        <span className="logo-metallic text-5xl font-black tracking-[0.12em] select-none">
           AIDERMY
         </span>
       </span>

@@ -42,25 +42,15 @@ export function AppHeader({
           overlapWithContent = logoRect.bottom > contentRect.top + 10
         }
 
-        // Также проверяем перекрытие с таббаром (если он есть)
-        const tabBar = document.querySelector('nav')
-        let overlapWithTabBar = false
-        if (tabBar) {
-          const tabBarRect = tabBar.getBoundingClientRect()
-          overlapWithTabBar = logoRect.bottom > tabBarRect.top - 10
-        }
-
-        setIsCompact(overlapWithButtons || overlapWithContent || overlapWithTabBar)
+        const shouldBeCompact = overlapWithButtons || overlapWithContent
+        setIsCompact(shouldBeCompact)
       }
     }
 
     checkOverlap()
     window.addEventListener('resize', checkOverlap)
     window.addEventListener('scroll', checkOverlap)
-
-    // Проверяем при загрузке и через таймауты
     setTimeout(checkOverlap, 500)
-    setTimeout(checkOverlap, 1000)
 
     return () => {
       window.removeEventListener('resize', checkOverlap)
@@ -81,7 +71,7 @@ export function AppHeader({
       <header className="relative z-20 flex w-full flex-col items-center pt-6 pb-1 md:fixed md:left-6 md:top-4 md:z-30 md:w-auto md:pt-0">
         <div
           ref={logoRef}
-          className={`md:order-1 transition-all duration-500 ${isCompact ? 'transform -rotate-90 scale-75 origin-center' : ''
+          className={`md:order-1 transition-all duration-500 ${isCompact ? 'transform -rotate-90 origin-center' : ''
             }`}
         >
           <AidermyLogo isCompact={isCompact} />
