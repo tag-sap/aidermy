@@ -192,3 +192,11 @@ def get_product_by_slug(slug: str):
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+def product_exists_in_products_db(product_name: str) -> bool:
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM products WHERE name = ?", (product_name,))
+    exists = cursor.fetchone() is not None
+    conn.close()
+    return exists

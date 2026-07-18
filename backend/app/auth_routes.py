@@ -8,7 +8,7 @@ from authlib.integrations.starlette_client import OAuth
 import yagmail
 import os
 
-from .database import get_connection, AIDERMY_DB
+from .database import get_connection, AIDERMY_DB, PRODUCTS_DB
 from .auth import (
     get_user_by_email,
     create_user,
@@ -21,6 +21,7 @@ from .auth import (
     verify_user,
     resend_verification,
 )
+from .services import generate_slug
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -68,6 +69,10 @@ class TokenResponse(BaseModel):
     token_type: str
     user: UserResponse
 
+class PendingProductRequest(BaseModel):
+    product_name: str
+    ingredients: str
+
 # === GOOGLE OAuth ===
 @router.get("/google")
 async def google_login(request: Request):
@@ -93,14 +98,13 @@ async def google_callback(request: Request):
         
         access_token = create_access_token(data={"sub": str(user['id'])})
         
-        # РЕДИРЕКТ НА ФРОНТЕНД С ТОКЕНОМ
         redirect_url = f"http://aidermy.ru?token={access_token}"
         return RedirectResponse(url=redirect_url)
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# === РЕГИСТРАЦИЯ С ВЕРИФИКАЦИЕЙ ===
+# === РЕГИСТРАЦИЯ ===
 @router.post("/register")
 async def register(user_data: UserRegister):
     existing = get_user_by_email(user_data.email)
@@ -118,7 +122,6 @@ async def register(user_data: UserRegister):
     
     # === ОТПРАВКА ПИСЬМА ===
     try:
-        import yagmail
         yag = yagmail.SMTP(
             user=os.getenv('EMAIL_USER'),
             password=os.getenv('EMAIL_PASSWORD'),
@@ -220,3 +223,143 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         custom_text=current_user.get("custom_text"),
         created_at=current_user["created_at"]
     )
+
+# === ФУНКЦИЯ ДЛЯ PENDING ===
+def save_pending_product(product_name: str, ingredients: str, user_id: int = None):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    
+    slug = generate_slug(product_name)
+    
+    cursor.execute("SELECT id FROM pending_products WHERE product_name = ? AND status = 'pending'", (product_name,))
+    existing = cursor.fetchone()
+    
+    if existing:
+        conn.close()
+        return existing['id']
+    
+    cursor.execute('''
+        INSERT INTO pending_products (product_name, ingredients, slug, user_id, created_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ''', (product_name, ingredients, slug, user_id))
+    
+    conn.commit()
+    product_id = cursor.lastrowid
+    conn.close()
+    return product_id
+
+# === ПОЛЬЗОВАТЕЛЬ ОТПРАВЛЯЕТ ПРОДУКТ ===
+@router.post("/submit-product")
+async def submit_product(
+    product_data: PendingProductRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    # Проверяем, есть ли продукт в основной базе
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM products WHERE name = ?", (product_data.product_name,))
+    exists = cursor.fetchone()
+    conn.close()
+    
+    if exists:
+        raise HTTPException(
+            status_code=400,
+            detail="Этот продукт уже есть в базе"
+        )
+    
+    pending_id = save_pending_product(
+        product_name=product_data.product_name,
+        ingredients=product_data.ingredients,
+        user_id=current_user['id']
+    )
+    
+    return {
+        "message": "Продукт отправлен на модерацию. Спасибо за вклад! 🙌",
+        "pending_id": pending_id
+    }
+
+# === АДМИН: СПИСОК ПРОДУКТОВ НА МОДЕРАЦИЮ ===
+@router.get("/admin/pending-products")
+async def get_pending_products(current_user: dict = Depends(get_current_user)):
+    # Проверяем, что это админ (по email)
+    if current_user['email'] != 'assassin30rus@gmail.com':
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
+    
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT p.*, u.email as user_email 
+        FROM pending_products p
+        LEFT JOIN users u ON p.user_id = u.id
+        WHERE p.status = 'pending'
+        ORDER BY p.created_at DESC
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return {"products": [dict(row) for row in rows]}
+
+# === АДМИН: ОДОБРИТЬ ===
+@router.post("/admin/approve-product/{product_id}")
+async def approve_product(
+    product_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user['email'] != 'assassin30rus@gmail.com':
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
+    
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM pending_products WHERE id = ? AND status = 'pending'", (product_id,))
+    pending = cursor.fetchone()
+    
+    if not pending:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Продукт не найден или уже обработан")
+    
+    # Добавляем в основную базу
+    conn_products = get_connection(PRODUCTS_DB)
+    cursor_products = conn_products.cursor()
+    cursor_products.execute('''
+        INSERT INTO products (name, ingredients, slug, saved_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    ''', (pending['product_name'], pending['ingredients'], pending['slug']))
+    conn_products.commit()
+    conn_products.close()
+    
+    cursor.execute('''
+        UPDATE pending_products 
+        SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ''', (product_id,))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "Продукт одобрен и добавлен в базу! ✅"}
+
+# === АДМИН: ОТКЛОНИТЬ ===
+@router.post("/admin/reject-product/{product_id}")
+async def reject_product(
+    product_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user['email'] != 'assassin30rus@gmail.com':
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
+    
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE pending_products 
+        SET status = 'rejected', reviewed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ''', (product_id,))
+    
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Продукт не найден")
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": "Продукт отклонён ❌"}
