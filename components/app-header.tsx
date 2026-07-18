@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { User, X, LogOut, Settings, Heart, History } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
 
@@ -22,23 +22,14 @@ export function AppHeader({
   const [showHelp, setShowHelp] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [isCompact, setIsCompact] = useState(false)
-  const logoRef = useRef<HTMLDivElement>(null)
-  const buttonsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const checkOverlap = () => {
-      if (logoRef.current && buttonsRef.current) {
-        const logoRect = logoRef.current.getBoundingClientRect()
-        const buttonsRect = buttonsRef.current.getBoundingClientRect()
-        const overlap = logoRect.right > buttonsRect.left - 10
-        setIsCompact(overlap)
-      }
+    const checkCompact = () => {
+      setIsCompact(window.innerWidth < 500)
     }
-    
-    checkOverlap()
-    window.addEventListener('resize', checkOverlap)
-    setTimeout(checkOverlap, 500)
-    return () => window.removeEventListener('resize', checkOverlap)
+    checkCompact()
+    window.addEventListener('resize', checkCompact)
+    return () => window.removeEventListener('resize', checkCompact)
   }, [])
 
   const handleProfileClick = () => {
@@ -51,20 +42,12 @@ export function AppHeader({
 
   return (
     <>
-      <header className="relative z-20 flex w-full flex-col items-center pt-6 pb-1 md:fixed md:left-6 md:top-4 md:z-30 md:w-auto md:pt-0">
-        <div 
-          ref={logoRef}
-          className={`md:order-1 transition-all duration-500 ${
-            isCompact ? 'transform -rotate-90 origin-center' : ''
-          }`}
-        >
+      <header className="relative z-20 flex w-full flex-col items-center pt-4 pb-1 md:fixed md:left-6 md:top-4 md:z-30 md:w-auto md:pt-0">
+        <div className={`md:order-1 transition-all duration-300 ${isCompact ? 'scale-75 origin-top' : ''}`}>
           <AidermyLogo isCompact={isCompact} />
         </div>
 
-        <div 
-          ref={buttonsRef}
-          className="absolute right-4 top-3 flex items-center gap-2 md:fixed md:right-6 md:top-4 md:z-40"
-        >
+        <div className="absolute right-4 top-3 flex items-center gap-2 md:fixed md:right-6 md:top-4 md:z-40">
           <button
             type="button"
             aria-label="Помощь"
