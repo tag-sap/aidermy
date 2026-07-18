@@ -14,17 +14,27 @@ const TABS: { id: TabId; label: string; icon: typeof ScanLine }[] = [
 export function TabBar({
   active,
   onChange,
+  isAuthenticated = false,
 }: {
   active: TabId
   onChange: (id: TabId) => void
+  isAuthenticated?: boolean
 }) {
+  // Фильтруем вкладки - показываем профиль только авторизованным
+  const visibleTabs = TABS.filter(tab => {
+    if (tab.id === 'profile' && !isAuthenticated) {
+      return false
+    }
+    return true
+  })
+
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md"
       aria-label="Основная навигация"
     >
       <div className="panel-strong m-3 flex items-center justify-around rounded-lg px-2 py-2 backdrop-blur-xl">
-        {TABS.map(({ id, label, icon: Icon }) => {
+        {visibleTabs.map(({ id, label, icon: Icon }) => {
           const isActive = active === id
           return (
             <button
@@ -38,7 +48,7 @@ export function TabBar({
               )}
             >
               <Icon
-                className={cn('size-5', isActive && 'drop-shadow-[0_0_8px_rgba(255,184,0,0.6)]')}
+                className={cn('size-5', isActive && 'drop-shadow-[0_0_8px_rgba(255,79,0,0.6)]')}
                 strokeWidth={2}
               />
               <span className="text-[11px] font-medium">{label}</span>

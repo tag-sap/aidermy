@@ -230,6 +230,12 @@ export default function Page() {
   const handleTabChange = (newTab: TabId) => {
     if (newTab === tab) return
 
+    // Запрещаем доступ к профилю без авторизации
+    if (newTab === 'profile' && !isAuthenticated) {
+      setIsAuthModalOpen(true)
+      return
+    }
+
     if (profileDirty && tab === 'profile') {
       setPendingTab(newTab)
       return
@@ -328,7 +334,11 @@ export default function Page() {
           </div>
         </main>
 
-        <TabBar active={tab} onChange={handleTabChange} />
+        <TabBar
+          active={tab}
+          onChange={handleTabChange}
+          isAuthenticated={isAuthenticated}
+        />
 
         <ResultSheet
           isOpen={isSheetOpen}
