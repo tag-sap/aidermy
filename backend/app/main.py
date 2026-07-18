@@ -119,12 +119,11 @@ async def check_with_ingredients(request: CheckWithIngredientsRequest):
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
 
 # === АДМИН-ПАНЕЛЬ ===
-# Защита HTTP Basic Auth
 security = HTTPBasic()
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = "admin"
-    correct_password = "aidermy2026"  # Поменяй на свой пароль!
+    correct_password = "Yecgaa_1999"
     
     if credentials.username != correct_username or credentials.password != correct_password:
         raise HTTPException(
@@ -136,10 +135,27 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(_: bool = Depends(verify_admin)):
-    # Получаем данные
     history = get_all_check_history(limit=100)
     ingredients = get_all_ingredients()
     stats = get_check_stats()
+    
+    # === Получаем pending продукты ===
+    pending = []
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT p.*, u.email as user_email 
+            FROM pending_products p
+            LEFT JOIN users u ON p.user_id = u.id
+            WHERE p.status = 'pending'
+            ORDER BY p.created_at DESC
+            LIMIT 50
+        ''')
+        pending = cursor.fetchall()
+        conn.close()
+    except:
+        pass
     
     html = f"""
     <!DOCTYPE html>
@@ -202,6 +218,16 @@ async def admin_panel(_: bool = Depends(verify_admin)):
                 box-shadow: 0 2px 8px rgba(0,0,0,0.08);
                 margin-bottom: 30px;
             }}
+            .table-header {{
+                padding: 16px 20px;
+                background: #FFF3E0;
+                border-bottom: 2px solid #FF4F00;
+                font-weight: 600;
+                color: #FF4F00;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }}
             table {{
                 width: 100%;
                 border-collapse: collapse;
@@ -230,6 +256,31 @@ async def admin_panel(_: bool = Depends(verify_admin)):
                 font-weight: 600;
                 display: inline-block;
             }}
+            .btn-approve {{
+                background: #4CAF50;
+                color: white;
+                border: none;
+                padding: 4px 12px;
+                border-radius: 4px;
+                cursor: pointer;
+                margin-right: 4px;
+                font-size: 14px;
+            }}
+            .btn-approve:hover {{
+                opacity: 0.8;
+            }}
+            .btn-reject {{
+                background: #f44336;
+                color: white;
+                border: none;
+                padding: 4px 12px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+            }}
+            .btn-reject:hover {{
+                opacity: 0.8;
+            }}
             .footer {{
                 text-align: center;
                 color: #999;
@@ -248,6 +299,11 @@ async def admin_panel(_: bool = Depends(verify_admin)):
             }}
             .refresh-btn:hover {{
                 opacity: 0.9;
+            }}
+            .empty-state {{
+                text-align: center;
+                padding: 30px;
+                color: #999;
             }}
             @media (max-width: 600px) {{
                 .stats-grid {{
@@ -285,7 +341,57 @@ async def admin_panel(_: bool = Depends(verify_admin)):
                 </div>
             </div>
 
+            <!-- === ПРОДУКТЫ НА МОДЕРАЦИЮ === -->
             <div class="table-wrap">
+                <div class="table-header">
+                    <span>📦 Продукты на модерацию ({len(pending)})</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Название</th>
+                            <th>Состав</th>
+                            <th>Отправил</th>
+                            <th>Дата</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    """
+    
+    if pending:
+        for p in pending:
+            html += f"""
+                        <tr>
+                            <td>{p['id']}</td>
+                            <td><strong>{p['product_name']}</strong></td>
+                            <td style="font-size: 12px; max-width: 200px; word-break: break-word;">{p['ingredients'][:80]}{'...' if len(p['ingredients']) > 80 else ''}</td>
+                            <td>{p.get('user_email', 'Аноним')}</td>
+                            <td style="font-size: 12px;">{p['created_at']}</td>
+                            <td>
+                                <button class="btn-approve" onclick="approve({p['id']})">✅ Одобрить</button>
+                                <button class="btn-reject" onclick="reject({p['id']})">❌ Отклонить</button>
+                            </td>
+                        </tr>
+            """
+    else:
+        html += """
+                        <tr>
+                            <td colspan="6" class="empty-state">🎉 Нет продуктов на модерацию</td>
+                        </tr>
+    """
+    
+    html += """
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- === ИСТОРИЯ ПРОВЕРОК === -->
+            <div class="table-wrap">
+                <div class="table-header">
+                    <span>📋 История проверок</span>
+                </div>
                 <table>
                     <thead>
                         <tr>
@@ -320,9 +426,34 @@ async def admin_panel(_: bool = Depends(verify_admin)):
             </div>
             
             <div class="footer">
-                <p>🟢 База данных работает · Показано последних {len(history)} проверок</p>
+                <p>🟢 База данных работает · Показано последних 50 проверок</p>
             </div>
         </div>
+
+        <script>
+        function approve(id) {
+            if (confirm('Одобрить этот продукт?')) {
+                fetch('/api/admin/approve-product/' + id, { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        alert(data.message || '✅ Одобрено!');
+                        location.reload();
+                    })
+                    .catch(() => alert('Ошибка'));
+            }
+        }
+        function reject(id) {
+            if (confirm('Отклонить этот продукт?')) {
+                fetch('/api/admin/reject-product/' + id, { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        alert(data.message || '❌ Отклонено!');
+                        location.reload();
+                    })
+                    .catch(() => alert('Ошибка'));
+            }
+        }
+        </script>
     </body>
     </html>
     """
