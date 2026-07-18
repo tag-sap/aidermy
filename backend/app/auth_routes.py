@@ -254,7 +254,6 @@ async def submit_product(
     product_data: PendingProductRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    # Проверяем, есть ли продукт в основной базе
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM products WHERE name = ?", (product_data.product_name,))
@@ -278,10 +277,9 @@ async def submit_product(
         "pending_id": pending_id
     }
 
-# === АДМИН: СПИСОК ПРОДУКТОВ НА МОДЕРАЦИЮ ===
+# === АДМИН: СПИСОК PENDING ===
 @router.get("/admin/pending-products")
 async def get_pending_products(current_user: dict = Depends(get_current_user)):
-    # Проверяем, что это админ (по email)
     if current_user['email'] != 'assassin30rus@gmail.com':
         raise HTTPException(status_code=403, detail="Доступ запрещён")
     
@@ -317,7 +315,6 @@ async def approve_product(
         conn.close()
         raise HTTPException(status_code=404, detail="Продукт не найден или уже обработан")
     
-    # Добавляем в основную базу
     conn_products = get_connection(PRODUCTS_DB)
     cursor_products = conn_products.cursor()
     cursor_products.execute('''

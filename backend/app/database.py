@@ -3,8 +3,8 @@ import os
 from datetime import datetime
 
 # === ДВЕ БАЗЫ ===
-AIDERMY_DB = os.path.join(os.path.dirname(__file__), '..', 'aidermy.db')  # история проверок + ручные составы
-PRODUCTS_DB = os.path.join(os.path.dirname(__file__), '..', 'products.db')  # основная база продуктов
+AIDERMY_DB = os.path.join(os.path.dirname(__file__), '..', 'aidermy.db')
+PRODUCTS_DB = os.path.join(os.path.dirname(__file__), '..', 'products.db')
 
 def get_connection(db_path=None):
     if db_path is None:
@@ -37,7 +37,22 @@ def init_db():
             summary TEXT NOT NULL,
             ingredients TEXT DEFAULT '',
             slug TEXT,
+            user_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pending_products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_name TEXT NOT NULL,
+            ingredients TEXT NOT NULL,
+            slug TEXT,
+            user_id INTEGER REFERENCES users(id),
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            reviewed_at TIMESTAMP,
+            review_notes TEXT
         )
     ''')
     
@@ -47,11 +62,8 @@ def init_db():
         cursor.execute('ALTER TABLE check_history ADD COLUMN ingredients TEXT DEFAULT ""')
     if 'slug' not in columns:
         cursor.execute('ALTER TABLE check_history ADD COLUMN slug TEXT')
-    
-    cursor.execute("PRAGMA table_info(ingredients)")
-    columns = [col[1] for col in cursor.fetchall()]
-    if 'slug' not in columns:
-        cursor.execute('ALTER TABLE ingredients ADD COLUMN slug TEXT')
+    if 'user_id' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN user_id INTEGER')
     
     conn.commit()
     conn.close()
@@ -73,10 +85,9 @@ def init_db():
     conn.commit()
     conn.close()
     
-    print("Databases initialized")
+    print("✅ Базы данных инициализированы")
 
-# === РАБОТА С ИСТОРИЕЙ (aidermy.db) ===
-
+# === РАБОТА С ИСТОРИЕЙ ===
 def save_check_result(product_name: str, skin_type: str, score: int, verdict: str, summary: str, ingredients: str = "", slug: str = None):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
@@ -86,7 +97,7 @@ def save_check_result(product_name: str, skin_type: str, score: int, verdict: st
     ''', (product_name, skin_type, score, verdict, summary, ingredients, slug))
     conn.commit()
     conn.close()
-    print(f"Check saved: {product_name} - {score}%")
+    print(f"📊 Проверка сохранена: {product_name} — {score}%")
 
 def get_all_check_history(limit: int = 100):
     conn = get_connection(AIDERMY_DB)
@@ -116,8 +127,7 @@ def get_check_stats():
         'avg_score': round(avg, 1)
     }
 
-# === РАБОТА С РУЧНЫМИ СОСТАВАМИ (aidermy.db) ===
-
+# === РАБОТА С ИНГРЕДИЕНТАМИ ===
 def save_ingredients(product_name: str, ingredients: str, slug: str = None):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
@@ -127,8 +137,8 @@ def save_ingredients(product_name: str, ingredients: str, slug: str = None):
     ''', (product_name.lower().strip(), ingredients, slug))
     conn.commit()
     conn.close()
-    print(f"Ingredients saved: {product_name}")
-    
+    print(f"💾 Состав сохранён в БД: {product_name}")
+
 def get_ingredients(product_name: str) -> str | None:
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
@@ -150,10 +160,8 @@ def get_all_ingredients():
     conn.close()
     return [dict(row) for row in rows]
 
-# === ГЛАВНАЯ ФУНКЦИЯ ПОИСКА ПРОДУКТОВ (products.db) ===
-
+# === ПОИСК ПРОДУКТОВ ===
 def search_products(query: str, limit: int = 10):
-    """Поиск продуктов с возвратом slug"""
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     cursor.execute('''
@@ -165,6 +173,7 @@ def search_products(query: str, limit: int = 10):
     rows = cursor.fetchall()
     conn.close()
     return [{'name': row['name'], 'slug': row['slug']} for row in rows]
+
 def get_all_products(limit: int = 100):
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()

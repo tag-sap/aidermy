@@ -68,6 +68,29 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     
     return dict(user)
 
+# === ПОЛУЧЕНИЕ ПОЛЬЗОВАТЕЛЯ ПО ТОКЕНУ (без Depends) ===
+async def get_current_user_from_token(token: str):
+    try:
+        payload = decode_access_token(token)
+        if payload is None:
+            return None
+        user_id = payload.get("sub")
+        if user_id is None:
+            return None
+        
+        conn = get_connection(AIDERMY_DB)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        user = cursor.fetchone()
+        conn.close()
+        
+        if user is None:
+            return None
+        
+        return dict(user)
+    except:
+        return None
+
 # === РАБОТА С ПОЛЬЗОВАТЕЛЯМИ ===
 def get_user_by_email(email: str):
     conn = get_connection(AIDERMY_DB)
