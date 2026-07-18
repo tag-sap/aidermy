@@ -164,12 +164,17 @@ def get_all_ingredients():
 def search_products(query: str, limit: int = 10):
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
+    
+    # Очищаем запрос: убираем пробелы, переносы, лишние символы
+    clean_query = ''.join(query.split()).lower()
+    
     cursor.execute('''
         SELECT DISTINCT name, slug FROM products
-        WHERE name LIKE ?
+        WHERE LOWER(REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '')) LIKE ?
         ORDER BY name
         LIMIT ?
-    ''', (f'%{query.lower().strip()}%', limit))
+    ''', (f'%{clean_query}%', limit))
+    
     rows = cursor.fetchall()
     conn.close()
     return [{'name': row['name'], 'slug': row['slug']} for row in rows]
