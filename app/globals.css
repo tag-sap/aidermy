@@ -111,6 +111,38 @@
   font-display: swap;
 }
 
+body,
+button,
+input,
+textarea,
+select,
+.chip,
+.tab,
+.panel,
+.glass,
+p,
+span,
+div {
+  font-family: 'Gerhaus-Regular', sans-serif;
+  text-transform: uppercase;
+}
+
+/* Для заголовков - можно оставить или убрать uppercase */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: 'Gerhaus-Regular', sans-serif;
+  text-transform: uppercase;
+}
+
+/* Исключения - где нужны строчные буквы */
+.lowercase-text {
+  text-transform: none !important;
+}
+
 @keyframes bubble-float {
 
   0%,
