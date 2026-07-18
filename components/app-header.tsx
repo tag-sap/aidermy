@@ -174,7 +174,7 @@ export function AppHeader({
             </p>
             <div className="flex flex-col gap-2">
               <a
-                href="https://t.me/your_telegram"
+                href="https://t.me/aidermy_news"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
@@ -183,7 +183,7 @@ export function AppHeader({
                 Telegram
               </a>
               <a
-                href="mailto:your@email.com"
+                href="mailto:lyr.ami.tag@gmail.com"
                 className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
               >
                 <span className="text-base">✉️</span>
