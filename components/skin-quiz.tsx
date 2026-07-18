@@ -252,4 +252,3 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
         </div>
     )
 }
-EOF
