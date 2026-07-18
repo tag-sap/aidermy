@@ -230,7 +230,7 @@ async def admin_panel(_: bool = Depends(verify_admin)):
                             <td>{p['id']}</td>
                             <td><strong>{p['product_name']}</strong></td>
                             <td style="font-size: 12px; max-width: 200px; word-break: break-word;">{p['ingredients'][:80]}{'...' if len(p['ingredients']) > 80 else ''}</td>
-                            <td>{p.get('user_email', 'Аноним')}</td>
+                            <td>{p['user_email'] if p['user_email'] else 'Аноним'}</td>
                             <td style="font-size: 12px;">{p['created_at']}</td>
                             <td>
                                 <button class="btn-approve" onclick="approve({p['id']})">✅</button>
