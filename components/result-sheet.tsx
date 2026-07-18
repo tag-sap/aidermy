@@ -6,8 +6,8 @@ import { ScrambleText } from '@/components/scramble-text'
 import type { CheckResult, SkinProfile } from '@/lib/store'
 
 function ScoreRing({ score }: { score: number }) {
-  const size = 160
-  const stroke = 12
+  const size = 140
+  const stroke = 10
   const radius = (size - stroke) / 2
   const circumference = 2 * Math.PI * radius
   const [progress, setProgress] = useState(0)
@@ -23,7 +23,7 @@ function ScoreRing({ score }: { score: number }) {
   const glowColor = score >= 70 ? 'rgba(255,79,0,0.4)' : 'rgba(255,122,58,0.4)'
 
   return (
-    <div className="relative" style={{ width: size, height: size }}>
+    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
         <circle
           cx={size / 2}
@@ -50,8 +50,8 @@ function ScoreRing({ score }: { score: number }) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-4xl font-bold text-gray-900">{score}%</span>
-        <span className="text-xs text-gray-500">совместимость</span>
+        <span className="text-3xl font-bold text-gray-900">{score}%</span>
+        <span className="text-[10px] text-gray-500">совместимость</span>
       </div>
     </div>
   )
@@ -146,7 +146,6 @@ export function ResultSheet({
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
 
-  // === ГЕНЕРИРУЕМ ССЫЛКУ НА КАРТИНКУ ===
   const imageUrl = result?.slug
     ? `https://incidecoder-content.storage.googleapis.com/ff5a28f7-5a15-4a94-8424-bc82e7e01943/products/${result.slug}/${result.slug}_front_photo_original.jpeg`
     : null
@@ -165,7 +164,7 @@ export function ResultSheet({
       />
 
       <div
-        className={`relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl transition-all duration-300 ${isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        className={`relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl transition-all duration-300 max-h-[90vh] overflow-y-auto ${isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
           }`}
         style={{
           transform: isVisible ? 'scale(1)' : 'scale(0.92)',
@@ -178,7 +177,7 @@ export function ResultSheet({
           type="button"
           onClick={handleClose}
           aria-label="Закрыть"
-          className="absolute right-4 top-4 text-gray-400 transition-colors hover:text-gray-900"
+          className="absolute right-3 top-3 text-gray-400 transition-colors hover:text-gray-900 z-10"
         >
           <X className="size-5" />
         </button>
@@ -192,23 +191,23 @@ export function ResultSheet({
             <p className="text-sm text-gray-500">AI анализирует состав…</p>
           </div>
         ) : result ? (
-          <div className="flex flex-col items-center gap-5">
+          <div className="flex flex-col items-center gap-4">
             <div className="text-center">
-              <p className="text-xs uppercase tracking-widest text-gray-400">
+              <p className="text-[10px] uppercase tracking-widest text-gray-400">
                 Результат проверки
               </p>
               <ScrambleText
                 as="h2"
                 text={result.product}
                 revealDelay={45}
-                className="mt-1 block text-2xl font-bold text-gray-900"
+                className="mt-1 block text-xl font-bold text-gray-900"
               />
             </div>
 
             {/* === КАРТИНКА ПРОДУКТА === */}
             {imageUrl && (
               <div className="w-full flex justify-center">
-                <div className="w-32 h-32 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200">
+                <div className="w-24 h-24 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200 flex-shrink-0">
                   <img
                     src={imageUrl}
                     alt={result.product}
@@ -223,7 +222,7 @@ export function ResultSheet({
                     </div>
                   )}
                   {imageError && (
-                    <span className="text-6xl">🧴</span>
+                    <span className="text-4xl">🧴</span>
                   )}
                 </div>
               </div>
@@ -231,13 +230,13 @@ export function ResultSheet({
 
             <ScoreRing score={result.score} />
 
-            <div className="w-full rounded-xl bg-orange-50/60 p-4 text-center border border-orange-200/50">
+            <div className="w-full rounded-xl bg-orange-50/60 p-3 text-center border border-orange-200/50">
               <ScrambleText
                 as="p"
                 text={result.verdict}
                 startDelay={200}
                 revealDelay={40}
-                className="block text-lg font-bold text-orange-600"
+                className="block text-base font-bold text-orange-600"
               />
               <ScrambleText
                 as="p"
@@ -245,51 +244,51 @@ export function ResultSheet({
                 startDelay={400}
                 speed={20}
                 revealDelay={14}
-                className="mt-2 block text-sm leading-relaxed text-gray-700"
+                className="mt-1 block text-sm leading-relaxed text-gray-700"
               />
             </div>
 
             {showIngredientsInput && (
-              <div className="w-full mt-2">
-                <p className="text-sm text-gray-500">
-                  Уточните название продукта и введите его состав (INCI):
+              <div className="w-full">
+                <p className="text-xs text-gray-500 mb-1">
+                  Уточните название и введите состав (INCI):
                 </p>
                 <input
                   type="text"
                   value={productNameInput}
                   onChange={(e) => setProductNameInput(e.target.value)}
-                  placeholder="Название продукта (например: Сыворотка с витамином C)"
-                  className="w-full rounded-md border border-gray-300 p-2 mt-2 text-sm focus:border-orange-500 focus:outline-none"
+                  placeholder="Название продукта"
+                  className="w-full rounded-md border border-gray-300 p-2 text-sm focus:border-orange-500 focus:outline-none"
                 />
                 <textarea
                   value={ingredientsInput}
                   onChange={(e) => setIngredientsInput(e.target.value)}
                   placeholder="Aqua, Glycerin, Cetearyl Alcohol..."
-                  className="w-full rounded-md border border-gray-300 p-2 mt-2 text-sm focus:border-orange-500 focus:outline-none"
+                  className="w-full rounded-md border border-gray-300 p-2 mt-1 text-sm focus:border-orange-500 focus:outline-none"
                   rows={2}
                 />
                 <button
                   onClick={handleCheckWithIngredients}
                   disabled={!ingredientsInput.trim() || isCheckingIngredients}
-                  className="w-full rounded-md bg-primary py-2.5 mt-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                  className="w-full rounded-md bg-primary py-2 mt-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
                 >
                   {isCheckingIngredients ? 'Анализируем...' : 'Отправить'}
                 </button>
               </div>
             )}
 
-            <div className="flex w-full gap-3">
+            <div className="flex w-full gap-2 sticky bottom-0 bg-white pt-2">
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex-1 rounded-md border border-gray-200 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                className="flex-1 rounded-md border border-gray-200 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
               >
                 Закрыть
               </button>
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex-1 rounded-md bg-primary py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+                className="flex-1 rounded-md bg-primary py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
               >
                 Сохранить
               </button>
