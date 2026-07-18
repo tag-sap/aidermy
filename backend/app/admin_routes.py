@@ -415,7 +415,7 @@ def setup_admin_routes(app: FastAPI):
         
         return {"message": f"❌ Отклонено {rejected_count} продуктов"}
 
-   @app.post("/api/admin/bulk-delete")  # Меняем с DELETE на POST
+@app.post("/api/admin/bulk-delete")  # Меняем с DELETE на POST
 async def bulk_delete(request: Request, _: bool = Depends(verify_admin)):
     """Массовое удаление продуктов"""
     data = await request.json()
