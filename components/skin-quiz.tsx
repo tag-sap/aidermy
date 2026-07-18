@@ -124,7 +124,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                     </div>
 
                     <button
-                        onClick={() => onComplete({ ...answers, skin_type: skinType })}
+                        onClick={() => onComplete({ ...answers, skin_type: skinType }, skinType)}
                         className="btn-primary w-full flex items-center justify-center gap-2"
                     >
                         <Sparkles className="size-4" />
