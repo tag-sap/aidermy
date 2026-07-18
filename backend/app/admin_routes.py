@@ -415,28 +415,28 @@ def setup_admin_routes(app: FastAPI):
         
         return {"message": f"❌ Отклонено {rejected_count} продуктов"}
 
-@app.post("/api/admin/bulk-delete")  # Меняем с DELETE на POST
-async def bulk_delete(request: Request, _: bool = Depends(verify_admin)):
-    """Массовое удаление продуктов"""
-    data = await request.json()
-    product_ids = data.get('ids', [])
-    
-    if not product_ids:
-        raise HTTPException(status_code=400, detail="Нет IDs для обработки")
-    
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    deleted_count = 0
-    for product_id in product_ids:
-        cursor.execute("DELETE FROM pending_products WHERE id = ?", (product_id,))
-        if cursor.rowcount > 0:
-            deleted_count += 1
-    
-    conn.commit()
-    conn.close()
-    
-    return {"message": f"🗑️ Удалено {deleted_count} продуктов"}
+    @app.post("/api/admin/bulk-delete")
+    async def bulk_delete(request: Request, _: bool = Depends(verify_admin)):
+        """Массовое удаление продуктов"""
+        data = await request.json()
+        product_ids = data.get('ids', [])
+        
+        if not product_ids:
+            raise HTTPException(status_code=400, detail="Нет IDs для обработки")
+        
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        deleted_count = 0
+        for product_id in product_ids:
+            cursor.execute("DELETE FROM pending_products WHERE id = ?", (product_id,))
+            if cursor.rowcount > 0:
+                deleted_count += 1
+        
+        conn.commit()
+        conn.close()
+        
+        return {"message": f"🗑️ Удалено {deleted_count} продуктов"}
 
     @app.post("/api/admin/approve-product/{product_id}")
     async def approve_product(product_id: int, _: bool = Depends(verify_admin)):
