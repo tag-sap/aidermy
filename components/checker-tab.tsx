@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, ScanSearch, ArrowRight } from 'lucide-react'
+import { Search, ScanSearch, ArrowRight, Sparkles } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { ScrambleText } from '@/components/scramble-text'
 import { WaveText } from '@/components/wave-text'
@@ -19,11 +19,13 @@ export function CheckerTab({
   profileComplete,
   onCheck,
   onGoToProfile,
+  onStartQuiz,
 }: {
   profile: SkinProfile
   profileComplete: boolean
   onCheck: (product: string, skinType: string) => void
   onGoToProfile: () => void
+  onStartQuiz?: () => void
 }) {
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
@@ -252,7 +254,8 @@ export function CheckerTab({
         )}
       </div>
 
-      {!profile.skinType && (
+      {/* Блок выбора типа кожи ИЛИ опросник */}
+      {!profile.skinType ? (
         <section className="card-dense w-full max-w-md">
           <div className="bubble-1 bubble" />
           <div className="bubble-2 bubble" />
@@ -274,17 +277,38 @@ export function CheckerTab({
               />
             ))}
           </div>
-        </section>
-      )}
 
-      {profile.skinType && (
+          {/* Кнопка опросника */}
+          {onStartQuiz && (
+            <div className="mt-4">
+              <button
+                onClick={onStartQuiz}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 border-dashed border-primary/30 text-sm font-medium text-primary hover:bg-primary/5 transition-colors"
+              >
+                <Sparkles className="size-4" />
+                Пройти опросник для точного определения
+              </button>
+            </div>
+          )}
+        </section>
+      ) : (
         <div className="w-full max-w-md text-center">
           <p className="text-sm text-muted-foreground">
             Тип кожи: <span className="font-semibold text-foreground">{profile.skinType}</span>
           </p>
           <p className="text-xs text-muted-foreground/70">
-            (из анкеты)
+            {profile.skinTypeDetermined ? '✅ Определено автоматически' : '✅ Из анкеты'}
           </p>
+
+          {/* Кнопка перепройти опросник */}
+          {onStartQuiz && (
+            <button
+              onClick={onStartQuiz}
+              className="mt-2 text-xs text-primary hover:underline"
+            >
+              🔄 Пройти опросник заново
+            </button>
+          )}
         </div>
       )}
 

@@ -1,3 +1,5 @@
+// lib/store.ts
+
 export type SkinProfile = {
   name?: string
   skinType: string
@@ -5,6 +7,9 @@ export type SkinProfile = {
   concerns: string[]
   allergies: string[]
   customText?: string
+  // Новые поля для опросника
+  quizAnswers?: Record<string, string>  // Ответы на опросник
+  skinTypeDetermined?: string           // Определенный тип кожи
 }
 
 export type CheckResult = {
@@ -16,7 +21,9 @@ export type CheckResult = {
   summary: string
   safe_ingredients?: string[]
   caution_ingredients?: string[]
-  slug?: string  // ← ДОБАВЛЕНО
+  stats?: Record<string, number>
+  skin_type_recommendation?: string
+  slug?: string
   createdAt: number
 }
 
@@ -30,6 +37,8 @@ export const emptyProfile: SkinProfile = {
   concerns: [],
   allergies: [],
   customText: '',
+  quizAnswers: {},
+  skinTypeDetermined: '',
 }
 
 export function loadProfile(): SkinProfile {
@@ -37,7 +46,9 @@ export function loadProfile(): SkinProfile {
   try {
     const raw = window.localStorage.getItem(PROFILE_KEY)
     if (!raw) return emptyProfile
-    return { ...emptyProfile, ...(JSON.parse(raw) as SkinProfile) }
+    const parsed = JSON.parse(raw)
+    // Совместимость со старыми версиями
+    return { ...emptyProfile, ...parsed }
   } catch {
     return emptyProfile
   }
@@ -65,49 +76,43 @@ export function saveHistory(history: CheckResult[]) {
 }
 
 export function isProfileComplete(p: SkinProfile): boolean {
-  return Boolean(p.skinType && p.age)
+  // Проверяем: заполнен ли тип кожи ИЛИ пройден ли опросник
+  return Boolean(p.skinType || (p.quizAnswers && Object.keys(p.quizAnswers).length > 0))
 }
 
-const VERDICTS: { min: number; verdict: string; summary: string }[] = [
-  {
-    min: 85,
-    verdict: 'Отличный выбор',
-    summary:
-      'Средство хорошо подходит под твой профиль кожи. Состав сбалансирован, риск раздражения минимален.',
-  },
-  {
-    min: 65,
-    verdict: 'Подходит с оговорками',
-    summary:
-      'В целом совместимо с твоей кожей, но следи за реакцией в первые дни использования.',
-  },
-  {
-    min: 45,
-    verdict: 'Нейтрально',
-    summary:
-      'Средство не идеально под твой тип кожи. Возможен подбор более точной альтернативы.',
-  },
-  {
-    min: 0,
-    verdict: 'Лучше поискать альтернативу',
-    summary:
-      'Состав может конфликтовать с твоими особенностями кожи. Рекомендуем проконсультироваться.',
-  },
-]
+// Функция для определения типа кожи из ответов опросника
+export function determineSkinTypeFromAnswers(answers: Record<string, string>): string {
+  const feel = answers.feel_after_wash || ''
+  const reaction = answers.skin_reaction || ''
+  const moisture = answers.moisture_level || ''
+  const pores = answers.pores || ''
 
+  if (feel === 'tight' && moisture === 'always') return 'Сухая'
+  if (feel === 'oily' && moisture === 'oily') return 'Жирная'
+  if (feel === 'mixed' && moisture === 'sometimes') return 'Комбинированная'
+  if (reaction === 'sensitive') return 'Чувствительная'
+  if (feel === 'normal' && moisture === 'rarely') return 'Нормальная'
+  if (feel === 'tight' && reaction === 'sensitive') return 'Сухая чувствительная'
+  if (feel === 'oily' && pores === 'large') return 'Жирная с расширенными порами'
+  
+  return 'Нормальная'
+}
+
+// Мок-функция для проверки (оставляем для совместимости)
 export function mockCheck(product: string, skinType: string): CheckResult {
   const score = Math.floor(Math.random() * 61) + 40
-  const match = VERDICTS.find((v) => score >= v.min) ?? VERDICTS[VERDICTS.length - 1]
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     product,
     skinType,
     score,
-    verdict: match.verdict,
-    summary: match.summary,
+    verdict: score >= 70 ? 'Отличный выбор' : score >= 40 ? 'Подходит с оговорками' : 'Лучше поискать альтернативу',
+    summary: 'Анализ продукта на основе вашего профиля...',
     safe_ingredients: [],
     caution_ingredients: [],
-    slug: undefined,  // ← ДОБАВЛЕНО
+    stats: {},
+    skin_type_recommendation: '',
+    slug: undefined,
     createdAt: Date.now(),
   }
 }

@@ -11,14 +11,15 @@ import { HistoryTab } from '@/components/history-tab'
 import { ProfileTab } from '@/components/profile-tab'
 import { ResultSheet } from '@/components/result-sheet'
 import { SplashScreen } from '@/components/splash-screen'
+import { SkinQuiz } from '@/components/skin-quiz'
 import {
   emptyProfile,
   isProfileComplete,
   loadHistory,
   loadProfile,
-  mockCheck,
   saveHistory,
   saveProfile,
+  determineSkinTypeFromAnswers,
   type CheckResult,
   type SkinProfile,
 } from '@/lib/store'
@@ -36,6 +37,9 @@ export default function Page() {
   const [profileDirty, setProfileDirty] = useState(false)
   const [pendingTab, setPendingTab] = useState<TabId | null>(null)
 
+  // Состояние для опросника
+  const [showQuiz, setShowQuiz] = useState(false)
+
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
 
   // === АВТОРИЗАЦИЯ ===
@@ -45,7 +49,6 @@ export default function Page() {
 
   // Проверяем токен при загрузке
   useEffect(() => {
-    // Проверка токена из localStorage
     const token = localStorage.getItem('token')
     if (token) {
       setIsAuthenticated(true)
@@ -53,7 +56,6 @@ export default function Page() {
       if (savedName) setUserName(savedName)
     }
 
-    // Обработка токена из URL (Google OAuth)
     const urlParams = new URLSearchParams(window.location.search)
     const urlToken = urlParams.get('token')
     if (urlToken) {
@@ -77,14 +79,21 @@ export default function Page() {
   }, [])
 
   useEffect(() => {
-    setProfile(loadProfile())
+    const savedProfile = loadProfile()
+    setProfile(savedProfile)
     setHistory(loadHistory())
     setHydrated(true)
+
+    // Если есть ответы опросника, но нет skinType - определяем
+    if (savedProfile.quizAnswers && Object.keys(savedProfile.quizAnswers).length > 0 && !savedProfile.skinType) {
+      const determined = determineSkinTypeFromAnswers(savedProfile.quizAnswers)
+      setProfile(prev => ({ ...prev, skinType: determined, skinTypeDetermined: determined }))
+      saveProfile({ ...savedProfile, skinType: determined, skinTypeDetermined: determined })
+    }
   }, [])
 
   // === ОБРАБОТЧИКИ АВТОРИЗАЦИИ ===
   const handleLogin = async (email: string, password: string) => {
-    console.log('Login:', email, password)
     setIsAuthenticated(true)
     setUserName(email.split('@')[0])
     localStorage.setItem('token', 'fake-token')
@@ -92,7 +101,6 @@ export default function Page() {
   }
 
   const handleRegister = async (email: string, password: string, name: string) => {
-    console.log('Register:', email, password, name)
     setIsAuthenticated(true)
     setUserName(name || email.split('@')[0])
     localStorage.setItem('token', 'fake-token')
@@ -121,13 +129,32 @@ export default function Page() {
     saveHistory([])
   }
 
+  // === ОБРАБОТЧИК ОПРОСНИКА ===
+  const handleQuizComplete = (answers: Record<string, string>, skinType: string) => {
+    const updatedProfile = {
+      ...profile,
+      quizAnswers: answers,
+      skinType: skinType,
+      skinTypeDetermined: skinType,
+    }
+    setProfile(updatedProfile)
+    saveProfile(updatedProfile)
+    setShowQuiz(false)
+    setTab('checker')
+  }
+
   const handleCheck = async (product: string, skinType: string) => {
     setIsSheetOpen(true)
     setResult(null)
     setLoading(true)
 
     try {
-      const response = await fetch('/api/check', {
+      const productResponse = await fetch(`/api/products?q=${encodeURIComponent(product)}`)
+      const productData = await productResponse.json()
+      const foundProduct = productData.products?.find((p: any) => p.name === product)
+      const ingredients = foundProduct?.ingredients || ''
+
+      const response = await fetch('/api/check-with-ingredients', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -142,7 +169,10 @@ export default function Page() {
             concerns: profile.concerns || [],
             allergies: profile.allergies || [],
             custom_text: profile.customText || '',
+            quiz_answers: profile.quizAnswers || {},
+            skin_type_determined: profile.skinTypeDetermined || '',
           },
+          ingredients: ingredients,
         }),
       })
 
@@ -152,10 +182,18 @@ export default function Page() {
 
       const data = await response.json()
 
-      const fullResult = {
-        ...data,
+      const fullResult: CheckResult = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         product: product,
         skinType: skinType,
+        score: data.score || 0,
+        verdict: data.verdict || 'Нет данных',
+        summary: data.summary || 'Не удалось получить рекомендацию.',
+        stats: data.stats || {},
+        skin_type_recommendation: data.skin_type_recommendation || '',
+        safe_ingredients: data.safe_ingredients || [],
+        caution_ingredients: data.caution_ingredients || [],
+        slug: data.slug || '',
         createdAt: Date.now(),
       }
 
@@ -239,43 +277,54 @@ export default function Page() {
 
         <main className="relative z-10 mx-auto flex min-h-screen max-w-md flex-col px-5 pb-36 pt-4">
           <div className="mt-6 flex-1">
-            <div className="tab-content-wrapper">
-              {tab === 'checker' && (
-                <div className="tab-content">
-                  <CheckerTab
-                    key={hydrated ? 'checker-ready' : 'checker-loading'}
-                    profile={profile}
-                    profileComplete={hydrated && isProfileComplete(profile)}
-                    onCheck={handleCheck}
-                    onGoToProfile={handleGoToProfile}
-                  />
-                </div>
-              )}
-              {tab === 'history' && (
-                <div className="tab-content">
-                  <HistoryTab
-                    history={history}
-                    onClear={handleClearHistory}
-                    onSelect={(item) => {
-                      setIsSheetOpen(true)
-                      setResult(item)
-                      setLoading(false)
-                    }}
-                  />
-                </div>
-              )}
-              {tab === 'profile' && (
-                <div className="tab-content">
-                  <ProfileTab
-                    ref={profileTabRef}
-                    key={hydrated ? 'profile-ready' : 'profile-loading'}
-                    profile={profile}
-                    onSave={handleSaveProfile}
-                    onDirtyChange={handleProfileChange}
-                  />
-                </div>
-              )}
-            </div>
+            {/* Показываем опросник вместо обычного контента */}
+            {showQuiz ? (
+              <SkinQuiz
+                onComplete={handleQuizComplete}
+                onCancel={() => setShowQuiz(false)}
+                initialAnswers={profile.quizAnswers || {}}
+              />
+            ) : (
+              <div className="tab-content-wrapper">
+                {tab === 'checker' && (
+                  <div className="tab-content">
+                    <CheckerTab
+                      key={hydrated ? 'checker-ready' : 'checker-loading'}
+                      profile={profile}
+                      profileComplete={hydrated && isProfileComplete(profile)}
+                      onCheck={handleCheck}
+                      onGoToProfile={handleGoToProfile}
+                      onStartQuiz={() => setShowQuiz(true)}
+                    />
+                  </div>
+                )}
+                {tab === 'history' && (
+                  <div className="tab-content">
+                    <HistoryTab
+                      history={history}
+                      onClear={handleClearHistory}
+                      onSelect={(item) => {
+                        setIsSheetOpen(true)
+                        setResult(item)
+                        setLoading(false)
+                      }}
+                    />
+                  </div>
+                )}
+                {tab === 'profile' && (
+                  <div className="tab-content">
+                    <ProfileTab
+                      ref={profileTabRef}
+                      key={hydrated ? 'profile-ready' : 'profile-loading'}
+                      profile={profile}
+                      onSave={handleSaveProfile}
+                      onDirtyChange={handleProfileChange}
+                      onStartQuiz={() => setShowQuiz(true)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </main>
 
@@ -298,7 +347,6 @@ export default function Page() {
         />
       </div>
 
-      {/* === МОДАЛКА АВТОРИЗАЦИИ === */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
