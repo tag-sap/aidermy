@@ -30,32 +30,15 @@ export function AppHeader({
       if (logoRef.current && buttonsRef.current) {
         const logoRect = logoRef.current.getBoundingClientRect()
         const buttonsRect = buttonsRef.current.getBoundingClientRect()
-
-        // Проверяем перекрытие с кнопками
-        const overlapWithButtons = logoRect.right > buttonsRect.left - 20
-
-        // Проверяем перекрытие с контентом страницы
-        const mainContent = document.querySelector('main')
-        let overlapWithContent = false
-        if (mainContent) {
-          const contentRect = mainContent.getBoundingClientRect()
-          overlapWithContent = logoRect.bottom > contentRect.top + 10
-        }
-
-        const shouldBeCompact = overlapWithButtons || overlapWithContent
-        setIsCompact(shouldBeCompact)
+        const overlap = logoRect.right > buttonsRect.left - 20
+        setIsCompact(overlap)
       }
     }
 
     checkOverlap()
     window.addEventListener('resize', checkOverlap)
-    window.addEventListener('scroll', checkOverlap)
     setTimeout(checkOverlap, 500)
-
-    return () => {
-      window.removeEventListener('resize', checkOverlap)
-      window.removeEventListener('scroll', checkOverlap)
-    }
+    return () => window.removeEventListener('resize', checkOverlap)
   }, [])
 
   const handleProfileClick = () => {
@@ -71,7 +54,7 @@ export function AppHeader({
       <header className="relative z-20 flex w-full flex-col items-center pt-6 pb-1 md:fixed md:left-6 md:top-4 md:z-30 md:w-auto md:pt-0">
         <div
           ref={logoRef}
-          className={`md:order-1 transition-all duration-500 ${isCompact ? 'transform -rotate-90 origin-center' : ''
+          className={`md:order-1 transition-all duration-300 ${isCompact ? 'scale-75 origin-top-left' : ''
             }`}
         >
           <AidermyLogo isCompact={isCompact} />
