@@ -158,7 +158,8 @@ async def admin_panel(_: bool = Depends(verify_admin)):
     stats = get_check_stats()
     
     # Только проверки с составом (не нулевые)
-    filtered_history = [h for h in history if h.get('ingredients') and h['ingredients'].strip()]
+    # Показываем все проверки с результатом > 0
+    filtered_history = [h for h in history if h.get('score', 0) > 0]
     
     pending = []
     try:
