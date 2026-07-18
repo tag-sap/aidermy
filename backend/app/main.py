@@ -51,6 +51,8 @@ async def get_products(q: str = ""):
 @app.post("/api/check", response_model=CheckResponse)
 async def check_product(request: CheckRequest):
     try:
+        from .database import get_connection, PRODUCTS_DB
+        
         result = await check_product_with_ai(
             request.product_name,
             request.skin_type,
@@ -59,8 +61,18 @@ async def check_product(request: CheckRequest):
         
         slug = result.get('slug')
         
-        # Сохраняем только если есть состав
-        if result.get("ingredients"):
+        # Проверяем, есть ли продукт в базе
+        conn_products = get_connection(PRODUCTS_DB)
+        cursor_products = conn_products.cursor()
+        cursor_products.execute(
+            "SELECT id FROM products WHERE name = ? OR slug = ?",
+            (request.product_name, slug)
+        )
+        existing_product = cursor_products.fetchone()
+        conn_products.close()
+        
+        # Сохраняем в историю ТОЛЬКО если продукт есть в базе
+        if result.get("ingredients") and existing_product:
             save_check_result(
                 request.product_name,
                 request.skin_type,
@@ -82,13 +94,14 @@ async def check_product(request: CheckRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
-
+    
 @app.post("/api/check-with-ingredients", response_model=CheckResponse)
 async def check_with_ingredients(request: Request, check_request: CheckWithIngredientsRequest):
     try:
         from .services import generate_slug, check_product_with_ingredients
         from .auth_routes import save_pending_product
         from .auth import get_current_user_from_token
+        from .database import get_connection, PRODUCTS_DB
         
         result = await check_product_with_ingredients(
             check_request.product_name,
@@ -99,16 +112,15 @@ async def check_with_ingredients(request: Request, check_request: CheckWithIngre
         
         slug = generate_slug(check_request.product_name)
         
-        # Сохраняем в историю (только если есть состав)
-        save_check_result(
-            check_request.product_name,
-            check_request.skin_type,
-            result.get("score", 50),
-            result.get("verdict", "С осторожностью"),
-            result.get("summary", "Не удалось проанализировать состав."),
-            check_request.ingredients,
-            slug
+        # Проверяем, есть ли продукт уже в базе (одобрен)
+        conn_products = get_connection(PRODUCTS_DB)
+        cursor_products = conn_products.cursor()
+        cursor_products.execute(
+            "SELECT id FROM products WHERE name = ? OR slug = ?",
+            (check_request.product_name, slug)
         )
+        existing_product = cursor_products.fetchone()
+        conn_products.close()
         
         user_id = None
         auth_header = request.headers.get("Authorization")
@@ -118,12 +130,24 @@ async def check_with_ingredients(request: Request, check_request: CheckWithIngre
             if user:
                 user_id = user['id']
         
-        # Отправляем в модерацию только если есть состав и скор > 0
+        # Отправляем в модерацию
         if check_request.ingredients and result.get("score", 0) > 0:
             save_pending_product(
                 product_name=check_request.product_name,
                 ingredients=check_request.ingredients,
                 user_id=user_id
+            )
+        
+        # Сохраняем в историю ТОЛЬКО если продукт уже есть в базе (одобрен)
+        if existing_product:
+            save_check_result(
+                check_request.product_name,
+                check_request.skin_type,
+                result.get("score", 50),
+                result.get("verdict", "С осторожностью"),
+                result.get("summary", "Не удалось проанализировать состав."),
+                check_request.ingredients,
+                slug
             )
         
         return CheckResponse(
