@@ -225,16 +225,18 @@ async def admin_panel(_: bool = Depends(verify_admin)):
     
     if pending:
         for p in pending:
+            row = dict(p)
+            user_email = row.get('user_email', 'Аноним')
             html += f"""
                         <tr>
-                            <td>{p['id']}</td>
-                            <td><strong>{p['product_name']}</strong></td>
-                            <td style="font-size: 12px; max-width: 200px; word-break: break-word;">{p['ingredients'][:80]}{'...' if len(p['ingredients']) > 80 else ''}</td>
-                            <td>{p['user_email'] if p['user_email'] else 'Аноним'}</td>
-                            <td style="font-size: 12px;">{p['created_at']}</td>
+                            <td>{row['id']}</td>
+                            <td><strong>{row['product_name']}</strong></td>
+                            <td style="font-size: 12px; max-width: 200px; word-break: break-word;">{row['ingredients'][:80]}{'...' if len(row['ingredients']) > 80 else ''}</td>
+                            <td>{user_email}</td>
+                            <td style="font-size: 12px;">{row['created_at']}</td>
                             <td>
-                                <button class="btn-approve" onclick="approve({p['id']})">✅</button>
-                                <button class="btn-reject" onclick="reject({p['id']})">❌</button>
+                                <button class="btn-approve" onclick="approve({row['id']})">✅</button>
+                                <button class="btn-reject" onclick="reject({row['id']})">❌</button>
                             </td>
                         </tr>
             """
@@ -276,20 +278,18 @@ async def admin_panel(_: bool = Depends(verify_admin)):
 
         <script>
         function approve(id) {
-            if (confirm('Одобрить этот продукт?')) {
-                fetch('/api/admin/approve-product/' + id, { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => { alert(data.message || '✅ Одобрено!'); location.reload(); })
-                    .catch(() => alert('Ошибка'));
-            }
+            if (!confirm('Одобрить этот продукт?')) return;
+            fetch('/api/admin/approve-product/' + id, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => { alert(data.message || '✅ Одобрено!'); location.reload(); })
+                .catch(() => alert('Ошибка'));
         }
         function reject(id) {
-            if (confirm('Отклонить этот продукт?')) {
-                fetch('/api/admin/reject-product/' + id, { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => { alert(data.message || '❌ Отклонено!'); location.reload(); })
-                    .catch(() => alert('Ошибка'));
-            }
+            if (!confirm('Отклонить этот продукт?')) return;
+            fetch('/api/admin/reject-product/' + id, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => { alert(data.message || '❌ Отклонено!'); location.reload(); })
+                .catch(() => alert('Ошибка'));
         }
         </script>
     </body>
@@ -298,9 +298,68 @@ async def admin_panel(_: bool = Depends(verify_admin)):
     
     return HTMLResponse(content=html)
 
-# === АДМИН: ПОДКЛЮЧАЕМ РОУТЫ ===
-from .auth_routes import get_pending_products, approve_product, reject_product
+# === АДМИН: ЭНДПОИНТЫ С BASIC AUTH ===
+@app.get("/api/admin/pending-products")
+async def get_pending_products(_: bool = Depends(verify_admin)):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT p.*, u.email as user_email 
+        FROM pending_products p
+        LEFT JOIN users u ON p.user_id = u.id
+        WHERE p.status = 'pending'
+        ORDER BY p.created_at DESC
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    return {"products": [dict(row) for row in rows]}
 
-app.get("/api/admin/pending-products")(get_pending_products)
-app.post("/api/admin/approve-product/{product_id}")(approve_product)
-app.post("/api/admin/reject-product/{product_id}")(reject_product)
+@app.post("/api/admin/approve-product/{product_id}")
+async def approve_product(product_id: int, _: bool = Depends(verify_admin)):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM pending_products WHERE id = ? AND status = 'pending'", (product_id,))
+    pending = cursor.fetchone()
+    
+    if not pending:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Продукт не найден или уже обработан")
+    
+    conn_products = get_connection(PRODUCTS_DB)
+    cursor_products = conn_products.cursor()
+    cursor_products.execute('''
+        INSERT INTO products (name, ingredients, slug, saved_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    ''', (pending['product_name'], pending['ingredients'], pending['slug']))
+    conn_products.commit()
+    conn_products.close()
+    
+    cursor.execute('''
+        UPDATE pending_products 
+        SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ''', (product_id,))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "Продукт одобрен и добавлен в базу! ✅"}
+
+@app.post("/api/admin/reject-product/{product_id}")
+async def reject_product(product_id: int, _: bool = Depends(verify_admin)):
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE pending_products 
+        SET status = 'rejected', reviewed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ''', (product_id,))
+    
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Продукт не найден")
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": "Продукт отклонён ❌"}
