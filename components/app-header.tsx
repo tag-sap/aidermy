@@ -21,15 +21,16 @@ export function AppHeader({
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
-  const [isMobile, setIsMobile] = useState(false)
+  const [isCompact, setIsCompact] = useState(false)
 
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 640)
+    const checkCompact = () => {
+      // Если ширина окна меньше 500px или логотип перекрывает кнопку
+      setIsCompact(window.innerWidth < 550)
     }
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
+    checkCompact()
+    window.addEventListener('resize', checkCompact)
+    return () => window.removeEventListener('resize', checkCompact)
   }, [])
 
   const handleProfileClick = () => {
@@ -43,8 +44,8 @@ export function AppHeader({
   return (
     <>
       <header className="relative z-20 flex w-full flex-col items-center pt-6 pb-1 md:fixed md:left-6 md:top-4 md:z-30 md:w-auto md:pt-0">
-        <div className="md:order-1">
-          <AidermyLogo />
+        <div className={`md:order-1 transition-all duration-300 ${isCompact ? 'scale-75 origin-center' : ''}`}>
+          <AidermyLogo isCompact={isCompact} />
         </div>
 
         <div className="absolute right-4 top-3 flex items-center gap-2 md:fixed md:right-6 md:top-4 md:z-40">
@@ -70,10 +71,10 @@ export function AppHeader({
             <button
               type="button"
               onClick={onAuth}
-              className={`flex items-center justify-center rounded-md border border-primary/20 bg-white/5 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10 ${isMobile ? 'flex-col px-1.5 py-1.5 text-[11px] leading-none' : ''
+              className={`flex items-center justify-center rounded-md border border-primary/20 bg-white/5 px-3 py-1.5 text-sm font-medium text-primary transition-all duration-300 hover:bg-primary/10 ${isCompact ? 'flex-col px-1.5 py-1.5 text-[11px] leading-none' : ''
                 }`}
             >
-              {isMobile ? (
+              {isCompact ? (
                 <>
                   <span>В</span>
                   <span>о</span>
