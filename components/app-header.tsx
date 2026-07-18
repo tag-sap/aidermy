@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { User, X, LogOut, Settings, Heart, History } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
 
@@ -21,6 +21,16 @@ export function AppHeader({
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640)
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
 
   const handleProfileClick = () => {
     if (isAuthenticated) {
@@ -60,13 +70,23 @@ export function AppHeader({
             <button
               type="button"
               onClick={onAuth}
-              className="flex flex-col items-center justify-center rounded-md border border-primary/20 bg-white/5 px-1.5 py-1.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 leading-none"
+              className={`flex items-center justify-center rounded-md border border-primary/20 bg-white/5 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/10 ${isMobile ? 'flex-col px-1.5 py-1.5 text-[11px] leading-none' : ''
+                }`}
             >
-              <span>В</span>
-              <span>о</span>
-              <span>й</span>
-              <span>т</span>
-              <span>и</span>
+              {isMobile ? (
+                <>
+                  <span>В</span>
+                  <span>о</span>
+                  <span>й</span>
+                  <span>т</span>
+                  <span>и</span>
+                </>
+              ) : (
+                <>
+                  <User className="size-4 mr-1.5" />
+                  Войти
+                </>
+              )}
             </button>
           )}
         </div>
