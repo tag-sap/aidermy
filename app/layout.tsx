@@ -16,7 +16,7 @@ const playfair = Playfair_Display({
 export const metadata: Metadata = {
   title: 'Aidermy — AI-проверка косметики',
   description:
-    'Футуристичный сервис проверки косметики: подбирай средства под свой тип кожи с помощью AI.',
+    'Проверь состав косметики на совместимость с твоей кожей. AI анализирует ингредиенты, даёт оценку и рекомендации по уходу.',
   generator: 'v0.app',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
