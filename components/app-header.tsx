@@ -60,13 +60,13 @@ export function AppHeader({
             <button
               type="button"
               onClick={onAuth}
-              className="flex flex-col items-center justify-center rounded-md border border-primary/20 bg-white/5 px-1.5 py-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/10 leading-none tracking-widest"
-              style={{ 
-                writingMode: 'vertical-rl',
-                letterSpacing: '1px'
-              }}
+              className="flex flex-col items-center justify-center rounded-md border border-primary/20 bg-white/5 px-1.5 py-1.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 leading-none"
             >
-              Войти
+              <span>В</span>
+              <span>о</span>
+              <span>й</span>
+              <span>т</span>
+              <span>и</span>
             </button>
           )}
         </div>
