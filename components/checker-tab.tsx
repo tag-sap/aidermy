@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, ScanSearch, ArrowRight, Sparkles } from 'lucide-react'
+import { Search, ScanSearch, ArrowRight, Sparkles, Info } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { ScrambleText } from '@/components/scramble-text'
 import { WaveText } from '@/components/wave-text'
@@ -20,12 +20,14 @@ export function CheckerTab({
   onCheck,
   onGoToProfile,
   onStartQuiz,
+  onInfoClick,
 }: {
   profile: SkinProfile
   profileComplete: boolean
   onCheck: (product: string, skinType: string) => void
   onGoToProfile: () => void
   onStartQuiz?: () => void
+  onInfoClick?: () => void
 }) {
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
@@ -165,6 +167,13 @@ export function CheckerTab({
           className="text-base font-semibold text-foreground"
           startDelay={200}
         />
+        <button
+          onClick={onInfoClick}
+          className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0"
+        >
+          <Info className="size-3" />
+          Как это работает?
+        </button>
       </div>
 
       <div className="relative w-full max-w-md">
