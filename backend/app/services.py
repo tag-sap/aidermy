@@ -25,6 +25,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             saved_ingredients
         )
         result['slug'] = generate_slug(product_name)
+        result['ingredients'] = saved_ingredients  # ← ДОБАВЛЕНО
         return result
     
     conn = get_connection(PRODUCTS_DB)
@@ -48,6 +49,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             row['ingredients']
         )
         result['slug'] = row['slug'] or generate_slug(product_name)
+        result['ingredients'] = row['ingredients']  # ← ДОБАВЛЕНО
         return result
     
     return {
@@ -56,7 +58,8 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         "summary": "НЕИЗВЕСТНЫЙ СОСТАВ",
         "safe_ingredients": [],
         "caution_ingredients": [],
-        "slug": generate_slug(product_name)
+        "slug": generate_slug(product_name),
+        "ingredients": ""  # ← ДОБАВЛЕНО
     }
 
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
