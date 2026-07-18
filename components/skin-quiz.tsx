@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { ChevronRight, ChevronLeft, Sparkles, Check, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
+import { Button } from '@/components/ui/button'
 interface SkinQuizProps {
     onComplete: (answers: Record<string, string>, skinType: string) => void
     onCancel?: () => void
@@ -123,13 +123,14 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                         </p>
                     </div>
 
-                    <button
+                    <Button
                         onClick={() => onComplete({ ...answers, skin_type: skinType }, skinType)}
-                        className="btn-primary w-full flex items-center justify-center gap-2"
+                        className="w-full flex items-center justify-center gap-2"
+                        size="lg"
                     >
                         <Sparkles className="size-4" />
                         Подтвердить и продолжить
-                    </button>
+                    </Button>
 
                     {/* Предложение зарегистрироваться */}
                     {!isAuthenticated && onRegister && (
@@ -144,12 +145,13 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                                 <li>✅ Создавайте свой профиль кожи</li>
                                 <li>✅ Отслеживайте изменения кожи</li>
                             </ul>
-                            <button
+                            <Button
                                 onClick={onRegister}
-                                className="w-full mt-3 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
+                                className="w-full mt-3"
+                                size="lg"
                             >
                                 Зарегистрироваться
-                            </button>
+                            </Button>
                             <p className="text-xs text-gray-400 mt-2 text-center">
                                 🔓 Это бесплатно и займет 1 минуту
                             </p>
@@ -213,27 +215,22 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
 
                 {/* Навигация */}
                 <div className="flex gap-3 mt-6">
-                    <button
+                    <Button
                         onClick={onCancel || handlePrevious}
-                        className={cn(
-                            'px-4 py-2.5 rounded-lg text-sm font-medium transition-all',
-                            currentStep === 0 && !onCancel
-                                ? 'text-gray-300 cursor-not-allowed'
-                                : 'text-gray-600 hover:bg-gray-50'
-                        )}
+                        variant="ghost"
                         disabled={currentStep === 0 && !onCancel}
+                        className={cn(
+                            'px-4',
+                            currentStep === 0 && !onCancel ? 'opacity-50' : ''
+                        )}
                     >
                         {onCancel ? 'Отмена' : 'Назад'}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                         onClick={handleNext}
                         disabled={!answers[question?.id]}
-                        className={cn(
-                            'flex-1 py-2.5 rounded-lg text-sm font-medium text-white transition-all flex items-center justify-center gap-1',
-                            answers[question?.id]
-                                ? 'bg-primary hover:bg-primary/90'
-                                : 'bg-gray-300 cursor-not-allowed'
-                        )}
+                        className="flex-1 flex items-center justify-center gap-1"
+                        size="lg"
                     >
                         {currentStep === QUESTIONS.length - 1 ? (
                             <>
@@ -246,7 +243,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                                 <ChevronRight className="size-4" />
                             </>
                         )}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>
