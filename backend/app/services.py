@@ -117,3 +117,35 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         if match:
             return json.loads(match.group())
         raise Exception("DeepSeek returned invalid JSON")
+    
+# Добавьте в конец файла services.py
+
+def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
+    """
+    Определяет тип кожи на основе ответов на опросник
+    """
+    if not quiz_answers:
+        return "Не определено"
+    
+    feel = quiz_answers.get('feel_after_wash', '')
+    reaction = quiz_answers.get('skin_reaction', '')
+    moisture = quiz_answers.get('moisture_level', '')
+    pores = quiz_answers.get('pores', '')
+    
+    # Логика определения
+    if feel == 'tight' and moisture == 'always':
+        return "Сухая"
+    if feel == 'oily' and moisture == 'oily':
+        return "Жирная"
+    if feel == 'mixed' and moisture == 'sometimes':
+        return "Комбинированная"
+    if reaction == 'sensitive':
+        return "Чувствительная"
+    if feel == 'normal' and moisture == 'rarely':
+        return "Нормальная"
+    if feel == 'tight' and reaction == 'sensitive':
+        return "Сухая чувствительная"
+    if feel == 'oily' and pores == 'large':
+        return "Жирная с расширенными порами"
+    
+    return "Нормальная"
