@@ -52,8 +52,8 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
     
     return {
         "score": 0,
-        "verdict": "Unknown composition",
-        "summary": "UNKNOWN COMPOSITION",
+        "verdict": "Неизвестный состав",
+        "summary": "НЕИЗВЕСТНЫЙ СОСТАВ",
         "safe_ingredients": [],
         "caution_ingredients": [],
         "slug": generate_slug(product_name)
@@ -61,28 +61,28 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
 
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
     prompt = f"""
-You are a professional dermatologist-cosmetologist.
+Ты профессиональный дерматолог-косметолог.
 
-User provided exact product composition:
+Пользователь предоставил точный состав продукта:
 {ingredients}
 
-Product: {product_name}
-Skin type: {skin_type}
-Age: {profile.get('age', 'not specified')}
-Concerns: {', '.join(profile.get('concerns', [])) or 'none'}
-Allergies: {', '.join(profile.get('allergies', [])) or 'none'}
-Additional: {profile.get('custom_text', 'none')}
+Продукт: {product_name}
+Тип кожи: {skin_type}
+Возраст: {profile.get('age', 'не указан')}
+Проблемы: {', '.join(profile.get('concerns', [])) or 'не указаны'}
+Аллергии: {', '.join(profile.get('allergies', [])) or 'не указаны'}
+Дополнительно: {profile.get('custom_text', 'нет')}
 
-Rate the product on a scale of 0-100 and return ONLY JSON:
+Оцени продукт по шкале 0-100 и верни ТОЛЬКО JSON на русском языке:
 {{
-  "score": number,
-  "verdict": "Suitable" or "Use with caution" or "Not recommended",
-  "summary": "Brief explanation in Russian",
-  "safe_ingredients": ["ingredient1", "ingredient2"],
-  "caution_ingredients": ["ingredient1"]
+  "score": число,
+  "verdict": "Подходит" или "С осторожностью" или "Не рекомендуется",
+  "summary": "Краткое пояснение на русском с оценкой состава, влиянием на проблемы и рисками",
+  "safe_ingredients": ["ингредиент1", "ингредиент2"],
+  "caution_ingredients": ["ингредиент1"]
 }}
 
-Response must be ONLY JSON, no explanations.
+Ответ должен быть ТОЛЬКО JSON, без пояснений, без воды.
 """
 
     async with httpx.AsyncClient() as client:
