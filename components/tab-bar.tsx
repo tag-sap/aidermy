@@ -20,9 +20,9 @@ export function TabBar({
   onChange: (id: TabId) => void
   isAuthenticated?: boolean
 }) {
-  // Фильтруем вкладки - показываем профиль только авторизованным
+  // Фильтруем вкладки - скрываем историю и профиль для неавторизованных
   const visibleTabs = TABS.filter(tab => {
-    if (tab.id === 'profile' && !isAuthenticated) {
+    if (!isAuthenticated && (tab.id === 'history' || tab.id === 'profile')) {
       return false
     }
     return true
