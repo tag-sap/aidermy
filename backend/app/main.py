@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
@@ -78,28 +78,28 @@ async def check_product(request: CheckRequest):
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
 
 @app.post("/api/check-with-ingredients", response_model=CheckResponse)
-async def check_with_ingredients(request: CheckWithIngredientsRequest):
+async def check_with_ingredients(request: Request, check_request: CheckWithIngredientsRequest):
     try:
         from .services import generate_slug, check_product_with_ingredients
         from .auth_routes import save_pending_product
         from .auth import get_current_user_from_token
         
         result = await check_product_with_ingredients(
-            request.product_name,
-            request.skin_type,
-            request.profile.dict(),
-            request.ingredients
+            check_request.product_name,
+            check_request.skin_type,
+            check_request.profile.dict(),
+            check_request.ingredients
         )
         
-        slug = generate_slug(request.product_name)
+        slug = generate_slug(check_request.product_name)
         
         save_check_result(
-            request.product_name,
-            request.skin_type,
+            check_request.product_name,
+            check_request.skin_type,
             result.get("score", 50),
             result.get("verdict", "С осторожностью"),
             result.get("summary", "Не удалось проанализировать состав."),
-            request.ingredients,
+            check_request.ingredients,
             slug
         )
         
@@ -112,8 +112,8 @@ async def check_with_ingredients(request: CheckWithIngredientsRequest):
                 user_id = user['id']
         
         save_pending_product(
-            product_name=request.product_name,
-            ingredients=request.ingredients,
+            product_name=check_request.product_name,
+            ingredients=check_request.ingredients,
             user_id=user_id
         )
         
@@ -126,8 +126,10 @@ async def check_with_ingredients(request: CheckWithIngredientsRequest):
             cached=False,
             slug=slug
         )
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
+        print(f"❌ Ошибка: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка проверки: {str(e)}")
 
 # === АДМИН-ПАНЕЛЬ ===
 security = HTTPBasic()
