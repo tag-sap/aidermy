@@ -12,6 +12,7 @@ import { ProfileTab } from '@/components/profile-tab'
 import { ResultSheet } from '@/components/result-sheet'
 import { SplashScreen } from '@/components/splash-screen'
 import { SkinQuiz } from '@/components/skin-quiz'
+import { InfoModal } from '@/components/info-modal'
 import {
   emptyProfile,
   isProfileComplete,
@@ -46,6 +47,8 @@ export default function Page() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
+
+  const [showInfo, setShowInfo] = useState(false)
 
   // Проверяем токен при загрузке
   useEffect(() => {
@@ -288,7 +291,12 @@ export default function Page() {
               <SkinQuiz
                 onComplete={handleQuizComplete}
                 onCancel={() => setShowQuiz(false)}
+                onRegister={() => {
+                  setShowQuiz(false)
+                  setIsAuthModalOpen(true)
+                }}
                 initialAnswers={profile.quizAnswers || {}}
+                isAuthenticated={isAuthenticated}
               />
             ) : (
               <div className="tab-content-wrapper">
@@ -301,6 +309,7 @@ export default function Page() {
                       onCheck={handleCheck}
                       onGoToProfile={handleGoToProfile}
                       onStartQuiz={() => setShowQuiz(true)}
+                      onInfoClick={() => setShowInfo(true)}
                     />
                   </div>
                 )}
@@ -363,7 +372,10 @@ export default function Page() {
         onLogin={handleLogin}
         onRegister={handleRegister}
       />
-
+      <InfoModal
+        isOpen={showInfo}
+        onClose={() => setShowInfo(false)}
+      />
       {pendingTab && (
         <>
           <div
