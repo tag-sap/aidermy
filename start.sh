@@ -28,8 +28,8 @@ case "$1" in
     ps aux | grep -E 'gunicorn|next-server' | grep -v grep
     echo ""
     echo "=== ПОРТЫ ==="
-    lsof -i :8000 > /dev/null 2>&1 && echo "✅ Бэкенд (8000) запущен" || echo "❌ Бэкенд (8000) не запущен"
-    lsof -i :3000 > /dev/null 2>&1 && echo "✅ Фронтенд (3000) запущен" || echo "❌ Фронтенд (3000) не запущен"
+    ss -tlnp | grep -q ':8000' && echo "✅ Бэкенд (8000) запущен" || echo "❌ Бэкенд (8000) не запущен"
+    ss -tlnp | grep -q ':3000' && echo "✅ Фронтенд (3000) запущен" || echo "❌ Фронтенд (3000) не запущен"
     ;;
   logs)
     tail -f /var/www/aidermy/next.log
