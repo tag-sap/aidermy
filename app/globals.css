@@ -556,3 +556,56 @@ div {
 .animate-sheet-up {
   animation: sheet-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* === ФОН С БРЕНДАМИ === */
+.brand-bg {
+  pointer-events: none;
+  z-index: 0;
+}
+
+.marquee-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0 30px;
+  width: max-content;
+  will-change: transform;
+  padding: 0 10px;
+}
+
+.marquee-row span {
+  display: inline-block;
+  white-space: nowrap;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #000;
+  flex-shrink: 0;
+}
+
+/* Шрифты для фона */
+.font-orbitron { font-family: 'Orbitron', sans-serif; }
+.font-major { font-family: 'Major Mono Display', monospace; }
+.font-oswald { font-family: 'Oswald', sans-serif; }
+.font-bebas { font-family: 'Bebas Neue', sans-serif; }
+.font-josefin { font-family: 'Josefin Sans', sans-serif; }
+.font-space { font-family: 'Space Grotesk', sans-serif; }
+.font-anton { font-family: 'Anton', sans-serif; }
+.font-mono { font-family: 'Space Mono', monospace; }
+.font-marker { font-family: 'Permanent Marker', cursive; }
+.font-gaegu { font-family: 'Gaegu', cursive; }
+
+/* Анимации */
+@keyframes marqueeLeft {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes marqueeRight {
+  0% { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
+
+.marquee-left-fast { animation: marqueeLeft 120s linear infinite; }
+.marquee-left-slow { animation: marqueeLeft 180s linear infinite; }
+.marquee-left-medium { animation: marqueeLeft 150s linear infinite; }
+.marquee-right-fast { animation: marqueeRight 120s linear infinite; }
+.marquee-right-slow { animation: marqueeRight 180s linear infinite; }
+.marquee-right-medium { animation: marqueeRight 150s linear infinite; }

@@ -69,7 +69,6 @@ export function CheckerTab({
 
         const data = await res.json()
 
-        // Сортируем по релевантности
         const sorted = (data.products || []).sort((a: ProductSuggestion, b: ProductSuggestion) => {
           const aLower = a.name.toLowerCase()
           const bLower = b.name.toLowerCase()
@@ -161,7 +160,7 @@ export function CheckerTab({
 
   return (
     <div className="flex flex-col items-center gap-6 text-center">
-      <div className="w-full max-w-md min-h-[28px]">
+      <div className="w-full max-w-md min-h-[28px] flex items-center justify-between">
         <WaveText
           text={getGreeting()}
           className="text-base font-semibold text-foreground"
@@ -178,13 +177,6 @@ export function CheckerTab({
 
       <div className="relative w-full max-w-md">
         <div className="card-dense relative">
-          <div className="bubble-1 bubble" />
-          <div className="bubble-2 bubble" />
-          <div className="bubble-3 bubble" />
-          <div className="bubble-4 bubble" />
-          <div className="bubble-5 bubble" />
-          <div className="bubble-6 bubble" />
-
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
             Поиск
           </p>
@@ -266,13 +258,6 @@ export function CheckerTab({
       {/* Блок выбора типа кожи ИЛИ опросник */}
       {!profile.skinType ? (
         <section className="card-dense w-full max-w-md">
-          <div className="bubble-1 bubble" />
-          <div className="bubble-2 bubble" />
-          <div className="bubble-3 bubble" />
-          <div className="bubble-4 bubble" />
-          <div className="bubble-5 bubble" />
-          <div className="bubble-6 bubble" />
-
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
             Выбери тип кожи
           </p>
@@ -335,10 +320,6 @@ export function CheckerTab({
       </button>
 
       <section className="card-soft w-full max-w-md">
-        <div className="bubble-1 bubble" />
-        <div className="bubble-2 bubble" />
-        <div className="bubble-3 bubble" />
-
         <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-muted-foreground/80">
           Популярное
         </p>
