@@ -92,7 +92,18 @@
     transform: rotate(360deg);
   }
 }
+/* Шрифт для фона с брендами */
+@font-face {
+  font-family: 'LCD40x2Display';
+  src: url('/fonts/LCD40x2Display-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
+.font-lcd {
+  font-family: 'LCD40x2Display', 'Inter', sans-serif;
+}
 @font-face {
   font-family: 'Wetware';
   src: url('/fonts/wetware-cyrillic.otf') format('opentype');
@@ -103,9 +114,9 @@
 
 @font-face {
   font-family: 'Gerhaus-Regular';
-  src: url('/fonts/LCD40x2Display-Regular.otf') format('opentype');
+  src: url('/fonts/Onest-Regular.ttf') format('truetype');
   font-weight: 400;
-  font-style: italic;
+  font-style: normal;
   font-display: swap;
 }
 
