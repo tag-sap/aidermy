@@ -36,16 +36,14 @@
   --card-foreground: #1A1A1A;
   --muted: #F0EFEB;
   --muted-foreground: #1A1A1A;
-  --primary: #4CAF50;
-  /* Зелёный вместо оранжевого */
+  --primary: #2E7D32;
+  /* Насыщенный тёмно-зелёный */
   --primary-foreground: #FFFFFF;
-  --accent: #4CAF50;
-  /* Зелёный вместо оранжевого */
+  --accent: #2E7D32;
+  /* Насыщенный тёмно-зелёный */
   --accent-foreground: #FFFFFF;
-  --border: rgba(76, 175, 80, 0.15);
-  /* Зелёный */
-  --ring: rgba(76, 175, 80, 0.3);
-  /* Зелёный */
+  --border: rgba(46, 125, 50, 0.15);
+  --ring: rgba(46, 125, 50, 0.3);
   --radius: 0.35rem;
 }
 
@@ -452,7 +450,7 @@ div {
   color: #FFFFFF;
   padding: 14px 28px;
   border-radius: 8px;
-  font-weight: 600;
+  font-weight: 400;
   border: none;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -500,7 +498,7 @@ div {
   padding: 8px 16px;
   border-radius: 8px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   background: #FAF9F6;
   color: #1A1A1A;
   border: 1px solid rgba(76, 175, 80, 0.08);
