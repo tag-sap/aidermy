@@ -1,4 +1,3 @@
-cat > app/globals.css << 'EOF'
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
@@ -38,8 +37,10 @@ cat > app/globals.css << 'EOF'
   --muted: #F0EFEB;
   --muted-foreground: #1A1A1A;
   --primary: #2E7D32;
+  /* Насыщенный тёмно-зелёный */
   --primary-foreground: #FFFFFF;
   --accent: #2E7D32;
+  /* Насыщенный тёмно-зелёный */
   --accent-foreground: #FFFFFF;
   --border: rgba(46, 125, 50, 0.15);
   --ring: rgba(46, 125, 50, 0.3);
@@ -187,8 +188,10 @@ cat > app/globals.css << 'EOF'
 .bubble {
   position: absolute;
   border-radius: 50%;
-  background: rgba(46, 125, 50, 0.06);
-  border: 1px solid rgba(46, 125, 50, 0.04);
+  background: rgba(76, 175, 80, 0.06);
+  /* Зелёный */
+  border: 1px solid rgba(76, 175, 80, 0.04);
+  /* Зелёный */
   pointer-events: none;
 }
 
@@ -229,16 +232,20 @@ cat > app/globals.css << 'EOF'
   background: #FAF9F6;
   border-radius: 8px;
   padding: 24px;
-  border: 2px solid rgba(46, 125, 50, 0.25);
-  box-shadow: 0 4px 16px rgba(46, 125, 50, 0.08);
+  border: 2px solid rgba(76, 175, 80, 0.25);
+  /* Зелёный */
+  box-shadow: 0 4px 16px rgba(76, 175, 80, 0.08);
+  /* Зелёный */
   transition: all 0.3s ease;
   color: #1A1A1A;
   min-height: 140px;
 }
 
 .card-dense:hover {
-  border-color: rgba(46, 125, 50, 0.5);
-  box-shadow: 0 8px 32px rgba(46, 125, 50, 0.15);
+  border-color: rgba(76, 175, 80, 0.5);
+  /* Зелёный */
+  box-shadow: 0 8px 32px rgba(76, 175, 80, 0.15);
+  /* Зелёный */
   transform: translateY(-1px);
 }
 
@@ -296,8 +303,10 @@ cat > app/globals.css << 'EOF'
   background: #FAF9F6;
   border-radius: 8px;
   padding: 20px;
-  border: 1px solid rgba(46, 125, 50, 0.15);
-  box-shadow: 0 2px 8px rgba(46, 125, 50, 0.06);
+  border: 1px solid rgba(76, 175, 80, 0.15);
+  /* Зелёный */
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.06);
+  /* Зелёный */
   color: #1A1A1A;
   min-height: 120px;
 }
@@ -346,12 +355,15 @@ cat > app/globals.css << 'EOF'
 
   0%,
   100% {
-    filter: drop-shadow(0 0 8px rgba(46, 125, 50, 0.15));
+    filter: drop-shadow(0 0 8px rgba(76, 175, 80, 0.15));
   }
 
+  /* Зелёный */
   50% {
-    filter: drop-shadow(0 0 20px rgba(46, 125, 50, 0.35));
+    filter: drop-shadow(0 0 20px rgba(76, 175, 80, 0.35));
   }
+
+  /* Зелёный */
 }
 
 .logo-metallic {
@@ -390,7 +402,7 @@ cat > app/globals.css << 'EOF'
 .divider {
   width: 100%;
   height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(46, 125, 50, 0.15) 20%, #2E7D32 50%, rgba(46, 125, 50, 0.15) 80%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(76, 175, 80, 0.15) 20%, #4CAF50 50%, rgba(76, 175, 80, 0.15) 80%, transparent 100%);
   margin: 24px 0;
 }
 
@@ -401,7 +413,8 @@ cat > app/globals.css << 'EOF'
   letter-spacing: 0.04em;
   color: #1A1A1A;
   padding-bottom: 12px;
-  border-bottom: 2px solid #2E7D32;
+  border-bottom: 2px solid #4CAF50;
+  /* Зелёный */
   margin-bottom: 20px;
 }
 
@@ -432,7 +445,8 @@ div {
 }
 
 .btn-primary {
-  background: #2E7D32;
+  background: #4CAF50;
+  /* Зелёный */
   color: #FFFFFF;
   padding: 14px 28px;
   border-radius: 8px;
@@ -440,12 +454,15 @@ div {
   border: none;
   cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(46, 125, 50, 0.25);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.25);
+  /* Зелёный */
 }
 
 .btn-primary:hover {
-  background: #1B5E20;
-  box-shadow: 0 6px 20px rgba(46, 125, 50, 0.35);
+  background: #43A047;
+  /* Тёмно-зелёный */
+  box-shadow: 0 6px 20px rgba(76, 175, 80, 0.35);
+  /* Зелёный */
   transform: translateY(-1px);
 }
 
@@ -455,7 +472,8 @@ div {
 
 .input-primary {
   background: #FFFFFF;
-  border: 1px solid rgba(46, 125, 50, 0.15);
+  border: 1px solid rgba(76, 175, 80, 0.15);
+  /* Зелёный */
   border-radius: 8px;
   padding: 14px 16px;
   font-size: 16px;
@@ -470,8 +488,10 @@ div {
 
 .input-primary:focus {
   outline: none;
-  border-color: #2E7D32;
-  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.1);
+  border-color: #4CAF50;
+  /* Зелёный */
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+  /* Зелёный */
 }
 
 .chip-primary {
@@ -481,20 +501,25 @@ div {
   font-weight: 400;
   background: #FAF9F6;
   color: #1A1A1A;
-  border: 1px solid rgba(46, 125, 50, 0.08);
+  border: 1px solid rgba(76, 175, 80, 0.08);
+  /* Зелёный */
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .chip-primary.active {
-  background: #2E7D32;
+  background: #4CAF50;
+  /* Зелёный */
   color: #FFFFFF;
-  box-shadow: 0 2px 8px rgba(46, 125, 50, 0.2);
-  border-color: #2E7D32;
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.2);
+  /* Зелёный */
+  border-color: #4CAF50;
+  /* Зелёный */
 }
 
 .chip-primary:hover:not(.active) {
-  border-color: rgba(46, 125, 50, 0.2);
+  border-color: rgba(76, 175, 80, 0.2);
+  /* Зелёный */
   background: #F0EFEB;
 }
 
@@ -504,15 +529,18 @@ div {
 
 .panel {
   background: #FFFFFF;
-  border: 1px solid rgba(46, 125, 50, 0.1);
-  box-shadow: 0 2px 8px rgba(46, 125, 50, 0.04);
+  border: 1px solid rgba(76, 175, 80, 0.1);
+  /* Зелёный */
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.04);
+  /* Зелёный */
 }
 
 .glass {
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(46, 125, 50, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.1);
+  /* Зелёный */
 }
 
 @keyframes sheet-up {
