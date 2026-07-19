@@ -24,7 +24,8 @@ export function BrandMarquee() {
         padding: '10px 0',
         height: '120vh',
         top: '-10%',
-	zIndex: -1,
+        zIndex: 1,
+        opacity: 0.3,
       }}
     >
       {/* РЯД 1 */}
