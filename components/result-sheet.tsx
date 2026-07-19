@@ -50,7 +50,7 @@ function ScoreRing({ score }: { score: number }) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold text-gray-900">{score}%</span>
+        <span className="text-3xl font-normal text-gray-900">{score}%</span>
         <span className="text-[10px] text-gray-500">совместимость</span>
       </div>
     </div>
@@ -200,7 +200,7 @@ export function ResultSheet({
                 as="h2"
                 text={result.product}
                 revealDelay={45}
-                className="mt-1 block text-xl font-bold text-gray-900"
+                className="mt-1 block text-xl font-normal text-gray-900"
               />
             </div>
 
@@ -236,7 +236,7 @@ export function ResultSheet({
                 text={result.verdict}
                 startDelay={200}
                 revealDelay={40}
-                className="block text-base font-bold text-orange-600"
+                className="block text-base font-normal text-orange-600"
               />
               <ScrambleText
                 as="p"
@@ -270,7 +270,7 @@ export function ResultSheet({
                 <button
                   onClick={handleCheckWithIngredients}
                   disabled={!ingredientsInput.trim() || isCheckingIngredients}
-                  className="w-full rounded-md bg-primary py-2 mt-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                  className="w-full rounded-md bg-primary py-2 mt-2 text-sm font-normal text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
                 >
                   {isCheckingIngredients ? 'Анализируем...' : 'Отправить'}
                 </button>
@@ -281,14 +281,14 @@ export function ResultSheet({
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex-1 rounded-md border border-gray-200 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                className="flex-1 rounded-md border border-gray-200 py-2 text-sm font-normal text-gray-600 transition-colors hover:bg-gray-50"
               >
                 Закрыть
               </button>
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex-1 rounded-md bg-primary py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+                className="flex-1 rounded-md bg-primary py-2 text-sm font-normal text-white transition-colors hover:bg-primary/90"
               >
                 Сохранить
               </button>

@@ -388,7 +388,7 @@ export default function Page() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="size-5 text-orange-500" />
-                <h3 className="text-lg font-semibold text-foreground">Несохранённые изменения</h3>
+                <h3 className="text-lg font-normal text-foreground">Несохранённые изменения</h3>
               </div>
               <button
                 onClick={handleLeaveCancel}

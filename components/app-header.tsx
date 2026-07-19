@@ -54,7 +54,7 @@ export function AppHeader({
             onClick={() => setShowHelp(!showHelp)}
             className="relative z-50 flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
           >
-            <span className="text-sm font-bold">?</span>
+            <span className="text-sm font-normal">?</span>
           </button>
 
           {isAuthenticated ? (
@@ -63,7 +63,7 @@ export function AppHeader({
               onClick={handleProfileClick}
               className="flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10 relative"
             >
-              <span className="text-sm font-bold uppercase">{userName?.[0] || 'U'}</span>
+              <span className="text-sm font-normal uppercase">{userName?.[0] || 'U'}</span>
               <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 border-2 border-white" />
             </button>
           ) : (
@@ -85,7 +85,7 @@ export function AppHeader({
           <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
           <div className="fixed right-4 top-16 z-50 w-56 rounded-lg bg-white shadow-xl border border-primary/10 overflow-hidden md:right-6 md:top-14">
             <div className="px-4 py-3 border-b border-gray-100">
-              <p className="font-semibold text-sm text-foreground">{userName}</p>
+              <p className="font-normal text-sm text-foreground">{userName}</p>
               <p className="text-xs text-muted-foreground">Личный кабинет</p>
             </div>
 
@@ -148,7 +148,7 @@ export function AppHeader({
           />
           <div className="fixed right-4 top-20 z-50 w-64 rounded-lg bg-white p-4 shadow-xl border border-primary/10 md:right-6">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-foreground">Помощь</h3>
+              <h3 className="text-sm font-normal text-foreground">Помощь</h3>
               <button
                 onClick={() => setShowHelp(false)}
                 className="text-muted-foreground hover:text-foreground"

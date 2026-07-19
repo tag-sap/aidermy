@@ -91,7 +91,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         <ScrambleText
           as="h1"
           text="Мои данные для AI"
-          className="font-serif text-2xl font-bold text-foreground"
+          className="font-serif text-2xl font-normal text-foreground"
         />
 
         {/* === ИМЯ === */}
@@ -103,7 +103,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           <div className="bubble-5 bubble" />
           <div className="bubble-6 bubble" />
 
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <h2 className="mb-2 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
             Как к вам обращаться?
           </h2>
           <input
@@ -128,7 +128,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           <div className="bubble-5 bubble" />
           <div className="bubble-6 bubble" />
 
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <h2 className="mb-2 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
             Тип кожи
           </h2>
           <div className="flex flex-wrap gap-1.5">
@@ -152,7 +152,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           <div className="bubble-5 bubble" />
           <div className="bubble-6 bubble" />
 
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <h2 className="mb-2 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
             Возраст
           </h2>
           <div className="flex flex-wrap gap-1.5">
@@ -176,7 +176,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           <div className="bubble-5 bubble" />
           <div className="bubble-6 bubble" />
 
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <h2 className="mb-2 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
             Что беспокоит
           </h2>
           <div className="flex flex-wrap gap-1.5">
@@ -200,7 +200,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           <div className="bubble-5 bubble" />
           <div className="bubble-6 bubble" />
 
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <h2 className="mb-2 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
             Аллергии
           </h2>
           <div className="flex flex-wrap gap-1.5">
@@ -224,7 +224,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           <div className="bubble-5 bubble" />
           <div className="bubble-6 bubble" />
 
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <h2 className="mb-2 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
             Опишите проблему
           </h2>
           <p className="mb-2 text-xs text-muted-foreground">
@@ -254,7 +254,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
             <button
               type="button"
               onClick={() => setShowResetConfirm(true)}
-              className="flex items-center justify-center gap-2 rounded-md border border-red-300 px-4 py-3 text-sm font-medium text-red-500 transition-all hover:bg-red-50 hover:border-red-400"
+              className="flex items-center justify-center gap-2 rounded-md border border-red-300 px-4 py-3 text-sm font-normal text-red-500 transition-all hover:bg-red-50 hover:border-red-400"
             >
               <Trash2 className="size-4" />
               Сбросить
@@ -264,7 +264,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
               type="button"
               onClick={handleSave}
               disabled={!hasChanges || saved}
-              className={`flex-1 flex items-center justify-center gap-2 rounded-md px-6 py-3 font-bold uppercase tracking-wider transition-all ${!hasChanges || saved
+              className={`flex-1 flex items-center justify-center gap-2 rounded-md px-6 py-3 font-normal uppercase tracking-wider transition-all ${!hasChanges || saved
                   ? 'bg-transparent text-primary hover:bg-transparent hover:shadow-none cursor-default'
                   : 'bg-primary text-primary-foreground hover:shadow-[0_0_28px_rgba(255,79,0,0.5)] active:scale-[0.97]'
                 }`}
@@ -290,7 +290,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
             />
             <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl border border-red-200">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-foreground">Сбросить анкету?</h3>
+                <h3 className="text-lg font-normal text-foreground">Сбросить анкету?</h3>
                 <button
                   onClick={() => setShowResetConfirm(false)}
                   className="text-muted-foreground hover:text-foreground"
@@ -304,13 +304,13 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowResetConfirm(false)}
-                  className="flex-1 rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                  className="flex-1 rounded-md border border-gray-200 px-4 py-2 text-sm font-normal text-gray-600 transition-colors hover:bg-gray-50"
                 >
                   Отмена
                 </button>
                 <button
                   onClick={handleReset}
-                  className="flex-1 rounded-md bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+                  className="flex-1 rounded-md bg-red-500 px-4 py-2 text-sm font-normal text-white transition-colors hover:bg-red-600"
                 >
                   Сбросить
                 </button>

@@ -115,7 +115,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                 <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
                     <div className="text-center mb-6">
                         <div className="text-4xl mb-2">{skinTypeEmojis[skinType] || '🧴'}</div>
-                        <h3 className="text-xl font-bold text-gray-900">
+                        <h3 className="text-xl font-normal text-gray-900">
                             Ваш тип кожи: <span className="text-primary">{skinType}</span>
                         </h3>
                         <p className="text-sm text-gray-500 mt-1">
@@ -137,7 +137,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                         <div className="mt-4 p-4 bg-primary/5 rounded-xl border border-primary/20">
                             <div className="flex items-center gap-2 mb-2">
                                 <Star className="size-4 text-primary" />
-                                <h4 className="font-semibold text-gray-900 text-sm">💡 Хотите больше возможностей?</h4>
+                                <h4 className="font-normal text-gray-900 text-sm">💡 Хотите больше возможностей?</h4>
                             </div>
                             <ul className="text-sm text-gray-600 space-y-1.5">
                                 <li>✅ Сохраняйте историю всех проверок</li>
@@ -185,7 +185,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                     <p className="text-xs text-gray-400 mb-1">
                         Вопрос {currentStep + 1} из {QUESTIONS.length}
                     </p>
-                    <h4 className="text-base font-semibold text-gray-900">
+                    <h4 className="text-base font-normal text-gray-900">
                         {question?.question}
                     </h4>
                 </div>
@@ -199,7 +199,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                             className={cn(
                                 'w-full text-left px-4 py-3 rounded-lg border transition-all text-sm',
                                 answers[question.id] === option.value
-                                    ? 'border-primary bg-primary/5 text-primary font-medium'
+                                    ? 'border-primary bg-primary/5 text-primary font-normal'
                                     : 'border-gray-200 hover:border-primary/30 hover:bg-gray-50'
                             )}
                         >

@@ -61,7 +61,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
 
             <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-2xl border border-primary/10">
                 <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-bold text-foreground">
+                    <h2 className="text-xl font-normal text-foreground">
                         {mode === 'login' ? 'Вход в аккаунт' : mode === 'register' ? 'Создать аккаунт' : 'Проверьте почту'}
                     </h2>
                     <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
@@ -72,11 +72,11 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
                 {mode === 'success' ? (
                     <div className="text-center py-4">
                         <div className="text-4xl mb-3">📧</div>
-                        <h3 className="text-lg font-semibold text-foreground">Проверьте почту!</h3>
+                        <h3 className="text-lg font-normal text-foreground">Проверьте почту!</h3>
                         <p className="text-sm text-muted-foreground mt-2">{successMessage}</p>
                         <button
                             onClick={onClose}
-                            className="mt-4 w-full rounded-md bg-primary py-2.5 text-sm font-medium text-white hover:bg-primary/90"
+                            className="mt-4 w-full rounded-md bg-primary py-2.5 text-sm font-normal text-white hover:bg-primary/90"
                         >
                             Закрыть
                         </button>
@@ -85,7 +85,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {mode === 'register' && (
                             <div>
-                                <label className="text-sm font-medium text-foreground">Имя</label>
+                                <label className="text-sm font-normal text-foreground">Имя</label>
                                 <div className="relative mt-1">
                                     <User className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                                     <input
@@ -101,7 +101,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
                         )}
 
                         <div>
-                            <label className="text-sm font-medium text-foreground">Email</label>
+                            <label className="text-sm font-normal text-foreground">Email</label>
                             <div className="relative mt-1">
                                 <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                                 <input
@@ -116,7 +116,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
                         </div>
 
                         <div>
-                            <label className="text-sm font-medium text-foreground">Пароль</label>
+                            <label className="text-sm font-normal text-foreground">Пароль</label>
                             <div className="relative mt-1">
                                 <Lock className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                                 <input
@@ -148,7 +148,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
                             type="submit"
                             disabled={isLoading}
                             className={cn(
-                                'w-full rounded-md bg-primary py-2.5 text-sm font-medium text-white transition-colors',
+                                'w-full rounded-md bg-primary py-2.5 text-sm font-normal text-white transition-colors',
                                 isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary/90'
                             )}
                         >
@@ -171,7 +171,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
 
                         <button
                             onClick={() => window.location.href = '/api/auth/google'}
-                            className="w-full flex items-center justify-center gap-2 rounded-md border border-gray-300 bg-white py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                            className="w-full flex items-center justify-center gap-2 rounded-md border border-gray-300 bg-white py-2.5 text-sm font-normal text-gray-700 transition-colors hover:bg-gray-50"
                         >
                             <svg className="w-5 h-5" viewBox="0 0 24 24">
                                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
@@ -187,14 +187,14 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
                             {mode === 'login' ? (
                                 <>
                                     Нет аккаунта?{' '}
-                                    <button onClick={() => { setMode('register'); setError(''); }} className="text-primary hover:underline font-medium">
+                                    <button onClick={() => { setMode('register'); setError(''); }} className="text-primary hover:underline font-normal">
                                         Зарегистрироваться
                                     </button>
                                 </>
                             ) : (
                                 <>
                                     Уже есть аккаунт?{' '}
-                                    <button onClick={() => { setMode('login'); setError(''); }} className="text-primary hover:underline font-medium">
+                                    <button onClick={() => { setMode('login'); setError(''); }} className="text-primary hover:underline font-normal">
                                         Войти
                                     </button>
                                 </>

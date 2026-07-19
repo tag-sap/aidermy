@@ -51,7 +51,7 @@ export function TabBar({
                 className={cn('size-5', isActive && 'drop-shadow-[0_0_8px_rgba(255,79,0,0.6)]')}
                 strokeWidth={2}
               />
-              <span className="text-[11px] font-medium">{label}</span>
+              <span className="text-[11px] font-normal">{label}</span>
             </button>
           )
         })}

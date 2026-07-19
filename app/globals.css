@@ -402,7 +402,7 @@ button, input, textarea, select, .chip, .tab, .panel, .glass, p, span, div {
 .marquee-row span {
   display: inline-block;
   white-space: nowrap;
-  font-weight: 900;
+  font-weight: 400;
   text-transform: uppercase;
   color: #000;
   flex-shrink: 0;

@@ -42,7 +42,7 @@ export function HistoryTab({
         <ScrambleText
           as="h1"
           text="История проверок"
-          className="font-serif text-2xl font-bold text-foreground"
+          className="font-serif text-2xl font-normal text-foreground"
         />
         {history.length > 0 && (
           <button
@@ -82,7 +82,7 @@ export function HistoryTab({
                   as="p"
                   text={item.product}
                   revealDelay={30}
-                  className="block truncate font-serif text-base font-semibold text-foreground"
+                  className="block truncate font-serif text-base font-normal text-foreground"
                 />
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {item.skinType} · {formatDate(item.createdAt)}
@@ -90,7 +90,7 @@ export function HistoryTab({
                 <p className="mt-1 text-xs text-muted-foreground">{item.verdict}</p>
               </div>
               <div className="shrink-0 text-right">
-                <span className="text-2xl font-bold text-primary">{item.score}%</span>
+                <span className="text-2xl font-normal text-primary">{item.score}%</span>
               </div>
             </li>
           ))}

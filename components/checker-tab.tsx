@@ -163,7 +163,7 @@ export function CheckerTab({
       <div className="w-full max-w-md min-h-[28px] flex items-center justify-between">
         <WaveText
           text={getGreeting()}
-          className="text-base font-semibold text-foreground"
+          className="text-base font-normal text-foreground"
           startDelay={200}
         />
         <button
@@ -177,7 +177,7 @@ export function CheckerTab({
 
       <div className="relative w-full max-w-md">
         <div className="card-dense relative">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+          <p className="text-xs font-normal uppercase tracking-[0.3em] text-muted-foreground">
             Поиск
           </p>
           <div className="mt-3">
@@ -258,7 +258,7 @@ export function CheckerTab({
       {/* Блок выбора типа кожи ИЛИ опросник */}
       {!profile.skinType ? (
         <section className="card-dense w-full max-w-md">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+          <p className="text-xs font-normal uppercase tracking-[0.3em] text-muted-foreground">
             Выбери тип кожи
           </p>
           <div className="mt-3 flex flex-wrap justify-center gap-2">
@@ -277,7 +277,7 @@ export function CheckerTab({
             <div className="mt-4">
               <button
                 onClick={onStartQuiz}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 border-dashed border-primary/30 text-sm font-medium text-primary hover:bg-primary/5 transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 border-dashed border-primary/30 text-sm font-normal text-primary hover:bg-primary/5 transition-colors"
               >
                 <Sparkles className="size-4" />
                 Пройти опросник для точного определения
@@ -288,7 +288,7 @@ export function CheckerTab({
       ) : (
         <div className="w-full max-w-md text-center">
           <p className="text-sm text-muted-foreground">
-            Тип кожи: <span className="font-semibold text-foreground">{profile.skinType}</span>
+            Тип кожи: <span className="font-normal text-foreground">{profile.skinType}</span>
           </p>
           <p className="text-xs text-muted-foreground/70">
             {profile.skinTypeDetermined ? '✅ Определено автоматически' : '✅ Из анкеты'}
@@ -320,7 +320,7 @@ export function CheckerTab({
       </button>
 
       <section className="card-soft w-full max-w-md">
-        <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-muted-foreground/80">
+        <p className="text-[11px] font-normal uppercase tracking-[0.3em] text-muted-foreground/80">
           Популярное
         </p>
         <div className="mt-3 flex flex-wrap justify-center gap-2">
@@ -339,7 +339,7 @@ export function CheckerTab({
         <button
           type="button"
           onClick={onGoToProfile}
-          className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+          className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-normal text-primary transition-colors hover:bg-primary/10"
         >
           Заполни анкету кожи для точных рекомендаций
           <ArrowRight className="size-4" />
@@ -359,7 +359,7 @@ function highlightQuery(text: string, query: string) {
   return (
     <>
       {text.slice(0, index)}
-      <span className="font-bold text-primary">{text.slice(index, index + query.length)}</span>
+      <span className="font-normal text-primary">{text.slice(index, index + query.length)}</span>
       {text.slice(index + query.length)}
     </>
   )

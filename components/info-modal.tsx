@@ -22,14 +22,14 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
 
         <div className="text-center mb-6">
           <div className="text-5xl mb-3">🧴</div>
-          <h2 className="text-2xl font-bold text-gray-900">Как работает Aidermy?</h2>
+          <h2 className="text-2xl font-normal text-gray-900">Как работает Aidermy?</h2>
         </div>
 
         <div className="space-y-4">
           <div className="flex gap-3 p-3 bg-gray-50 rounded-xl">
             <Brain className="size-5 text-primary flex-shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-semibold text-gray-900 text-sm">1. AI-анализ состава</h4>
+              <h4 className="font-normal text-gray-900 text-sm">1. AI-анализ состава</h4>
               <p className="text-sm text-gray-600">
                 Искусственный интеллект анализирует каждый ингредиент продукта и оценивает его совместимость с вашей кожей.
               </p>
@@ -39,7 +39,7 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
           <div className="flex gap-3 p-3 bg-gray-50 rounded-xl">
             <Shield className="size-5 text-primary flex-shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-semibold text-gray-900 text-sm">2. Проверка безопасности</h4>
+              <h4 className="font-normal text-gray-900 text-sm">2. Проверка безопасности</h4>
               <p className="text-sm text-gray-600">
                 Мы предупреждаем о потенциально опасных ингредиентах и компонентах, которые могут вызвать раздражение.
               </p>
@@ -49,7 +49,7 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
           <div className="flex gap-3 p-3 bg-gray-50 rounded-xl">
             <Zap className="size-5 text-primary flex-shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-semibold text-gray-900 text-sm">3. Мгновенный результат</h4>
+              <h4 className="font-normal text-gray-900 text-sm">3. Мгновенный результат</h4>
               <p className="text-sm text-gray-600">
                 Получите оценку совместимости, подробный разбор состава и персональные рекомендации за секунды.
               </p>
@@ -59,7 +59,7 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
           <div className="flex gap-3 p-3 bg-gray-50 rounded-xl">
             <Users className="size-5 text-primary flex-shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-semibold text-gray-900 text-sm">4. Для всех типов кожи</h4>
+              <h4 className="font-normal text-gray-900 text-sm">4. Для всех типов кожи</h4>
               <p className="text-sm text-gray-600">
                 Подходит для сухой, жирной, комбинированной и чувствительной кожи. Подбирайте косметику с умом!
               </p>
@@ -69,7 +69,7 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
 
         <button
           onClick={onClose}
-          className="w-full mt-6 py-3 bg-primary text-white font-medium rounded-xl hover:bg-primary/90 transition-colors"
+          className="w-full mt-6 py-3 bg-primary text-white font-normal rounded-xl hover:bg-primary/90 transition-colors"
         >
           Понятно, спасибо!
         </button>

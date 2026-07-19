@@ -15,7 +15,7 @@ export function AidermyLogo({ isCompact = false }: AidermyLogoProps) {
         </span>
       </span>
       {!isCompact && (
-        <span className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.42em] text-primary/70">
+        <span className="mt-1.5 text-[10px] font-normal uppercase tracking-[0.42em] text-primary/70">
           Помощник в уходе за твоей кожей
         </span>
       )}
