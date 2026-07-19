@@ -163,3 +163,61 @@ async def check_with_ingredients(request: Request, check_request: CheckWithIngre
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка проверки: {str(e)}")
+
+    @app.get("/api/popular-products")
+async def get_popular_products():
+    """Возвращает популярные продукты из истории проверок или бренды из БД"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Проверяем, есть ли история проверок
+    cursor.execute('''
+        SELECT COUNT(DISTINCT product_name) as count 
+        FROM check_history 
+        WHERE score > 0
+    ''')
+    count = cursor.fetchone()['count']
+    
+    if count >= 3:
+        # Если есть минимум 3 уникальных продукта - берем топ из истории
+        cursor.execute('''
+            SELECT 
+                product_name,
+                COUNT(*) as checks,
+                AVG(score) as avg_score
+            FROM check_history
+            WHERE score > 0
+            GROUP BY product_name
+            ORDER BY checks DESC, avg_score DESC
+            LIMIT 8
+        ''')
+        rows = cursor.fetchall()
+        conn.close()
+        return {
+            "source": "history",
+            "products": [{
+                "name": row['product_name'],
+                "checks": row['checks'],
+                "score": int(row['avg_score'])
+            } for row in rows]
+        }
+    else:
+        # Если истории мало - берем бренды из базы продуктов
+        conn_products = get_connection(PRODUCTS_DB)
+        cursor_products = conn_products.cursor()
+        cursor_products.execute('''
+            SELECT name, slug 
+            FROM products 
+            ORDER BY RANDOM() 
+            LIMIT 8
+        ''')
+        rows = cursor_products.fetchall()
+        conn_products.close()
+        conn.close()
+        return {
+            "source": "database",
+            "products": [{
+                "name": row['name'],
+                "slug": row['slug']
+            } for row in rows]
+        }

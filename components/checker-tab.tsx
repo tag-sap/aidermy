@@ -40,6 +40,9 @@ export function CheckerTab({
   const listRef = useRef<HTMLUListElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
+  const [popularProducts, setPopularProducts] = useState<Array<{ name: string, checks?: number, score?: number, slug?: string }>>([])
+  const [popularSource, setPopularSource] = useState<'history' | 'database'>('history')
+
   // === АВТОКОМПЛИТ С ДЕБАУНСОМ И ОТМЕННОЙ ЗАПРОСОВ ===
   useEffect(() => {
     const q = query.trim()
@@ -134,7 +137,22 @@ export function CheckerTab({
         break
     }
   }
-
+  // === ПОПУЛЯРНЫЕ ПРОДУКТЫ ===
+  useEffect(() => {
+    const fetchPopular = async () => {
+      try {
+        const res = await fetch('/api/popular-products')
+        if (res.ok) {
+          const data = await res.json()
+          setPopularProducts(data.products)
+          setPopularSource(data.source)
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки популярных продуктов:', error)
+      }
+    }
+    fetchPopular()
+  }, [])
   const activeSkinType = profileComplete ? profile.skinType : skinType
   const canCheck = query.trim().length > 0 && activeSkinType.length > 0
 
@@ -320,21 +338,28 @@ export function CheckerTab({
       </button>
 
       <section className="card-soft w-full max-w-md">
-        <p className="text-[11px] font-normal uppercase tracking-[0.3em] text-muted-foreground/80">
-          Популярное
+        <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-muted-foreground/80">
+          {popularSource === 'history' ? '⭐ Популярное' : '🏷️ Бренды'}
         </p>
         <div className="mt-3 flex flex-wrap justify-center gap-2">
-          {QUICK_PRODUCTS.map((p) => (
+          {popularProducts.map((p) => (
             <Chip
-              key={p}
-              label={p}
+              key={p.name}
+              label={p.name}
               variant="gold-outline"
-              onClick={() => setQuery(p)}
+              onClick={() => setQuery(p.name)}
             />
           ))}
+          {popularProducts.length === 0 && (
+            <p className="text-xs text-muted-foreground">Загрузка...</p>
+          )}
         </div>
+        {popularSource === 'history' && popularProducts.length > 0 && (
+          <p className="text-[10px] text-muted-foreground/60 mt-2">
+            Топ продуктов из ваших проверок
+          </p>
+        )}
       </section>
-
       {!profileComplete && (
         <button
           type="button"
