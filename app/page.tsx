@@ -13,6 +13,7 @@ import { ResultSheet } from '@/components/result-sheet'
 import { SplashScreen } from '@/components/splash-screen'
 import { SkinQuiz } from '@/components/skin-quiz'
 import { InfoModal } from '@/components/info-modal'
+import { BrandMarquee } from '@/components/brand-marquee'
 import {
   emptyProfile,
   isProfileComplete,
@@ -273,6 +274,7 @@ export default function Page() {
       <SplashScreen />
 
       <div className="relative min-h-screen overflow-hidden bg-background">
+        <BrandMarquee />
         <CyberGrid />
         <div className="grid-shimmer" aria-hidden="true" />
 
