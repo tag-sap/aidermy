@@ -204,26 +204,18 @@ export function ResultSheet({
               />
             </div>
 
-            {/* === КАРТИНКА ПРОДУКТА === */}
-            {imageUrl && (
+            {/* КАРТИНКА ПРОДУКТА */}
+            {result.image_url && (
               <div className="w-full flex justify-center">
                 <div className="w-24 h-24 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200 flex-shrink-0">
                   <img
-                    src={imageUrl}
+                    src={result.image_url}
                     alt={result.product}
                     className="w-full h-full object-cover"
-                    onLoad={() => setImageLoaded(true)}
-                    onError={() => setImageError(true)}
-                    style={{ display: imageError ? 'none' : 'block' }}
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                    }}
                   />
-                  {!imageLoaded && !imageError && (
-                    <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
-                      Загрузка...
-                    </div>
-                  )}
-                  {imageError && (
-                    <span className="text-4xl">🧴</span>
-                  )}
                 </div>
               </div>
             )}

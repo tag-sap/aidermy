@@ -157,6 +157,7 @@ export default function Page() {
       const productData = await productResponse.json()
       const foundProduct = productData.products?.find((p: any) => p.name === product)
       const ingredients = foundProduct?.ingredients || ''
+      const image_url = foundProduct?.image_url || ''
 
       const response = await fetch('/api/check-with-ingredients', {
         method: 'POST',
@@ -198,6 +199,7 @@ export default function Page() {
         safe_ingredients: data.safe_ingredients || [],
         caution_ingredients: data.caution_ingredients || [],
         slug: data.slug || '',
+        image_url: image_url,
         createdAt: Date.now(),
       }
 

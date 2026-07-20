@@ -24,6 +24,7 @@ export type CheckResult = {
   stats?: Record<string, number>
   skin_type_recommendation?: string
   slug?: string
+  image_url?: string
   createdAt: number
 }
 
