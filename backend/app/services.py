@@ -120,39 +120,32 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         raise Exception("DeepSeek returned invalid JSON")
     
 def search_products(query: str) -> List[dict]:
-    """
-    Поиск продуктов по названию
-    """
     from .database import get_connection, PRODUCTS_DB
     
     if not query or len(query.strip()) < 2:
+        print(f"🔍 Пустой запрос: {query}")
         return []
     
     q = query.strip().lower()
+    print(f"🔍 Поиск: '{q}'")
+    
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    # Простой поиск - ищем все слова из запроса
     q_words = q.split()
+    print(f"🔍 Слова: {q_words}")
     
     if len(q_words) == 1:
         cursor.execute('''
             SELECT name, slug FROM products
             WHERE LOWER(name) LIKE ?
-            ORDER BY 
-                CASE 
-                    WHEN LOWER(name) = ? THEN 0
-                    WHEN LOWER(name) LIKE ? THEN 1
-                    WHEN LOWER(name) LIKE ? THEN 2
-                    ELSE 3
-                END
             LIMIT 20
-        ''', (f'%{q}%', q, f'{q}%', f'%{q}%'))
+        ''', (f'%{q}%',))
     else:
-        # Несколько слов - ищем каждое
-        # Сначала пробуем найти все слова
         conditions = ' AND '.join(['LOWER(name) LIKE ?' for _ in q_words])
         params = [f'%{word}%' for word in q_words]
+        print(f"🔍 SQL: {conditions}")
+        print(f"🔍 params: {params}")
         cursor.execute(f'''
             SELECT name, slug FROM products
             WHERE {conditions}
@@ -160,6 +153,7 @@ def search_products(query: str) -> List[dict]:
         ''', params)
     
     rows = cursor.fetchall()
+    print(f"🔍 Найдено: {len(rows)}")
     conn.close()
     return [dict(row) for row in rows]
 
