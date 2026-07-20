@@ -261,4 +261,3 @@ export function CheckerTab({
     </div>
   )
 }
-EOF
