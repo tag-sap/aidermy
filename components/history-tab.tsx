@@ -4,6 +4,7 @@ import { Trash2 } from 'lucide-react'
 import { ScrambleText } from '@/components/scramble-text'
 import type { CheckResult } from '@/lib/store'
 import { cn } from '@/lib/utils'
+import { useState, useEffect } from 'react'
 
 function formatDate(ts: number) {
   if (!ts || ts === 0 || isNaN(ts)) {
@@ -34,6 +35,13 @@ export function HistoryTab({
   onClear: () => void
   onSelect: (item: CheckResult) => void
 }) {
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsVisible(true), 50)
+    return () => clearTimeout(timer)
+  }, [])
+
   const cardStyle = "relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-5 border border-primary/20 backdrop-blur-sm hover:shadow-md transition-shadow"
 
   return (
@@ -54,7 +62,7 @@ export function HistoryTab({
       </div>
 
       {history.length === 0 ? (
-        <div className={cardStyle}>
+        <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-1')}>
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
           <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
           <div className="relative text-center py-8">
@@ -71,7 +79,9 @@ export function HistoryTab({
               onClick={() => onSelect(item)}
               className={cn(
                 cardStyle,
-                'cursor-pointer transition-all hover:shadow-lg active:scale-[0.98]'
+                'cursor-pointer transition-all hover:shadow-lg active:scale-[0.98]',
+                'card-enter',
+                isVisible && `card-enter-${Math.min(index + 1, 6)}`
               )}
               style={{
                 animationDelay: `${index * 0.08}s`

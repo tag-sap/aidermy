@@ -106,7 +106,7 @@
 
 @font-face {
   font-family: 'Wetware';
-  src: url('/fonts/wetware-cyrillic.otf') format('opentype');
+  src: url('/fonts/AVA.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -483,11 +483,13 @@ div {
 .marquee-right-medium {
   animation: marqueeRight 150s linear infinite;
 }
+
 /* Анимация как в аэропорту */
 @keyframes marquee-text {
   0% {
     transform: translateX(0);
   }
+
   100% {
     transform: translateX(-50%);
   }
@@ -500,6 +502,7 @@ div {
 .animate-marquee:hover {
   animation-play-state: paused;
 }
+
 /* АНИМАЦИЯ ПОЯВЛЕНИЯ КАРТОЧЕК */
 @keyframes cardFlyInFromCenter {
   0% {
@@ -507,10 +510,12 @@ div {
     transform: translateY(-20px) scale(0.8);
     filter: blur(10px);
   }
+
   60% {
     transform: translateY(5px) scale(1.02);
     filter: blur(0);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -524,6 +529,7 @@ div {
     transform: translateX(-30px) rotate(-2deg);
     filter: blur(6px);
   }
+
   100% {
     opacity: 1;
     transform: translateX(0) rotate(0);
@@ -537,6 +543,7 @@ div {
     transform: translateX(30px) rotate(2deg);
     filter: blur(6px);
   }
+
   100% {
     opacity: 1;
     transform: translateX(0) rotate(0);
@@ -550,6 +557,7 @@ div {
     transform: translateY(40px) scale(0.9);
     filter: blur(8px);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -560,21 +568,27 @@ div {
 .card-enter {
   opacity: 0;
 }
+
 .card-enter-1 {
   animation: cardFlyInFromCenter 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
 .card-enter-2 {
   animation: cardFlyInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.08s forwards;
 }
+
 .card-enter-3 {
   animation: cardFlyInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.16s forwards;
 }
+
 .card-enter-4 {
   animation: cardFlyInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.24s forwards;
 }
+
 .card-enter-5 {
   animation: cardFlyInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.32s forwards;
 }
+
 .card-enter-6 {
   animation: cardFlyInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.40s forwards;
 }
