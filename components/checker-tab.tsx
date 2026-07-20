@@ -171,11 +171,11 @@ export function CheckerTab({
         </div>
       </div>
 
-      {/* ПОИСК */}
+      {/* ПОИСК - подсказки снаружи */}
       <div className={cardStyle}>
         <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-        <div className="relative">
+        <div className="relative z-10">
           <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
             Найти средство
           </label>
@@ -190,7 +190,7 @@ export function CheckerTab({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => setFocused(true)}
-                onBlur={() => setTimeout(() => setFocused(false), 200)}
+                onBlur={() => setTimeout(() => setFocused(false), 250)}
                 placeholder="Введи название или состав..."
                 className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none text-sm"
               />
@@ -203,43 +203,45 @@ export function CheckerTab({
                 </button>
               )}
             </div>
-
-            {/* ПОДСКАЗКИ - поверх карточки */}
-            {focused && (suggestions.length > 0 || isLoading) && (
-              <div className="absolute left-0 top-full mt-2 z-50 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-60 overflow-y-auto">
-                {isLoading && (
-                  <div className="px-4 py-3 text-sm text-muted-foreground text-center">
-                    <span className="inline-block animate-spin mr-2">⟳</span>
-                    Загрузка...
-                  </div>
-                )}
-                {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
-                  <div className="px-4 py-3 text-sm text-muted-foreground text-center">
-                    Ничего не найдено
-                  </div>
-                )}
-                {!isLoading && suggestions.map((product, index) => (
-                  <button
-                    key={product.slug}
-                    onMouseDown={() => {
-                      setQuery(product.name)
-                      setSuggestions([])
-                      setFocused(false)
-                    }}
-                    onMouseEnter={() => setHighlightedIndex(index)}
-                    className={cn(
-                      'w-full px-4 py-3 text-left text-sm transition-colors',
-                      index === highlightedIndex ? 'bg-primary/5 text-primary' : 'hover:bg-gray-50'
-                    )}
-                  >
-                    {product.name}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </div>
+
+      {/* ПОДСКАЗКИ - снаружи карточки */}
+      {focused && (suggestions.length > 0 || isLoading) && (
+        <div className="relative z-50 -mt-2 mx-auto max-w-md w-full">
+          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-60 overflow-y-auto">
+            {isLoading && (
+              <div className="px-4 py-3 text-sm text-muted-foreground text-center">
+                <span className="inline-block animate-spin mr-2">⟳</span>
+                Загрузка...
+              </div>
+            )}
+            {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
+              <div className="px-4 py-3 text-sm text-muted-foreground text-center">
+                Ничего не найдено
+              </div>
+            )}
+            {!isLoading && suggestions.map((product, index) => (
+              <button
+                key={product.slug}
+                onMouseDown={() => {
+                  setQuery(product.name)
+                  setSuggestions([])
+                  setFocused(false)
+                }}
+                onMouseEnter={() => setHighlightedIndex(index)}
+                className={cn(
+                  'w-full px-4 py-3 text-left text-sm transition-colors',
+                  index === highlightedIndex ? 'bg-primary/5 text-primary' : 'hover:bg-gray-50'
+                )}
+              >
+                {product.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* КАРТОЧКА 4 - КНОПКА ПРОВЕРИТЬ */}
       <div className={cn('card-enter', isVisible && 'card-enter-4')}>
