@@ -4,7 +4,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
 from .models import CheckRequest, CheckResponse, CheckWithIngredientsRequest
-from .services import check_product_with_ai, check_product_with_ingredients
+from .services import check_product_with_ai, check_product_with_ingredients, search_products
 from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, search_products, PRODUCTS_DB
 import os
 from dotenv import load_dotenv
