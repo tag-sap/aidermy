@@ -1,4 +1,3 @@
-cat > components/checker-tab.tsx << 'EOF'
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
