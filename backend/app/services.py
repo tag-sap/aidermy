@@ -2,6 +2,7 @@ import httpx
 import os
 import json
 import re
+from typing import List
 from dotenv import load_dotenv
 from .database import get_ingredients, get_connection, PRODUCTS_DB
 
@@ -118,6 +119,48 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
             return json.loads(match.group())
         raise Exception("DeepSeek returned invalid JSON")
     
+def search_products(query: str) -> List[dict]:
+    """
+    Поиск продуктов по названию с поддержкой частичных совпадений
+    """
+    from .database import get_connection, PRODUCTS_DB
+    
+    if not query or len(query.strip()) < 2:
+        return []
+    
+    q = query.strip().lower()
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    
+    # Разбиваем запрос на слова для частичного поиска
+    q_words = q.split()
+    
+    # Строим условие LIKE для каждого слова
+    like_conditions = []
+    params = []
+    for word in q_words:
+        like_conditions.append("LOWER(name) LIKE ?")
+        params.append(f'%{word}%')
+    
+    # Если слов несколько, ищем по всем
+    like_clause = " AND ".join(like_conditions) if len(q_words) > 1 else like_conditions[0]
+    
+    cursor.execute(f'''
+        SELECT name, slug FROM products
+        WHERE {like_clause}
+        ORDER BY 
+            CASE 
+                WHEN LOWER(name) = ? THEN 0
+                WHEN LOWER(name) LIKE ? THEN 1
+                WHEN LOWER(name) LIKE ? THEN 2
+                ELSE 3
+            END
+        LIMIT 20
+    ''', tuple(params + [q, f'{q}%', f'%{q}%']))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]    
 # Добавьте в конец файла services.py
 
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
