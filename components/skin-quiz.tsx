@@ -98,15 +98,6 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
     }
 
     const skinType = determineSkinType(answers)
-    const skinTypeIcons: Record<string, string> = {
-        'Сухая': '💎',
-        'Жирная': '✨',
-        'Комбинированная': '🔄',
-        'Нормальная': '🌟',
-        'Чувствительная': '🌸',
-        'Сухая чувствительная': '💜',
-        'Жирная с расширенными порами': '🔮'
-    }
 
     // Финальный экран с результатом
     if (allAnswered && currentStep === QUESTIONS.length - 1 && answers[question?.id]) {
@@ -114,7 +105,6 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
             <div className="w-full max-w-md mx-auto">
                 <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-6 border border-primary/20 backdrop-blur-sm">
                     <div className="text-center mb-6">
-                        <div className="text-4xl mb-2">{skinTypeIcons[skinType] || '🧴'}</div>
                         <h3 className="text-xl font-normal text-foreground">
                             Ваш тип кожи: <span className="text-primary">{skinType}</span>
                         </h3>
@@ -136,7 +126,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                         <div className="mt-4 p-4 bg-primary/5 rounded-xl border border-primary/20">
                             <div className="flex items-center gap-2 mb-2">
                                 <Sparkles className="size-4 text-primary" />
-                                <h4 className="font-normal text-foreground text-sm">💡 Хотите больше возможностей?</h4>
+                                <h4 className="font-normal text-foreground text-sm">Хотите больше возможностей?</h4>
                             </div>
                             <ul className="text-sm text-muted-foreground space-y-1.5">
                                 <li className="flex items-center gap-2">
@@ -160,7 +150,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                                 Зарегистрироваться
                             </Button>
                             <p className="text-xs text-muted-foreground mt-2 text-center">
-                                🔓 Это бесплатно и займет 1 минуту
+                                Это бесплатно и займет 1 минуту
                             </p>
                         </div>
                     )}
