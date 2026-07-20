@@ -140,41 +140,21 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     
 def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB
-    
     if not query or len(query.strip()) < 2:
-        print(f"🔍 Пустой запрос: {query}")
         return []
-    
     q = query.strip().lower()
-    print(f"🔍 Поиск: '{q}'")
-    
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
-    
     q_words = q.split()
-    print(f"🔍 Слова: {q_words}")
-    
     if len(q_words) == 1:
-        cursor.execute('''
-            SELECT name, slug FROM products
-            WHERE LOWER(name) LIKE ?
-            LIMIT 20
-        ''', (f'%{q}%',))
+        cursor.execute("SELECT name, slug, image_url FROM products WHERE LOWER(name) LIKE ? LIMIT 20", (f"%{q}%",))
     else:
-        conditions = ' AND '.join(['LOWER(name) LIKE ?' for _ in q_words])
-        params = [f'%{word}%' for word in q_words]
-        print(f"🔍 SQL: {conditions}")
-        print(f"🔍 params: {params}")
-        cursor.execute(f'''
-            SELECT name, slug FROM products
-            WHERE {conditions}
-            LIMIT 20
-        ''', params)
-    
+        conditions = " AND ".join(["LOWER(name) LIKE ?" for _ in q_words])
+        params = [f"%{word}%" for word in q_words]
+        cursor.execute(f"SELECT name, slug, image_url FROM products WHERE {conditions} LIMIT 20", params)
     rows = cursor.fetchall()
-    print(f"🔍 Найдено: {len(rows)}")
     conn.close()
-    return [dict(row) for row in rows]
+    return [{"name": row[0], "slug": row[1], "image_url": row[2]} for row in rows]
 
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     """
