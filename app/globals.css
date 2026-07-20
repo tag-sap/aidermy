@@ -121,7 +121,9 @@
 }
 
 @keyframes wave {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translateY(0px);
   }
 
@@ -176,6 +178,10 @@
   transition: all 0.3s ease;
   color: #1A1A1A;
   min-height: 140px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+
 }
 
 .card-dense:hover {
@@ -193,6 +199,9 @@
   box-shadow: 0 2px 12px rgba(108, 60, 225, 0.04);
   color: #1A1A1A;
   min-height: 120px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .card-soft:hover {
@@ -202,7 +211,9 @@
 
 /* ЛОГОТИП */
 @keyframes logo-float {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translateY(0);
   }
 
@@ -212,7 +223,9 @@
 }
 
 @keyframes logo-glow {
-  0%, 100% {
+
+  0%,
+  100% {
     filter: drop-shadow(0 0 8px rgba(108, 60, 225, 0.15));
   }
 
@@ -274,14 +287,29 @@
 }
 
 /* ТЕКСТ */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: 'Gerhaus-Regular', sans-serif;
   font-weight: 400;
   letter-spacing: 0.02em;
   color: #1A1A1A;
 }
 
-button, input, textarea, select, .chip, .tab, .panel, .glass, p, span, div {
+button,
+input,
+textarea,
+select,
+.chip,
+.tab,
+.panel,
+.glass,
+p,
+span,
+div {
   font-family: 'Gerhaus-Regular', sans-serif;
 }
 
@@ -416,6 +444,7 @@ button, input, textarea, select, .chip, .tab, .panel, .glass, p, span, div {
   0% {
     transform: translateX(0);
   }
+
   100% {
     transform: translateX(-50%);
   }
@@ -425,6 +454,7 @@ button, input, textarea, select, .chip, .tab, .panel, .glass, p, span, div {
   0% {
     transform: translateX(-50%);
   }
+
   100% {
     transform: translateX(0);
   }
@@ -433,18 +463,23 @@ button, input, textarea, select, .chip, .tab, .panel, .glass, p, span, div {
 .marquee-left-fast {
   animation: marqueeLeft 120s linear infinite;
 }
+
 .marquee-left-slow {
   animation: marqueeLeft 180s linear infinite;
 }
+
 .marquee-left-medium {
   animation: marqueeLeft 150s linear infinite;
 }
+
 .marquee-right-fast {
   animation: marqueeRight 120s linear infinite;
 }
+
 .marquee-right-slow {
   animation: marqueeRight 180s linear infinite;
 }
+
 .marquee-right-medium {
   animation: marqueeRight 150s linear infinite;
 }
