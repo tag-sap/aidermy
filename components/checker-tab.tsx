@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Search, ScanSearch, Sparkles, Info, ArrowRight } from 'lucide-react'
+import { Search, ScanSearch, Sparkles, Info, ArrowRight, Zap, Flame } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { QUICK_PRODUCTS, SKIN_TYPES } from '@/lib/products'
 import { cn } from '@/lib/utils'
@@ -128,32 +128,41 @@ export function CheckerTab({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* ЗАГОЛОВОК */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-normal text-foreground">
-          {getGreeting()}
-        </h1>
-        <button
-          onClick={onInfoClick}
-          className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
-        >
-          <Info className="size-3" />
-          Как это работает?
-        </button>
+    <div className="flex flex-col gap-5 max-w-md mx-auto">
+      {/* ГЛАВНЫЙ БЛОК С ПРИВЕТСТВИЕМ */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-6 border border-primary/20">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+        <div className="relative">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-normal text-foreground tracking-tight">
+              {getGreeting()}
+            </h1>
+            <button
+              onClick={onInfoClick}
+              className="px-3 py-1.5 rounded-full bg-white/50 text-xs text-muted-foreground hover:text-primary hover:bg-white transition-colors border border-gray-200/50"
+            >
+              <Info className="inline size-3 mr-1" />
+              Как это работает
+            </button>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            AI проанализирует состав и скажет, подходит ли он тебе
+          </p>
+        </div>
       </div>
 
       {/* ПОИСК */}
-      <section className="bg-white rounded-xl p-6 border border-gray-200">
-        <h2 className="mb-3 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
-          Поиск
-        </h2>
+      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+        <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
+          Найти средство
+        </label>
         <div className="relative">
           <div className={cn(
-            'flex items-center gap-2 rounded-xl border px-4 py-3 bg-white/50 transition-all',
+            'flex items-center gap-3 rounded-xl border px-4 py-3 bg-gray-50/50 transition-all',
             focused
-              ? 'border-primary/60 shadow-[0_0_20px_rgba(108,60,225,0.08)]'
-              : 'border-gray-200'
+              ? 'border-primary/50 bg-white shadow-[0_0_30px_rgba(108,60,225,0.06)]'
+              : 'border-gray-200 hover:border-gray-300'
           )}>
             <Search className="size-4 shrink-0 text-muted-foreground" />
             <input
@@ -162,8 +171,8 @@ export function CheckerTab({
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => setFocused(true)}
               onBlur={() => setTimeout(() => setFocused(false), 150)}
-              placeholder="Название средства или состав..."
-              className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
+              placeholder="Введи название или состав..."
+              className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none text-sm"
             />
             {query && (
               <button
@@ -172,7 +181,7 @@ export function CheckerTab({
                   setSuggestions([])
                   inputRef.current?.focus()
                 }}
-                className="text-muted-foreground/50 hover:text-foreground"
+                className="p-1 rounded-full hover:bg-gray-100 transition-colors"
               >
                 ✕
               </button>
@@ -181,14 +190,15 @@ export function CheckerTab({
 
           {/* Подсказки */}
           {focused && (suggestions.length > 0 || isLoading) && (
-            <ul className="absolute left-0 top-full mt-1 z-50 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-64 overflow-y-auto">
+            <ul className="absolute left-0 top-full mt-2 z-50 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-60 overflow-y-auto">
               {isLoading && (
-                <li className="px-4 py-2 text-sm text-muted-foreground text-center">
+                <li className="px-4 py-3 text-sm text-muted-foreground text-center">
+                  <span className="inline-block animate-spin mr-2">⟳</span>
                   Загрузка...
                 </li>
               )}
               {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
-                <li className="px-4 py-2 text-sm text-muted-foreground text-center">
+                <li className="px-4 py-3 text-sm text-muted-foreground text-center">
                   Ничего не найдено
                 </li>
               )}
@@ -202,9 +212,9 @@ export function CheckerTab({
                     }}
                     onMouseEnter={() => setHighlightedIndex(index)}
                     className={cn(
-                      'w-full px-4 py-2.5 text-left text-sm transition-colors',
+                      'w-full px-4 py-3 text-left text-sm transition-colors',
                       index === highlightedIndex
-                        ? 'bg-primary/10 text-primary'
+                        ? 'bg-primary/5 text-primary'
                         : 'hover:bg-gray-50'
                     )}
                   >
@@ -215,13 +225,13 @@ export function CheckerTab({
             </ul>
           )}
         </div>
-      </section>
+      </div>
 
       {/* ТИП КОЖИ */}
-      <section className="bg-white rounded-xl p-6 border border-gray-200">
-        <h2 className="mb-3 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+        <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
           {profile.skinType ? 'Твой тип кожи' : 'Выбери тип кожи'}
-        </h2>
+        </label>
         {!profile.skinType ? (
           <div className="flex flex-wrap gap-2">
             {SKIN_TYPES.map((t) => (
@@ -235,10 +245,10 @@ export function CheckerTab({
             {onStartQuiz && (
               <button
                 onClick={onStartQuiz}
-                className="text-sm text-primary hover:underline ml-2"
+                className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1"
               >
-                <Sparkles className="inline size-3 mr-1" />
-                Пройти опросник
+                <Sparkles className="size-3" />
+                Опросник
               </button>
             )}
           </div>
@@ -248,24 +258,25 @@ export function CheckerTab({
             {onStartQuiz && (
               <button
                 onClick={onStartQuiz}
-                className="text-xs text-primary hover:underline"
+                className="text-xs text-primary hover:underline flex items-center gap-1"
               >
+                <Sparkles className="size-3" />
                 Обновить
               </button>
             )}
           </div>
         )}
-      </section>
+      </div>
 
       {/* КНОПКА ПРОВЕРИТЬ */}
       <button
         onClick={handleCheck}
         disabled={!canCheck}
         className={cn(
-          'w-full py-3 rounded-xl bg-primary text-white font-normal transition-all',
+          'w-full py-4 rounded-2xl text-white font-normal text-base transition-all',
           canCheck
-            ? 'hover:bg-primary/90 active:scale-[0.98]'
-            : 'opacity-40 cursor-not-allowed'
+            ? 'bg-gradient-to-r from-primary to-primary/80 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98]'
+            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
         )}
       >
         <ScanSearch className="inline size-4 mr-2" />
@@ -273,10 +284,17 @@ export function CheckerTab({
       </button>
 
       {/* ПОПУЛЯРНОЕ */}
-      <section className="bg-white rounded-xl p-6 border border-gray-200">
-        <h2 className="mb-3 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
-          {popularSource === 'history' ? '⭐ Популярное' : '🏷️ Бренды'}
-        </h2>
+      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+        <div className="flex items-center justify-between mb-3">
+          <label className="text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">
+            {popularSource === 'history' ? '⭐ Популярное' : '🏷️ Бренды'}
+          </label>
+          {popularSource === 'history' && popularProducts.length > 0 && (
+            <span className="text-[10px] text-muted-foreground/60">
+              {popularProducts.length} продуктов
+            </span>
+          )}
+        </div>
         <div className="flex flex-wrap gap-2">
           {popularProducts.map((p) => (
             <Chip
@@ -287,21 +305,21 @@ export function CheckerTab({
             />
           ))}
           {popularProducts.length === 0 && (
-            <p className="text-sm text-muted-foreground">Загрузка...</p>
+            <p className="text-sm text-muted-foreground py-2">Загрузка...</p>
           )}
         </div>
         {popularSource === 'history' && popularProducts.length > 0 && (
-          <p className="text-[10px] text-muted-foreground/60 mt-2">
-            Топ продуктов из ваших проверок
+          <p className="text-[10px] text-muted-foreground/50 mt-3">
+            Топ из твоих проверок
           </p>
         )}
-      </section>
+      </div>
 
       {/* ЗАПОЛНИТЬ АНКЕТУ */}
       {!profileComplete && (
         <button
           onClick={onGoToProfile}
-          className="flex items-center gap-2 text-sm text-primary hover:underline"
+          className="text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1 justify-center py-2"
         >
           Заполни анкету для точных рекомендаций
           <ArrowRight className="size-4" />
