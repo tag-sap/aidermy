@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Search, ScanSearch, Sparkles, Info, ArrowRight, Zap, Flame } from 'lucide-react'
+import { Search, ScanSearch, Sparkles, Info, ArrowRight } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { QUICK_PRODUCTS, SKIN_TYPES } from '@/lib/products'
 import { cn } from '@/lib/utils'
@@ -10,6 +10,33 @@ import type { SkinProfile } from '@/lib/store'
 interface ProductSuggestion {
   name: string
   slug: string
+}
+
+// === БЕГУЩИЙ ТЕКСТ КАК В АЭРОПОРТУ ===
+function MarqueeText({ text, className }: { text: string; className?: string }) {
+  const [isOverflowing, setIsOverflowing] = useState(false)
+  const textRef = useRef<HTMLSpanElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (textRef.current && containerRef.current) {
+      setIsOverflowing(textRef.current.scrollWidth > containerRef.current.clientWidth)
+    }
+  }, [text])
+
+  return (
+    <div ref={containerRef} className={cn('overflow-hidden relative', className)}>
+      <div className={cn(
+        'whitespace-nowrap',
+        isOverflowing && 'animate-marquee hover:pause'
+      )}>
+        <span ref={textRef}>{text}</span>
+        {isOverflowing && (
+          <span className="ml-8">{text}</span>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export function CheckerTab({
@@ -129,8 +156,8 @@ export function CheckerTab({
 
   return (
     <div className="flex flex-col gap-5 max-w-md mx-auto">
-      {/* ГЛАВНЫЙ БЛОК С ПРИВЕТСТВИЕМ */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-6 border border-primary/20">
+      {/* ГЛАВНЫЙ БЛОК С ПРИВЕТСТВИЕМ - ПОЛУПРОЗРАЧНЫЙ */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-6 border border-primary/20 backdrop-blur-sm">
         <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
         <div className="relative">
@@ -140,7 +167,7 @@ export function CheckerTab({
             </h1>
             <button
               onClick={onInfoClick}
-              className="px-3 py-1.5 rounded-full bg-white/50 text-xs text-muted-foreground hover:text-primary hover:bg-white transition-colors border border-gray-200/50"
+              className="px-3 py-1.5 rounded-full bg-white/50 text-xs text-muted-foreground hover:text-primary hover:bg-white transition-colors border border-gray-200/50 backdrop-blur-sm"
             >
               <Info className="inline size-3 mr-1" />
               Как это работает
@@ -152,17 +179,17 @@ export function CheckerTab({
         </div>
       </div>
 
-      {/* ПОИСК */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+      {/* ПОИСК - ПОЛУПРОЗРАЧНЫЙ */}
+      <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-5 border border-gray-200/70 shadow-sm hover:shadow-md transition-shadow">
         <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
           Найти средство
         </label>
         <div className="relative">
           <div className={cn(
-            'flex items-center gap-3 rounded-xl border px-4 py-3 bg-gray-50/50 transition-all',
+            'flex items-center gap-3 rounded-xl border px-4 py-3 bg-white/50 transition-all',
             focused
               ? 'border-primary/50 bg-white shadow-[0_0_30px_rgba(108,60,225,0.06)]'
-              : 'border-gray-200 hover:border-gray-300'
+              : 'border-gray-200/70 hover:border-gray-300'
           )}>
             <Search className="size-4 shrink-0 text-muted-foreground" />
             <input
@@ -227,8 +254,8 @@ export function CheckerTab({
         </div>
       </div>
 
-      {/* ТИП КОЖИ */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+      {/* ТИП КОЖИ - ПОЛУПРОЗРАЧНЫЙ */}
+      <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-5 border border-gray-200/70 shadow-sm hover:shadow-md transition-shadow">
         <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
           {profile.skinType ? 'Твой тип кожи' : 'Выбери тип кожи'}
         </label>
@@ -245,7 +272,7 @@ export function CheckerTab({
             {onStartQuiz && (
               <button
                 onClick={onStartQuiz}
-                className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1"
+                className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1 bg-white/50 backdrop-blur-sm"
               >
                 <Sparkles className="size-3" />
                 Опросник
@@ -276,15 +303,15 @@ export function CheckerTab({
           'w-full py-4 rounded-2xl text-white font-normal text-base transition-all',
           canCheck
             ? 'bg-gradient-to-r from-primary to-primary/80 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98]'
-            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            : 'bg-gray-200/70 text-gray-400 cursor-not-allowed backdrop-blur-sm'
         )}
       >
         <ScanSearch className="inline size-4 mr-2" />
         Проверить
       </button>
 
-      {/* ПОПУЛЯРНОЕ */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+      {/* ПОПУЛЯРНОЕ - ПОЛУПРОЗРАЧНЫЙ */}
+      <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-5 border border-gray-200/70 shadow-sm hover:shadow-md transition-shadow">
         <div className="flex items-center justify-between mb-3">
           <label className="text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">
             {popularSource === 'history' ? '⭐ Популярное' : '🏷️ Бренды'}
@@ -297,12 +324,17 @@ export function CheckerTab({
         </div>
         <div className="flex flex-wrap gap-2">
           {popularProducts.map((p) => (
-            <Chip
+            <div
               key={p.name}
-              label={p.name}
-              variant="gold-outline"
               onClick={() => setQuery(p.name)}
-            />
+              className={cn(
+                'max-w-[180px] px-4 py-1.5 rounded-full border cursor-pointer transition-all',
+                'border-gray-200 hover:border-primary/30 hover:bg-primary/5',
+                'bg-white/50 text-sm font-normal text-foreground backdrop-blur-sm'
+              )}
+            >
+              <MarqueeText text={p.name} className="text-sm" />
+            </div>
           ))}
           {popularProducts.length === 0 && (
             <p className="text-sm text-muted-foreground py-2">Загрузка...</p>
@@ -319,7 +351,7 @@ export function CheckerTab({
       {!profileComplete && (
         <button
           onClick={onGoToProfile}
-          className="text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1 justify-center py-2"
+          className="text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1 justify-center py-2 bg-white/30 backdrop-blur-sm rounded-xl border border-primary/20 px-4"
         >
           Заполни анкету для точных рекомендаций
           <ArrowRight className="size-4" />

@@ -483,3 +483,20 @@ div {
 .marquee-right-medium {
   animation: marqueeRight 150s linear infinite;
 }
+/* Анимация как в аэропорту */
+@keyframes marquee-text {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee-text 8s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
