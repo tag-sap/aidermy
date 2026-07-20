@@ -10,6 +10,7 @@ import type { SkinProfile } from '@/lib/store'
 interface ProductSuggestion {
   name: string
   slug: string
+  image_url?: string
 }
 
 // === БЕГУЩИЙ ТЕКСТ ===
@@ -232,11 +233,18 @@ export function CheckerTab({
                 }}
                 onMouseEnter={() => setHighlightedIndex(index)}
                 className={cn(
-                  'w-full px-4 py-3 text-left text-sm transition-colors',
+                  'w-full px-4 py-3 text-left text-sm transition-colors flex items-center gap-3',
                   index === highlightedIndex ? 'bg-primary/5 text-primary' : 'hover:bg-gray-50'
                 )}
               >
-                {product.name}
+                {product.image_url && (
+                  <img
+                    src={product.image_url}
+                    alt={product.name}
+                    className="w-8 h-8 object-cover rounded-md flex-shrink-0 bg-gray-100"
+                  />
+                )}
+                <span className="truncate">{product.name}</span>
               </button>
             ))}
           </div>
