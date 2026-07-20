@@ -1,10 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, ScanSearch, ArrowRight, Sparkles, Info } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Search, ScanSearch, Sparkles, Info, ArrowRight } from 'lucide-react'
 import { Chip } from '@/components/chip'
-import { ScrambleText } from '@/components/scramble-text'
-import { WaveText } from '@/components/wave-text'
 import { QUICK_PRODUCTS, SKIN_TYPES } from '@/lib/products'
 import { cn } from '@/lib/utils'
 import type { SkinProfile } from '@/lib/store'
@@ -35,18 +33,16 @@ export function CheckerTab({
   const [suggestions, setSuggestions] = useState<ProductSuggestion[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const [popularProducts, setPopularProducts] = useState<Array<{ name: string, checks?: number, score?: number, slug?: string }>>([])
+  const [popularSource, setPopularSource] = useState<'history' | 'database'>('history')
 
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const [popularProducts, setPopularProducts] = useState<Array<{ name: string, checks?: number, score?: number, slug?: string }>>([])
-  const [popularSource, setPopularSource] = useState<'history' | 'database'>('history')
-
-  // === АВТОКОМПЛИТ С ДЕБАУНСОМ И ОТМЕННОЙ ЗАПРОСОВ ===
+  // Автокомплит
   useEffect(() => {
     const q = query.trim()
-
     if (q.length < 2) {
       setSuggestions([])
       setHighlightedIndex(-1)
@@ -59,7 +55,6 @@ export function CheckerTab({
 
     const controller = new AbortController()
     abortControllerRef.current = controller
-
     setIsLoading(true)
 
     const timer = setTimeout(async () => {
@@ -67,23 +62,18 @@ export function CheckerTab({
         const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`, {
           signal: controller.signal,
         })
-
         if (!res.ok) throw new Error('Ошибка загрузки')
-
         const data = await res.json()
-
         const sorted = (data.products || []).sort((a: ProductSuggestion, b: ProductSuggestion) => {
           const aLower = a.name.toLowerCase()
           const bLower = b.name.toLowerCase()
           const qLower = q.toLowerCase()
-
           const aStarts = aLower.startsWith(qLower)
           const bStarts = bLower.startsWith(qLower)
           if (aStarts && !bStarts) return -1
           if (!aStarts && bStarts) return 1
           return a.name.length - b.name.length
         })
-
         setSuggestions(sorted.slice(0, 8))
         setHighlightedIndex(-1)
       } catch (error) {
@@ -104,40 +94,7 @@ export function CheckerTab({
     }
   }, [query])
 
-  // === КЛАВИАТУРНАЯ НАВИГАЦИЯ ===
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!suggestions.length) return
-
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault()
-        setHighlightedIndex((prev) =>
-          prev < suggestions.length - 1 ? prev + 1 : prev
-        )
-        break
-      case 'ArrowUp':
-        e.preventDefault()
-        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : -1))
-        break
-      case 'Enter':
-        e.preventDefault()
-        if (highlightedIndex >= 0 && highlightedIndex < suggestions.length) {
-          setQuery(suggestions[highlightedIndex].name)
-          setSuggestions([])
-          setFocused(false)
-          setHighlightedIndex(-1)
-        } else if (canCheck) {
-          handleCheck()
-        }
-        break
-      case 'Escape':
-        setSuggestions([])
-        setFocused(false)
-        setHighlightedIndex(-1)
-        break
-    }
-  }
-  // === ПОПУЛЯРНЫЕ ПРОДУКТЫ ===
+  // Популярные продукты
   useEffect(() => {
     const fetchPopular = async () => {
       try {
@@ -153,6 +110,7 @@ export function CheckerTab({
     }
     fetchPopular()
   }, [])
+
   const activeSkinType = profileComplete ? profile.skinType : skinType
   const canCheck = query.trim().length > 0 && activeSkinType.length > 0
 
@@ -163,13 +121,6 @@ export function CheckerTab({
     setFocused(false)
   }
 
-  const handleSelectSuggestion = (product: ProductSuggestion) => {
-    setQuery(product.name)
-    setSuggestions([])
-    setFocused(false)
-    setHighlightedIndex(-1)
-  }
-
   const getGreeting = () => {
     const name = profile.name || ''
     const base = name ? `Привет, ${name}.` : 'Привет.'
@@ -177,109 +128,102 @@ export function CheckerTab({
   }
 
   return (
-    <div className="flex flex-col items-center gap-6 text-center">
-      <div className="w-full max-w-md min-h-[28px] flex items-center justify-between">
-        <WaveText
-          text={getGreeting()}
-          className="text-base font-normal text-foreground"
-          startDelay={200}
-        />
+    <div className="flex flex-col gap-4">
+      {/* ЗАГОЛОВОК */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-normal text-foreground">
+          {getGreeting()}
+        </h1>
         <button
           onClick={onInfoClick}
-          className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0"
+          className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
         >
           <Info className="size-3" />
           Как это работает?
         </button>
       </div>
 
-      <div className="relative w-full max-w-md">
-        <div className="card-dense relative">
-          <p className="text-xs font-normal uppercase tracking-[0.3em] text-muted-foreground">
-            Поиск
-          </p>
-          <div className="mt-3">
-            <div
-              className={cn(
-                'flex items-center gap-2 rounded-md border px-4 py-3 text-left transition-all',
-                focused
-                  ? 'border-primary/60 shadow-[0_0_20px_rgba(255,79,0,0.08)]'
-                  : 'border-primary/15',
-              )}
-            >
-              <Search className="size-4 shrink-0 text-muted-foreground" />
-              <input
-                ref={inputRef}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setTimeout(() => setFocused(false), 150)}
-                placeholder="Название средства…"
-                className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
-                aria-label="Название средства"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setQuery('')
-                    setSuggestions([])
-                    inputRef.current?.focus()
-                  }}
-                  className="text-muted-foreground/50 hover:text-foreground"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
+      {/* ПОИСК */}
+      <section className="bg-white rounded-xl p-6 border border-gray-200">
+        <h2 className="mb-3 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
+          Поиск
+        </h2>
+        <div className="relative">
+          <div className={cn(
+            'flex items-center gap-2 rounded-xl border px-4 py-3 bg-white/50 transition-all',
+            focused
+              ? 'border-primary/60 shadow-[0_0_20px_rgba(108,60,225,0.08)]'
+              : 'border-gray-200'
+          )}>
+            <Search className="size-4 shrink-0 text-muted-foreground" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setTimeout(() => setFocused(false), 150)}
+              placeholder="Название средства или состав..."
+              className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
+            />
+            {query && (
+              <button
+                onClick={() => {
+                  setQuery('')
+                  setSuggestions([])
+                  inputRef.current?.focus()
+                }}
+                className="text-muted-foreground/50 hover:text-foreground"
+              >
+                ✕
+              </button>
+            )}
           </div>
-        </div>
 
-        {focused && (suggestions.length > 0 || isLoading) && (
-          <ul
-            ref={listRef}
-            className="absolute left-0 top-[calc(100%-8px)] z-50 w-full overflow-hidden rounded-b-md border border-primary/15 bg-white shadow-xl max-h-64 overflow-y-auto"
-          >
-            {isLoading && (
-              <li className="px-4 py-2 text-sm text-muted-foreground text-center">
-                Загрузка...
-              </li>
-            )}
-            {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
-              <li className="px-4 py-2 text-sm text-muted-foreground text-center">
-                Ничего не найдено
-              </li>
-            )}
-            {!isLoading &&
-              suggestions.map((product, index) => (
+          {/* Подсказки */}
+          {focused && (suggestions.length > 0 || isLoading) && (
+            <ul className="absolute left-0 top-full mt-1 z-50 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-64 overflow-y-auto">
+              {isLoading && (
+                <li className="px-4 py-2 text-sm text-muted-foreground text-center">
+                  Загрузка...
+                </li>
+              )}
+              {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
+                <li className="px-4 py-2 text-sm text-muted-foreground text-center">
+                  Ничего не найдено
+                </li>
+              )}
+              {!isLoading && suggestions.map((product, index) => (
                 <li key={product.slug}>
                   <button
-                    type="button"
-                    onMouseDown={() => handleSelectSuggestion(product)}
+                    onMouseDown={() => {
+                      setQuery(product.name)
+                      setSuggestions([])
+                      setFocused(false)
+                    }}
                     onMouseEnter={() => setHighlightedIndex(index)}
                     className={cn(
-                      'w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors',
+                      'w-full px-4 py-2.5 text-left text-sm transition-colors',
                       index === highlightedIndex
                         ? 'bg-primary/10 text-primary'
-                        : 'hover:bg-primary/5'
+                        : 'hover:bg-gray-50'
                     )}
                   >
-                    {highlightQuery(product.name, query)}
+                    {product.name}
                   </button>
                 </li>
               ))}
-          </ul>
-        )}
-      </div>
+            </ul>
+          )}
+        </div>
+      </section>
 
-      {/* Блок выбора типа кожи ИЛИ опросник */}
-      {!profile.skinType ? (
-        <section className="card-dense w-full max-w-md">
-          <p className="text-xs font-normal uppercase tracking-[0.3em] text-muted-foreground">
-            Выбери тип кожи
-          </p>
-          <div className="mt-3 flex flex-wrap justify-center gap-2">
+      {/* ТИП КОЖИ */}
+      <section className="bg-white rounded-xl p-6 border border-gray-200">
+        <h2 className="mb-3 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
+          {profile.skinType ? 'Твой тип кожи' : 'Выбери тип кожи'}
+        </h2>
+        {!profile.skinType ? (
+          <div className="flex flex-wrap gap-2">
             {SKIN_TYPES.map((t) => (
               <Chip
                 key={t}
@@ -288,60 +232,52 @@ export function CheckerTab({
                 onClick={() => setSkinType(t)}
               />
             ))}
-          </div>
-
-          {/* Кнопка опросника */}
-          {onStartQuiz && (
-            <div className="mt-4">
+            {onStartQuiz && (
               <button
                 onClick={onStartQuiz}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border-2 border-dashed border-primary/30 text-sm font-normal text-primary hover:bg-primary/5 transition-colors"
+                className="text-sm text-primary hover:underline ml-2"
               >
-                <Sparkles className="size-4" />
-                Пройти опросник для точного определения
+                <Sparkles className="inline size-3 mr-1" />
+                Пройти опросник
               </button>
-            </div>
-          )}
-        </section>
-      ) : (
-        <div className="w-full max-w-md text-center">
-          <p className="text-sm text-muted-foreground">
-            Тип кожи: <span className="font-normal text-foreground">{profile.skinType}</span>
-          </p>
-          <p className="text-xs text-muted-foreground/70">
-            {profile.skinTypeDetermined ? '✅ Определено автоматически' : '✅ Из анкеты'}
-          </p>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-normal">{profile.skinType}</span>
+            {onStartQuiz && (
+              <button
+                onClick={onStartQuiz}
+                className="text-xs text-primary hover:underline"
+              >
+                Обновить
+              </button>
+            )}
+          </div>
+        )}
+      </section>
 
-          {/* Кнопка перепройти опросник */}
-          {onStartQuiz && (
-            <button
-              onClick={onStartQuiz}
-              className="mt-2 text-xs text-primary hover:underline"
-            >
-              🔄 Пройти опросник заново
-            </button>
-          )}
-        </div>
-      )}
-
+      {/* КНОПКА ПРОВЕРИТЬ */}
       <button
-        type="button"
         onClick={handleCheck}
         disabled={!canCheck}
         className={cn(
-          'btn-primary w-full max-w-md flex items-center justify-center gap-2',
-          !canCheck && 'opacity-40 cursor-not-allowed',
+          'w-full py-3 rounded-xl bg-primary text-white font-normal transition-all',
+          canCheck
+            ? 'hover:bg-primary/90 active:scale-[0.98]'
+            : 'opacity-40 cursor-not-allowed'
         )}
       >
-        <ScanSearch className="size-5" />
+        <ScanSearch className="inline size-4 mr-2" />
         Проверить
       </button>
 
-      <section className="card-soft w-full max-w-md">
-        <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-muted-foreground/80">
+      {/* ПОПУЛЯРНОЕ */}
+      <section className="bg-white rounded-xl p-6 border border-gray-200">
+        <h2 className="mb-3 text-sm font-normal uppercase tracking-[0.08em] text-muted-foreground">
           {popularSource === 'history' ? '⭐ Популярное' : '🏷️ Бренды'}
-        </p>
-        <div className="mt-3 flex flex-wrap justify-center gap-2">
+        </h2>
+        <div className="flex flex-wrap gap-2">
           {popularProducts.map((p) => (
             <Chip
               key={p.name}
@@ -351,7 +287,7 @@ export function CheckerTab({
             />
           ))}
           {popularProducts.length === 0 && (
-            <p className="text-xs text-muted-foreground">Загрузка...</p>
+            <p className="text-sm text-muted-foreground">Загрузка...</p>
           )}
         </div>
         {popularSource === 'history' && popularProducts.length > 0 && (
@@ -360,32 +296,17 @@ export function CheckerTab({
           </p>
         )}
       </section>
+
+      {/* ЗАПОЛНИТЬ АНКЕТУ */}
       {!profileComplete && (
         <button
-          type="button"
           onClick={onGoToProfile}
-          className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm font-normal text-primary transition-colors hover:bg-primary/10"
+          className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
-          Заполни анкету кожи для точных рекомендаций
+          Заполни анкету для точных рекомендаций
           <ArrowRight className="size-4" />
         </button>
       )}
     </div>
-  )
-}
-
-// === ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ПОДСВЕТКИ ===
-function highlightQuery(text: string, query: string) {
-  if (!query.trim()) return text
-
-  const index = text.toLowerCase().indexOf(query.toLowerCase())
-  if (index === -1) return text
-
-  return (
-    <>
-      {text.slice(0, index)}
-      <span className="font-normal text-primary">{text.slice(index, index + query.length)}</span>
-      {text.slice(index + query.length)}
-    </>
   )
 }
