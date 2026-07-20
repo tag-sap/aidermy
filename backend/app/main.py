@@ -199,12 +199,11 @@ async def get_popular_products():
         products = []
         for row in rows:
             product_name = row['product_name']
-            # Ищем image_url в products.db
             conn_products = get_connection(PRODUCTS_DB)
             cursor_products = conn_products.cursor()
             cursor_products.execute(
                 "SELECT image_url FROM products WHERE name = ? OR slug LIKE ?",
-                (product_name, f'%{product_name}%')
+                (product_name, f'%{product_name.replace(" ", "-").lower()}%')
             )
             img_row = cursor_products.fetchone()
             conn_products.close()
