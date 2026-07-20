@@ -25,7 +25,7 @@ export function BrandMarquee() {
         height: '120vh',
         top: '-10%',
         zIndex: 1,
-        opacity: 0.3,
+        opacity: 0.1,
       }}
     >
       {/* РЯД 1 */}
