@@ -242,7 +242,53 @@ export function CheckerTab({
           </div>
         </div>
       )}
+      {/* КАРТОЧКА 3 - ТИП КОЖИ + ОПРОСНИК */}
+      <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-3')}>
+        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+        <div className="relative">
+          <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
+            {profile.skinType ? 'Твой тип кожи' : 'Выбери тип кожи'}
+          </label>
 
+          {!profile.skinType ? (
+            <div className="flex flex-wrap gap-2">
+              {SKIN_TYPES.map((t) => (
+                <Chip
+                  key={t}
+                  label={t}
+                  active={skinType === t}
+                  onClick={() => setSkinType(t)}
+                />
+              ))}
+
+              {/* КНОПКА ОПРОСНИКА */}
+              {onStartQuiz && (
+                <button
+                  onClick={onStartQuiz}
+                  className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1 bg-white/50 backdrop-blur-sm"
+                >
+                  <Sparkles className="size-3" />
+                  Пройти опросник
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-normal">{profile.skinType}</span>
+              {onStartQuiz && (
+                <button
+                  onClick={onStartQuiz}
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  <Sparkles className="size-3" />
+                  Обновить
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
       {/* КАРТОЧКА 4 - КНОПКА ПРОВЕРИТЬ */}
       <div className={cn('card-enter', isVisible && 'card-enter-4')}>
         <button onClick={handleCheck} disabled={!canCheck} className={cn('w-full py-4 rounded-2xl text-white font-normal text-base transition-all', canCheck ? 'bg-gradient-to-r from-primary to-primary/80 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98]' : 'bg-gray-200/70 text-gray-400 cursor-not-allowed backdrop-blur-sm')}>

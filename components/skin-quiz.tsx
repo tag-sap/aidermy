@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronRight, ChevronLeft, Sparkles, Check, Star } from 'lucide-react'
+import { ChevronRight, ChevronLeft, Sparkles, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+
 interface SkinQuizProps {
     onComplete: (answers: Record<string, string>, skinType: string) => void
     onCancel?: () => void
@@ -69,7 +70,6 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
             setCurrentStep(prev => prev + 1)
         } else if (allAnswered) {
             const skinType = determineSkinType(answers)
-            // Передаем результат и показываем финальный экран
             onComplete(answers, skinType)
         }
     }
@@ -98,27 +98,27 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
     }
 
     const skinType = determineSkinType(answers)
-    const skinTypeEmojis: Record<string, string> = {
-        'Сухая': '💧',
+    const skinTypeIcons: Record<string, string> = {
+        'Сухая': '💎',
         'Жирная': '✨',
         'Комбинированная': '🔄',
-        'Нормальная': '😊',
+        'Нормальная': '🌟',
         'Чувствительная': '🌸',
-        'Сухая чувствительная': '🌸💧',
-        'Жирная с расширенными порами': '✨🔍'
+        'Сухая чувствительная': '💜',
+        'Жирная с расширенными порами': '🔮'
     }
 
-    // Если все вопросы отвечены - показываем финальный экран с результатом
+    // Финальный экран с результатом
     if (allAnswered && currentStep === QUESTIONS.length - 1 && answers[question?.id]) {
         return (
             <div className="w-full max-w-md mx-auto">
-                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-6 border border-primary/20 backdrop-blur-sm">
                     <div className="text-center mb-6">
-                        <div className="text-4xl mb-2">{skinTypeEmojis[skinType] || '🧴'}</div>
-                        <h3 className="text-xl font-normal text-gray-900">
+                        <div className="text-4xl mb-2">{skinTypeIcons[skinType] || '🧴'}</div>
+                        <h3 className="text-xl font-normal text-foreground">
                             Ваш тип кожи: <span className="text-primary">{skinType}</span>
                         </h3>
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-sm text-muted-foreground mt-1">
                             Определено на основе ваших ответов
                         </p>
                     </div>
@@ -132,18 +132,25 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                         Подтвердить и продолжить
                     </Button>
 
-                    {/* Предложение зарегистрироваться */}
                     {!isAuthenticated && onRegister && (
                         <div className="mt-4 p-4 bg-primary/5 rounded-xl border border-primary/20">
                             <div className="flex items-center gap-2 mb-2">
-                                <Star className="size-4 text-primary" />
-                                <h4 className="font-normal text-gray-900 text-sm">💡 Хотите больше возможностей?</h4>
+                                <Sparkles className="size-4 text-primary" />
+                                <h4 className="font-normal text-foreground text-sm">💡 Хотите больше возможностей?</h4>
                             </div>
-                            <ul className="text-sm text-gray-600 space-y-1.5">
-                                <li>✅ Сохраняйте историю всех проверок</li>
-                                <li>✅ Получайте персональные рекомендации</li>
-                                <li>✅ Создавайте свой профиль кожи</li>
-                                <li>✅ Отслеживайте изменения кожи</li>
+                            <ul className="text-sm text-muted-foreground space-y-1.5">
+                                <li className="flex items-center gap-2">
+                                    <span className="text-primary">✦</span> Сохраняйте историю всех проверок
+                                </li>
+                                <li className="flex items-center gap-2">
+                                    <span className="text-primary">✦</span> Получайте персональные рекомендации
+                                </li>
+                                <li className="flex items-center gap-2">
+                                    <span className="text-primary">✦</span> Создавайте свой профиль кожи
+                                </li>
+                                <li className="flex items-center gap-2">
+                                    <span className="text-primary">✦</span> Отслеживайте изменения кожи
+                                </li>
                             </ul>
                             <Button
                                 onClick={onRegister}
@@ -152,7 +159,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                             >
                                 Зарегистрироваться
                             </Button>
-                            <p className="text-xs text-gray-400 mt-2 text-center">
+                            <p className="text-xs text-muted-foreground mt-2 text-center">
                                 🔓 Это бесплатно и займет 1 минуту
                             </p>
                         </div>
@@ -164,7 +171,7 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
 
     return (
         <div className="w-full max-w-md mx-auto">
-            <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+            <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-6 border border-primary/20 backdrop-blur-sm">
                 {/* Прогресс */}
                 <div className="flex gap-1 mb-4">
                     {QUESTIONS.map((_, i) => (
@@ -182,10 +189,10 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
 
                 {/* Вопрос */}
                 <div className="mb-6">
-                    <p className="text-xs text-gray-400 mb-1">
+                    <p className="text-xs text-muted-foreground mb-1">
                         Вопрос {currentStep + 1} из {QUESTIONS.length}
                     </p>
-                    <h4 className="text-base font-normal text-gray-900">
+                    <h4 className="text-base font-normal text-foreground">
                         {question?.question}
                     </h4>
                 </div>
@@ -197,10 +204,10 @@ export function SkinQuiz({ onComplete, onCancel, onRegister, initialAnswers = {}
                             key={option.value}
                             onClick={() => handleAnswer(option.value)}
                             className={cn(
-                                'w-full text-left px-4 py-3 rounded-lg border transition-all text-sm',
+                                'w-full text-left px-4 py-3 rounded-xl border transition-all text-sm',
                                 answers[question.id] === option.value
-                                    ? 'border-primary bg-primary/5 text-primary font-normal'
-                                    : 'border-gray-200 hover:border-primary/30 hover:bg-gray-50'
+                                    ? 'border-primary bg-primary/5 text-primary'
+                                    : 'border-gray-200 hover:border-primary/30 hover:bg-primary/5'
                             )}
                         >
                             <div className="flex items-center justify-between">
