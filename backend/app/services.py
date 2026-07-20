@@ -132,36 +132,54 @@ def search_products(query: str) -> List[dict]:
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    # Разбиваем запрос на слова для частичного поиска
+    # Разбиваем запрос на слова
     q_words = q.split()
     
-    # Строим условие LIKE для каждого слова
+    # Ищем продукты, где есть все слова из запроса (в любом порядке)
+    # Используем несколько LIKE условий
     like_conditions = []
     params = []
     for word in q_words:
         like_conditions.append("LOWER(name) LIKE ?")
         params.append(f'%{word}%')
     
-    # Если слов несколько, ищем по всем
-    like_clause = " AND ".join(like_conditions) if len(q_words) > 1 else like_conditions[0]
-    
-    cursor.execute(f'''
-        SELECT name, slug FROM products
-        WHERE {like_clause}
-        ORDER BY 
+    # Если слов несколько - ищем по всем, если одно - по одному
+    if len(q_words) > 1:
+        like_clause = " AND ".join(like_conditions)
+        # Добавляем также поиск по точной фразе (слова подряд)
+        params.append(f'%{q}%')
+        order_by = f"""
             CASE 
                 WHEN LOWER(name) = ? THEN 0
                 WHEN LOWER(name) LIKE ? THEN 1
                 WHEN LOWER(name) LIKE ? THEN 2
                 ELSE 3
             END
-        LIMIT 20
-    ''', tuple(params + [q, f'{q}%', f'%{q}%']))
+        """
+        cursor.execute(f'''
+            SELECT name, slug FROM products
+            WHERE {like_clause} OR LOWER(name) LIKE ?
+            ORDER BY {order_by}
+            LIMIT 20
+        ''', tuple(params + [q, f'{q}%', f'%{q}%']))
+    else:
+        # Одно слово - простой поиск
+        cursor.execute('''
+            SELECT name, slug FROM products
+            WHERE LOWER(name) LIKE ?
+            ORDER BY 
+                CASE 
+                    WHEN LOWER(name) = ? THEN 0
+                    WHEN LOWER(name) LIKE ? THEN 1
+                    WHEN LOWER(name) LIKE ? THEN 2
+                    ELSE 3
+                END
+            LIMIT 20
+        ''', (f'%{q}%', q, f'{q}%', f'%{q}%'))
     
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]    
-# Добавьте в конец файла services.py
+    return [dict(row) for row in rows]
 
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     """
