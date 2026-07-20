@@ -176,7 +176,8 @@ async def get_popular_products():
         FROM check_history 
         WHERE score > 0
     ''')
-    count = cursor.fetchone()['count']
+    result = cursor.fetchone()
+    count = result['count'] if result else 0
     
     if count >= 3:
         # Если есть минимум 3 уникальных продукта - берем топ из истории
@@ -193,20 +194,38 @@ async def get_popular_products():
         ''')
         rows = cursor.fetchall()
         conn.close()
+        
+        # Для каждого продукта из истории ищем image_url в основной БД
+        products = []
+        for row in rows:
+            product_name = row['product_name']
+            # Ищем image_url в products.db
+            conn_products = get_connection(PRODUCTS_DB)
+            cursor_products = conn_products.cursor()
+            cursor_products.execute(
+                "SELECT image_url FROM products WHERE name = ? OR slug LIKE ?",
+                (product_name, f'%{product_name}%')
+            )
+            img_row = cursor_products.fetchone()
+            conn_products.close()
+            
+            products.append({
+                "name": product_name,
+                "checks": row['checks'],
+                "score": int(row['avg_score']),
+                "image_url": img_row['image_url'] if img_row else None
+            })
+        
         return {
             "source": "history",
-            "products": [{
-                "name": row['product_name'],
-                "checks": row['checks'],
-                "score": int(row['avg_score'])
-            } for row in rows]
+            "products": products
         }
     else:
         # Если истории мало - берем бренды из базы продуктов
         conn_products = get_connection(PRODUCTS_DB)
         cursor_products = conn_products.cursor()
         cursor_products.execute('''
-            SELECT name, slug 
+            SELECT name, slug, image_url 
             FROM products 
             ORDER BY RANDOM() 
             LIMIT 8
@@ -218,6 +237,7 @@ async def get_popular_products():
             "source": "database",
             "products": [{
                 "name": row['name'],
-                "slug": row['slug']
+                "slug": row['slug'],
+                "image_url": row['image_url']
             } for row in rows]
         }

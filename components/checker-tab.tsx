@@ -59,7 +59,7 @@ export function CheckerTab({
   const [suggestions, setSuggestions] = useState<ProductSuggestion[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
-  const [popularProducts, setPopularProducts] = useState<Array<{ name: string, checks?: number, score?: number, slug?: string }>>([])
+  const [popularProducts, setPopularProducts] = useState<Array<{ name: string; checks?: number; score?: number; slug?: string; image_url?: string }>>([])
   const [popularSource, setPopularSource] = useState<'history' | 'database'>('history')
   const [isVisible, setIsVisible] = useState(false)
 
@@ -127,7 +127,12 @@ export function CheckerTab({
         const res = await fetch('/api/popular-products')
         if (res.ok) {
           const data = await res.json()
-          setPopularProducts(data.products)
+          // Добавляем image_url к каждому продукту
+          const productsWithImages = data.products.map((p: any) => ({
+            ...p,
+            image_url: p.image_url || ''
+          }))
+          setPopularProducts(productsWithImages)
           setPopularSource(data.source)
         }
       } catch (error) {
@@ -315,7 +320,18 @@ export function CheckerTab({
           </div>
           <div className="flex flex-col gap-2 w-full">
             {popularProducts.map((p) => (
-              <div key={p.name} onClick={() => setQuery(p.name)} className="w-full px-4 py-2.5 rounded-xl border cursor-pointer transition-all border-primary/10 hover:border-primary/30 hover:bg-primary/5 bg-white/30 backdrop-blur-sm">
+              <div
+                key={p.name}
+                onClick={() => setQuery(p.name)}
+                className="w-full px-4 py-2.5 rounded-xl border cursor-pointer transition-all border-primary/10 hover:border-primary/30 hover:bg-primary/5 bg-white/30 backdrop-blur-sm flex items-center gap-3"
+              >
+                {p.image_url && (
+                  <img
+                    src={p.image_url}
+                    alt={p.name}
+                    className="w-8 h-8 object-cover rounded-md flex-shrink-0 bg-gray-100"
+                  />
+                )}
                 <MarqueeText text={p.name} className="text-sm" />
               </div>
             ))}
