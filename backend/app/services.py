@@ -155,7 +155,6 @@ def search_products(query: str) -> List[dict]:
     rows = cursor.fetchall()
     conn.close()
     return [{"name": row[0], "slug": row[1], "image_url": row[2]} for row in rows]
-
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     """
     Определяет тип кожи на основе ответов на опросник
