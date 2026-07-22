@@ -201,6 +201,9 @@ export default function Page() {
         slug: data.slug || '',
         image_url: image_url,
         createdAt: Date.now(),
+        active_ingredients: data.active_ingredients,
+        how_to_use: data.how_to_use,
+        expectations: data.expectations,
       }
 
       setResult(fullResult)
