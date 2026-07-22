@@ -16,6 +16,27 @@ def generate_slug(name: str) -> str:
     slug = re.sub(r'[-\s]+', '-', slug)
     return slug.lower().strip('-')
 
+def _apply_fallbacks(result: dict):
+    if 'active_ingredients' not in result or result['active_ingredients'] is None:
+        result['active_ingredients'] = {
+            "name": "Не определён",
+            "position": 0,
+            "concentration": "низкая",
+            "effectiveness": "минимальная"
+        }
+    if 'how_to_use' not in result or result['how_to_use'] is None:
+        result['how_to_use'] = {
+            "application": "По инструкции",
+            "time": "По необходимости",
+            "note": "Следуйте рекомендациям на упаковке"
+        }
+    if 'expectations' not in result or result['expectations'] is None:
+        result['expectations'] = {
+            "when": "Индивидуально",
+            "normal": "Отсутствие раздражения",
+            "danger": "Сильное покраснение или жжение"
+        }
+
 async def check_product_with_ai(product_name: str, skin_type: str, profile: dict) -> dict:
     saved_ingredients = get_ingredients(product_name)
     if saved_ingredients:
@@ -29,7 +50,6 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         result['ingredients'] = saved_ingredients
         _apply_fallbacks(result)
         return result
-    
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
@@ -81,26 +101,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         }
     }
 
-def _apply_fallbacks(result: dict):
-    if 'active_ingredients' not in result or result['active_ingredients'] is None:
-        result['active_ingredients'] = {
-            "name": "Не определён",
-            "position": 0,
-            "concentration": "низкая",
-            "effectiveness": "минимальная"
-        }
-    if 'how_to_use' not in result or result['how_to_use'] is None:
-        result['how_to_use'] = {
-            "application": "По инструкции",
-            "time": "По необходимости",
-            "note": "Следуйте рекомендациям на упаковке"
-        }
-    if 'expectations' not in result or result['expectations'] is None:
-        result['expectations'] = {
-            "when": "Индивидуально",
-            "normal": "Отсутствие раздражения",
-            "danger": "Сильное покраснение или жжение"
-        }
+
 
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
     if profile is None:
