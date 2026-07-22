@@ -1,5 +1,3 @@
-cd ~/OneDrive/Рабочий\ стол/Aidermy/backend/app
-cat > services.py << 'EOF'
 import httpx
 import os
 import json
@@ -277,4 +275,3 @@ def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
         return "Жирная с расширенными порами"
     
     return "Нормальная"
-EOF
