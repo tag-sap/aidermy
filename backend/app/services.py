@@ -26,7 +26,29 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             saved_ingredients
         )
         result['slug'] = generate_slug(product_name)
-        result['ingredients'] = saved_ingredients  # ← ДОБАВЛЕНО
+        result['ingredients'] = saved_ingredients
+        
+        # === FALLBACK ДЛЯ НОВЫХ ПОЛЕЙ ===
+        if 'active_ingredients' not in result or result['active_ingredients'] is None:
+            result['active_ingredients'] = {
+                "name": "Не определён",
+                "position": 0,
+                "concentration": "низкая",
+                "effectiveness": "минимальная"
+            }
+        if 'how_to_use' not in result or result['how_to_use'] is None:
+            result['how_to_use'] = {
+                "application": "По инструкции",
+                "time": "По необходимости",
+                "note": "Следуйте рекомендациям на упаковке"
+            }
+        if 'expectations' not in result or result['expectations'] is None:
+            result['expectations'] = {
+                "when": "Индивидуально",
+                "normal": "Отсутствие раздражения",
+                "danger": "Сильное покраснение или жжение"
+            }
+        
         return result
     
     conn = get_connection(PRODUCTS_DB)
@@ -50,7 +72,29 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             row['ingredients']
         )
         result['slug'] = row['slug'] or generate_slug(product_name)
-        result['ingredients'] = row['ingredients']  # ← ДОБАВЛЕНО
+        result['ingredients'] = row['ingredients']
+        
+        # === FALLBACK ДЛЯ НОВЫХ ПОЛЕЙ ===
+        if 'active_ingredients' not in result or result['active_ingredients'] is None:
+            result['active_ingredients'] = {
+                "name": "Не определён",
+                "position": 0,
+                "concentration": "низкая",
+                "effectiveness": "минимальная"
+            }
+        if 'how_to_use' not in result or result['how_to_use'] is None:
+            result['how_to_use'] = {
+                "application": "По инструкции",
+                "time": "По необходимости",
+                "note": "Следуйте рекомендациям на упаковке"
+            }
+        if 'expectations' not in result or result['expectations'] is None:
+            result['expectations'] = {
+                "when": "Индивидуально",
+                "normal": "Отсутствие раздражения",
+                "danger": "Сильное покраснение или жжение"
+            }
+        
         return result
     
     return {
@@ -60,9 +104,24 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         "safe_ingredients": [],
         "caution_ingredients": [],
         "slug": generate_slug(product_name),
-        "ingredients": ""  # ← ДОБАВЛЕНО
+        "ingredients": "",
+        "active_ingredients": {
+            "name": "Не определён",
+            "position": 0,
+            "concentration": "низкая",
+            "effectiveness": "минимальная"
+        },
+        "how_to_use": {
+            "application": "По инструкции",
+            "time": "По необходимости",
+            "note": "Следуйте рекомендациям на упаковке"
+        },
+        "expectations": {
+            "when": "Индивидуально",
+            "normal": "Отсутствие раздражения",
+            "danger": "Сильное покраснение или жжение"
+        }
     }
-
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
     prompt = f"""
 Ты — профессиональный дерматолог-косметолог с 15-летним стажем.
