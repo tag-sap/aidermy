@@ -26,6 +26,24 @@ export type CheckResult = {
   slug?: string
   image_url?: string
   createdAt: number
+  active_ingredients?: {
+    name: string
+    position: number
+    concentration: 'высокая' | 'средняя' | 'низкая'
+    effectiveness: 'рабочая' | 'средняя' | 'минимальная'
+  }
+  how_to_use?: {
+    application: string
+    time: string
+    note: string
+  }
+  expectations?: {
+    when: string
+    normal: string
+    danger: string
+  }
+
+
 }
 
 const PROFILE_KEY = 'aidermy:profile'
@@ -95,7 +113,7 @@ export function determineSkinTypeFromAnswers(answers: Record<string, string>): s
   if (feel === 'normal' && moisture === 'rarely') return 'Нормальная'
   if (feel === 'tight' && reaction === 'sensitive') return 'Сухая чувствительная'
   if (feel === 'oily' && pores === 'large') return 'Жирная с расширенными порами'
-  
+
   return 'Нормальная'
 }
 

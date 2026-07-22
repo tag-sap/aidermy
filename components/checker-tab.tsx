@@ -246,7 +246,7 @@ export function CheckerTab({
                   <img
                     src={product.image_url}
                     alt={product.name}
-                    className="w-8 h-8 object-cover rounded-md flex-shrink-0 bg-gray-100"
+                    className="w-10 h-10 object-cover rounded-md flex-shrink-0 bg-gray-100"
                   />
                 )}
                 <span className="truncate">{product.name}</span>
@@ -327,9 +327,9 @@ export function CheckerTab({
               >
                 {p.image_url && (
                   <img
-                    src={p.image_url}
-                    alt={p.name}
-                    className="w-8 h-8 object-cover rounded-md flex-shrink-0 bg-gray-100"
+                    src={product.image_url}
+                    alt={product.name}
+                    className="w-10 h-10 object-cover rounded-md flex-shrink-0 bg-gray-100"
                   />
                 )}
                 <MarqueeText text={p.name} className="text-sm" />
