@@ -197,7 +197,6 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 - Все кавычки и запятые должны быть на месте.
 - Теги <good> и <bad> обязательны.
 - Оценка должна быть честной и привязана к проблеме пользователя.
-⚠️ ВНИМАНИЕ: В ответе ОБЯЗАТЕЛЬНО должны быть поля active_ingredients, how_to_use, expectations. Заполни их даже если продукт простой.
 """
 
     async with httpx.AsyncClient() as client:
@@ -223,12 +222,63 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     content = data["choices"][0]["message"]["content"]
 
     try:
-        return json.loads(content)
+        result = json.loads(content)
     except json.JSONDecodeError:
+        # Пробуем найти JSON в тексте
+        import re
         match = re.search(r'\{.*\}', content, re.DOTALL)
         if match:
-            return json.loads(match.group())
-        raise Exception("DeepSeek returned invalid JSON")
+            try:
+                result = json.loads(match.group())
+            except:
+                # Если не получилось — возвращаем fallback
+                result = {
+                    "score": 50,
+                    "verdict": "Не удалось проанализировать",
+                    "summary": "Ошибка обработки ответа AI",
+                    "active_ingredients": {
+                        "name": "Не определён",
+                        "position": 0,
+                        "concentration": "низкая",
+                        "effectiveness": "минимальная"
+                    },
+                    "how_to_use": {
+                        "application": "По инструкции",
+                        "time": "По необходимости",
+                        "note": "Следуйте рекомендациям на упаковке"
+                    },
+                    "expectations": {
+                        "when": "Индивидуально",
+                        "normal": "Отсутствие раздражения",
+                        "danger": "Сильное покраснение или жжение"
+                    },
+                    "safe_ingredients": [],
+                    "caution_ingredients": []
+                }
+        else:
+            result = {
+                "score": 50,
+                "verdict": "Не удалось проанализировать",
+                "summary": "Ошибка обработки ответа AI",
+                "active_ingredients": {
+                    "name": "Не определён",
+                    "position": 0,
+                    "concentration": "низкая",
+                    "effectiveness": "минимальная"
+                },
+                "how_to_use": {
+                    "application": "По инструкции",
+                    "time": "По необходимости",
+                    "note": "Следуйте рекомендациям на упаковке"
+                },
+                "expectations": {
+                    "when": "Индивидуально",
+                    "normal": "Отсутствие раздражения",
+                    "danger": "Сильное покраснение или жжение"
+                },
+                "safe_ingredients": [],
+                "caution_ingredients": []
+            }
     
 def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB
