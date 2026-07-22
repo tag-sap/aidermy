@@ -138,6 +138,13 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 - Все кавычки и запятые должны быть на месте.
 - Теги <good> и <bad> обязательны.
 - Оценка должна быть честной и привязана к проблеме пользователя.
+⚠️ ВНИМАНИЕ: В ответе ОБЯЗАТЕЛЬНО должны быть поля:
+- active_ingredients
+- how_to_use
+- expectations
+
+Даже если продукт простой — заполни их. Например:
+active_ingredients: {"name": "Нет выраженного активного ингредиента", "position": 0, "concentration": "низкая", "effectiveness": "минимальная"}
 """
 
     async with httpx.AsyncClient() as client:
