@@ -327,8 +327,8 @@ export function CheckerTab({
               >
                 {p.image_url && (
                   <img
-                    src={product.image_url}
-                    alt={product.name}
+                    src={p.image_url}
+                    alt={p.name}
                     className="w-10 h-10 object-cover rounded-md flex-shrink-0 bg-gray-100"
                   />
                 )}
