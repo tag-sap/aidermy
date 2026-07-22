@@ -1,3 +1,5 @@
+cd ~/OneDrive/Рабочий\ стол/Aidermy/backend/app
+cat > services.py << 'EOF'
 import httpx
 import os
 import json
@@ -27,28 +29,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         )
         result['slug'] = generate_slug(product_name)
         result['ingredients'] = saved_ingredients
-        
-        # === FALLBACK ДЛЯ НОВЫХ ПОЛЕЙ ===
-        if 'active_ingredients' not in result or result['active_ingredients'] is None:
-            result['active_ingredients'] = {
-                "name": "Не определён",
-                "position": 0,
-                "concentration": "низкая",
-                "effectiveness": "минимальная"
-            }
-        if 'how_to_use' not in result or result['how_to_use'] is None:
-            result['how_to_use'] = {
-                "application": "По инструкции",
-                "time": "По необходимости",
-                "note": "Следуйте рекомендациям на упаковке"
-            }
-        if 'expectations' not in result or result['expectations'] is None:
-            result['expectations'] = {
-                "when": "Индивидуально",
-                "normal": "Отсутствие раздражения",
-                "danger": "Сильное покраснение или жжение"
-            }
-        
+        _apply_fallbacks(result)
         return result
     
     conn = get_connection(PRODUCTS_DB)
@@ -73,28 +54,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         )
         result['slug'] = row['slug'] or generate_slug(product_name)
         result['ingredients'] = row['ingredients']
-        
-        # === FALLBACK ДЛЯ НОВЫХ ПОЛЕЙ ===
-        if 'active_ingredients' not in result or result['active_ingredients'] is None:
-            result['active_ingredients'] = {
-                "name": "Не определён",
-                "position": 0,
-                "concentration": "низкая",
-                "effectiveness": "минимальная"
-            }
-        if 'how_to_use' not in result or result['how_to_use'] is None:
-            result['how_to_use'] = {
-                "application": "По инструкции",
-                "time": "По необходимости",
-                "note": "Следуйте рекомендациям на упаковке"
-            }
-        if 'expectations' not in result or result['expectations'] is None:
-            result['expectations'] = {
-                "when": "Индивидуально",
-                "normal": "Отсутствие раздражения",
-                "danger": "Сильное покраснение или жжение"
-            }
-        
+        _apply_fallbacks(result)
         return result
     
     return {
@@ -122,7 +82,32 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             "danger": "Сильное покраснение или жжение"
         }
     }
+
+def _apply_fallbacks(result: dict):
+    if 'active_ingredients' not in result or result['active_ingredients'] is None:
+        result['active_ingredients'] = {
+            "name": "Не определён",
+            "position": 0,
+            "concentration": "низкая",
+            "effectiveness": "минимальная"
+        }
+    if 'how_to_use' not in result or result['how_to_use'] is None:
+        result['how_to_use'] = {
+            "application": "По инструкции",
+            "time": "По необходимости",
+            "note": "Следуйте рекомендациям на упаковке"
+        }
+    if 'expectations' not in result or result['expectations'] is None:
+        result['expectations'] = {
+            "when": "Индивидуально",
+            "normal": "Отсутствие раздражения",
+            "danger": "Сильное покраснение или жжение"
+        }
+
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
+    if profile is None:
+        profile = {}
+    
     prompt = f"""
 Ты — профессиональный дерматолог-косметолог с 15-летним стажем.
 
@@ -164,30 +149,24 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 
 {{
   "score": число от 0 до 100,
-
   "verdict": "Подходит" | "С осторожностью" | "Не рекомендуется",
-
   "summary": "текст с <good> и <bad> тегами",
-
   "active_ingredients": {{
     "name": "название активного ингредиента",
-    "position": число (позиция в списке, начиная с 1),
+    "position": число,
     "concentration": "высокая" | "средняя" | "низкая",
     "effectiveness": "рабочая" | "средняя" | "минимальная"
   }},
-
   "how_to_use": {{
     "application": "Тонкий слой" | "Точечно" | "Можно много" | "На сухую кожу" | "На влажную кожу",
     "time": "Утром" | "Вечером" | "2 раза в день" | "По необходимости",
     "note": "дополнительная рекомендация с <good> и <bad> тегами"
   }},
-
   "expectations": {{
     "when": "через 1–2 недели" | "через 3–4 недели" | "через 2 месяца",
     "normal": "нормальная реакция с <good> и <bad> тегами",
     "danger": "когда прекратить использование с <good> и <bad> тегами"
   }},
-
   "safe_ingredients": ["ингредиент1", "ингредиент2"],
   "caution_ingredients": ["ингредиент1"]
 }}
@@ -210,7 +189,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
                 "model": "deepseek-chat",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
-                "max_tokens": 500
+                "max_tokens": 600
             },
             timeout=30
         )
@@ -222,64 +201,39 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     content = data["choices"][0]["message"]["content"]
 
     try:
-        result = json.loads(content)
+        return json.loads(content)
     except json.JSONDecodeError:
-        # Пробуем найти JSON в тексте
-        import re
         match = re.search(r'\{.*\}', content, re.DOTALL)
         if match:
             try:
-                result = json.loads(match.group())
+                return json.loads(match.group())
             except:
-                # Если не получилось — возвращаем fallback
-                result = {
-                    "score": 50,
-                    "verdict": "Не удалось проанализировать",
-                    "summary": "Ошибка обработки ответа AI",
-                    "active_ingredients": {
-                        "name": "Не определён",
-                        "position": 0,
-                        "concentration": "низкая",
-                        "effectiveness": "минимальная"
-                    },
-                    "how_to_use": {
-                        "application": "По инструкции",
-                        "time": "По необходимости",
-                        "note": "Следуйте рекомендациям на упаковке"
-                    },
-                    "expectations": {
-                        "when": "Индивидуально",
-                        "normal": "Отсутствие раздражения",
-                        "danger": "Сильное покраснение или жжение"
-                    },
-                    "safe_ingredients": [],
-                    "caution_ingredients": []
-                }
-        else:
-            result = {
-                "score": 50,
-                "verdict": "Не удалось проанализировать",
-                "summary": "Ошибка обработки ответа AI",
-                "active_ingredients": {
-                    "name": "Не определён",
-                    "position": 0,
-                    "concentration": "низкая",
-                    "effectiveness": "минимальная"
-                },
-                "how_to_use": {
-                    "application": "По инструкции",
-                    "time": "По необходимости",
-                    "note": "Следуйте рекомендациям на упаковке"
-                },
-                "expectations": {
-                    "when": "Индивидуально",
-                    "normal": "Отсутствие раздражения",
-                    "danger": "Сильное покраснение или жжение"
-                },
-                "safe_ingredients": [],
-                "caution_ingredients": []
-            }
-    
+                pass
+        # Fallback
+        return {
+            "score": 50,
+            "verdict": "Не удалось проанализировать",
+            "summary": "Ошибка обработки ответа AI",
+            "active_ingredients": {
+                "name": "Не определён",
+                "position": 0,
+                "concentration": "низкая",
+                "effectiveness": "минимальная"
+            },
+            "how_to_use": {
+                "application": "По инструкции",
+                "time": "По необходимости",
+                "note": "Следуйте рекомендациям на упаковке"
+            },
+            "expectations": {
+                "when": "Индивидуально",
+                "normal": "Отсутствие раздражения",
+                "danger": "Сильное покраснение или жжение"
+            },
+            "safe_ingredients": [],
+            "caution_ingredients": []
+        }
+
 def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB
     if not query or len(query.strip()) < 2:
@@ -297,10 +251,8 @@ def search_products(query: str) -> List[dict]:
     rows = cursor.fetchall()
     conn.close()
     return [{"name": row[0], "slug": row[1], "image_url": row[2]} for row in rows]
+
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
-    """
-    Определяет тип кожи на основе ответов на опросник
-    """
     if not quiz_answers:
         return "Не определено"
     
@@ -309,7 +261,6 @@ def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     moisture = quiz_answers.get('moisture_level', '')
     pores = quiz_answers.get('pores', '')
     
-    # Логика определения
     if feel == 'tight' and moisture == 'always':
         return "Сухая"
     if feel == 'oily' and moisture == 'oily':
@@ -326,3 +277,4 @@ def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
         return "Жирная с расширенными порами"
     
     return "Нормальная"
+EOF
