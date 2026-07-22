@@ -8,7 +8,6 @@ class Profile(BaseModel):
     allergies: List[str] = Field(default=[], description="Аллергии")
     custom_text: Optional[str] = Field(default="", description="Дополнительный комментарий")
     
-    # Новые поля для опросника (опциональные)
     quiz_answers: Optional[Dict[str, str]] = Field(
         default=None, 
         description="Ответы на опросник о коже"
@@ -23,6 +22,23 @@ class CheckRequest(BaseModel):
     skin_type: str = Field(..., description="Тип кожи пользователя")
     profile: Profile = Field(..., description="Анкета пользователя")
 
+# НОВЫЕ МОДЕЛИ ДЛЯ ОТВЕТА
+class ActiveIngredient(BaseModel):
+    name: str
+    position: int
+    concentration: str  # "высокая", "средняя", "низкая"
+    effectiveness: str  # "рабочая", "средняя", "минимальная"
+
+class HowToUse(BaseModel):
+    application: str
+    time: str
+    note: Optional[str] = None
+
+class Expectations(BaseModel):
+    when: str
+    normal: str
+    danger: str
+
 class CheckResponse(BaseModel):
     score: int
     verdict: str
@@ -33,6 +49,11 @@ class CheckResponse(BaseModel):
     caution_ingredients: List[str] = []
     cached: bool = False
     slug: Optional[str] = None
+    image_url: Optional[str] = None
+    # НОВЫЕ ПОЛЯ
+    active_ingredients: Optional[ActiveIngredient] = None
+    how_to_use: Optional[HowToUse] = None
+    expectations: Optional[Expectations] = None
 
 class CheckWithIngredientsRequest(BaseModel):
     product_name: str
