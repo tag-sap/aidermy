@@ -180,7 +180,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
                 "model": "deepseek-chat",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
-                "max_tokens": 1000
+                "max_tokens": 2000
             },
             timeout=30
         )
