@@ -54,6 +54,8 @@ def generate_how_to_use(ingredients: str) -> dict:
 
 def _apply_fallbacks(result: dict, ingredients: str = ""):
     # Если active_ingredients — массив или None, приводим к объекту
+    print(f"🔍 _apply_fallbacks: active_ingredients = {result.get('active_ingredients')}")
+    print(f"🔍 _apply_fallbacks: type = {type(result.get('active_ingredients'))}")
     if 'active_ingredients' in result:
         if isinstance(result['active_ingredients'], list):
             result['active_ingredients'] = result['active_ingredients'][0] if result['active_ingredients'] else None
