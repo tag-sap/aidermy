@@ -150,17 +150,17 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 Проблема: {profile.get('custom_text', 'не указана')}
 Состав: {ingredients}
 
-Верни ТОЛЬКО JSON:
+Верни ТОЛЬКО JSON, active_ingredients — ЭТО ОБЪЕКТ, НЕ МАССИВ.:
 {{
   "score": число,
   "verdict": "Подходит" | "С осторожностью" | "Не рекомендуется",
   "summary": "текст с <good> и <bad>",
-  "active_ingredients": {{
-    "name": "название",
+  "active_ingredients": {
+    "name": "название ОДНОГО самого важного активного ингредиента",
     "position": число,
     "concentration": "высокая" | "средняя" | "низкая",
     "effectiveness": "рабочая" | "средняя" | "минимальная"
-  }},
+  },
   "how_to_use": {{
     "application": "Тонкий слой" | "Точечно" | "Можно много",
     "time": "Утром" | "Вечером" | "2 раза в день",
