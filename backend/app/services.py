@@ -16,21 +16,50 @@ def generate_slug(name: str) -> str:
     slug = re.sub(r'[-\s]+', '-', slug)
     return slug.lower().strip('-')
 
-def _apply_fallbacks(result: dict):
-    if 'active_ingredients' not in result or result['active_ingredients'] is None:
-        result['active_ingredients'] = {
-            "name": "Не определён",
-            "position": 0,
-            "concentration": "низкая",
-            "effectiveness": "минимальная"
-        }
-    if 'how_to_use' not in result or result['how_to_use'] is None:
-        result['how_to_use'] = {
+def generate_how_to_use(ingredients: str) -> dict:
+    """
+    Генерирует рекомендации по применению на основе состава.
+    """
+    if not ingredients:
+        return {
             "application": "По инструкции",
             "time": "По необходимости",
             "note": "Следуйте рекомендациям на упаковке"
         }
-    if 'expectations' not in result or result['expectations'] is None:
+    
+    i = ingredients.lower()
+    note = "Наносите на очищенную кожу."
+    
+    if "кислота" in i or "ретинол" in i:
+        application = "Точечно"
+        time = "Вечером"
+        note += " Избегайте области вокруг глаз. Используйте SPF днём."
+    elif "масло" in i or "сквалан" in i or "ши" in i:
+        application = "Тонкий слой"
+        time = "Вечером"
+        note += " Подходит для массажа."
+    elif "гиалурон" in i or "глицерин" in i:
+        application = "На влажную кожу"
+        time = "Утром и вечером"
+        note += " Наносите на слегка влажную кожу для лучшего увлажнения."
+    else:
+        application = "По инструкции"
+        time = "По необходимости"
+    
+    return {
+        "application": application,
+        "time": time,
+        "note": note
+    }
+
+def _apply_fallbacks(result: dict, ingredients: str = ""):
+    if result.get('active_ingredients') is None:
+        result['active_ingredients'] = parse_active_ingredient(ingredients)
+    
+    if result.get('how_to_use') is None:
+        result['how_to_use'] = generate_how_to_use(ingredients)
+    
+    if result.get('expectations') is None:
         result['expectations'] = {
             "when": "Индивидуально",
             "normal": "Отсутствие раздражения",
