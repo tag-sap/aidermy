@@ -77,7 +77,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         )
         result['slug'] = generate_slug(product_name)
         result['ingredients'] = saved_ingredients
-        _apply_fallbacks(result)
+        _apply_fallbacks(result, saved_ingredients)
         return result
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
@@ -101,7 +101,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         )
         result['slug'] = row['slug'] or generate_slug(product_name)
         result['ingredients'] = row['ingredients']
-        _apply_fallbacks(result)
+        _apply_fallbacks(result, saved_ingredients)
         return result
     
     return {
