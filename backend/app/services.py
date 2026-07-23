@@ -53,13 +53,14 @@ def generate_how_to_use(ingredients: str) -> dict:
     }
 
 def _apply_fallbacks(result: dict, ingredients: str = ""):
-    # Если active_ingredients — массив, берём первый элемент
+    # Если active_ingredients — массив или None, приводим к объекту
     if 'active_ingredients' in result:
         if isinstance(result['active_ingredients'], list):
             result['active_ingredients'] = result['active_ingredients'][0] if result['active_ingredients'] else None
-        elif result['active_ingredients'] is None:
-            result['active_ingredients'] = parse_active_ingredient(ingredients)
     else:
+        result['active_ingredients'] = None
+    
+    if result.get('active_ingredients') is None:
         result['active_ingredients'] = parse_active_ingredient(ingredients)
     
     if result.get('how_to_use') is None:
