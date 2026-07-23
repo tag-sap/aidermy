@@ -59,7 +59,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         SELECT name, ingredients, slug FROM products
         WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
         LIMIT 1
-    ''', (f'%{clean_query}%',))
+    ''', (f'%{clean_query.lower()}%',))
     row = cursor.fetchone()
     conn.close()
     
