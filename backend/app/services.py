@@ -110,27 +110,11 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     prompt = f"""
 Ты — дерматолог. Оцени продукт для пользователя.
 
-### Данные:
-- Кожа: {skin_type}
-- Возраст: {profile.get('age', 'не указан')}
-- Проблемы: {', '.join(profile.get('concerns', [])) or 'не указаны'}
-- Аллергии: {', '.join(profile.get('allergies', [])) or 'не указаны'}
-- Жалоба: {profile.get('custom_text', 'не указана')}
+Кожа: {skin_type}
+Проблема: {profile.get('custom_text', 'не указана')}
+Состав: {ingredients}
 
-### Продукт:
-- {product_name}
-- Состав (по убыванию концентрации): {ingredients}
-
-### Оцени:
-1. Решает ли состав проблему пользователя.
-2. Активный ингредиент — по позиции в составе (1–3 = высокая, 4–6 = средняя, 7+ = низкая).
-3. Как применять, чего ожидать, когда бить тревогу.
-
-### Теги:
-<good> — позитивные слова
-<bad> — негативные слова
-
-### Ответ ТОЛЬКО JSON:
+Верни ТОЛЬКО JSON:
 {{
   "score": число,
   "verdict": "Подходит" | "С осторожностью" | "Не рекомендуется",
@@ -142,20 +126,18 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     "effectiveness": "рабочая" | "средняя" | "минимальная"
   }},
   "how_to_use": {{
-    "application": "...",
-    "time": "...",
+    "application": "Тонкий слой" | "Точечно" | "Можно много",
+    "time": "Утром" | "Вечером" | "2 раза в день",
     "note": "с <good> и <bad>"
   }},
   "expectations": {{
-    "when": "...",
+    "when": "через 1-2 недели" | "через месяц",
     "normal": "с <good> и <bad>",
     "danger": "с <good> и <bad>"
   }},
   "safe_ingredients": ["инг1"],
   "caution_ingredients": ["инг1"]
 }}
-
-⚠️ В ответе ОБЯЗАТЕЛЬНО: active_ingredients, how_to_use, expectations. Если нет активного ингредиента — "Не определён".
 """
 
     async with httpx.AsyncClient() as client:
@@ -169,7 +151,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
                 "model": "deepseek-chat",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
-                "max_tokens": 600
+                "max_tokens": 1000
             },
             timeout=30
         )
