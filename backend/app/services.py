@@ -190,7 +190,9 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 
     data = response.json()
     content = data["choices"][0]["message"]["content"]
-
+    print("📥 ОТВЕТ AI:")
+    print(content)
+    print("---")
     try:
         return json.loads(content)
     except json.JSONDecodeError:
