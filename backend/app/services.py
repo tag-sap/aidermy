@@ -221,39 +221,66 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     print("📥 ОТВЕТ AI:")
     print(content)
     print("---")
+    
     try:
-        return json.loads(content)
+        result = json.loads(content)
     except json.JSONDecodeError:
         match = re.search(r'\{.*\}', content, re.DOTALL)
         if match:
             try:
-                return json.loads(match.group())
+                result = json.loads(match.group())
             except:
-                pass
-        # Fallback
-        return {
-            "score": 50,
-            "verdict": "Не удалось проанализировать",
-            "summary": "Ошибка обработки ответа AI",
-            "active_ingredients": {
-                "name": "Не определён",
-                "position": 0,
-                "concentration": "низкая",
-                "effectiveness": "минимальная"
-            },
-            "how_to_use": {
-                "application": "По инструкции",
-                "time": "По необходимости",
-                "note": "Следуйте рекомендациям на упаковке"
-            },
-            "expectations": {
-                "when": "Индивидуально",
-                "normal": "Отсутствие раздражения",
-                "danger": "Сильное покраснение или жжение"
-            },
-            "safe_ingredients": [],
-            "caution_ingredients": []
-        }
+                result = {
+                    "score": 50,
+                    "verdict": "Не удалось проанализировать",
+                    "summary": "Ошибка обработки ответа AI",
+                    "active_ingredients": {
+                        "name": "Не определён",
+                        "position": 0,
+                        "concentration": "низкая",
+                        "effectiveness": "минимальная"
+                    },
+                    "how_to_use": {
+                        "application": "По инструкции",
+                        "time": "По необходимости",
+                        "note": "Следуйте рекомендациям на упаковке"
+                    },
+                    "expectations": {
+                        "when": "Индивидуально",
+                        "normal": "Отсутствие раздражения",
+                        "danger": "Сильное покраснение или жжение"
+                    },
+                    "safe_ingredients": [],
+                    "caution_ingredients": []
+                }
+        else:
+            result = {
+                "score": 50,
+                "verdict": "Не удалось проанализировать",
+                "summary": "Ошибка обработки ответа AI",
+                "active_ingredients": {
+                    "name": "Не определён",
+                    "position": 0,
+                    "concentration": "низкая",
+                    "effectiveness": "минимальная"
+                },
+                "how_to_use": {
+                    "application": "По инструкции",
+                    "time": "По необходимости",
+                    "note": "Следуйте рекомендациям на упаковке"
+                },
+                "expectations": {
+                    "when": "Индивидуально",
+                    "normal": "Отсутствие раздражения",
+                    "danger": "Сильное покраснение или жжение"
+                },
+                "safe_ingredients": [],
+                "caution_ingredients": []
+            }
+
+    # 👇 Применяем fallback и возвращаем
+    _apply_fallbacks(result, ingredients)
+    return result
 
 def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB
