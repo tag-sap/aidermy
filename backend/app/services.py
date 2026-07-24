@@ -17,9 +17,6 @@ def generate_slug(name: str) -> str:
     return slug.lower().strip('-')
 
 def generate_how_to_use(ingredients: str) -> dict:
-    """
-    Генерирует рекомендации по применению на основе состава.
-    """
     if not ingredients:
         return {
             "application": "По инструкции",
@@ -52,10 +49,47 @@ def generate_how_to_use(ingredients: str) -> dict:
         "note": note
     }
 
+def parse_active_ingredient(ingredients: str) -> dict:
+    if not ingredients:
+        return {
+            "name": "Не определён",
+            "position": 0,
+            "concentration": "низкая",
+            "effectiveness": "минимальная"
+        }
+    
+    actives = [
+        "ниацинамид", "ретинол", "витамин с", "аскорбиновая кислота",
+        "пептиды", "салициловая кислота", "гиалуроновая кислота",
+        "церамиды", "пантенол", "масло ши", "сквалан", "керамиды",
+        "аденозин", "арбутин", "азаелаиновая кислота", "гликолевая кислота",
+        "молочная кислота", "витамин е", "токоферол", "цинк", "сера",
+        "центелла", "ретинол"
+    ]
+    
+    parts = [p.strip().lower() for p in ingredients.split(',')]
+    
+    for i, part in enumerate(parts):
+        for active in actives:
+            if active in part:
+                position = i + 1
+                concentration = "высокая" if position <= 3 else "средняя" if position <= 6 else "низкая"
+                effectiveness = "рабочая" if position <= 5 else "минимальная"
+                return {
+                    "name": part.title(),
+                    "position": position,
+                    "concentration": concentration,
+                    "effectiveness": effectiveness
+                }
+    
+    return {
+        "name": "Не определён",
+        "position": 0,
+        "concentration": "низкая",
+        "effectiveness": "минимальная"
+    }
+
 def _apply_fallbacks(result: dict, ingredients: str = ""):
-    # Если active_ingredients — массив или None, приводим к объекту
-    print(f"🔍 _apply_fallbacks: active_ingredients = {result.get('active_ingredients')}")
-    print(f"🔍 _apply_fallbacks: type = {type(result.get('active_ingredients'))}")
     if 'active_ingredients' in result:
         if isinstance(result['active_ingredients'], list):
             result['active_ingredients'] = result['active_ingredients'][0] if result['active_ingredients'] else None
@@ -88,17 +122,17 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         result['ingredients'] = saved_ingredients
         _apply_fallbacks(result, saved_ingredients)
         return result
+    
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
     clean_query = ''.join(product_name.split())
     
-# Вместо clean_query используем LIKE с заменой переносов
     cursor.execute('''
         SELECT name, ingredients, slug FROM products
-        WHERE REPLACE(REPLACE(name, '\n', ''), '\r', '') LIKE ?
+        WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
         LIMIT 1
-    ''', (f'%{product_name.replace(" ", "")}%',))
+    ''', (f'%{clean_query}%',))
     row = cursor.fetchone()
     conn.close()
     
@@ -111,7 +145,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         )
         result['slug'] = row['slug'] or generate_slug(product_name)
         result['ingredients'] = row['ingredients']
-        _apply_fallbacks(result, saved_ingredients)
+        _apply_fallbacks(result, row['ingredients'])
         return result
     
     return {
@@ -139,8 +173,6 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             "danger": "Сильное покраснение или жжение"
         }
     }
-
-
 
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
     if profile is None:
@@ -226,9 +258,6 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 
     data = response.json()
     content = data["choices"][0]["message"]["content"]
-    print("📥 ОТВЕТ AI:")
-    print(content)
-    print("---")
     
     try:
         result = json.loads(content)
@@ -286,7 +315,6 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
                 "caution_ingredients": []
             }
 
-    # 👇 Применяем fallback и возвращаем
     _apply_fallbacks(result, ingredients)
     return result
 
@@ -307,6 +335,7 @@ def search_products(query: str) -> List[dict]:
     rows = cursor.fetchall()
     conn.close()
     return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]} for row in rows]
+
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     if not quiz_answers:
         return "Не определено"
