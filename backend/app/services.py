@@ -16,99 +16,6 @@ def generate_slug(name: str) -> str:
     slug = re.sub(r'[-\s]+', '-', slug)
     return slug.lower().strip('-')
 
-def generate_how_to_use(ingredients: str) -> dict:
-    if not ingredients:
-        return {
-            "application": "По инструкции",
-            "time": "По необходимости",
-            "note": "Следуйте рекомендациям на упаковке"
-        }
-    
-    i = ingredients.lower()
-    note = "Наносите на очищенную кожу."
-    
-    if "кислота" in i or "ретинол" in i:
-        application = "Точечно"
-        time = "Вечером"
-        note += " Избегайте области вокруг глаз. Используйте SPF днём."
-    elif "масло" in i or "сквалан" in i or "ши" in i:
-        application = "Тонкий слой"
-        time = "Вечером"
-        note += " Подходит для массажа."
-    elif "гиалурон" in i or "глицерин" in i:
-        application = "На влажную кожу"
-        time = "Утром и вечером"
-        note += " Наносите на слегка влажную кожу для лучшего увлажнения."
-    else:
-        application = "По инструкции"
-        time = "По необходимости"
-    
-    return {
-        "application": application,
-        "time": time,
-        "note": note
-    }
-
-def parse_active_ingredient(ingredients: str) -> dict:
-    if not ingredients:
-        return {
-            "name": "Не определён",
-            "position": 0,
-            "concentration": "низкая",
-            "effectiveness": "минимальная"
-        }
-    
-    actives = [
-        "ниацинамид", "ретинол", "витамин с", "аскорбиновая кислота",
-        "пептиды", "салициловая кислота", "гиалуроновая кислота",
-        "церамиды", "пантенол", "масло ши", "сквалан", "керамиды",
-        "аденозин", "арбутин", "азаелаиновая кислота", "гликолевая кислота",
-        "молочная кислота", "витамин е", "токоферол", "цинк", "сера",
-        "центелла", "ретинол"
-    ]
-    
-    parts = [p.strip().lower() for p in ingredients.split(',')]
-    
-    for i, part in enumerate(parts):
-        for active in actives:
-            if active in part:
-                position = i + 1
-                concentration = "высокая" if position <= 3 else "средняя" if position <= 6 else "низкая"
-                effectiveness = "рабочая" if position <= 5 else "минимальная"
-                return {
-                    "name": part.title(),
-                    "position": position,
-                    "concentration": concentration,
-                    "effectiveness": effectiveness
-                }
-    
-    return {
-        "name": "Не определён",
-        "position": 0,
-        "concentration": "низкая",
-        "effectiveness": "минимальная"
-    }
-
-def _apply_fallbacks(result: dict, ingredients: str = ""):
-    if 'active_ingredients' in result:
-        if isinstance(result['active_ingredients'], list):
-            result['active_ingredients'] = result['active_ingredients'][0] if result['active_ingredients'] else None
-    else:
-        result['active_ingredients'] = None
-    
-    if result.get('active_ingredients') is None:
-        result['active_ingredients'] = parse_active_ingredient(ingredients)
-    
-    if result.get('how_to_use') is None:
-        result['how_to_use'] = generate_how_to_use(ingredients)
-    
-    if result.get('expectations') is None:
-        result['expectations'] = {
-            "when": "Индивидуально",
-            "normal": "Отсутствие раздражения",
-            "danger": "Сильное покраснение или жжение"
-        }
-
 async def check_product_with_ai(product_name: str, skin_type: str, profile: dict) -> dict:
     saved_ingredients = get_ingredients(product_name)
     if saved_ingredients:
@@ -120,7 +27,6 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         )
         result['slug'] = generate_slug(product_name)
         result['ingredients'] = saved_ingredients
-        _apply_fallbacks(result, saved_ingredients)
         return result
     
     conn = get_connection(PRODUCTS_DB)
@@ -145,7 +51,6 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         )
         result['slug'] = row['slug'] or generate_slug(product_name)
         result['ingredients'] = row['ingredients']
-        _apply_fallbacks(result, row['ingredients'])
         return result
     
     return {
@@ -156,22 +61,9 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         "caution_ingredients": [],
         "slug": generate_slug(product_name),
         "ingredients": "",
-        "active_ingredients": {
-            "name": "Не определён",
-            "position": 0,
-            "concentration": "низкая",
-            "effectiveness": "минимальная"
-        },
-        "how_to_use": {
-            "application": "По инструкции",
-            "time": "По необходимости",
-            "note": "Следуйте рекомендациям на упаковке"
-        },
-        "expectations": {
-            "when": "Индивидуально",
-            "normal": "Отсутствие раздражения",
-            "danger": "Сильное покраснение или жжение"
-        }
+        "active_ingredients": None,
+        "how_to_use": None,
+        "expectations": None
     }
 
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
@@ -209,7 +101,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 <bad> — негативные слова
 
 ### ВАЖНО:
-Верни ТОЛЬКО JSON. active_ingredients — ЭТО ОБЪЕКТ, НЕ МАССИВ. Верни ОДИН самый важный активный ингредиент.
+Верни ТОЛЬКО JSON. Все поля обязательны. active_ingredients — ЭТО ОБЪЕКТ, НЕ МАССИВ.
 
 ### Формат:
 {{
@@ -267,55 +159,10 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
             try:
                 result = json.loads(match.group())
             except:
-                result = {
-                    "score": 50,
-                    "verdict": "Не удалось проанализировать",
-                    "summary": "Ошибка обработки ответа AI",
-                    "active_ingredients": {
-                        "name": "Не определён",
-                        "position": 0,
-                        "concentration": "низкая",
-                        "effectiveness": "минимальная"
-                    },
-                    "how_to_use": {
-                        "application": "По инструкции",
-                        "time": "По необходимости",
-                        "note": "Следуйте рекомендациям на упаковке"
-                    },
-                    "expectations": {
-                        "when": "Индивидуально",
-                        "normal": "Отсутствие раздражения",
-                        "danger": "Сильное покраснение или жжение"
-                    },
-                    "safe_ingredients": [],
-                    "caution_ingredients": []
-                }
+                raise Exception("Невалидный JSON от AI")
         else:
-            result = {
-                "score": 50,
-                "verdict": "Не удалось проанализировать",
-                "summary": "Ошибка обработки ответа AI",
-                "active_ingredients": {
-                    "name": "Не определён",
-                    "position": 0,
-                    "concentration": "низкая",
-                    "effectiveness": "минимальная"
-                },
-                "how_to_use": {
-                    "application": "По инструкции",
-                    "time": "По необходимости",
-                    "note": "Следуйте рекомендациям на упаковке"
-                },
-                "expectations": {
-                    "when": "Индивидуально",
-                    "normal": "Отсутствие раздражения",
-                    "danger": "Сильное покраснение или жжение"
-                },
-                "safe_ingredients": [],
-                "caution_ingredients": []
-            }
-
-    _apply_fallbacks(result, ingredients)
+            raise Exception("Невалидный JSON от AI")
+    
     return result
 
 def search_products(query: str) -> List[dict]:
