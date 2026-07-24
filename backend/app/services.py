@@ -205,7 +205,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
                 "Content-Type": "application/json"
             },
             json={
-                "model": "deepseek-chat",
+                "model": "deepseek-v4-flash",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
                 "max_tokens": 2000
