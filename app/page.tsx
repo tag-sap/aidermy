@@ -155,7 +155,14 @@ export default function Page() {
     try {
       const productResponse = await fetch(`/api/products?q=${encodeURIComponent(product)}`)
       const productData = await productResponse.json()
-      const foundProduct = productData.products?.find((p: any) => p.name.replace(/\n/g, '').trim() === product.replace(/\n/g, '').trim())
+
+      // Находим продукт в результатах поиска
+      const foundProduct = productData.products?.find((p: any) => {
+        const cleanName = p.name.replace(/\n/g, '').replace(/\s+/g, ' ').trim()
+        const cleanProduct = product.replace(/\n/g, '').replace(/\s+/g, ' ').trim()
+        return cleanName === cleanProduct || p.slug === product.toLowerCase().replace(/ /g, '-')
+      })
+
       const ingredients = foundProduct?.ingredients || ''
       const image_url = foundProduct?.image_url || ''
 
