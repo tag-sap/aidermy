@@ -155,7 +155,7 @@ export default function Page() {
     try {
       const productResponse = await fetch(`/api/products?q=${encodeURIComponent(product)}`)
       const productData = await productResponse.json()
-      const foundProduct = productData.products?.find((p: any) => p.name === product)
+      const foundProduct = productData.products?.find((p: any) => p.name.replace(/\n/g, '').trim() === product.replace(/\n/g, '').trim())
       const ingredients = foundProduct?.ingredients || ''
       const image_url = foundProduct?.image_url || ''
 
