@@ -153,20 +153,8 @@ export default function Page() {
     setLoading(true)
 
     try {
-      const productResponse = await fetch(`/api/products?q=${encodeURIComponent(product)}`)
-      const productData = await productResponse.json()
-
-      // Находим продукт в результатах поиска
-      const foundProduct = productData.products?.find((p: any) => {
-        const cleanName = p.name.replace(/\n/g, '').replace(/\s+/g, ' ').trim()
-        const cleanProduct = product.replace(/\n/g, '').replace(/\s+/g, ' ').trim()
-        return cleanName === cleanProduct || p.slug === product.toLowerCase().replace(/ /g, '-')
-      })
-
-      const ingredients = foundProduct?.ingredients || ''
-      const image_url = foundProduct?.image_url || ''
-
-      const response = await fetch('/api/check-with-ingredients', {
+      // ИСПОЛЬЗУЕМ /api/check — ОН САМ ИЩЕТ ПРОДУКТ В БД
+      const response = await fetch('/api/check', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -184,7 +172,6 @@ export default function Page() {
             quiz_answers: profile.quizAnswers || {},
             skin_type_determined: profile.skinTypeDetermined || '',
           },
-          ingredients: ingredients,
         }),
       })
 
@@ -193,6 +180,16 @@ export default function Page() {
       }
 
       const data = await response.json()
+
+      // Получаем картинку из отдельного запроса
+      const productResponse = await fetch(`/api/products?q=${encodeURIComponent(product)}`)
+      const productData = await productResponse.json()
+      const foundProduct = productData.products?.find((p: any) => {
+        const cleanName = p.name.replace(/\n/g, '').replace(/\s+/g, ' ').trim()
+        const cleanProduct = product.replace(/\n/g, '').replace(/\s+/g, ' ').trim()
+        return cleanName === cleanProduct || p.slug === product.toLowerCase().replace(/ /g, '-')
+      })
+      const image_url = foundProduct?.image_url || ''
 
       const fullResult: CheckResult = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
