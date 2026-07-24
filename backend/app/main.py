@@ -157,7 +157,11 @@ async def check_with_ingredients(request: Request, check_request: CheckWithIngre
             safe_ingredients=result.get("safe_ingredients", []),
             caution_ingredients=result.get("caution_ingredients", []),
             cached=False,
-            slug=slug
+            slug=slug,
+            image_url=result.get("image_url"),
+            active_ingredients=result.get("active_ingredients"),
+            how_to_use=result.get("how_to_use"),
+            expectations=result.get("expectations")
         )
         
     except Exception as e:
