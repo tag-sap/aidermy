@@ -299,15 +299,14 @@ def search_products(query: str) -> List[dict]:
     cursor = conn.cursor()
     q_words = q.split()
     if len(q_words) == 1:
-        cursor.execute("SELECT name, slug, image_url FROM products WHERE LOWER(name) LIKE ? LIMIT 20", (f"%{q}%",))
+        cursor.execute("SELECT name, slug, image_url, ingredients FROM products WHERE LOWER(name) LIKE ? LIMIT 20", (f"%{q}%",))
     else:
         conditions = " AND ".join(["LOWER(name) LIKE ?" for _ in q_words])
         params = [f"%{word}%" for word in q_words]
-        cursor.execute(f"SELECT name, slug, image_url FROM products WHERE {conditions} LIMIT 20", params)
+        cursor.execute(f"SELECT name, slug, image_url, ingredients FROM products WHERE {conditions} LIMIT 20", params)
     rows = cursor.fetchall()
     conn.close()
-    return [{"name": row[0], "slug": row[1], "image_url": row[2]} for row in rows]
-
+    return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]} for row in rows]
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     if not quiz_answers:
         return "Не определено"
