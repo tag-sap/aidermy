@@ -93,11 +93,12 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
     
     clean_query = ''.join(product_name.split())
     
+# Вместо clean_query используем LIKE с заменой переносов
     cursor.execute('''
         SELECT name, ingredients, slug FROM products
-        WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
+        WHERE REPLACE(REPLACE(name, '\n', ''), '\r', '') LIKE ?
         LIMIT 1
-    ''', (f'%{clean_query.lower()}%',))
+    ''', (f'%{product_name.replace(" ", "")}%',))
     row = cursor.fetchone()
     conn.close()
     
