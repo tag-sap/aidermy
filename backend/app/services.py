@@ -93,11 +93,12 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
     
     clean_query = ''.join(product_name.split())
     
+# Вместо clean_query используем LIKE с заменой переносов
     cursor.execute('''
         SELECT name, ingredients, slug FROM products
-        WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
+        WHERE REPLACE(REPLACE(name, '\n', ''), '\r', '') LIKE ?
         LIMIT 1
-    ''', (f'%{clean_query.lower()}%',))
+    ''', (f'%{product_name.replace(" ", "")}%',))
     row = cursor.fetchone()
     conn.close()
     
@@ -159,8 +160,15 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 - {product_name}
 - Состав (по убыванию концентрации): {ingredients}
 
+### Шкала оценки (0–100):
+- 0–20: продукт вреден или противопоказан
+- 21–40: не подходит, может усугубить проблему
+- 41–60: нейтрально, не решает проблему, но и не вредит
+- 61–80: помогает, хороший выбор
+- 81–100: идеально решает проблему пользователя
+
 ### Инструкция:
-1. Оцени, решает ли состав проблему пользователя.
+1. Оцени, решает ли состав проблему пользователя. Если проблема не указана — оценивай продукт по типу кожи и возрасту.
 2. Активный ингредиент — по позиции в составе (1–3 = высокая, 4–6 = средняя, 7+ = низкая).
 3. Как применять, чего ожидать, когда бить тревогу.
 
