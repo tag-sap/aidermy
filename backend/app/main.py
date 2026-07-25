@@ -251,3 +251,88 @@ async def get_popular_products():
                 "image_url": row['image_url']
             } for row in rows]
         }
+@app.get("/api/catalog")
+async def get_catalog(
+    category: Optional[str] = None,
+    brand: Optional[str] = None,
+    skin_type: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    sort: str = "popular"
+):
+    """Каталог продуктов с фильтрацией и пагинацией"""
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    
+    # Базовый запрос
+    query = "SELECT name, slug, image_url, ingredients, category, brand FROM products WHERE 1=1"
+    params = []
+    count_params = []
+    
+    if category:
+        query += " AND category = ?"
+        params.append(category)
+        count_params.append(category)
+    
+    if brand:
+        query += " AND brand = ?"
+        params.append(brand)
+        count_params.append(brand)
+    
+    if search:
+        query += " AND LOWER(name) LIKE ?"
+        params.append(f"%{search.lower()}%")
+        count_params.append(f"%{search.lower()}%")
+    
+    # Сортировка
+    if sort == "popular":
+        query += " ORDER BY (SELECT COUNT(*) FROM check_history WHERE product_name = products.name) DESC"
+    elif sort == "score":
+        query += " ORDER BY (SELECT AVG(score) FROM check_history WHERE product_name = products.name) DESC"
+    else:
+        query += " ORDER BY name ASC"
+    
+    # Пагинация
+    query += " LIMIT ? OFFSET ?"
+    params.append(limit)
+    params.append(offset)
+    
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    
+    # Подсчёт общего количества
+    count_query = "SELECT COUNT(*) FROM products WHERE 1=1"
+    if category:
+        count_query += " AND category = ?"
+    if brand:
+        count_query += " AND brand = ?"
+    if search:
+        count_query += " AND LOWER(name) LIKE ?"
+    
+    cursor.execute(count_query, count_params)
+    total = cursor.fetchone()[0]
+    
+    conn.close()
+    
+    return {
+        "products": [dict(row) for row in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }
+
+@app.get("/api/categories")
+async def get_categories():
+    """Список категорий и брендов для фильтров"""
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category")
+    categories = [row[0] for row in cursor.fetchall()]
+    
+    cursor.execute("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand != '' ORDER BY brand")
+    brands = [row[0] for row in cursor.fetchall()]
+    
+    conn.close()
+    return {"categories": categories, "brands": brands}
