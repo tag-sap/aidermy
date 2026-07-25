@@ -45,7 +45,8 @@ async def health():
 
 @app.get("/api/products")
 async def get_products(q: str = ""):
-    products = search_products(q)
+    from .services import search_products_smart
+    products = search_products_smart(q)
     return {"products": products}
 
 @app.post("/api/check", response_model=CheckResponse)

@@ -2,6 +2,7 @@ import httpx
 import os
 import json
 import re
+import unicodedata
 from typing import List
 from dotenv import load_dotenv
 from .database import get_ingredients, get_connection, PRODUCTS_DB
@@ -210,3 +211,120 @@ def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
         return "Жирная с расширенными порами"
     
     return "Нормальная"
+
+def transliterate(text: str) -> str:
+    """Транслитерация с кириллицы на латиницу"""
+    cyrillic_to_latin = {
+        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
+        'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+        'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+        'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'shch',
+        'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya'
+    }
+    result = []
+    for char in text.lower():
+        if char in cyrillic_to_latin:
+            result.append(cyrillic_to_latin[char])
+        else:
+            result.append(char)
+    return ''.join(result)
+
+def normalize_search_query(query: str) -> str:
+    """Нормализует запрос для поиска"""
+    # Убираем лишние пробелы
+    query = ' '.join(query.split())
+    # Транслитерируем
+    transliterated = transliterate(query)
+    # Убираем спецсимволы
+    transliterated = re.sub(r'[^a-z0-9\s-]', '', transliterated)
+    return transliterated.strip()
+
+def search_products_smart(query: str) -> List[dict]:
+    """
+    Умный поиск продуктов с транслитерацией и синонимами
+    """
+    from .database import get_connection, PRODUCTS_DB
+    
+    if not query or len(query.strip()) < 2:
+        return []
+    
+    q = query.strip().lower()
+    q_normalized = normalize_search_query(q)
+    q_words = q.split()
+    q_words_normalized = q_normalized.split() if q_normalized else q_words
+    
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    
+    # Получаем все продукты
+    cursor.execute('SELECT name, slug, image_url, ingredients FROM products')
+    rows = cursor.fetchall()
+    conn.close()
+    
+    scored_products = []
+    for row in rows:
+        name = row[0].lower()
+        name_normalized = normalize_search_query(name)
+        score = 0
+        
+        # 1. Точное совпадение (максимальный балл)
+        if name == q:
+            score += 100
+        elif name_normalized == q_normalized:
+            score += 90
+        
+        # 2. Начинается с запроса
+        if name.startswith(q):
+            score += 50
+        elif name_normalized.startswith(q_normalized):
+            score += 40
+        
+        # 3. Все слова из запроса есть в названии
+        name_words = name.split()
+        name_words_normalized = name_normalized.split() if name_normalized else name_words
+        
+        matches = 0
+        for word in q_words:
+            if any(word in nw for nw in name_words):
+                matches += 1
+            elif any(word in nw for nw in name_words_normalized):
+                matches += 1
+        
+        if matches == len(q_words):
+            score += 30 * matches
+        
+        # 4. Частичное совпадение по словам
+        for word in q_words:
+            for nw in name_words:
+                if word in nw or nw in word:
+                    score += 10
+        
+        # 5. Транслитерация
+        for word in q_words_normalized:
+            for nw in name_words_normalized:
+                if word in nw or nw in word:
+                    score += 15
+        
+        # 6. Совпадение по slug
+        if row[1] and q in row[1]:
+            score += 20
+        
+        if score > 0:
+            scored_products.append({
+                'name': row[0],
+                'slug': row[1],
+                'image_url': row[2],
+                'ingredients': row[3],
+                'score': score
+            })
+    
+    # Сортируем по убыванию балла
+    scored_products.sort(key=lambda x: x['score'], reverse=True)
+    
+    # Возвращаем топ-20
+    return [{
+        'name': p['name'],
+        'slug': p['slug'],
+        'image_url': p['image_url'],
+        'ingredients': p['ingredients']
+    } for p in scored_products[:20]]
