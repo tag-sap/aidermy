@@ -85,7 +85,7 @@ export function CatalogDropdown({
     if (!isOpen) return null
 
     return (
-        <div ref={dropdownRef} className="absolute top-full left-0 right-0 mt-2 z-[9999] bg-white rounded-2xl shadow-2xl border border-gray-200 max-h-[80vh] overflow-hidden">
+        <div ref={dropdownRef} className="absolute top-full left-0 right-0 mt-2 z-[50] bg-white rounded-2xl shadow-2xl border border-gray-200 max-h-[80vh] overflow-hidden">
             <div className="p-4 border-b border-gray-100">
                 <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-normal text-foreground">Каталог</h3>
