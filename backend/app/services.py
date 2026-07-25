@@ -240,9 +240,6 @@ def normalize_search_query(query: str) -> str:
     return transliterated.strip()
 
 def search_products_smart(query: str) -> List[dict]:
-    """
-    Умный поиск продуктов с транслитерацией и синонимами
-    """
     from .database import get_connection, PRODUCTS_DB
     
     if not query or len(query.strip()) < 2:
@@ -250,13 +247,15 @@ def search_products_smart(query: str) -> List[dict]:
     
     q = query.strip().lower()
     q_normalized = normalize_search_query(q)
-    q_words = q.split()
-    q_words_normalized = q_normalized.split() if q_normalized else q_words
+    q_words = [w for w in q.split() if w]  # ← убираем пустые слова
+    q_words_normalized = [w for w in q_normalized.split() if w] if q_normalized else q_words
+    
+    if not q_words and not q_words_normalized:
+        return []
     
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    # Получаем все продукты
     cursor.execute('SELECT name, slug, image_url, ingredients FROM products')
     rows = cursor.fetchall()
     conn.close()
@@ -267,7 +266,7 @@ def search_products_smart(query: str) -> List[dict]:
         name_normalized = normalize_search_query(name)
         score = 0
         
-        # 1. Точное совпадение (максимальный балл)
+        # 1. Точное совпадение
         if name == q:
             score += 100
         elif name_normalized == q_normalized:
@@ -290,10 +289,10 @@ def search_products_smart(query: str) -> List[dict]:
             elif any(word in nw for nw in name_words_normalized):
                 matches += 1
         
-        if matches == len(q_words):
+        if matches == len(q_words) and q_words:
             score += 30 * matches
         
-        # 4. Частичное совпадение по словам
+        # 4. Частичное совпадение
         for word in q_words:
             for nw in name_words:
                 if word in nw or nw in word:
@@ -318,10 +317,7 @@ def search_products_smart(query: str) -> List[dict]:
                 'score': score
             })
     
-    # Сортируем по убыванию балла
     scored_products.sort(key=lambda x: x['score'], reverse=True)
-    
-    # Возвращаем топ-20
     return [{
         'name': p['name'],
         'slug': p['slug'],
