@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Search, Filter, X, ChevronLeft, ChevronRight, Star } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 
 interface Product {
     name: string
@@ -176,29 +175,69 @@ export function CatalogTab() {
                     <p className="text-muted-foreground">Ничего не найдено</p>
                 </div>
             ) : (
-        <>
-                    <div className="flex flex-col gap-3">
-                        {products.map((product) => (
-                            <div
-                                key={product.slug}
-                                className="bg-white/70 backdrop-blur-sm rounded-2xl p-4 border border-gray-200/70 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                                onClick={() => {
-                                    const input = document.querySelector('input[placeholder="Название средства…"]') as HTMLInputElement
-                                    if (input) {
-                                        input.value = product.name
-                                        input.dispatchEvent(new Event('input', { bubbles: true }))
-                                        // Переключаем на чекер
-                                        const tabButtons = document.querySelectorAll('[role="tab"]')
-                                        const checkerTab = Array.from(tabButtons).find(
-                                            btn => btn.textContent?.includes('Чекер')
-                                        )
-                                        if (checkerTab) (checkerTab as HTMLButtonElement).click()
-                                    }
-                                }}
-                            >
-                                <div className="flex items-center gap-4">
-                                    {product.image_url && (
-                                        <img
-                                            src={product.image_url}
-                                            alt={product.name}
-                                            className="
+                <div className="flex flex-col gap-3">
+                    {products.map((product) => (
+                        <div
+                            key={product.slug}
+                            className="bg-white/70 backdrop-blur-sm rounded-2xl p-4 border border-gray-200/70 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                            onClick={() => {
+                                const input = document.querySelector('input[placeholder="Название средства…"]') as HTMLInputElement
+                                if (input) {
+                                    input.value = product.name
+                                    input.dispatchEvent(new Event('input', { bubbles: true }))
+                                    const tabButtons = document.querySelectorAll('[role="tab"]')
+                                    const checkerTab = Array.from(tabButtons).find(
+                                        btn => btn.textContent?.includes('Чекер')
+                                    )
+                                    if (checkerTab) (checkerTab as HTMLButtonElement).click()
+                                }
+                            }}
+                        >
+                            <div className="flex items-center gap-4">
+                                {product.image_url && (
+                                    <img
+                                        src={product.image_url}
+                                        alt={product.name}
+                                        className="w-12 h-12 object-cover rounded-xl flex-shrink-0 bg-gray-100"
+                                    />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                    <h3 className="text-sm font-normal text-foreground truncate">{product.name}</h3>
+                                    {product.category && (
+                                        <span className="text-xs text-muted-foreground">{product.category}</span>
+                                    )}
+                                </div>
+                                <button className="px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-normal hover:bg-primary/20 transition-colors">
+                                    Проверить
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Пагинация */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 py-4">
+                    <button
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="p-2 rounded-xl border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                    >
+                        <ChevronLeft className="size-4" />
+                    </button>
+                    <span className="text-sm text-muted-foreground">
+                        {currentPage} / {totalPages}
+                    </span>
+                    <button
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className="p-2 rounded-xl border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                    >
+                        <ChevronRight className="size-4" />
+                    </button>
+                </div>
+            )}
+        </div>
+    )
+}
