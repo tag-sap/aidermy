@@ -324,6 +324,7 @@ export default function Page() {
                       onGoToProfile={handleGoToProfile}
                       onStartQuiz={() => setShowQuiz(true)}
                       onInfoClick={() => setShowInfo(true)}
+                      onCatalogClick={() => setTab('catalog')}
                     />
                   </div>
                 )}

@@ -46,6 +46,7 @@ export function CheckerTab({
   onGoToProfile,
   onStartQuiz,
   onInfoClick,
+  onCatalogClick,
 }: {
   profile: SkinProfile
   profileComplete: boolean
@@ -53,6 +54,7 @@ export function CheckerTab({
   onGoToProfile: () => void
   onStartQuiz?: () => void
   onInfoClick?: () => void
+  onCatalogClick?: () => void
 }) {
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
