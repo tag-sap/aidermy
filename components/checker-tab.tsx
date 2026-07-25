@@ -230,148 +230,145 @@ export function CheckerTab({
         onClose={() => setIsCatalogOpen(false)}
         onSelectProduct={setQuery}
       />
-    </div>
 
-      {/* ПОДСКАЗКИ - снаружи карточки */ }
-  {
-    focused && (suggestions.length > 0 || isLoading) && (
-      <div className="relative z-50 -mt-2 mx-auto max-w-md w-full">
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-60 overflow-y-auto">
-          {isLoading && (
-            <div className="px-4 py-3 text-sm text-muted-foreground text-center">
-              <span className="inline-block animate-spin mr-2">⟳</span>
-              Загрузка...
-            </div>
-          )}
-          {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
-            <div className="px-4 py-3 text-sm text-muted-foreground text-center">
-              Ничего не найдено
-            </div>
-          )}
-          {!isLoading && suggestions.map((product, index) => (
-            <button
-              key={product.slug}
-              onMouseDown={() => {
-                setQuery(product.name)
-                setSuggestions([])
-                setFocused(false)
-              }}
-              onMouseEnter={() => setHighlightedIndex(index)}
-              className={cn(
-                'w-full px-4 py-3 text-left text-sm transition-colors flex items-center gap-3',
-                index === highlightedIndex ? 'bg-primary/5 text-primary' : 'hover:bg-gray-50'
-              )}
-            >
-              {product.image_url && (
-                <img
-                  src={product.image_url}
-                  alt={product.name}
-                  className="w-10 h-10 object-cover rounded-md flex-shrink-0 bg-gray-100"
-                />
-              )}
-              <span className="truncate">{product.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    )
-  }
-  {/* КАРТОЧКА 3 - ТИП КОЖИ + ОПРОСНИК */ }
-  <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-3')}>
-    <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-    <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-    <div className="relative">
-      <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
-        {profile.skinType ? 'Твой тип кожи' : 'Выбери тип кожи'}
-      </label>
-
-      {!profile.skinType ? (
-        <div className="flex flex-wrap gap-2">
-          {SKIN_TYPES.map((t) => (
-            <Chip
-              key={t}
-              label={t}
-              active={skinType === t}
-              onClick={() => setSkinType(t)}
-            />
-          ))}
-
-          {/* КНОПКА ОПРОСНИКА */}
-          {onStartQuiz && (
-            <button
-              onClick={onStartQuiz}
-              className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1 bg-white/50 backdrop-blur-sm"
-            >
-              <Sparkles className="size-3" />
-              Пройти опросник
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-normal">{profile.skinType}</span>
-          {onStartQuiz && (
-            <button
-              onClick={onStartQuiz}
-              className="text-xs text-primary hover:underline flex items-center gap-1"
-            >
-              <Sparkles className="size-3" />
-              Обновить
-            </button>
-          )}
+      {/* ПОДСКАЗКИ - снаружи карточки */}
+      {focused && (suggestions.length > 0 || isLoading) && (
+        <div className="relative z-50 -mt-2 mx-auto max-w-md w-full">
+          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-60 overflow-y-auto">
+            {isLoading && (
+              <div className="px-4 py-3 text-sm text-muted-foreground text-center">
+                <span className="inline-block animate-spin mr-2">⟳</span>
+                Загрузка...
+              </div>
+            )}
+            {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
+              <div className="px-4 py-3 text-sm text-muted-foreground text-center">
+                Ничего не найдено
+              </div>
+            )}
+            {!isLoading && suggestions.map((product, index) => (
+              <button
+                key={product.slug}
+                onMouseDown={() => {
+                  setQuery(product.name)
+                  setSuggestions([])
+                  setFocused(false)
+                }}
+                onMouseEnter={() => setHighlightedIndex(index)}
+                className={cn(
+                  'w-full px-4 py-3 text-left text-sm transition-colors flex items-center gap-3',
+                  index === highlightedIndex ? 'bg-primary/5 text-primary' : 'hover:bg-gray-50'
+                )}
+              >
+                {product.image_url && (
+                  <img
+                    src={product.image_url}
+                    alt={product.name}
+                    className="w-10 h-10 object-cover rounded-md flex-shrink-0 bg-gray-100"
+                  />
+                )}
+                <span className="truncate">{product.name}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
-    </div>
-  </div>
-  {/* КАРТОЧКА 4 - КНОПКА ПРОВЕРИТЬ */ }
-  <div className={cn('card-enter', isVisible && 'card-enter-4')}>
-    <button onClick={handleCheck} disabled={!canCheck} className={cn('w-full py-4 rounded-2xl text-white font-normal text-base transition-all', canCheck ? 'bg-gradient-to-r from-primary to-primary/80 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98]' : 'bg-gray-200/70 text-gray-400 cursor-not-allowed backdrop-blur-sm')}>
-      <ScanSearch className="inline size-4 mr-2" />Проверить
-    </button>
-  </div>
+      {/* КАРТОЧКА 3 - ТИП КОЖИ + ОПРОСНИК */}
+      <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-3')}>
+        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+        <div className="relative">
+          <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
+            {profile.skinType ? 'Твой тип кожи' : 'Выбери тип кожи'}
+          </label>
 
-  {/* КАРТОЧКА 5 - ПОПУЛЯРНОЕ */ }
-  <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-5')}>
-    <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-    <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-    <div className="relative">
-      <div className="flex items-center justify-between mb-3">
-        <label className="text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground flex items-center gap-1.5"><Gem className="size-3 text-primary" />{popularSource === 'history' ? 'Популярное' : 'Бренды'}</label>
-        {popularSource === 'history' && popularProducts.length > 0 && <span className="text-[10px] text-muted-foreground/60">{popularProducts.length} продуктов</span>}
-      </div>
-      <div className="flex flex-col gap-2 w-full">
-        {popularProducts.map((p) => (
-          <div
-            key={p.name}
-            onClick={() => setQuery(p.name)}
-            className="w-full px-4 py-2.5 rounded-xl border cursor-pointer transition-all border-primary/10 hover:border-primary/30 hover:bg-primary/5 bg-white/30 backdrop-blur-sm flex items-center gap-3"
-          >
-            {p.image_url && (
-              <img
-                src={p.image_url}
-                alt={p.name}
-                className="w-10 h-10 object-cover rounded-md flex-shrink-0 bg-gray-100"
-              />
-            )}
-            <MarqueeText text={p.name} className="text-sm" />
-          </div>
-        ))}
-        {popularProducts.length === 0 && <p className="text-sm text-muted-foreground py-2">Загрузка...</p>}
-      </div>
-      {popularSource === 'history' && popularProducts.length > 0 && <p className="text-[10px] text-muted-foreground/50 mt-3">Топ из твоих проверок</p>}
-    </div>
-  </div>
+          {!profile.skinType ? (
+            <div className="flex flex-wrap gap-2">
+              {SKIN_TYPES.map((t) => (
+                <Chip
+                  key={t}
+                  label={t}
+                  active={skinType === t}
+                  onClick={() => setSkinType(t)}
+                />
+              ))}
 
-  {/* КАРТОЧКА 6 - ЗАПОЛНИТЬ АНКЕТУ */ }
-  {
-    !profileComplete && (
-      <div className={cn('card-enter', isVisible && 'card-enter-6')}>
-        <button onClick={onGoToProfile} className="w-full text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1 justify-center py-3 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl border border-primary/20 backdrop-blur-sm px-4">
-          Заполни анкету для точных рекомендаций <ArrowRight className="size-4" />
+              {/* КНОПКА ОПРОСНИКА */}
+              {onStartQuiz && (
+                <button
+                  onClick={onStartQuiz}
+                  className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1 bg-white/50 backdrop-blur-sm"
+                >
+                  <Sparkles className="size-3" />
+                  Пройти опросник
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-normal">{profile.skinType}</span>
+              {onStartQuiz && (
+                <button
+                  onClick={onStartQuiz}
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  <Sparkles className="size-3" />
+                  Обновить
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      {/* КАРТОЧКА 4 - КНОПКА ПРОВЕРИТЬ */}
+      <div className={cn('card-enter', isVisible && 'card-enter-4')}>
+        <button onClick={handleCheck} disabled={!canCheck} className={cn('w-full py-4 rounded-2xl text-white font-normal text-base transition-all', canCheck ? 'bg-gradient-to-r from-primary to-primary/80 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98]' : 'bg-gray-200/70 text-gray-400 cursor-not-allowed backdrop-blur-sm')}>
+          <ScanSearch className="inline size-4 mr-2" />Проверить
         </button>
       </div>
-    )
-  }
+
+      {/* КАРТОЧКА 5 - ПОПУЛЯРНОЕ */}
+      <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-5')}>
+        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+        <div className="relative">
+          <div className="flex items-center justify-between mb-3">
+            <label className="text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground flex items-center gap-1.5"><Gem className="size-3 text-primary" />{popularSource === 'history' ? 'Популярное' : 'Бренды'}</label>
+            {popularSource === 'history' && popularProducts.length > 0 && <span className="text-[10px] text-muted-foreground/60">{popularProducts.length} продуктов</span>}
+          </div>
+          <div className="flex flex-col gap-2 w-full">
+            {popularProducts.map((p) => (
+              <div
+                key={p.name}
+                onClick={() => setQuery(p.name)}
+                className="w-full px-4 py-2.5 rounded-xl border cursor-pointer transition-all border-primary/10 hover:border-primary/30 hover:bg-primary/5 bg-white/30 backdrop-blur-sm flex items-center gap-3"
+              >
+                {p.image_url && (
+                  <img
+                    src={p.image_url}
+                    alt={p.name}
+                    className="w-10 h-10 object-cover rounded-md flex-shrink-0 bg-gray-100"
+                  />
+                )}
+                <MarqueeText text={p.name} className="text-sm" />
+              </div>
+            ))}
+            {popularProducts.length === 0 && <p className="text-sm text-muted-foreground py-2">Загрузка...</p>}
+          </div>
+          {popularSource === 'history' && popularProducts.length > 0 && <p className="text-[10px] text-muted-foreground/50 mt-3">Топ из твоих проверок</p>}
+        </div>
+      </div>
+
+      {/* КАРТОЧКА 6 - ЗАПОЛНИТЬ АНКЕТУ */}
+      {
+        !profileComplete && (
+          <div className={cn('card-enter', isVisible && 'card-enter-6')}>
+            <button onClick={onGoToProfile} className="w-full text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1 justify-center py-3 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl border border-primary/20 backdrop-blur-sm px-4">
+              Заполни анкету для точных рекомендаций <ArrowRight className="size-4" />
+            </button>
+          </div>
+        )
+      }
     </div >
   )
 }
