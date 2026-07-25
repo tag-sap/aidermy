@@ -1,8 +1,7 @@
 'use client'
 
-import { ScanLine, History, User } from 'lucide-react'
+import { ScanLine, History, User, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
 export type TabId = 'checker' | 'catalog' | 'history' | 'profile'
 
 const TABS: { id: TabId; label: string; icon: typeof ScanLine }[] = [
