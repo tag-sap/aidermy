@@ -10,7 +10,7 @@ import os
 from dotenv import load_dotenv
 from .auth_routes import router as auth_router
 from .admin_routes import setup_admin_routes
-
+from typing import Optional, List
 load_dotenv()
 init_db()
 
