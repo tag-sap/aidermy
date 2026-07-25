@@ -3,10 +3,11 @@
 import { ScanLine, History, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type TabId = 'checker' | 'history' | 'profile'
+export type TabId = 'checker' | 'catalog' | 'history' | 'profile'
 
 const TABS: { id: TabId; label: string; icon: typeof ScanLine }[] = [
   { id: 'checker', label: 'Чекер', icon: ScanLine },
+  { id: 'catalog', label: 'Каталог', icon: ScanLine },
   { id: 'history', label: 'История', icon: History },
   { id: 'profile', label: 'Профиль', icon: User },
 ]

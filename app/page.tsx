@@ -14,6 +14,7 @@ import { SplashScreen } from '@/components/splash-screen'
 import { SkinQuiz } from '@/components/skin-quiz'
 import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
+import { CatalogTab } from '@/components/catalog-tab'
 import {
   emptyProfile,
   isProfileComplete,
@@ -323,7 +324,11 @@ export default function Page() {
                       onInfoClick={() => setShowInfo(true)}
                     />
                   </div>
-                )}
+                {tab === 'catalog' && (
+                  <div className="tab-content">
+                    <CatalogTab />
+                  </div>
+                )} 
                 {tab === 'history' && (
                   <div className="tab-content">
                     <HistoryTab
