@@ -96,7 +96,7 @@ export function CheckerTab({
         const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`, { signal: controller.signal })
         if (!res.ok) throw new Error('Ошибка загрузки')
         const data = await res.json()
-        const sorted = (data.products || []).sort((a, b) => {
+        const sorted = (data.products || []).sort((a: ProductSuggestion, b: ProductSuggestion) => {
           const aLower = a.name.toLowerCase()
           const bLower = b.name.toLowerCase()
           const qLower = q.toLowerCase()
