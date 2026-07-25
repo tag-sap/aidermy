@@ -94,11 +94,6 @@ async def check_product(request: CheckRequest):
             image_url=result.get("image_url"),
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
-            expectations=result.get("expectations"),
-            slug=slug,
-            image_url=result.get("image_url"),
-            active_ingredients=result.get("active_ingredients"),
-            how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations")
         )
     except Exception as e:
