@@ -186,7 +186,7 @@ export function CatalogDropdown({
                             Ничего не найдено
                         </div>
                     ) : (
-                        <div className="space-y-2">
+                        <div className="space-y-2" style={{ minHeight: '200px', background: 'red' }}>
                             {products.map((p) => (
                                 <button
                                     key={p.slug}
