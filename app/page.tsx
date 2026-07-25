@@ -324,11 +324,12 @@ export default function Page() {
                       onInfoClick={() => setShowInfo(true)}
                     />
                   </div>
+                )}
                 {tab === 'catalog' && (
                   <div className="tab-content">
                     <CatalogTab />
                   </div>
-                )} 
+                )}
                 {tab === 'history' && (
                   <div className="tab-content">
                     <HistoryTab
