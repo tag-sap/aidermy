@@ -96,15 +96,13 @@ export function CheckerTab({
         const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`, { signal: controller.signal })
         if (!res.ok) throw new Error('Ошибка загрузки')
         const data = await res.json()
-        const sorted = (data.products || []).sort((a: ProductSuggestion, b: ProductSuggestion) => {
+        const sorted = (data.products || []).sort((a, b) => {
           const aLower = a.name.toLowerCase()
           const bLower = b.name.toLowerCase()
           const qLower = q.toLowerCase()
-          const aStarts = aLower.startsWith(qLower)
-          const bStarts = bLower.startsWith(qLower)
-          if (aStarts && !bStarts) return -1
-          if (!aStarts && bStarts) return 1
-          return a.name.length - b.name.length
+          const aScore = aLower.includes(qLower) ? 1 : 0
+          const bScore = bLower.includes(qLower) ? 1 : 0
+          return bScore - aScore
         })
         setSuggestions(sorted.slice(0, 8))
         setHighlightedIndex(-1)
@@ -114,7 +112,7 @@ export function CheckerTab({
           setSuggestions([])
         }
       } finally {
-        setIsLoading(false)
+        setIsLoading(false)  // ← finally должен быть здесь
       }
     }, 250)
 
