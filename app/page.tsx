@@ -44,7 +44,9 @@ export default function Page() {
   const [showQuiz, setShowQuiz] = useState(false)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
-
+  const handleCatalogClick = () => {
+    setTab('catalog')
+  }
   // === АВТОРИЗАЦИЯ ===
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)

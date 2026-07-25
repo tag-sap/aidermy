@@ -7,7 +7,7 @@ export type TabId = 'checker' | 'catalog' | 'history' | 'profile'
 
 const TABS: { id: TabId; label: string; icon: typeof ScanLine }[] = [
   { id: 'checker', label: 'Чекер', icon: ScanLine },
-  { id: 'catalog', label: 'Каталог', icon: ScanLine },
+  { id: 'catalog', label: 'Каталог', icon: Search },
   { id: 'history', label: 'История', icon: History },
   { id: 'profile', label: 'Профиль', icon: User },
 ]

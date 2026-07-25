@@ -188,7 +188,7 @@ export function CheckerTab({
               Найти средство
             </label>
             <button
-              onClick={() => setIsCatalogOpen(!isCatalogOpen)}
+              onClick={onCatalogClick}
               className="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-normal hover:bg-primary/20 transition-colors flex items-center gap-1"
             >
               <Search className="size-3" />
@@ -225,7 +225,7 @@ export function CheckerTab({
 
       {/* ПОДСКАЗКИ - снаружи карточки */}
       {focused && (suggestions.length > 0 || isLoading) && (
-        <div className="relative z-50 -mt-2 mx-auto max-w-md w-full">
+        <div className="relative z-[9999] -mt-2 mx-auto max-w-md w-full">
           <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-60 overflow-y-auto">
             {isLoading && (
               <div className="px-4 py-3 text-sm text-muted-foreground text-center">
@@ -363,11 +363,11 @@ export function CheckerTab({
 
       {/* Каталог — поверх всех элементов */}
       {isCatalogOpen && (
-        <div 
-          className="fixed inset-0 z-[9999] flex items-start justify-center pt-16 bg-black/30 backdrop-blur-sm" 
+        <div
+          className="fixed inset-0 z-[9999] flex items-start justify-center pt-16 bg-black/30 backdrop-blur-sm"
           onClick={() => setIsCatalogOpen(false)}
         >
-          <div 
+          <div
             className="relative w-full max-w-md mx-4 bg-white rounded-2xl shadow-2xl max-h-[80vh] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
