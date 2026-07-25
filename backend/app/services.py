@@ -243,11 +243,11 @@ def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB
     if not query or len(query.strip()) < 2:
         return []
-    q = query.strip().lower()
+    q = query.strip().lower().replace(' ', '')  # ← убираем пробелы
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
-    # Убираем пробелы в запросе и в названии для поиска
-    cursor.execute("SELECT name, slug, image_url, ingredients FROM products WHERE REPLACE(LOWER(name), ' ', '') LIKE ? LIMIT 20", (f"%{q.replace(' ', '')}%",))
+    # Убираем пробелы и в названии
+    cursor.execute("SELECT name, slug, image_url, ingredients FROM products WHERE REPLACE(LOWER(name), ' ', '') LIKE ? LIMIT 20", (f"%{q}%",))
     rows = cursor.fetchall()
     conn.close()
     return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]} for row in rows]
