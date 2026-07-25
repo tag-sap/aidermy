@@ -246,81 +246,31 @@ def search_products_smart(query: str) -> List[dict]:
         return []
     
     q = query.strip().lower()
-    q_normalized = normalize_search_query(q)
-    q_words = [w for w in q.split() if w]  # ← убираем пустые слова
-    q_words_normalized = [w for w in q_normalized.split() if w] if q_normalized else q_words
-    
-    if not q_words and not q_words_normalized:
-        return []
+    q_clean = q.replace(' ', '%')  # заменяем пробелы на % для LIKE
     
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    cursor.execute('SELECT name, slug, image_url, ingredients FROM products')
+    # Ищем по названию с LIKE
+    cursor.execute('''
+        SELECT name, slug, image_url, ingredients 
+        FROM products 
+        WHERE LOWER(name) LIKE ? 
+        ORDER BY 
+            CASE 
+                WHEN LOWER(name) = ? THEN 0
+                WHEN LOWER(name) LIKE ? THEN 1
+                ELSE 2
+            END
+        LIMIT 20
+    ''', (f'%{q_clean}%', q, f'{q}%'))
+    
     rows = cursor.fetchall()
     conn.close()
     
-    scored_products = []
-    for row in rows:
-        name = row[0].lower()
-        name_normalized = normalize_search_query(name)
-        score = 0
-        
-        # 1. Точное совпадение
-        if name == q:
-            score += 100
-        elif name_normalized == q_normalized:
-            score += 90
-        
-        # 2. Начинается с запроса
-        if name.startswith(q):
-            score += 50
-        elif name_normalized.startswith(q_normalized):
-            score += 40
-        
-        # 3. Все слова из запроса есть в названии
-        name_words = name.split()
-        name_words_normalized = name_normalized.split() if name_normalized else name_words
-        
-        matches = 0
-        for word in q_words:
-            if any(word in nw for nw in name_words):
-                matches += 1
-            elif any(word in nw for nw in name_words_normalized):
-                matches += 1
-        
-        if matches == len(q_words) and q_words:
-            score += 30 * matches
-        
-        # 4. Частичное совпадение
-        for word in q_words:
-            for nw in name_words:
-                if word in nw or nw in word:
-                    score += 10
-        
-        # 5. Транслитерация
-        for word in q_words_normalized:
-            for nw in name_words_normalized:
-                if word in nw or nw in word:
-                    score += 15
-        
-        # 6. Совпадение по slug
-        if row[1] and q in row[1]:
-            score += 20
-        
-        if score > 0:
-            scored_products.append({
-                'name': row[0],
-                'slug': row[1],
-                'image_url': row[2],
-                'ingredients': row[3],
-                'score': score
-            })
-    
-    scored_products.sort(key=lambda x: x['score'], reverse=True)
     return [{
-        'name': p['name'],
-        'slug': p['slug'],
-        'image_url': p['image_url'],
-        'ingredients': p['ingredients']
-    } for p in scored_products[:20]]
+        'name': row[0],
+        'slug': row[1],
+        'image_url': row[2],
+        'ingredients': row[3]
+    } for row in rows]
