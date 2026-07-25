@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 from .auth_routes import router as auth_router
 from .admin_routes import setup_admin_routes
 from typing import Optional, List
+
+from .services import search_products
+
 load_dotenv()
 init_db()
 
@@ -45,8 +48,7 @@ async def health():
 
 @app.get("/api/products")
 async def get_products(q: str = ""):
-    from .services import search_products_smart
-    products = search_products_smart(q)
+    products = search_products(q)
     return {"products": products}
 
 @app.post("/api/check", response_model=CheckResponse)

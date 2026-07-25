@@ -239,38 +239,14 @@ def normalize_search_query(query: str) -> str:
     transliterated = re.sub(r'[^a-z0-9\s-]', '', transliterated)
     return transliterated.strip()
 
-def search_products_smart(query: str) -> List[dict]:
+def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB
-    
     if not query or len(query.strip()) < 2:
         return []
-    
-    q = query.strip().lower()
-    q_clean = q.replace(' ', '%')  # заменяем пробелы на % для LIKE
-    
+    q = query.strip().lower().replace(' ', '')  # ← убираем пробелы
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
-    
-    # Ищем по названию с LIKE
-    cursor.execute('''
-        SELECT name, slug, image_url, ingredients 
-        FROM products 
-        WHERE LOWER(name) LIKE ? 
-        ORDER BY 
-            CASE 
-                WHEN LOWER(name) = ? THEN 0
-                WHEN LOWER(name) LIKE ? THEN 1
-                ELSE 2
-            END
-        LIMIT 20
-    ''', (f'%{q_clean}%', q, f'{q}%'))
-    
+    cursor.execute("SELECT name, slug, image_url, ingredients FROM products WHERE REPLACE(LOWER(name), ' ', '') LIKE ? LIMIT 20", (f"%{q}%",))
     rows = cursor.fetchall()
     conn.close()
-    
-    return [{
-        'name': row[0],
-        'slug': row[1],
-        'image_url': row[2],
-        'ingredients': row[3]
-    } for row in rows]
+    return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]} for row in rows]
