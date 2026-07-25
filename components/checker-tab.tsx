@@ -129,7 +129,6 @@ export function CheckerTab({
         const res = await fetch('/api/popular-products')
         if (res.ok) {
           const data = await res.json()
-          // Добавляем image_url к каждому продукту
           const productsWithImages = data.products.map((p: any) => ({
             ...p,
             image_url: p.image_url || ''
@@ -224,13 +223,6 @@ export function CheckerTab({
         </div>
       </div>
 
-      {/* Каталог */}
-      <CatalogDropdown
-        isOpen={isCatalogOpen}
-        onClose={() => setIsCatalogOpen(false)}
-        onSelectProduct={setQuery}
-      />
-
       {/* ПОДСКАЗКИ - снаружи карточки */}
       {focused && (suggestions.length > 0 || isLoading) && (
         <div className="relative z-50 -mt-2 mx-auto max-w-md w-full">
@@ -273,6 +265,7 @@ export function CheckerTab({
           </div>
         </div>
       )}
+
       {/* КАРТОЧКА 3 - ТИП КОЖИ + ОПРОСНИК */}
       <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-3')}>
         <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
@@ -293,7 +286,6 @@ export function CheckerTab({
                 />
               ))}
 
-              {/* КНОПКА ОПРОСНИКА */}
               {onStartQuiz && (
                 <button
                   onClick={onStartQuiz}
@@ -320,6 +312,7 @@ export function CheckerTab({
           )}
         </div>
       </div>
+
       {/* КАРТОЧКА 4 - КНОПКА ПРОВЕРИТЬ */}
       <div className={cn('card-enter', isVisible && 'card-enter-4')}>
         <button onClick={handleCheck} disabled={!canCheck} className={cn('w-full py-4 rounded-2xl text-white font-normal text-base transition-all', canCheck ? 'bg-gradient-to-r from-primary to-primary/80 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98]' : 'bg-gray-200/70 text-gray-400 cursor-not-allowed backdrop-blur-sm')}>
@@ -360,15 +353,32 @@ export function CheckerTab({
       </div>
 
       {/* КАРТОЧКА 6 - ЗАПОЛНИТЬ АНКЕТУ */}
-      {
-        !profileComplete && (
-          <div className={cn('card-enter', isVisible && 'card-enter-6')}>
-            <button onClick={onGoToProfile} className="w-full text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1 justify-center py-3 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl border border-primary/20 backdrop-blur-sm px-4">
-              Заполни анкету для точных рекомендаций <ArrowRight className="size-4" />
-            </button>
+      {!profileComplete && (
+        <div className={cn('card-enter', isVisible && 'card-enter-6')}>
+          <button onClick={onGoToProfile} className="w-full text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1 justify-center py-3 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl border border-primary/20 backdrop-blur-sm px-4">
+            Заполни анкету для точных рекомендаций <ArrowRight className="size-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Каталог — поверх всех элементов */}
+      {isCatalogOpen && (
+        <div 
+          className="fixed inset-0 z-[9999] flex items-start justify-center pt-16 bg-black/30 backdrop-blur-sm" 
+          onClick={() => setIsCatalogOpen(false)}
+        >
+          <div 
+            className="relative w-full max-w-md mx-4 bg-white rounded-2xl shadow-2xl max-h-[80vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CatalogDropdown
+              isOpen={isCatalogOpen}
+              onClose={() => setIsCatalogOpen(false)}
+              onSelectProduct={setQuery}
+            />
           </div>
-        )
-      }
-    </div >
+        </div>
+      )}
+    </div>
   )
 }
