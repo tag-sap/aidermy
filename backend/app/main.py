@@ -287,9 +287,9 @@ async def get_catalog(
     
     # Сортировка
     if sort == "popular":
-        query += " ORDER BY (SELECT COUNT(*) FROM check_history WHERE product_name = products.name) DESC"
+        query += " ORDER BY name ASC"
     elif sort == "score":
-        query += " ORDER BY (SELECT AVG(score) FROM check_history WHERE product_name = products.name) DESC"
+        query += " ORDER BY name ASC"
     else:
         query += " ORDER BY name ASC"
     
