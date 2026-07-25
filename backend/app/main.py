@@ -149,10 +149,6 @@ async def check_with_ingredients(request: Request, check_request: CheckWithIngre
                 check_request.ingredients,
                 slug
             )
-        print("🔍 result в main.py:", result)
-        print("🔍 active_ingredients:", result.get("active_ingredients"))
-        print("🔍 how_to_use:", result.get("how_to_use"))
-        print("🔍 expectations:", result.get("expectations"))
         return CheckResponse(
             score=result.get("score", 50),
             verdict=result.get("verdict", "С осторожностью"),
