@@ -284,8 +284,8 @@ async def get_catalog(
         count_params.append(brand)
     
     if search:
-        search_clean = search.strip().lower().replace(' ', '')
-        query += " AND REPLACE(LOWER(name), ' ', '') LIKE ?"
+        search_clean = search.strip().lower().replace(' ', '').replace('\n', '').replace('\r', '')
+        query += " AND REPLACE(REPLACE(REPLACE(LOWER(name), ' ', ''), '\n', ''), '\r', '') LIKE ?"
         params.append(f"%{search_clean}%")
         count_params.append(f"%{search_clean}%")
     
