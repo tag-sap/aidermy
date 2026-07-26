@@ -284,9 +284,10 @@ async def get_catalog(
         count_params.append(brand)
     
     if search:
-        query += " AND LOWER(name) LIKE ?"
-        params.append(f"%{search.lower()}%")
-        count_params.append(f"%{search.lower()}%")
+        search_clean = search.strip().lower().replace(' ', '')
+        query += " AND REPLACE(LOWER(name), ' ', '') LIKE ?"
+        params.append(f"%{search_clean}%")
+        count_params.append(f"%{search_clean}%")
     
     # Сортировка
     if sort == "popular":
