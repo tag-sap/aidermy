@@ -173,30 +173,26 @@ def search_products(query: str) -> List[dict]:
     if not query or len(query.strip()) < 2:
         return []
     
-    q = query.strip().lower()
-    words = q.split()
-    
+    words = query.strip().lower().split()
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
     if len(words) == 1:
-        # Одно слово — простой поиск
-        word_clean = words[0].replace(' ', '').replace('\n', '').replace('\r', '')
-        cursor.execute("SELECT name, slug, image_url, ingredients FROM products WHERE REPLACE(REPLACE(REPLACE(LOWER(name), ' ', ''), '\n', ''), '\r', '') LIKE ? LIMIT 20", (f"%{word_clean}%",))
+        cursor.execute(
+            "SELECT name, slug, image_url, ingredients FROM products WHERE LOWER(name) LIKE ? LIMIT 20",
+            (f"%{words[0]}%",)
+        )
     else:
-        # Несколько слов — ищем каждое
-        conditions = []
-        params = []
-        for word in words:
-            word_clean = word.replace(' ', '').replace('\n', '').replace('\r', '')
-            conditions.append("REPLACE(REPLACE(REPLACE(LOWER(name), ' ', ''), '\n', ''), '\r', '') LIKE ?")
-            params.append(f"%{word_clean}%")
-        cursor.execute(f"SELECT name, slug, image_url, ingredients FROM products WHERE {' AND '.join(conditions)} LIMIT 20", params)
+        conditions = " AND ".join(["LOWER(name) LIKE ?" for _ in words])
+        params = [f"%{word}%" for word in words]
+        cursor.execute(
+            f"SELECT name, slug, image_url, ingredients FROM products WHERE {conditions} LIMIT 20",
+            params
+        )
     
     rows = cursor.fetchall()
     conn.close()
     return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]} for row in rows]
-
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     if not quiz_answers:
         return "Не определено"
