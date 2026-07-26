@@ -266,31 +266,25 @@ async def get_catalog(
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
+    # Основной запрос
     query = "SELECT name, slug, image_url, ingredients, category, brand FROM products WHERE 1=1"
     params = []
-    count_params = []
     
     if category:
         query += " AND category = ?"
         params.append(category)
-        count_params.append(category)
-    
     if brand:
         query += " AND brand = ?"
         params.append(brand)
-        count_params.append(brand)
-        
     if search:
         words = search.strip().lower().split()
         if len(words) == 1:
             query += " AND LOWER(name) LIKE ?"
             params.append(f"%{words[0]}%")
-            count_params.append(f"%{words[0]}%")
         else:
             for word in words:
                 query += " AND LOWER(name) LIKE ?"
                 params.append(f"%{word}%")
-                count_params.append(f"%{word}%")
     
     query += " ORDER BY name ASC LIMIT ? OFFSET ?"
     params.append(limit)
@@ -301,13 +295,23 @@ async def get_catalog(
     
     # Подсчёт
     count_query = "SELECT COUNT(*) FROM products WHERE 1=1"
+    count_params = []
+    
     if category:
         count_query += " AND category = ?"
+        count_params.append(category)
     if brand:
         count_query += " AND brand = ?"
+        count_params.append(brand)
     if search:
-        q = search.strip().lower().replace(' ', '')
-        count_query += " AND REPLACE(LOWER(name), ' ', '') LIKE ?"
+        words = search.strip().lower().split()
+        if len(words) == 1:
+            count_query += " AND LOWER(name) LIKE ?"
+            count_params.append(f"%{words[0]}%")
+        else:
+            for word in words:
+                count_query += " AND LOWER(name) LIKE ?"
+                count_params.append(f"%{word}%")
     
     cursor.execute(count_query, count_params)
     total = cursor.fetchone()[0]
