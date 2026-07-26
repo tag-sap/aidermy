@@ -294,15 +294,15 @@ async def get_catalog(
         if len(words) == 1:
             # Одно слово — ищем как раньше
             word_clean = words[0].replace(' ', '').replace('\n', '').replace('\r', '')
-            query += " AND REPLACE(REPLACE(REPLACE(LOWER(name), ' ', ''), '\n', ''), '\r', '') LIKE ?"
-            params.append(f"%{word_clean}%")
+            query += " AND LOWER(name) LIKE ?"
+            params.append(f"%{word}%")
             count_params.append(f"%{word_clean}%")
         else:
             # Несколько слов — ищем каждое
             for word in words:
                 word_clean = word.replace(' ', '').replace('\n', '').replace('\r', '')
-                query += " AND REPLACE(REPLACE(REPLACE(LOWER(name), ' ', ''), '\n', ''), '\r', '') LIKE ?"
-                params.append(f"%{word_clean}%")
+                query += " AND LOWER(name) LIKE ?"
+                params.append(f"%{word}%")
                 count_params.append(f"%{word_clean}%")
     
     # Сортировка
