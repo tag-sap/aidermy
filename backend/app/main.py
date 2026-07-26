@@ -258,62 +258,51 @@ async def get_popular_products():
 async def get_catalog(
     category: Optional[str] = None,
     brand: Optional[str] = None,
-    skin_type: Optional[str] = None,
     search: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
     sort: str = "popular"
 ):
-    """Каталог продуктов с фильтрацией и пагинацией"""
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    # Базовый запрос
-    # Подсчёт общего количества
-    count_query = "SELECT COUNT(*) FROM products WHERE 1=1"
+    query = "SELECT name, slug, image_url, ingredients, category, brand FROM products WHERE 1=1"
+    params = []
     count_params = []
-
+    
     if category:
-        count_query += " AND category = ?"
+        query += " AND category = ?"
+        params.append(category)
         count_params.append(category)
+    
     if brand:
-        count_query += " AND brand = ?"
+        query += " AND brand = ?"
+        params.append(brand)
         count_params.append(brand)
+    
     if search:
-        search_clean = search.strip().lower()
-        words = search_clean.split()
-        if len(words) == 1:
-            count_query += " AND LOWER(name) LIKE ?"
-            count_params.append(f"%{words[0]}%")
-        else:
-            for word in words:
-                count_query += " AND LOWER(name) LIKE ?"
-                count_params.append(f"%{word}%")
+        # Простой поиск — убираем пробелы
+        q = search.strip().lower().replace(' ', '')
+        query += " AND REPLACE(LOWER(name), ' ', '') LIKE ?"
+        params.append(f"%{q}%")
+        count_params.append(f"%{q}%")
     
-    # Сортировка
-    if sort == "popular":
-        query += " ORDER BY name ASC"
-    elif sort == "score":
-        query += " ORDER BY name ASC"
-    else:
-        query += " ORDER BY name ASC"
-    
-    # Пагинация
-    query += " LIMIT ? OFFSET ?"
+    query += " ORDER BY name ASC LIMIT ? OFFSET ?"
     params.append(limit)
     params.append(offset)
     
     cursor.execute(query, params)
     rows = cursor.fetchall()
     
-    # Подсчёт общего количества
+    # Подсчёт
     count_query = "SELECT COUNT(*) FROM products WHERE 1=1"
     if category:
         count_query += " AND category = ?"
     if brand:
         count_query += " AND brand = ?"
     if search:
-        count_query += " AND LOWER(name) LIKE ?"
+        q = search.strip().lower().replace(' ', '')
+        count_query += " AND REPLACE(LOWER(name), ' ', '') LIKE ?"
     
     cursor.execute(count_query, count_params)
     total = cursor.fetchone()[0]
