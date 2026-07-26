@@ -279,13 +279,18 @@ async def get_catalog(
         query += " AND brand = ?"
         params.append(brand)
         count_params.append(brand)
-    
+        
     if search:
-        # Простой поиск — убираем пробелы
-        q = search.strip().lower().replace(' ', '')
-        query += " AND REPLACE(LOWER(name), ' ', '') LIKE ?"
-        params.append(f"%{q}%")
-        count_params.append(f"%{q}%")
+        words = search.strip().lower().split()
+        if len(words) == 1:
+            query += " AND LOWER(name) LIKE ?"
+            params.append(f"%{words[0]}%")
+            count_params.append(f"%{words[0]}%")
+        else:
+            for word in words:
+                query += " AND LOWER(name) LIKE ?"
+                params.append(f"%{word}%")
+                count_params.append(f"%{word}%")
     
     query += " ORDER BY name ASC LIMIT ? OFFSET ?"
     params.append(limit)
