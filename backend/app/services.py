@@ -183,16 +183,20 @@ def search_products(query: str) -> List[dict]:
             (f"%{words[0]}%",)
         )
     else:
-        conditions = " AND ".join(["LOWER(name) LIKE ?" for _ in words])
-        params = [f"%{word}%" for word in words]
+        conditions = []
+        params = []
+        for word in words:
+            conditions.append("LOWER(name) LIKE ?")
+            params.append(f"%{word}%")
         cursor.execute(
-            f"SELECT name, slug, image_url, ingredients FROM products WHERE {conditions} LIMIT 20",
+            f"SELECT name, slug, image_url, ingredients FROM products WHERE {' AND '.join(conditions)} LIMIT 20",
             params
         )
     
     rows = cursor.fetchall()
     conn.close()
     return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]} for row in rows]
+
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     if not quiz_answers:
         return "Не определено"
