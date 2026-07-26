@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import type { SkinProfile } from '@/lib/store'
 
 interface Product {
     name: string
@@ -12,7 +13,13 @@ interface Product {
     brand: string | null
 }
 
-export function CatalogTab() {
+export function CatalogTab({
+    onCheck,
+    profile,
+}: {
+    onCheck?: (product: string, skinType: string) => void
+    profile?: SkinProfile
+}) {
     const [products, setProducts] = useState<Product[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
@@ -78,21 +85,9 @@ export function CatalogTab() {
         window.scrollTo({ top: 0, behavior: 'smooth' })
     }
 
-    // Функция для запуска проверки
     const triggerCheck = (productName: string) => {
-        const input = document.querySelector('input[placeholder="Название средства…"]') as HTMLInputElement
-        if (input) {
-            input.value = productName
-            input.dispatchEvent(new Event('input', { bubbles: true }))
-            const tabButtons = document.querySelectorAll('[role="tab"]')
-            const checkerTab = Array.from(tabButtons).find(
-                btn => btn.textContent?.includes('Чекер')
-            )
-            if (checkerTab) (checkerTab as HTMLButtonElement).click()
-            setTimeout(() => {
-                const checkButton = document.querySelector('button[class*="btn-primary"]') as HTMLButtonElement
-                if (checkButton) checkButton.click()
-            }, 200)
+        if (onCheck && profile) {
+            onCheck(productName, profile.skinType || 'Нормальная')
         }
     }
 

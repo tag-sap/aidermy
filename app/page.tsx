@@ -330,7 +330,10 @@ export default function Page() {
                 )}
                 {tab === 'catalog' && (
                   <div className="tab-content">
-                    <CatalogTab />
+                    <CatalogTab
+                      onCheck={handleCheck}
+                      profile={profile}
+                    />
                   </div>
                 )}
                 {tab === 'history' && (
