@@ -214,7 +214,7 @@ export function CatalogTab() {
                                         <span className="text-xs text-muted-foreground">{product.category}</span>
                                     )}
                                 </div>
-                                <button 
+                                <button
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         triggerCheck(product.name)
