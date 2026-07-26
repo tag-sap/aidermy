@@ -283,11 +283,27 @@ async def get_catalog(
         params.append(brand)
         count_params.append(brand)
     
-    if search:
-        search_clean = search.strip().lower().replace(' ', '').replace('\n', '').replace('\r', '')
+if search:
+    search_clean = search.strip().lower()
+    # Убираем переносы и лишние пробелы
+    search_clean = ' '.join(search_clean.split())
+    
+    # Разбиваем на слова
+    words = search_clean.split()
+    
+    if len(words) == 1:
+        # Одно слово — ищем как раньше
+        word_clean = words[0].replace(' ', '').replace('\n', '').replace('\r', '')
         query += " AND REPLACE(REPLACE(REPLACE(LOWER(name), ' ', ''), '\n', ''), '\r', '') LIKE ?"
-        params.append(f"%{search_clean}%")
-        count_params.append(f"%{search_clean}%")
+        params.append(f"%{word_clean}%")
+        count_params.append(f"%{word_clean}%")
+    else:
+        # Несколько слов — ищем каждое
+        for word in words:
+            word_clean = word.replace(' ', '').replace('\n', '').replace('\r', '')
+            query += " AND REPLACE(REPLACE(REPLACE(LOWER(name), ' ', ''), '\n', ''), '\r', '') LIKE ?"
+            params.append(f"%{word_clean}%")
+            count_params.append(f"%{word_clean}%")
     
     # Сортировка
     if sort == "popular":
