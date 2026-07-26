@@ -337,7 +337,7 @@ export function CheckerTab({
                   <img
                     src={p.image_url}
                     alt={p.name}
-                    className="w-10 h-10 object-cover rounded-md flex-shrink-0 bg-gray-100"
+                    className="w-10 h-auto object-contain rounded-md flex-shrink-0 bg-gray-100"
                   />
                 )}
                 <MarqueeText text={p.name} className="text-sm" />
