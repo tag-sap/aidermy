@@ -219,14 +219,11 @@ export function ResultSheet({
             {/* КАРТИНКА ПРОДУКТА */}
             {result.image_url && (
               <div className="w-full flex justify-center">
-                <div className="w-32 h-32 rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200 flex-shrink-0">
+                <div className="w-32 h-auto rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center border border-gray-200">
                   <img
                     src={result.image_url}
                     alt={result.product}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none'
-                    }}
+                    className="w-full h-auto object-contain"
                   />
                 </div>
               </div>

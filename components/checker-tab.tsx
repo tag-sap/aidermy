@@ -253,7 +253,7 @@ export function CheckerTab({
                   <img
                     src={product.image_url}
                     alt={product.name}
-                    className="w-10 h-10 object-cover rounded-md flex-shrink-0 bg-gray-100"
+                    className="w-12 h-auto object-contain rounded-xl flex-shrink-0 bg-gray-100"
                   />
                 )}
                 <span className="truncate">{product.name}</span>

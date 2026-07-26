@@ -200,7 +200,7 @@ export function CatalogTab({
                                     <img
                                         src={product.image_url}
                                         alt={product.name}
-                                        className="w-12 h-12 object-cover rounded-xl flex-shrink-0 bg-gray-100"
+                                        className="w-10 h-auto object-contain rounded-md flex-shrink-0 bg-gray-100"
                                     />
                                 )}
                                 <div className="flex-1 min-w-0">
