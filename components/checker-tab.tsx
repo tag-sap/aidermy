@@ -79,6 +79,7 @@ export function CheckerTab({
 
   // Автокомплит
   useEffect(() => {
+    console.log('🔍 query:', query)
     const q = query.trim()
     if (q.length < 2) {
       setSuggestions([])
