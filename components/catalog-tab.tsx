@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { SkinProfile } from '@/lib/store'
 
 interface Product {
@@ -11,6 +12,31 @@ interface Product {
     ingredients: string | null
     category: string | null
     brand: string | null
+}
+
+// === БЕГУЩИЙ ТЕКСТ ===
+function MarqueeText({ text, className }: { text: string; className?: string }) {
+    const [isOverflowing, setIsOverflowing] = useState(false)
+    const textRef = useRef<HTMLSpanElement>(null)
+    const containerRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        if (textRef.current && containerRef.current) {
+            setIsOverflowing(textRef.current.scrollWidth > containerRef.current.clientWidth)
+        }
+    }, [text])
+
+    return (
+        <div ref={containerRef} className={cn('overflow-hidden relative w-full', className)}>
+            <div className={cn(
+                'whitespace-nowrap inline-block',
+                isOverflowing && 'animate-marquee'
+            )}>
+                <span ref={textRef}>{text}</span>
+                {isOverflowing && <span className="ml-8">{text}</span>}
+            </div>
+        </div>
+    )
 }
 
 export function CatalogTab({
@@ -204,7 +230,7 @@ export function CatalogTab({
                                     />
                                 )}
                                 <div className="flex-1 min-w-0">
-                                    <h3 className="text-sm font-normal text-foreground truncate">{product.name}</h3>
+                                    <MarqueeText text={product.name} className="text-sm font-normal text-foreground" />
                                     {product.category && (
                                         <span className="text-xs text-muted-foreground">{product.category}</span>
                                     )}
