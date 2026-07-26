@@ -78,6 +78,24 @@ export function CatalogTab() {
         window.scrollTo({ top: 0, behavior: 'smooth' })
     }
 
+    // Функция для запуска проверки
+    const triggerCheck = (productName: string) => {
+        const input = document.querySelector('input[placeholder="Название средства…"]') as HTMLInputElement
+        if (input) {
+            input.value = productName
+            input.dispatchEvent(new Event('input', { bubbles: true }))
+            const tabButtons = document.querySelectorAll('[role="tab"]')
+            const checkerTab = Array.from(tabButtons).find(
+                btn => btn.textContent?.includes('Чекер')
+            )
+            if (checkerTab) (checkerTab as HTMLButtonElement).click()
+            setTimeout(() => {
+                const checkButton = document.querySelector('button[class*="btn-primary"]') as HTMLButtonElement
+                if (checkButton) checkButton.click()
+            }, 200)
+        }
+    }
+
     return (
         <div className="flex flex-col gap-5 max-w-md mx-auto">
             {/* Заголовок */}
@@ -180,18 +198,7 @@ export function CatalogTab() {
                         <div
                             key={product.slug}
                             className="bg-white/70 backdrop-blur-sm rounded-2xl p-4 border border-gray-200/70 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                            onClick={() => {
-                                const input = document.querySelector('input[placeholder="Название средства…"]') as HTMLInputElement
-                                if (input) {
-                                    input.value = product.name
-                                    input.dispatchEvent(new Event('input', { bubbles: true }))
-                                    const tabButtons = document.querySelectorAll('[role="tab"]')
-                                    const checkerTab = Array.from(tabButtons).find(
-                                        btn => btn.textContent?.includes('Чекер')
-                                    )
-                                    if (checkerTab) (checkerTab as HTMLButtonElement).click()
-                                }
-                            }}
+                            onClick={() => triggerCheck(product.name)}
                         >
                             <div className="flex items-center gap-4">
                                 {product.image_url && (
@@ -207,7 +214,13 @@ export function CatalogTab() {
                                         <span className="text-xs text-muted-foreground">{product.category}</span>
                                     )}
                                 </div>
-                                <button className="px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-normal hover:bg-primary/20 transition-colors">
+                                <button 
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        triggerCheck(product.name)
+                                    }}
+                                    className="px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-normal hover:bg-primary/20 transition-colors"
+                                >
                                     Проверить
                                 </button>
                             </div>
