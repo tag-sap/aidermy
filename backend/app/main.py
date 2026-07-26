@@ -269,32 +269,25 @@ async def get_catalog(
     cursor = conn.cursor()
     
     # Базовый запрос
-    query = "SELECT name, slug, image_url, ingredients, category, brand FROM products WHERE 1=1"
-    params = []
+    # Подсчёт общего количества
+    count_query = "SELECT COUNT(*) FROM products WHERE 1=1"
     count_params = []
-    
+
     if category:
-        query += " AND category = ?"
-        params.append(category)
+        count_query += " AND category = ?"
         count_params.append(category)
-    
     if brand:
-        query += " AND brand = ?"
-        params.append(brand)
+        count_query += " AND brand = ?"
         count_params.append(brand)
-    
     if search:
         search_clean = search.strip().lower()
         words = search_clean.split()
-        
         if len(words) == 1:
-            query += " AND LOWER(name) LIKE ?"
-            params.append(f"%{words[0]}%")
+            count_query += " AND LOWER(name) LIKE ?"
             count_params.append(f"%{words[0]}%")
         else:
             for word in words:
-                query += " AND LOWER(name) LIKE ?"
-                params.append(f"%{word}%")
+                count_query += " AND LOWER(name) LIKE ?"
                 count_params.append(f"%{word}%")
     
     # Сортировка
