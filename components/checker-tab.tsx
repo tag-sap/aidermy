@@ -79,47 +79,14 @@ export function CheckerTab({
 
   // Автокомплит
   useEffect(() => {
-    console.log('🔍 query:', query)
     const q = query.trim()
     if (q.length < 2) {
       setSuggestions([])
-      setHighlightedIndex(-1)
       return
     }
-
-    if (abortControllerRef.current) abortControllerRef.current.abort()
-    const controller = new AbortController()
-    abortControllerRef.current = controller
-    setIsLoading(true)
-
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`, { signal: controller.signal })
-        if (!res.ok) throw new Error('Ошибка загрузки')
-        const data = await res.json()
-        const sorted = (data.products || []).sort((a: ProductSuggestion, b: ProductSuggestion) => {
-          const aLower = a.name.toLowerCase()
-          const bLower = b.name.toLowerCase()
-          const qLower = q.toLowerCase()
-          const aScore = aLower.includes(qLower) ? 1 : 0
-          const bScore = bLower.includes(qLower) ? 1 : 0
-          return bScore - aScore
-        })
-        setSuggestions(sorted.slice(0, 8))
-        setHighlightedIndex(-1)
-      } catch (error) {
-        if ((error as Error).name !== 'AbortError') {
-          console.error('Ошибка загрузки продуктов:', error)
-          setSuggestions([])
-        }
-      } finally {
-        setIsLoading(false)  // ← finally должен быть здесь
-      }
-    }, 250)
-
-    return () => {
-      clearTimeout(timer)
-      if (abortControllerRef.current) abortControllerRef.current.abort()
+    // Если есть query — переключаем на каталог
+    if (onCatalogClick) {
+      onCatalogClick()
     }
   }, [query])
 
