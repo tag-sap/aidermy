@@ -173,14 +173,26 @@ def search_products(query: str) -> List[dict]:
     if not query or len(query.strip()) < 2:
         return []
     
-    words = query.strip().lower().split()
+    q = query.strip().lower()
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
+    # Сначала ищем точное совпадение
+    cursor.execute(
+        "SELECT name, slug, image_url, ingredients FROM products WHERE LOWER(name) = ? LIMIT 1",
+        (q,)
+    )
+    row = cursor.fetchone()
+    if row:
+        conn.close()
+        return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]}]
+    
+    # Если точного нет — ищем по словам
+    words = q.split()
     if len(words) == 1:
         cursor.execute(
             "SELECT name, slug, image_url, ingredients FROM products WHERE LOWER(name) LIKE ? LIMIT 20",
-            (f"%{words[0]}%",)
+            (f"%{q}%",)
         )
     else:
         conditions = []
