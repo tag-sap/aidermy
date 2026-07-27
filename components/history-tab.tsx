@@ -90,12 +90,12 @@ export function HistoryTab({
               <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
               <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
               <div className="relative flex items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 overflow-x-auto">
                   <ScrambleText
                     as="p"
                     text={item.product}
                     revealDelay={30}
-                    className="block font-normal text-foreground text-sm truncate"
+                    className="block font-normal text-foreground text-sm whitespace-nowrap"
                   />
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {item.skinType} · {formatDate(item.createdAt)}

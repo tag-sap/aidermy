@@ -199,8 +199,10 @@ export function CatalogDropdown({
                                     {p.image_url && (
                                         <img src={p.image_url} alt={p.name} className="w-10 h-10 object-cover rounded-lg flex-shrink-0 bg-gray-100" />
                                     )}
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-normal text-foreground truncate">{p.name}</p>
+                                    <div className="flex-1 min-w-0 overflow-x-auto">
+                                        <p className="text-sm font-normal text-foreground whitespace-nowrap">
+                                            {p.name}
+                                        </p>
                                         {p.category && (
                                             <p className="text-xs text-muted-foreground">{p.category}</p>
                                         )}

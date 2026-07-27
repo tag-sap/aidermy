@@ -354,7 +354,7 @@ export function CheckerTab({
                         />
                       </div>
                     )}
-                    <span className="truncate">{product.name}</span>
+                    <span className="overflow-x-auto">{product.name}</span>
                   </button>
                 ))}
               </div>
