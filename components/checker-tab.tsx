@@ -196,15 +196,20 @@ export function CheckerTab({
     const res = await fetch(`/api/products?q=${encodeURIComponent(query.trim())}`)
     const data = await res.json()
 
-    // Если продукт не найден — показываем форму ручного ввода
-    if (!data.products || data.products.length === 0) {
+    // Ищем точное совпадение по названию
+    const exactMatch = data.products?.find(
+      (p: any) => p.name.toLowerCase() === query.trim().toLowerCase()
+    )
+
+    // Если нет точного совпадения — показываем форму ручного ввода
+    if (!exactMatch) {
       setShowManualInput(true)
       setManualName(query.trim())
       setManualIngredients('')
       return
     }
 
-    // Если найден — проверяем
+    // Если есть точное совпадение — проверяем
     onCheck(query.trim(), activeSkinType)
   }
 
