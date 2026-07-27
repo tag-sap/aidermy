@@ -57,8 +57,15 @@ export function CatalogTab({
     const [categories, setCategories] = useState<string[]>([])
     const [brands, setBrands] = useState<string[]>([])
     const [showFilters, setShowFilters] = useState(false)
+    const [isVisible, setIsVisible] = useState(false)
 
     const limit = 20
+    const cardStyle = "relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-5 border border-primary/20 backdrop-blur-sm hover:shadow-md transition-shadow"
+
+    useEffect(() => {
+        const timer = setTimeout(() => setIsVisible(true), 50)
+        return () => clearTimeout(timer)
+    }, [])
 
     useEffect(() => {
         fetchCategories()
@@ -132,7 +139,7 @@ export function CatalogTab({
             </div>
 
             {/* Поиск */}
-            <div className="relative bg-white/70 backdrop-blur-sm rounded-2xl p-4 border border-gray-200/70 shadow-sm">
+            <div className="cardStyle relative">
                 <div className="flex items-center gap-3 rounded-xl border px-4 py-2.5 bg-white/50 border-gray-200/70">
                     <Search className="size-4 shrink-0 text-muted-foreground" />
                     <input
@@ -151,54 +158,56 @@ export function CatalogTab({
 
             {/* Фильтры */}
             {showFilters && (
-                <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-5 border border-gray-200/70 shadow-sm animate-in fade-in slide-in-from-top-2">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-normal text-foreground">Фильтры</h3>
-                        <button onClick={() => { setCategory(''); setBrand('') }} className="text-xs text-primary hover:underline">
-                            Сбросить
-                        </button>
-                    </div>
-
-                    <div className="space-y-4">
-                        <div>
-                            <label className="text-xs text-muted-foreground block mb-1.5">Категория</label>
-                            <select
-                                value={category}
-                                onChange={(e) => setCategory(e.target.value)}
-                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                            >
-                                <option value="">Все категории</option>
-                                {categories.map(c => (
-                                    <option key={c} value={c}>{c}</option>
-                                ))}
-                            </select>
+                <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-1')}>
+                    <div className="relative z-10">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-normal text-foreground">Фильтры</h3>
+                            <button onClick={() => { setCategory(''); setBrand('') }} className="text-xs text-primary hover:underline">
+                                Сбросить
+                            </button>
                         </div>
 
-                        <div>
-                            <label className="text-xs text-muted-foreground block mb-1.5">Бренд</label>
-                            <select
-                                value={brand}
-                                onChange={(e) => setBrand(e.target.value)}
-                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                            >
-                                <option value="">Все бренды</option>
-                                {brands.map(b => (
-                                    <option key={b} value={b}>{b}</option>
-                                ))}
-                            </select>
-                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs text-muted-foreground block mb-1.5">Категория</label>
+                                <select
+                                    value={category}
+                                    onChange={(e) => setCategory(e.target.value)}
+                                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                                >
+                                    <option value="">Все категории</option>
+                                    {categories.map(c => (
+                                        <option key={c} value={c}>{c}</option>
+                                    ))}
+                                </select>
+                            </div>
 
-                        <div>
-                            <label className="text-xs text-muted-foreground block mb-1.5">Сортировка</label>
-                            <select
-                                value={sort}
-                                onChange={(e) => setSort(e.target.value)}
-                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                            >
-                                <option value="popular">По популярности</option>
-                                <option value="score">По оценке</option>
-                                <option value="name">По названию</option>
-                            </select>
+                            <div>
+                                <label className="text-xs text-muted-foreground block mb-1.5">Бренд</label>
+                                <select
+                                    value={brand}
+                                    onChange={(e) => setBrand(e.target.value)}
+                                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                                >
+                                    <option value="">Все бренды</option>
+                                    {brands.map(b => (
+                                        <option key={b} value={b}>{b}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="text-xs text-muted-foreground block mb-1.5">Сортировка</label>
+                                <select
+                                    value={sort}
+                                    onChange={(e) => setSort(e.target.value)}
+                                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                                >
+                                    <option value="popular">По популярности</option>
+                                    <option value="score">По оценке</option>
+                                    <option value="name">По названию</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -210,18 +219,27 @@ export function CatalogTab({
                     <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary/30 border-t-primary" />
                 </div>
             ) : products.length === 0 ? (
-                <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-8 text-center border border-gray-200/70">
-                    <p className="text-muted-foreground">Ничего не найдено</p>
+                <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-1')}>
+                    <div className="relative z-10 text-center py-8">
+                        <p className="text-muted-foreground">Ничего не найдено</p>
+                    </div>
                 </div>
             ) : (
                 <div className="flex flex-col gap-3">
-                    {products.map((product) => (
+                    {products.map((product, index) => (
                         <div
                             key={product.slug}
-                            className="bg-white/70 backdrop-blur-sm rounded-2xl p-4 border border-gray-200/70 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                            className={cn(
+                                cardStyle,
+                                'card-enter cursor-pointer',
+                                isVisible && `card-enter-${Math.min(index + 1, 6)}`
+                            )}
+                            style={{ animationDelay: `${index * 0.05}s` }}
                             onClick={() => triggerCheck(product.name)}
                         >
-                            <div className="flex items-center gap-4">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+                            <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+                            <div className="relative z-10 flex items-center gap-4">
                                 {product.image_url && (
                                     <img
                                         src={product.image_url}
