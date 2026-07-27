@@ -241,11 +241,13 @@ export function CatalogTab({
                             <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
                             <div className="relative z-10 flex items-center gap-4">
                                 {product.image_url && (
-                                    <img
-                                        src={product.image_url}
-                                        alt={product.name}
-                                        className="w-10 h-auto object-contain rounded-md flex-shrink-0 bg-gray-100"
-                                    />
+                                    <div className="product-image-wrapper">
+                                        <img
+                                            src={p.image_url}
+                                            alt={p.name}
+                                            className="product-image"
+                                        />
+                                    </div>
                                 )}
                                 <div className="flex-1 min-w-0">
                                     <MarqueeText text={product.name} className="text-sm font-normal text-foreground" />

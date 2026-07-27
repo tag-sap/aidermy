@@ -592,3 +592,24 @@ div {
 .card-enter-6 {
   animation: cardFlyInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.40s forwards;
 }
+
+.product-image-wrapper {
+  width: 60px;
+  height: 60px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.product-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background-color: transparent;
+  mix-blend-mode: multiply;
+  /* убирает белый фон */
+}

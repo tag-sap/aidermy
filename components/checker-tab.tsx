@@ -334,11 +334,13 @@ export function CheckerTab({
                 className="w-full px-4 py-2.5 rounded-xl border cursor-pointer transition-all border-primary/10 hover:border-primary/30 hover:bg-primary/5 bg-white/30 backdrop-blur-sm flex items-center gap-3"
               >
                 {p.image_url && (
-                  <img
-                    src={p.image_url}
-                    alt={p.name}
-                    className="w-10 h-auto object-contain rounded-md flex-shrink-0 bg-gray-100"
-                  />
+                  <div className="product-image-wrapper">
+                    <img
+                      src={p.image_url}
+                      alt={p.name}
+                      className="product-image"
+                    />
+                  </div>
                 )}
                 <MarqueeText text={p.name} className="text-sm" />
               </div>
