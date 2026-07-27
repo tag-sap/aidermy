@@ -7,59 +7,13 @@ import { SKIN_TYPES } from '@/lib/products'
 import { cn } from '@/lib/utils'
 import { CatalogDropdown } from '@/components/catalog-dropdown'
 import type { SkinProfile } from '@/lib/store'
-const [showAddProduct, setShowAddProduct] = useState(false)
-const [newProductName, setNewProductName] = useState('')
-const [newProductIngredients, setNewProductIngredients] = useState('')
-const [addProductError, setAddProductError] = useState('')
-const activeSkinType = profileComplete ? profile.skinType : skinType
+
 interface ProductSuggestion {
   name: string
   slug: string
   image_url?: string
 }
-const handleAddProduct = async () => {
-  if (!newProductName.trim() || !newProductIngredients.trim()) {
-    setAddProductError('Заполните все поля')
-    return
-  }
 
-  // Проверяем, есть ли уже такой продукт
-  const res = await fetch(`/api/products?q=${encodeURIComponent(newProductName)}`)
-  const data = await res.json()
-
-  if (data.products && data.products.length > 0) {
-    setAddProductError('Такой продукт уже есть в базе')
-    return
-  }
-
-  // Отправляем в модерацию
-  const response = await fetch('/api/check-with-ingredients', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      product_name: newProductName,
-      skin_type: activeSkinType, // ← activeSkinType должна быть доступна
-      profile: {
-        name: profile.name || '',
-        age: profile.age || '',
-        concerns: profile.concerns || [],
-        allergies: profile.allergies || [],
-        custom_text: profile.customText || '',
-      },
-      ingredients: newProductIngredients,
-    })
-  })
-
-  if (response.ok) {
-    setShowAddProduct(false)
-    setNewProductName('')
-    setNewProductIngredients('')
-    setAddProductError('')
-    alert('Продукт отправлен на модерацию!')
-  } else {
-    setAddProductError('Ошибка при отправке')
-  }
-}
 // === БЕГУЩИЙ ТЕКСТ ===
 function MarqueeText({ text, className }: { text: string; className?: string }) {
   const [isOverflowing, setIsOverflowing] = useState(false)
@@ -116,6 +70,10 @@ export function CheckerTab({
   const [newProductName, setNewProductName] = useState('')
   const [newProductIngredients, setNewProductIngredients] = useState('')
   const [addProductError, setAddProductError] = useState('')
+  const [showManualInput, setShowManualInput] = useState(false)
+  const [manualName, setManualName] = useState('')
+  const [manualIngredients, setManualIngredients] = useState('')
+
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -126,8 +84,8 @@ export function CheckerTab({
     return () => clearTimeout(timer)
   }, [])
 
+  // Автокомплит
   useEffect(() => {
-    console.log('🔍 query:', query)
     const q = query.trim()
     if (q.length < 2) {
       setSuggestions([])
@@ -145,7 +103,6 @@ export function CheckerTab({
         const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`, { signal: controller.signal })
         if (!res.ok) throw new Error('Ошибка загрузки')
         const data = await res.json()
-        // Просто показываем все результаты, без сортировки
         setSuggestions(data.products.slice(0, 8))
         setHighlightedIndex(-1)
       } catch (error) {
@@ -187,41 +144,51 @@ export function CheckerTab({
 
   const activeSkinType = profileComplete ? profile.skinType : skinType
   const canCheck = query.trim().length > 0 && activeSkinType.length > 0
-  const [showManualInput, setShowManualInput] = useState(false)
-  const [manualName, setManualName] = useState('')
-  const [manualIngredients, setManualIngredients] = useState('')
-  {
-    showManualInput && (
-      <div className="cardStyle">
-        <h3 className="text-sm font-normal text-foreground mb-3">Продукт не найден</h3>
-        <p className="text-xs text-muted-foreground mb-3">Введите название и состав вручную</p>
-        <input
-          value={manualName}
-          onChange={(e) => setManualName(e.target.value)}
-          placeholder="Название продукта"
-          className="w-full rounded-xl border px-4 py-2 mb-2"
-        />
-        <textarea
-          value={manualIngredients}
-          onChange={(e) => setManualIngredients(e.target.value)}
-          placeholder="Состав (INCI)"
-          className="w-full rounded-xl border px-4 py-2 mb-2"
-          rows={3}
-        />
-        <button
-          onClick={() => {
-            if (manualName && manualIngredients) {
-              onCheck(manualName, activeSkinType)
-              setShowManualInput(false)
-            }
-          }}
-          className="w-full py-2 rounded-xl bg-primary text-white"
-        >
-          Отправить в модерацию
-        </button>
-      </div>
-    )
+
+  const handleAddProduct = async () => {
+    if (!newProductName.trim() || !newProductIngredients.trim()) {
+      setAddProductError('Заполните все поля')
+      return
+    }
+
+    // Проверяем, есть ли уже такой продукт
+    const res = await fetch(`/api/products?q=${encodeURIComponent(newProductName)}`)
+    const data = await res.json()
+
+    if (data.products && data.products.length > 0) {
+      setAddProductError('Такой продукт уже есть в базе')
+      return
+    }
+
+    // Отправляем в модерацию
+    const response = await fetch('/api/check-with-ingredients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_name: newProductName,
+        skin_type: activeSkinType,
+        profile: {
+          name: profile.name || '',
+          age: profile.age || '',
+          concerns: profile.concerns || [],
+          allergies: profile.allergies || [],
+          custom_text: profile.customText || '',
+        },
+        ingredients: newProductIngredients,
+      })
+    })
+
+    if (response.ok) {
+      setShowAddProduct(false)
+      setNewProductName('')
+      setNewProductIngredients('')
+      setAddProductError('')
+      alert('Продукт отправлен на модерацию!')
+    } else {
+      setAddProductError('Ошибка при отправке')
+    }
   }
+
   const handleCheck = async () => {
     if (!canCheck) return
 
@@ -274,49 +241,52 @@ export function CheckerTab({
             <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">
               Найти средство
             </label>
-            <button
-              onClick={onCatalogClick}
-              className="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-normal hover:bg-primary/20 transition-colors flex items-center gap-1"
-            >
-              <Search className="size-3" />
-              Каталог
-            </button>
-            <button
-              onClick={() => setShowAddProduct(!showAddProduct)}
-              className="text-xs text-primary hover:underline"
-            >
-              + Добавить продукт
-            </button>
-
-            {showAddProduct && (
-              <div className="cardStyle mt-3">
-                <h4 className="text-sm font-normal text-foreground mb-2">Добавить новый продукт</h4>
-                {addProductError && (
-                  <p className="text-xs text-red-500 mb-2">{addProductError}</p>
-                )}
-                <input
-                  value={newProductName}
-                  onChange={(e) => setNewProductName(e.target.value)}
-                  placeholder="Название продукта"
-                  className="w-full rounded-xl border px-4 py-2 mb-2 text-sm"
-                />
-                <textarea
-                  value={newProductIngredients}
-                  onChange={(e) => setNewProductIngredients(e.target.value)}
-                  placeholder="Состав (INCI)"
-                  className="w-full rounded-xl border px-4 py-2 mb-2 text-sm"
-                  rows={3}
-                />
-                <button
-                  onClick={handleAddProduct}
-                  className="w-full py-2 rounded-xl bg-primary text-white text-sm"
-                >
-                  Отправить на модерацию
-                </button>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onCatalogClick}
+                className="px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-normal hover:bg-primary/20 transition-colors flex items-center gap-1"
+              >
+                <Search className="size-3" />
+                Каталог
+              </button>
+              <button
+                onClick={() => setShowAddProduct(!showAddProduct)}
+                className="text-xs text-primary hover:underline"
+              >
+                + Добавить продукт
+              </button>
+            </div>
           </div>
-          <div className="relative">
+
+          {showAddProduct && (
+            <div className="mt-3 p-4 bg-white/50 rounded-xl border border-primary/20">
+              <h4 className="text-sm font-normal text-foreground mb-2">Добавить новый продукт</h4>
+              {addProductError && (
+                <p className="text-xs text-red-500 mb-2">{addProductError}</p>
+              )}
+              <input
+                value={newProductName}
+                onChange={(e) => setNewProductName(e.target.value)}
+                placeholder="Название продукта"
+                className="w-full rounded-xl border px-4 py-2 mb-2 text-sm"
+              />
+              <textarea
+                value={newProductIngredients}
+                onChange={(e) => setNewProductIngredients(e.target.value)}
+                placeholder="Состав (INCI)"
+                className="w-full rounded-xl border px-4 py-2 mb-2 text-sm"
+                rows={3}
+              />
+              <button
+                onClick={handleAddProduct}
+                className="w-full py-2 rounded-xl bg-primary text-white text-sm"
+              >
+                Отправить на модерацию
+              </button>
+            </div>
+          )}
+
+          <div className="relative mt-3">
             <div className={cn(
               'flex items-center gap-3 rounded-xl border px-4 py-3 bg-white/50 transition-all',
               focused ? 'border-primary/50 bg-white shadow-[0_0_30px_rgba(108,60,225,0.06)]' : 'border-gray-200/50 hover:border-gray-300'
@@ -341,49 +311,83 @@ export function CheckerTab({
               )}
             </div>
           </div>
+
+          {/* ПОДСКАЗКИ */}
+          {focused && (suggestions.length > 0 || isLoading) && (
+            <div className="relative z-[9999] -mt-2 mx-auto max-w-md w-full">
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-60 overflow-y-auto">
+                {isLoading && (
+                  <div className="px-4 py-3 text-sm text-muted-foreground text-center">
+                    <span className="inline-block animate-spin mr-2">⟳</span>
+                    Загрузка...
+                  </div>
+                )}
+                {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
+                  <div className="px-4 py-3 text-sm text-muted-foreground text-center">
+                    Ничего не найдено
+                  </div>
+                )}
+                {!isLoading && suggestions.map((product, index) => (
+                  <button
+                    key={product.slug}
+                    onMouseDown={() => {
+                      setQuery(product.name)
+                      setSuggestions([])
+                      setFocused(false)
+                    }}
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    className={cn(
+                      'w-full px-4 py-3 text-left text-sm transition-colors flex items-center gap-3',
+                      index === highlightedIndex ? 'bg-primary/5 text-primary' : 'hover:bg-gray-50'
+                    )}
+                  >
+                    {product.image_url && (
+                      <div className="product-image-wrapper">
+                        <img
+                          src={product.image_url}
+                          alt={product.name}
+                          className="product-image"
+                        />
+                      </div>
+                    )}
+                    <span className="truncate">{product.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ПОДСКАЗКИ - снаружи карточки */}
-      {focused && (suggestions.length > 0 || isLoading) && (
-        <div className="relative z-[9999] -mt-2 mx-auto max-w-md w-full">
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl max-h-60 overflow-y-auto">
-            {isLoading && (
-              <div className="px-4 py-3 text-sm text-muted-foreground text-center">
-                <span className="inline-block animate-spin mr-2">⟳</span>
-                Загрузка...
-              </div>
-            )}
-            {!isLoading && suggestions.length === 0 && query.trim().length >= 2 && (
-              <div className="px-4 py-3 text-sm text-muted-foreground text-center">
-                Ничего не найдено
-              </div>
-            )}
-            {!isLoading && suggestions.map((product, index) => (
-              <button
-                key={product.slug}
-                onMouseDown={() => {
-                  setQuery(product.name)
-                  setSuggestions([])
-                  setFocused(false)
-                }}
-                onMouseEnter={() => setHighlightedIndex(index)}
-                className={cn(
-                  'w-full px-4 py-3 text-left text-sm transition-colors flex items-center gap-3',
-                  index === highlightedIndex ? 'bg-primary/5 text-primary' : 'hover:bg-gray-50'
-                )}
-              >
-                {product.image_url && (
-                  <img
-                    src={product.image_url}
-                    alt={product.name}
-                    className="w-12 h-auto object-contain rounded-xl flex-shrink-0 bg-gray-100"
-                  />
-                )}
-                <span className="truncate">{product.name}</span>
-              </button>
-            ))}
-          </div>
+      {/* РУЧНОЙ ВВОД */}
+      {showManualInput && (
+        <div className={cardStyle}>
+          <h3 className="text-sm font-normal text-foreground mb-3">Продукт не найден</h3>
+          <p className="text-xs text-muted-foreground mb-3">Введите название и состав вручную</p>
+          <input
+            value={manualName}
+            onChange={(e) => setManualName(e.target.value)}
+            placeholder="Название продукта"
+            className="w-full rounded-xl border px-4 py-2 mb-2"
+          />
+          <textarea
+            value={manualIngredients}
+            onChange={(e) => setManualIngredients(e.target.value)}
+            placeholder="Состав (INCI)"
+            className="w-full rounded-xl border px-4 py-2 mb-2"
+            rows={3}
+          />
+          <button
+            onClick={() => {
+              if (manualName && manualIngredients) {
+                onCheck(manualName, activeSkinType)
+                setShowManualInput(false)
+              }
+            }}
+            className="w-full py-2 rounded-xl bg-primary text-white"
+          >
+            Отправить в модерацию
+          </button>
         </div>
       )}
 
@@ -406,7 +410,6 @@ export function CheckerTab({
                   onClick={() => setSkinType(t)}
                 />
               ))}
-
               {onStartQuiz && (
                 <button
                   onClick={onStartQuiz}
