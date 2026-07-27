@@ -138,12 +138,55 @@ export function CheckerTab({
 
   const activeSkinType = profileComplete ? profile.skinType : skinType
   const canCheck = query.trim().length > 0 && activeSkinType.length > 0
-
-  const handleCheck = () => {
+  const [showManualInput, setShowManualInput] = useState(false)
+  const [manualName, setManualName] = useState('')
+  const [manualIngredients, setManualIngredients] = useState('')
+  {
+    showManualInput && (
+      <div className="cardStyle">
+        <h3 className="text-sm font-normal text-foreground mb-3">Продукт не найден</h3>
+        <p className="text-xs text-muted-foreground mb-3">Введите название и состав вручную</p>
+        <input
+          value={manualName}
+          onChange={(e) => setManualName(e.target.value)}
+          placeholder="Название продукта"
+          className="w-full rounded-xl border px-4 py-2 mb-2"
+        />
+        <textarea
+          value={manualIngredients}
+          onChange={(e) => setManualIngredients(e.target.value)}
+          placeholder="Состав (INCI)"
+          className="w-full rounded-xl border px-4 py-2 mb-2"
+          rows={3}
+        />
+        <button
+          onClick={() => {
+            if (manualName && manualIngredients) {
+              onCheck(manualName, activeSkinType)
+              setShowManualInput(false)
+            }
+          }}
+          className="w-full py-2 rounded-xl bg-primary text-white"
+        >
+          Отправить в модерацию
+        </button>
+      </div>
+    )
+  }
+  const handleCheck = async () => {
     if (!canCheck) return
-    onCheck(query.trim(), activeSkinType)
-    setSuggestions([])
-    setFocused(false)
+
+    // Проверяем, есть ли продукт в БД
+    const res = await fetch(`/api/products?q=${encodeURIComponent(query)}`)
+    const data = await res.json()
+
+    if (data.products && data.products.length > 0) {
+      // Если есть — проверяем
+      onCheck(query.trim(), activeSkinType)
+    } else {
+      // Если нет — показываем форму ручного ввода
+      setShowManualInput(true)
+    }
   }
 
   const getGreeting = () => {
