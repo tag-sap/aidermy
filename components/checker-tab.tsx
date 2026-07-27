@@ -200,6 +200,7 @@ export function CheckerTab({
     if (!data.products || data.products.length === 0) {
       setShowManualInput(true)
       setManualName(query.trim())
+      setManualIngredients('')
       return
     }
 
