@@ -7,7 +7,10 @@ import { SKIN_TYPES } from '@/lib/products'
 import { cn } from '@/lib/utils'
 import { CatalogDropdown } from '@/components/catalog-dropdown'
 import type { SkinProfile } from '@/lib/store'
-
+const [showAddProduct, setShowAddProduct] = useState(false)
+const [newProductName, setNewProductName] = useState('')
+const [newProductIngredients, setNewProductIngredients] = useState('')
+const [addProductError, setAddProductError] = useState('')
 interface ProductSuggestion {
   name: string
   slug: string
