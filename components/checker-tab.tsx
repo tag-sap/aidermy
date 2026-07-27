@@ -13,7 +13,49 @@ interface ProductSuggestion {
   slug: string
   image_url?: string
 }
+const handleAddProduct = async () => {
+  if (!newProductName.trim() || !newProductIngredients.trim()) {
+    setAddProductError('Заполните все поля')
+    return
+  }
 
+  // Проверяем, есть ли уже такой продукт
+  const res = await fetch(`/api/products?q=${encodeURIComponent(newProductName)}`)
+  const data = await res.json()
+
+  if (data.products && data.products.length > 0) {
+    setAddProductError('Такой продукт уже есть в базе')
+    return
+  }
+
+  // Отправляем в модерацию
+  const response = await fetch('/api/check-with-ingredients', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      product_name: newProductName,
+      skin_type: activeSkinType,
+      profile: {
+        name: profile.name || '',
+        age: profile.age || '',
+        concerns: profile.concerns || [],
+        allergies: profile.allergies || [],
+        custom_text: profile.customText || '',
+      },
+      ingredients: newProductIngredients,
+    })
+  })
+
+  if (response.ok) {
+    setShowAddProduct(false)
+    setNewProductName('')
+    setNewProductIngredients('')
+    setAddProductError('')
+    alert('Продукт отправлен на модерацию!')
+  } else {
+    setAddProductError('Ошибка при отправке')
+  }
+}
 // === БЕГУЩИЙ ТЕКСТ ===
 function MarqueeText({ text, className }: { text: string; className?: string }) {
   const [isOverflowing, setIsOverflowing] = useState(false)
@@ -66,7 +108,10 @@ export function CheckerTab({
   const [popularSource, setPopularSource] = useState<'history' | 'database'>('history')
   const [isVisible, setIsVisible] = useState(false)
   const [isCatalogOpen, setIsCatalogOpen] = useState(false)
-
+  const [showAddProduct, setShowAddProduct] = useState(false)
+  const [newProductName, setNewProductName] = useState('')
+  const [newProductIngredients, setNewProductIngredients] = useState('')
+  const [addProductError, setAddProductError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -177,16 +222,18 @@ export function CheckerTab({
     if (!canCheck) return
 
     // Проверяем, есть ли продукт в БД
-    const res = await fetch(`/api/products?q=${encodeURIComponent(query)}`)
+    const res = await fetch(`/api/products?q=${encodeURIComponent(query.trim())}`)
     const data = await res.json()
 
-    if (data.products && data.products.length > 0) {
-      // Если есть — проверяем
-      onCheck(query.trim(), activeSkinType)
-    } else {
-      // Если нет — показываем форму ручного ввода
+    // Если продукт не найден — показываем форму ручного ввода
+    if (!data.products || data.products.length === 0) {
       setShowManualInput(true)
+      setManualName(query.trim())
+      return
     }
+
+    // Если найден — проверяем
+    onCheck(query.trim(), activeSkinType)
   }
 
   const getGreeting = () => {
@@ -230,6 +277,40 @@ export function CheckerTab({
               <Search className="size-3" />
               Каталог
             </button>
+            <button
+              onClick={() => setShowAddProduct(!showAddProduct)}
+              className="text-xs text-primary hover:underline"
+            >
+              + Добавить продукт
+            </button>
+
+            {showAddProduct && (
+              <div className="cardStyle mt-3">
+                <h4 className="text-sm font-normal text-foreground mb-2">Добавить новый продукт</h4>
+                {addProductError && (
+                  <p className="text-xs text-red-500 mb-2">{addProductError}</p>
+                )}
+                <input
+                  value={newProductName}
+                  onChange={(e) => setNewProductName(e.target.value)}
+                  placeholder="Название продукта"
+                  className="w-full rounded-xl border px-4 py-2 mb-2 text-sm"
+                />
+                <textarea
+                  value={newProductIngredients}
+                  onChange={(e) => setNewProductIngredients(e.target.value)}
+                  placeholder="Состав (INCI)"
+                  className="w-full rounded-xl border px-4 py-2 mb-2 text-sm"
+                  rows={3}
+                />
+                <button
+                  onClick={handleAddProduct}
+                  className="w-full py-2 rounded-xl bg-primary text-white text-sm"
+                >
+                  Отправить на модерацию
+                </button>
+              </div>
+            )}
           </div>
           <div className="relative">
             <div className={cn(
@@ -281,10 +362,6 @@ export function CheckerTab({
                   setQuery(product.name)
                   setSuggestions([])
                   setFocused(false)
-                  // Автопроверка
-                  if (canCheck) {
-                    onCheck(product.name, activeSkinType)
-                  }
                 }}
                 onMouseEnter={() => setHighlightedIndex(index)}
                 className={cn(
