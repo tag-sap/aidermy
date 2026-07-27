@@ -243,8 +243,8 @@ export function CatalogTab({
                                 {product.image_url && (
                                     <div className="product-image-wrapper">
                                         <img
-                                            src={p.image_url}
-                                            alt={p.name}
+                                            src={product.image_url}
+                                            alt={product.name}
                                             className="product-image"
                                         />
                                     </div>
