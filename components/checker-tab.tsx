@@ -11,6 +11,7 @@ const [showAddProduct, setShowAddProduct] = useState(false)
 const [newProductName, setNewProductName] = useState('')
 const [newProductIngredients, setNewProductIngredients] = useState('')
 const [addProductError, setAddProductError] = useState('')
+const activeSkinType = profileComplete ? profile.skinType : skinType
 interface ProductSuggestion {
   name: string
   slug: string
@@ -37,7 +38,7 @@ const handleAddProduct = async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       product_name: newProductName,
-      skin_type: activeSkinType,
+      skin_type: activeSkinType, // ← activeSkinType должна быть доступна
       profile: {
         name: profile.name || '',
         age: profile.age || '',
