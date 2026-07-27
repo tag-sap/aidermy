@@ -192,16 +192,15 @@ export function CheckerTab({
   const handleCheck = async () => {
     if (!canCheck) return
 
-    // Проверяем, есть ли продукт в БД
+    const queryLower = query.trim().toLowerCase()
     const res = await fetch(`/api/products?q=${encodeURIComponent(query.trim())}`)
     const data = await res.json()
 
-    // Ищем точное совпадение по названию
+    // Точное совпадение по названию
     const exactMatch = data.products?.find(
-      (p: any) => p.name.toLowerCase() === query.trim().toLowerCase()
+      (p: any) => p.name.toLowerCase() === queryLower
     )
 
-    // Если нет точного совпадения — показываем форму ручного ввода
     if (!exactMatch) {
       setShowManualInput(true)
       setManualName(query.trim())
@@ -209,7 +208,6 @@ export function CheckerTab({
       return
     }
 
-    // Если есть точное совпадение — проверяем
     onCheck(query.trim(), activeSkinType)
   }
 
