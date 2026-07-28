@@ -7,6 +7,7 @@ from starlette.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
 import yagmail
 import os
+import json
 
 from .database import get_connection, AIDERMY_DB, PRODUCTS_DB
 from .auth import (
@@ -93,7 +94,7 @@ async def google_callback(request: Request):
         
         user = get_user_by_email(email)
         if not user:
-            user_id = create_user_oauth(email, name)
+            create_user_oauth(email, name)
             user = get_user_by_email(email)
         
         access_token = create_access_token(data={"sub": str(user['id'])})
@@ -120,7 +121,6 @@ async def register(user_data: UserRegister):
         name=user_data.name
     )
     
-    # === ОТПРАВКА ПИСЬМА ===
     try:
         yag = yagmail.SMTP(
             user=os.getenv('EMAIL_USER'),
@@ -276,7 +276,9 @@ async def submit_product(
         "message": "Продукт отправлен на модерацию. Спасибо за вклад! 🙌",
         "pending_id": pending_id
     }
-@app.post("/api/profile")
+
+# === СОХРАНЕНИЕ ПРОФИЛЯ ===
+@router.post("/profile")
 async def save_profile(request: Request):
     data = await request.json()
     user_id = data.get('user_id')
@@ -285,8 +287,28 @@ async def save_profile(request: Request):
     if not user_id or not profile:
         raise HTTPException(status_code=400, detail="Missing data")
     
-    conn = get_connection()
+    conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
+    
+    # Проверяем, есть ли таблица
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'")
+    if not cursor.fetchone():
+        cursor.execute('''
+            CREATE TABLE user_profiles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE,
+                name TEXT,
+                skin_type TEXT,
+                age TEXT,
+                concerns TEXT,
+                allergies TEXT,
+                custom_text TEXT,
+                quiz_answers TEXT,
+                skin_type_determined TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        ''')
     
     cursor.execute('''
         INSERT INTO user_profiles (user_id, name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined)
@@ -318,9 +340,10 @@ async def save_profile(request: Request):
     
     return {"status": "ok"}
 
-@app.get("/api/profile/{user_id}")
+# === ЗАГРУЗКА ПРОФИЛЯ ===
+@router.get("/profile/{user_id}")
 async def get_profile(user_id: int):
-    conn = get_connection()
+    conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -349,7 +372,9 @@ async def get_profile(user_id: int):
             "skinTypeDetermined": row[7]
         }
     }
-@app.get("/api/profile/me")
+
+# === МОЙ ПРОФИЛЬ ===
+@router.get("/profile/me")
 async def get_my_profile(request: Request):
     from .auth import get_current_user_from_token
     auth_header = request.headers.get("Authorization")
@@ -361,7 +386,7 @@ async def get_my_profile(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     
-    conn = get_connection()
+    conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     
     cursor.execute('''
