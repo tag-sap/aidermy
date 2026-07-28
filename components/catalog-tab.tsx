@@ -46,58 +46,8 @@ export function CatalogTab({
     })
     const [showSkinTypes, setShowSkinTypes] = useState(false)
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
-    const [isVisible, setIsVisible] = useState(false)
 
-    const limit = 8
-
-    // Refs для высоты
-    const headerRef = useRef<HTMLDivElement>(null)
-    const footerRef = useRef<HTMLDivElement>(null)
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [gridHeight, setGridHeight] = useState<number | null>(null)
-
-    // Эффекты
-    useEffect(() => {
-        const timer = setTimeout(() => setIsVisible(true), 100)
-        return () => clearTimeout(timer)
-    }, [])
-
-    useEffect(() => {
-        fetchCategories()
-        fetchProducts()
-    }, [])
-
-    useEffect(() => {
-        fetchProducts()
-    }, [category, brand, sort, offset])
-
-    // Debounced search
-    useEffect(() => {
-        if (searchTimeout) clearTimeout(searchTimeout)
-        const timeout = setTimeout(() => {
-            setOffset(0)
-            fetchProducts()
-        }, 300)
-        setSearchTimeout(timeout)
-        return () => clearTimeout(timeout)
-    }, [search])
-
-    // Расчёт высоты грида
-    useEffect(() => {
-        const calculateHeight = () => {
-            if (headerRef.current && footerRef.current && containerRef.current) {
-                const headerHeight = headerRef.current.offsetHeight
-                const footerHeight = footerRef.current.offsetHeight
-                const containerHeight = containerRef.current.clientHeight
-                const available = containerHeight - headerHeight - footerHeight - 16
-                setGridHeight(Math.max(available, 200))
-            }
-        }
-
-        calculateHeight()
-        window.addEventListener('resize', calculateHeight)
-        return () => window.removeEventListener('resize', calculateHeight)
-    }, [loading, products.length])
+    const limit = 10 // Больше продуктов на страницу
 
     // Функции загрузки
     const fetchCategories = async () => {
@@ -134,7 +84,26 @@ export function CatalogTab({
         }
     }
 
-    // Обработчики
+    // Эффекты
+    useEffect(() => {
+        fetchCategories()
+        fetchProducts()
+    }, [])
+
+    useEffect(() => {
+        fetchProducts()
+    }, [category, brand, sort, offset])
+
+    useEffect(() => {
+        if (searchTimeout) clearTimeout(searchTimeout)
+        const timeout = setTimeout(() => {
+            setOffset(0)
+            fetchProducts()
+        }, 300)
+        setSearchTimeout(timeout)
+        return () => clearTimeout(timeout)
+    }, [search])
+
     const totalPages = Math.ceil(total / limit)
     const currentPage = Math.floor(offset / limit) + 1
 
@@ -173,7 +142,6 @@ export function CatalogTab({
         setShowFilters(false)
     }
 
-    // Фильтр попап
     const FilterPopup = () => {
         if (!showFilters) return null
         return (
@@ -235,7 +203,6 @@ export function CatalogTab({
 
     return (
         <div
-            ref={containerRef}
             className="h-full flex flex-col overflow-hidden"
             style={{
                 height: '100%',
@@ -244,48 +211,40 @@ export function CatalogTab({
                 overflow: 'hidden',
             }}
         >
-            {/* === ШАПКА — фиксированная === */}
-            <div
-                ref={headerRef}
-                className="flex-shrink-0 pt-3 pb-2"
-                style={{ flexShrink: 0 }}
-            >
-                {/* Приветствие + инфо */}
-                <div className="flex items-center justify-between mb-1.5">
-                    <h1 className="text-base font-semibold text-foreground tracking-tight truncate">
+            {/* === ШАПКА — МАКСИМАЛЬНО КОМПАКТНАЯ === */}
+            <div className="flex-shrink-0" style={{ flexShrink: 0 }}>
+                {/* Приветствие + тип кожи — в одну строку */}
+                <div className="flex items-center justify-between mb-1">
+                    <h1 className="text-sm font-semibold text-foreground tracking-tight truncate">
                         {getGreeting()}
                     </h1>
                     <div className="flex items-center gap-1 flex-shrink-0">
                         <button
                             onClick={onInfoClick}
-                            className="p-1.5 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
-                            aria-label="Информация"
+                            className="p-1 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
                         >
                             <Info className="size-3.5" />
                         </button>
                         <button
                             onClick={() => setShowSkinTypes(!showSkinTypes)}
-                            className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/5 text-primary hover:bg-primary/10 transition-colors flex items-center gap-0.5 whitespace-nowrap"
+                            className="px-2 py-0.5 rounded-full text-[9px] font-medium bg-primary/5 text-primary hover:bg-primary/10 transition-colors flex items-center gap-0.5 whitespace-nowrap"
                         >
-                            <span className="text-muted-foreground text-[9px] hidden xs:inline">Тип кожи:</span>
-                            <span className="max-w-[60px] truncate">
-                                {profile?.skinType || SKIN_TYPES[skinTypeIndex] || 'Выбрать'}
-                            </span>
-                            <ChevronDown className={cn('size-3 transition-transform', showSkinTypes && 'rotate-180')} />
+                            {profile?.skinType || SKIN_TYPES[skinTypeIndex] || 'Выбрать'}
+                            <ChevronDown className={cn('size-2.5 transition-transform', showSkinTypes && 'rotate-180')} />
                         </button>
                     </div>
                 </div>
 
-                {/* Поиск + фильтры + переключение вида */}
-                <div className="flex items-center gap-1.5">
+                {/* Поиск + фильтры + вид — компактно */}
+                <div className="flex items-center gap-1.5 mb-1">
                     <div className="relative flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-1.5 focus-within:border-primary/50 focus-within:bg-white focus-within:shadow-[0_0_20px_rgba(108,60,225,0.06)] transition-all">
+                        <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50/50 px-2.5 py-1 focus-within:border-primary/50 focus-within:bg-white transition-all">
                             <Search className="size-3 shrink-0 text-muted-foreground" />
                             <input
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 placeholder="Поиск..."
-                                className="w-full bg-transparent text-sm placeholder:text-muted-foreground/60 focus:outline-none min-w-0"
+                                className="w-full bg-transparent text-xs placeholder:text-muted-foreground/60 focus:outline-none min-w-0"
                             />
                             {search && (
                                 <button
@@ -299,71 +258,66 @@ export function CatalogTab({
                     </div>
                     <button
                         onClick={() => setShowFilters(true)}
-                        className="p-1.5 rounded-xl border border-gray-200 hover:border-primary/30 hover:bg-primary/5 transition-all text-muted-foreground hover:text-primary shrink-0"
-                        aria-label="Фильтры"
+                        className="p-1 rounded-lg border border-gray-200 hover:border-primary/30 hover:bg-primary/5 transition-all text-muted-foreground hover:text-primary shrink-0"
                     >
                         <Filter className="size-3.5" />
                     </button>
-                    <div className="flex border border-gray-200 rounded-xl overflow-hidden shrink-0">
+                    <div className="flex border border-gray-200 rounded-lg overflow-hidden shrink-0">
                         <button
                             onClick={() => setViewMode('grid')}
-                            className={cn('p-1.5 transition-colors', viewMode === 'grid' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-gray-50')}
-                            aria-label="Сетка"
+                            className={cn('p-1 transition-colors', viewMode === 'grid' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-gray-50')}
                         >
                             <Grid3x3 className="size-3" />
                         </button>
                         <button
                             onClick={() => setViewMode('list')}
-                            className={cn('p-1.5 transition-colors border-l border-gray-200', viewMode === 'list' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-gray-50')}
-                            aria-label="Список"
+                            className={cn('p-1 transition-colors border-l border-gray-200', viewMode === 'list' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-gray-50')}
                         >
                             <LayoutList className="size-3" />
                         </button>
                     </div>
                 </div>
 
-                {/* Выбор типа кожи (раскрывается под поиском) */}
+                {/* Выбор типа кожи (раскрывается) */}
                 {showSkinTypes && !profile?.skinType && (
-                    <div className="mt-2 pt-2 border-t border-gray-100/50 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="mt-1 pt-1 border-t border-gray-100/50 animate-in fade-in slide-in-from-top-2 duration-200">
                         <div className="flex items-center justify-center gap-3">
                             <button
                                 onClick={() => handleSkinTypeChange('left')}
-                                className="p-1 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
-                                aria-label="Предыдущий тип"
+                                className="p-0.5 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
                             >
-                                <ChevronLeft className="size-3.5" />
+                                <ChevronLeft className="size-3" />
                             </button>
-                            <span className="text-xs font-medium min-w-[100px] text-center">
+                            <span className="text-[10px] font-medium min-w-[80px] text-center">
                                 {SKIN_TYPES[skinTypeIndex]}
                             </span>
                             <button
                                 onClick={() => handleSkinTypeChange('right')}
-                                className="p-1 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
-                                aria-label="Следующий тип"
+                                className="p-0.5 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
                             >
-                                <ChevronRight className="size-3.5" />
+                                <ChevronRight className="size-3" />
                             </button>
                         </div>
                         {onStartQuiz && (
                             <button
                                 onClick={onStartQuiz}
-                                className="text-[10px] text-primary hover:underline block text-center mt-1"
+                                className="text-[9px] text-primary hover:underline block text-center mt-0.5"
                             >
-                                <Sparkles className="inline size-2.5 mr-1" /> Пройти опросник
+                                <Sparkles className="inline size-2 mr-1" /> Пройти опросник
                             </button>
                         )}
                     </div>
                 )}
 
-                {/* Счетчик результатов */}
+                {/* Счётчик — совсем мелко */}
                 {!loading && products.length > 0 && (
-                    <p className="text-[10px] text-muted-foreground mt-1 text-center">
+                    <p className="text-[8px] text-muted-foreground text-center mt-0.5">
                         {total} продуктов
                     </p>
                 )}
             </div>
 
-            {/* === ГРИД ПРОДУКТОВ — заполняет всё оставшееся место === */}
+            {/* === ГРИД ПРОДУКТОВ — всё оставшееся место === */}
             <div
                 className="flex-1 min-h-0 overflow-hidden"
                 style={{
@@ -374,20 +328,12 @@ export function CatalogTab({
             >
                 {loading ? (
                     <div className="flex justify-center items-center h-full">
-                        <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary/20 border-t-primary" />
+                        <div className="animate-spin rounded-full h-6 w-6 border-3 border-primary/20 border-t-primary" />
                     </div>
                 ) : products.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                        <span className="text-3xl mb-2">🔍</span>
-                        <p className="text-sm">Ничего не найдено</p>
-                        {search && (
-                            <button
-                                onClick={() => setSearch('')}
-                                className="mt-2 text-xs text-primary hover:underline"
-                            >
-                                Очистить поиск
-                            </button>
-                        )}
+                        <span className="text-2xl mb-1">🔍</span>
+                        <p className="text-xs">Ничего не найдено</p>
                     </div>
                 ) : (
                     <div
@@ -399,21 +345,16 @@ export function CatalogTab({
                         }}
                     >
                         <div className={cn(
-                            'grid gap-2 pb-1',
+                            'grid gap-1.5 pb-1',
                             viewMode === 'grid' ? 'grid-cols-2' : 'grid-cols-1'
                         )}>
                             {products.map((product, index) => (
                                 <div
                                     key={product.slug}
                                     className={cn(
-                                        'group bg-white/70 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer hover:border-primary/20 active:scale-[0.98]',
-                                        viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3',
-                                        'opacity-0 animate-in fade-in slide-in-from-bottom-3 duration-400'
+                                        'group bg-white/70 backdrop-blur-sm rounded-lg border border-gray-100/50 shadow-sm hover:shadow-md transition-all duration-300 cursor-pointer hover:border-primary/20 active:scale-[0.98]',
+                                        viewMode === 'grid' ? 'p-2' : 'p-2.5 flex items-center gap-3'
                                     )}
-                                    style={{
-                                        animationDelay: `${Math.min(index, 15) * 40}ms`,
-                                        animationFillMode: 'forwards'
-                                    }}
                                     onClick={() => triggerCheck(product.name)}
                                 >
                                     <div className={cn(
@@ -422,28 +363,28 @@ export function CatalogTab({
                                     )}>
                                         <div className={cn(
                                             'rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center flex-shrink-0',
-                                            viewMode === 'grid' ? 'w-full aspect-square' : 'w-12 h-12'
+                                            viewMode === 'grid' ? 'w-full aspect-square' : 'w-10 h-10'
                                         )}>
                                             {product.image_url ? (
                                                 <img
                                                     src={product.image_url}
                                                     alt={product.name}
                                                     loading="lazy"
-                                                    className="w-full h-full object-contain p-1.5 group-hover:scale-105 transition-transform duration-300"
+                                                    className="w-full h-full object-contain p-1 group-hover:scale-105 transition-transform duration-300"
                                                 />
                                             ) : (
-                                                <span className="text-2xl">🧴</span>
+                                                <span className="text-xl">🧴</span>
                                             )}
                                         </div>
                                         <div className={cn(
                                             'w-full min-w-0',
-                                            viewMode === 'grid' ? 'mt-1.5 text-center' : 'flex-1 text-left'
+                                            viewMode === 'grid' ? 'mt-1 text-center' : 'flex-1 text-left'
                                         )}>
-                                            <p className="text-[11px] font-medium text-foreground line-clamp-2 leading-tight break-words">
+                                            <p className="text-[10px] font-medium text-foreground line-clamp-2 leading-tight break-words">
                                                 {product.name}
                                             </p>
                                             {product.category && (
-                                                <span className="text-[9px] text-muted-foreground mt-0.5 block truncate">
+                                                <span className="text-[8px] text-muted-foreground mt-0.5 block truncate">
                                                     {product.category}
                                                 </span>
                                             )}
@@ -455,7 +396,7 @@ export function CatalogTab({
                                                 e.stopPropagation();
                                                 triggerCheck(product.name)
                                             }}
-                                            className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20 transition-colors flex-shrink-0"
+                                            className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] font-medium hover:bg-primary/20 transition-colors flex-shrink-0"
                                         >
                                             Проверить
                                         </button>
@@ -467,49 +408,42 @@ export function CatalogTab({
                 )}
             </div>
 
-            {/* === ФУТЕР — пагинация и кнопка анкеты === */}
-            <div
-                ref={footerRef}
-                className="flex-shrink-0 py-2 space-y-1.5"
-                style={{ flexShrink: 0 }}
-            >
+            {/* === ФУТЕР — МАКСИМАЛЬНО КОМПАКТНЫЙ === */}
+            <div className="flex-shrink-0 py-1" style={{ flexShrink: 0 }}>
                 {/* Пагинация */}
                 {totalPages > 1 && !loading && products.length > 0 && (
-                    <div className="flex items-center justify-center gap-2">
+                    <div className="flex items-center justify-center gap-2 mb-1">
                         <button
                             onClick={() => handlePageChange(currentPage - 1)}
                             disabled={currentPage === 1}
-                            className="p-1.5 rounded-lg border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                            aria-label="Предыдущая страница"
+                            className="p-1 rounded-lg border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
                         >
-                            <ChevronLeft className="size-3.5" />
+                            <ChevronLeft className="size-3" />
                         </button>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-[10px] text-muted-foreground">
                             {currentPage} / {totalPages}
                         </span>
                         <button
                             onClick={() => handlePageChange(currentPage + 1)}
                             disabled={currentPage === totalPages}
-                            className="p-1.5 rounded-lg border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                            aria-label="Следующая страница"
+                            className="p-1 rounded-lg border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
                         >
-                            <ChevronRight className="size-3.5" />
+                            <ChevronRight className="size-3" />
                         </button>
                     </div>
                 )}
 
-                {/* Кнопка "Заполнить анкету" */}
+                {/* Кнопка "Заполнить анкету" — меньше и тоньше */}
                 {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
-                        className="w-full py-2 rounded-xl text-xs font-medium bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20 text-primary hover:shadow-md transition-all active:scale-[0.98]"
+                        className="w-full py-1.5 rounded-lg text-[10px] font-medium bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20 text-primary hover:shadow-md transition-all active:scale-[0.98]"
                     >
                         ✨ Заполнить анкету
                     </button>
                 )}
             </div>
 
-            {/* Фильтр попап */}
             <FilterPopup />
         </div>
     )
