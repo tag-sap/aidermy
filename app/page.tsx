@@ -435,8 +435,8 @@ export default function Page() {
         </div>
 
         {/* Основной контент — центрирован */}
-        <main className="flex-1 min-h-0 overflow-hidden z-10 flex items-center justify-center">
-          <div className="w-full max-w-md h-full px-4 overflow-hidden">
+        <main className="flex-1 min-h-0 overflow-hidden z-10">
+          <div className="h-full max-w-md mx-auto px-4 overflow-hidden">
             {showQuiz ? (
               <div className="h-full overflow-y-auto py-4">
                 <SkinQuiz
