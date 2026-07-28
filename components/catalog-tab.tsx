@@ -418,6 +418,10 @@ export function CatalogTab({
                                         'group bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-400 cursor-pointer hover:border-primary/30 active:scale-[0.97]',
                                         viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3'
                                     )}
+                                    style={{
+                                        animation: 'none',
+                                        opacity: 1,
+                                    }}
                                     onClick={() => triggerCheck(product.name)}
                                 >
                                     <div className={cn(
