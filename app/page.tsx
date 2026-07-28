@@ -151,10 +151,24 @@ export default function Page() {
   }
 
   const handleRegister = async (email: string, password: string, name: string) => {
-    setIsAuthenticated(true)
-    setUserName(name || email.split('@')[0])
-    localStorage.setItem('token', 'fake-token')
-    localStorage.setItem('userName', name || email.split('@')[0])
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name })
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || 'Ошибка регистрации')
+      }
+
+      const data = await res.json()
+      alert(data.message || 'Регистрация успешна! Подтвердите email.')
+    } catch (error) {
+      console.error('Ошибка регистрации:', error)
+      alert(error.message || 'Не удалось зарегистрироваться')
+    }
   }
 
   const handleLogout = () => {
@@ -176,13 +190,21 @@ export default function Page() {
     const token = localStorage.getItem('token')
     if (token) {
       try {
-        await fetch('/api/profile', {
+        const userRes = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const userData = await userRes.json()
+
+        await fetch('/api/auth/profile', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`
           },
-          body: JSON.stringify({ profile: p })
+          body: JSON.stringify({
+            user_id: userData.id,
+            profile: p
+          })
         })
       } catch (error) {
         console.error('Ошибка сохранения профиля на сервере:', error)
