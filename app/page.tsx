@@ -62,6 +62,8 @@ export default function Page() {
       setIsAuthenticated(true)
       const savedName = localStorage.getItem('userName')
       if (savedName) setUserName(savedName)
+      // Загружаем профиль с сервера
+      loadProfileFromServer(token)
     }
 
     const urlParams = new URLSearchParams(window.location.search)
@@ -77,6 +79,8 @@ export default function Page() {
           const name = data.name || 'Пользователь'
           setUserName(name)
           localStorage.setItem('userName', name)
+          // Загружаем профиль с сервера
+          loadProfileFromServer(urlToken)
         })
         .catch(() => {
           setUserName('Пользователь')
@@ -102,10 +106,22 @@ export default function Page() {
 
   // === ОБРАБОТЧИКИ АВТОРИЗАЦИИ ===
   const handleLogin = async (email: string, password: string) => {
+    // ... авторизация
+    const token = data.access_token
+    localStorage.setItem('token', token)
     setIsAuthenticated(true)
-    setUserName(email.split('@')[0])
-    localStorage.setItem('token', 'fake-token')
-    localStorage.setItem('userName', email.split('@')[0])
+
+    // Загружаем профиль с сервера
+    const res = await fetch('/api/auth/profile/me', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (res.ok) {
+      const profileData = await res.json()
+      if (profileData.profile) {
+        setProfile(profileData.profile)
+        saveProfile(profileData.profile)
+      }
+    }
   }
 
   const handleRegister = async (email: string, password: string, name: string) => {
@@ -118,8 +134,11 @@ export default function Page() {
   const handleLogout = () => {
     setIsAuthenticated(false)
     setUserName('')
+    setProfile(emptyProfile)  // ← очищаем профиль
     localStorage.removeItem('token')
     localStorage.removeItem('userName')
+    localStorage.removeItem('aidermy:profile')  // ← удаляем профиль
+    localStorage.removeItem('aidermy:history')  // ← удаляем историю
   }
 
   const handleSaveProfile = async (p: SkinProfile) => {
