@@ -49,25 +49,397 @@ export default function Page() {
   const [userName, setUserName] = useState('')
   const [showInfo, setShowInfo] = useState(false)
 
-  // ... все остальные функции (handleLogin, handleRegister, etc.) остаются без изменений ...
-  // Я их не повторяю для краткости, но они должны быть здесь
+  // ===== ЗАГРУЗКА ПРОФИЛЯ С СЕРВЕРА =====
+  const loadProfileFromServer = async (token: string) => {
+    try {
+      const res = await fetch('/api/auth/profile/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.profile) {
+          setProfile(data.profile)
+          saveProfile(data.profile)
+        }
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки профиля:', error)
+    }
+  }
 
-  // ОСТАЛЬНЫЕ ФУНКЦИИ (handleLogin, handleRegister, handleLogout, handleSaveProfile, 
-  // handleProfileChange, handleClearHistory, handleQuizComplete, handleCheck, 
-  // closeSheet, handleGoToProfile, handleTabChange, handleLeaveConfirm, handleLeaveCancel)
-  // ОСТАЮТСЯ ТАКИМИ ЖЕ КАК БЫЛИ
+  const loadHistoryFromServer = async (token: string) => {
+    try {
+      const res = await fetch('/api/auth/history', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.history) {
+          setHistory(data.history)
+          saveHistory(data.history)
+        }
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки истории:', error)
+    }
+  }
+
+  // ===== ЭФФЕКТЫ =====
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (token) {
+      setIsAuthenticated(true)
+      const savedName = localStorage.getItem('userName')
+      if (savedName) setUserName(savedName)
+      loadProfileFromServer(token)
+      loadHistoryFromServer(token)
+    }
+
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlToken = urlParams.get('token')
+    if (urlToken) {
+      localStorage.setItem('token', urlToken)
+      setIsAuthenticated(true)
+      fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${urlToken}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          const name = data.name || 'Пользователь'
+          setUserName(name)
+          localStorage.setItem('userName', name)
+          loadProfileFromServer(urlToken)
+          loadHistoryFromServer(urlToken)
+        })
+        .catch(() => {
+          setUserName('Пользователь')
+          localStorage.setItem('userName', 'Пользователь')
+        })
+      window.history.replaceState({}, '', '/')
+    }
+  }, [])
+
+  useEffect(() => {
+    const savedProfile = loadProfile()
+    setProfile(savedProfile)
+    setHistory(loadHistory())
+    setHydrated(true)
+
+    if (savedProfile.quizAnswers && Object.keys(savedProfile.quizAnswers).length > 0 && !savedProfile.skinType) {
+      const determined = determineSkinTypeFromAnswers(savedProfile.quizAnswers)
+      setProfile(prev => ({ ...prev, skinType: determined, skinTypeDetermined: determined }))
+      saveProfile({ ...savedProfile, skinType: determined, skinTypeDetermined: determined })
+    }
+  }, [])
+
+  // ===== АВТОРИЗАЦИЯ =====
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || 'Ошибка входа')
+      }
+
+      const data = await res.json()
+      const token = data.access_token
+
+      localStorage.setItem('token', token)
+      localStorage.setItem('userName', data.user?.name || email.split('@')[0])
+
+      setIsAuthenticated(true)
+      setUserName(data.user?.name || email.split('@')[0])
+
+      await loadProfileFromServer(token)
+      await loadHistoryFromServer(token)
+    } catch (error) {
+      console.error('Ошибка входа:', error)
+      const message = error instanceof Error ? error.message : 'Не удалось войти'
+      alert(message)
+    }
+  }
+
+  const handleRegister = async (email: string, password: string, name: string) => {
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name })
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || 'Ошибка регистрации')
+      }
+
+      const data = await res.json()
+      alert(data.message || 'Регистрация успешна! Подтвердите email.')
+    } catch (error) {
+      console.error('Ошибка регистрации:', error)
+      const message = error instanceof Error ? error.message : 'Не удалось зарегистрироваться'
+      alert(message)
+    }
+  }
+
+  const handleLogout = () => {
+    setIsAuthenticated(false)
+    setUserName('')
+    setProfile(emptyProfile)
+    setHistory([])
+    localStorage.removeItem('token')
+    localStorage.removeItem('userName')
+    localStorage.removeItem('aidermy:profile')
+    localStorage.removeItem('aidermy:history')
+    setTab('catalog')
+  }
+
+  // ===== ПРОФИЛЬ =====
+  const handleSaveProfile = async (p: SkinProfile) => {
+    setProfile(p)
+    saveProfile(p)
+    setProfileDirty(false)
+
+    const token = localStorage.getItem('token')
+    if (token) {
+      try {
+        const userRes = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (!userRes.ok) throw new Error('Не удалось получить данные пользователя')
+
+        const userData = await userRes.json()
+
+        const res = await fetch('/api/auth/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            user_id: userData.id,
+            profile: p
+          })
+        })
+
+        if (!res.ok) {
+          const error = await res.json()
+          throw new Error(error.detail || 'Ошибка сохранения')
+        }
+
+        console.log('✅ Профиль сохранён на сервере')
+      } catch (error) {
+        console.error('Ошибка сохранения профиля:', error)
+      }
+    }
+  }
+
+  const handleProfileChange = (dirty: boolean) => {
+    setProfileDirty(dirty)
+  }
+
+  // ===== ИСТОРИЯ =====
+  const handleClearHistory = () => {
+    setHistory([])
+    saveHistory([])
+  }
+
+  // ===== КВИЗ =====
+  const handleQuizComplete = (answers: Record<string, string>, skinType: string) => {
+    const updatedProfile = {
+      ...profile,
+      quizAnswers: answers,
+      skinType: skinType,
+      skinTypeDetermined: skinType,
+    }
+    setProfile(updatedProfile)
+    saveProfile(updatedProfile)
+    setShowQuiz(false)
+    setTab('catalog')
+  }
+
+  // ===== ПРОВЕРКА ПРОДУКТА =====
+  const handleCheck = async (product: string, skinType: string) => {
+    setIsSheetOpen(true)
+    setResult(null)
+    setLoading(true)
+
+    try {
+      const response = await fetch('/api/check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(isAuthenticated && { Authorization: `Bearer ${localStorage.getItem('token')}` }),
+        },
+        body: JSON.stringify({
+          product_name: product,
+          skin_type: skinType,
+          profile: {
+            name: profile.name || '',
+            age: profile.age || '',
+            concerns: profile.concerns || [],
+            allergies: profile.allergies || [],
+            custom_text: profile.customText || '',
+            quiz_answers: profile.quizAnswers || {},
+            skin_type_determined: profile.skinTypeDetermined || '',
+          },
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Ошибка: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      const productResponse = await fetch(`/api/products?q=${encodeURIComponent(product)}`)
+      const productData = await productResponse.json()
+      const foundProduct = productData.products?.find((p: any) => {
+        const cleanName = p.name.replace(/\n/g, '').replace(/\s+/g, ' ').trim()
+        const cleanProduct = product.replace(/\n/g, '').replace(/\s+/g, ' ').trim()
+        return cleanName === cleanProduct || p.slug === product.toLowerCase().replace(/ /g, '-')
+      })
+      const image_url = foundProduct?.image_url || ''
+
+      const fullResult: CheckResult = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        product: product,
+        skinType: skinType,
+        score: data.score || 0,
+        verdict: data.verdict || 'Нет данных',
+        summary: data.summary || 'Не удалось получить рекомендацию.',
+        stats: data.stats || {},
+        skin_type_recommendation: data.skin_type_recommendation || '',
+        safe_ingredients: data.safe_ingredients || [],
+        caution_ingredients: data.caution_ingredients || [],
+        slug: data.slug || '',
+        image_url: image_url,
+        createdAt: Date.now(),
+        active_ingredients: data.active_ingredients,
+        how_to_use: data.how_to_use,
+        expectations: data.expectations,
+      }
+
+      setResult(fullResult)
+      setLoading(false)
+
+      setHistory((prev) => {
+        const next = [fullResult, ...prev].slice(0, 50)
+        saveHistory(next)
+        return next
+      })
+
+      // Сохраняем историю на сервер
+      const token = localStorage.getItem('token')
+      if (token && isAuthenticated) {
+        try {
+          const userRes = await fetch('/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+          if (userRes.ok) {
+            const userData = await userRes.json()
+            await fetch('/api/auth/history', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                user_id: userData.id,
+                result: {
+                  product: product,
+                  skinType: skinType,
+                  score: data.score || 0,
+                  verdict: data.verdict || 'Нет данных',
+                  summary: data.summary || 'Не удалось получить рекомендацию.',
+                  stats: data.stats || {},
+                  skin_type_recommendation: data.skin_type_recommendation || '',
+                  safe_ingredients: data.safe_ingredients || [],
+                  caution_ingredients: data.caution_ingredients || [],
+                  slug: data.slug || '',
+                  image_url: image_url,
+                  createdAt: Date.now(),
+                  active_ingredients: data.active_ingredients,
+                  how_to_use: data.how_to_use,
+                  expectations: data.expectations,
+                }
+              })
+            })
+          }
+        } catch (error) {
+          console.error('Ошибка сохранения истории:', error)
+        }
+      }
+
+    } catch (error) {
+      console.error('Ошибка проверки:', error)
+      setLoading(false)
+    }
+  }
+
+  const closeSheet = () => {
+    setIsSheetOpen(false)
+    setResult(null)
+    setLoading(false)
+  }
+
+  // ===== НАВИГАЦИЯ =====
+  const handleGoToProfile = () => {
+    if (!isAuthenticated) {
+      setIsAuthModalOpen(true)
+      return
+    }
+    setTab('profile')
+  }
+
+  const handleTabChange = (newTab: TabId) => {
+    if (newTab === tab) return
+
+    if (newTab === 'profile' && !isAuthenticated) {
+      setIsAuthModalOpen(true)
+      return
+    }
+
+    if (profileDirty && tab === 'profile') {
+      setPendingTab(newTab)
+      return
+    }
+
+    setTab(newTab)
+  }
+
+  const handleLeaveConfirm = (action: 'save' | 'discard') => {
+    if (action === 'save' && profileTabRef.current) {
+      const draft = profileTabRef.current.getDraft()
+      handleSaveProfile(draft)
+    }
+
+    setProfileDirty(false)
+    setPendingTab(null)
+
+    if (pendingTab) {
+      setTab(pendingTab)
+      setPendingTab(null)
+    }
+  }
+
+  const handleLeaveCancel = () => {
+    setPendingTab(null)
+  }
 
   return (
     <>
       <SplashScreen />
 
-      {/* === ВЕСЬ КОНТЕЙНЕР — фиксированная высота, без скролла === */}
       <div className="fixed inset-0 flex flex-col bg-background overflow-hidden">
         <BrandMarquee />
         <CyberGrid />
         <div className="grid-shimmer" aria-hidden="true" />
 
-        {/* Хедер — фиксированный */}
         <div className="flex-shrink-0 z-20">
           <AppHeader
             onProfile={handleGoToProfile}
@@ -78,7 +450,6 @@ export default function Page() {
           />
         </div>
 
-        {/* === ОСНОВНОЙ КОНТЕНТ — flex-1, без скролла === */}
         <main className="relative z-10 flex-1 min-h-0 overflow-hidden">
           <div className="h-full max-w-md mx-auto px-4">
             {showQuiz ? (
@@ -136,7 +507,6 @@ export default function Page() {
           </div>
         </main>
 
-        {/* Таб-бар — фиксированный внизу */}
         <div className="flex-shrink-0 z-20">
           <TabBar
             active={tab}
@@ -145,7 +515,6 @@ export default function Page() {
           />
         </div>
 
-        {/* Остальные модалки */}
         <ResultSheet
           isOpen={isSheetOpen}
           result={result}
@@ -174,7 +543,6 @@ export default function Page() {
         onClose={() => setShowInfo(false)}
       />
 
-      {/* Попап подтверждения */}
       {pendingTab && (
         <>
           <div
