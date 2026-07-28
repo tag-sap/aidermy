@@ -128,8 +128,11 @@ export function CatalogTab({
         // Скроллим к контейнеру с продуктами, а не наверх
         if (productsContainerRef.current) {
             setTimeout(() => {
-                const top = productsContainerRef.current?.getBoundingClientRect().top + window.scrollY - 100
-                window.scrollTo({ top, behavior: 'smooth' })
+                const rect = productsContainerRef.current?.getBoundingClientRect()
+                if (rect) {
+                    const top = rect.top + window.scrollY - 100
+                    window.scrollTo({ top, behavior: 'smooth' })
+                }
             }, 100)
         }
     }
