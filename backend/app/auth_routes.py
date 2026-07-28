@@ -340,39 +340,6 @@ async def save_profile(request: Request):
     
     return {"status": "ok"}
 
-# === ЗАГРУЗКА ПРОФИЛЯ ===
-@router.get("/profile/{user_id}")
-async def get_profile(user_id: int):
-    conn = get_connection(AIDERMY_DB)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined
-        FROM user_profiles
-        WHERE user_id = ?
-        ORDER BY updated_at DESC
-        LIMIT 1
-    ''', (user_id,))
-    
-    row = cursor.fetchone()
-    conn.close()
-    
-    if not row:
-        return {"profile": None}
-    
-    return {
-        "profile": {
-            "name": row[0],
-            "skinType": row[1],
-            "age": row[2],
-            "concerns": row[3].split(',') if row[3] else [],
-            "allergies": row[4].split(',') if row[4] else [],
-            "customText": row[5],
-            "quizAnswers": json.loads(row[6]) if row[6] else {},
-            "skinTypeDetermined": row[7]
-        }
-    }
-
 # === МОЙ ПРОФИЛЬ ===
 @router.get("/profile/me")
 async def get_my_profile(request: Request):
