@@ -121,21 +121,32 @@ export default function Page() {
 
   // === ОБРАБОТЧИКИ АВТОРИЗАЦИИ ===
   const handleLogin = async (email: string, password: string) => {
-    // ... авторизация
-    const token = data.access_token
-    localStorage.setItem('token', token)
-    setIsAuthenticated(true)
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      })
 
-    // Загружаем профиль с сервера
-    const res = await fetch('/api/auth/profile/me', {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    if (res.ok) {
-      const profileData = await res.json()
-      if (profileData.profile) {
-        setProfile(profileData.profile)
-        saveProfile(profileData.profile)
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.detail || 'Ошибка входа')
       }
+
+      const data = await res.json()
+      const token = data.access_token
+
+      localStorage.setItem('token', token)
+      localStorage.setItem('userName', data.user?.name || email.split('@')[0])
+
+      setIsAuthenticated(true)
+      setUserName(data.user?.name || email.split('@')[0])
+
+      // Загружаем профиль с сервера
+      await loadProfileFromServer(token)
+    } catch (error) {
+      console.error('Ошибка входа:', error)
+      alert(error.message || 'Не удалось войти')
     }
   }
 
