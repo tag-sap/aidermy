@@ -47,6 +47,7 @@ export function CatalogTab({
     const [isSearchSticky, setIsSearchSticky] = useState(false)
     const searchRef = useRef<HTMLDivElement>(null)
     const stickySentinelRef = useRef<HTMLDivElement>(null)
+    const productsContainerRef = useRef<HTMLDivElement>(null)
 
     const limit = 6
     const cardStyle = "relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-5 border border-primary/20 backdrop-blur-sm hover:shadow-md transition-shadow"
@@ -124,7 +125,13 @@ export function CatalogTab({
 
     const handlePageChange = (page: number) => {
         setOffset((page - 1) * limit)
-        window.scrollTo({ top: 0, behavior: 'smooth' })
+        // Скроллим к контейнеру с продуктами, а не наверх
+        if (productsContainerRef.current) {
+            setTimeout(() => {
+                const top = productsContainerRef.current?.getBoundingClientRect().top + window.scrollY - 100
+                window.scrollTo({ top, behavior: 'smooth' })
+            }, 100)
+        }
     }
 
     const triggerCheck = (productName: string) => {
@@ -318,7 +325,10 @@ export function CatalogTab({
             </div>
 
             {/* КАТАЛОГ — КАРТОЧКИ ПО 2 В РЯДУ */}
-            <div className={cn('card-enter', isVisible && 'card-enter-3')}>
+            <div
+                ref={productsContainerRef}
+                className={cn('card-enter', isVisible && 'card-enter-3')}
+            >
                 {loading ? (
                     <div className="flex justify-center py-10">
                         <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary/30 border-t-primary" />
