@@ -383,7 +383,7 @@ export function CatalogTab({
             </div>
 
             {/* === ГРИД ПРОДУКТОВ === */}
-            <div className="flex-1 min-h-0 overflow-hidden px-0.5 pb-2">
+            <div className="flex-1 min-h-0 overflow-hidden px-0.5">
                 {loading ? (
                     <div className="flex justify-center items-center h-full">
                         <div className="relative">
@@ -483,8 +483,8 @@ export function CatalogTab({
                 )}
             </div>
 
-            {/* === ФУТЕР === */}
-            <div className="flex-shrink-0 px-1 py-1 bg-gradient-to-t from-background via-background to-transparent">
+            {/* === ФУТЕР — с отступом снизу для таб-бара === */}
+            <div className="flex-shrink-0 px-1 pb-2 pt-1 bg-gradient-to-t from-background via-background to-transparent">
                 {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
