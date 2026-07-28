@@ -61,10 +61,13 @@ export default function Page() {
       })
       if (res.ok) {
         const data = await res.json()
+        console.log('📥 Профиль с сервера:', data)
         if (data.profile) {
           setProfile(data.profile)
           saveProfile(data.profile)
         }
+      } else {
+        console.log('ℹ️ Профиль на сервере не найден')
       }
     } catch (error) {
       console.error('Ошибка загрузки профиля:', error)
@@ -176,11 +179,12 @@ export default function Page() {
   const handleLogout = () => {
     setIsAuthenticated(false)
     setUserName('')
-    setProfile(emptyProfile)  // ← очищаем профиль
+    setProfile(emptyProfile)
     localStorage.removeItem('token')
     localStorage.removeItem('userName')
-    localStorage.removeItem('aidermy:profile')  // ← удаляем профиль
-    localStorage.removeItem('aidermy:history')  // ← удаляем историю
+    localStorage.removeItem('aidermy:profile')
+    localStorage.removeItem('aidermy:history')
+    setTab('checker')  // ← переключаем на чекер
   }
 
   const handleSaveProfile = async (p: SkinProfile) => {
@@ -188,16 +192,19 @@ export default function Page() {
     saveProfile(p)
     setProfileDirty(false)
 
-    // Сохраняем на сервер
     const token = localStorage.getItem('token')
     if (token) {
       try {
+        // Сначала получаем user_id
         const userRes = await fetch('/api/auth/me', {
           headers: { Authorization: `Bearer ${token}` }
         })
+        if (!userRes.ok) throw new Error('Не удалось получить данные пользователя')
+
         const userData = await userRes.json()
 
-        await fetch('/api/auth/profile', {
+        // Сохраняем профиль
+        const res = await fetch('/api/auth/profile', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -208,8 +215,15 @@ export default function Page() {
             profile: p
           })
         })
+
+        if (!res.ok) {
+          const error = await res.json()
+          throw new Error(error.detail || 'Ошибка сохранения')
+        }
+
+        console.log('✅ Профиль сохранён на сервере')
       } catch (error) {
-        console.error('Ошибка сохранения профиля на сервере:', error)
+        console.error('Ошибка сохранения профиля:', error)
       }
     }
   }
