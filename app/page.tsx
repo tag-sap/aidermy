@@ -146,7 +146,8 @@ export default function Page() {
       await loadProfileFromServer(token)
     } catch (error) {
       console.error('Ошибка входа:', error)
-      alert(error.message || 'Не удалось войти')
+      const message = error instanceof Error ? error.message : 'Не удалось войти'
+      alert(message)
     }
   }
 
@@ -167,7 +168,8 @@ export default function Page() {
       alert(data.message || 'Регистрация успешна! Подтвердите email.')
     } catch (error) {
       console.error('Ошибка регистрации:', error)
-      alert(error.message || 'Не удалось зарегистрироваться')
+      const message = error instanceof Error ? error.message : 'Не удалось зарегистрироваться'
+      alert(message)
     }
   }
 
