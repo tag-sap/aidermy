@@ -15,31 +15,6 @@ interface Product {
     brand: string | null
 }
 
-// === БЕГУЩИЙ ТЕКСТ ===
-function MarqueeText({ text, className }: { text: string; className?: string }) {
-    const [isOverflowing, setIsOverflowing] = useState(false)
-    const textRef = useRef<HTMLSpanElement>(null)
-    const containerRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (textRef.current && containerRef.current) {
-            setIsOverflowing(textRef.current.scrollWidth > containerRef.current.clientWidth)
-        }
-    }, [text])
-
-    return (
-        <div ref={containerRef} className={cn('overflow-hidden relative w-full', className)}>
-            <div className={cn(
-                'whitespace-nowrap inline-block',
-                isOverflowing && 'animate-marquee'
-            )}>
-                <span ref={textRef}>{text}</span>
-                {isOverflowing && <span className="ml-8">{text}</span>}
-            </div>
-        </div>
-    )
-}
-
 export function CatalogTab({
     onCheck,
     profile,
@@ -70,7 +45,7 @@ export function CatalogTab({
         return defaultIndex >= 0 ? defaultIndex : 0
     })
 
-    const limit = 5
+    const limit = 6
     const cardStyle = "relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-5 border border-primary/20 backdrop-blur-sm hover:shadow-md transition-shadow"
 
     useEffect(() => {
@@ -144,14 +119,13 @@ export function CatalogTab({
     const currentSkinType = profile?.skinType || SKIN_TYPES[skinTypeIndex] || 'Нормальная'
 
     const handleSkinTypeChange = (direction: 'left' | 'right') => {
-        if (profile?.skinType) return // если есть профиль — не меняем
+        if (profile?.skinType) return
         const newIndex = direction === 'left'
             ? (skinTypeIndex - 1 + SKIN_TYPES.length) % SKIN_TYPES.length
             : (skinTypeIndex + 1) % SKIN_TYPES.length
         setSkinTypeIndex(newIndex)
     }
 
-    // Фильтры — попап поверх главного меню
     const FilterPopup = () => {
         if (!showFilters) return null
 
@@ -303,7 +277,7 @@ export function CatalogTab({
                 </div>
             </div>
 
-            {/* КАТАЛОГ */}
+            {/* КАТАЛОГ — КАРТОЧКИ ПО 2 В РЯДУ */}
             <div className={cn('card-enter', isVisible && 'card-enter-3')}>
                 {loading ? (
                     <div className="flex justify-center py-10">
@@ -316,60 +290,68 @@ export function CatalogTab({
                         </div>
                     </div>
                 ) : (
-                    <div className="flex flex-col gap-3">
-                        {products.map((product, index) => (
-                            <div
-                                key={product.slug}
-                                className={cn(
-                                    cardStyle,
-                                    'card-enter cursor-pointer',
-                                    isVisible && `card-enter-${Math.min(index + 1, 6)}`
-                                )}
-                                style={{ animationDelay: `${index * 0.05}s` }}
-                                onClick={() => triggerCheck(product.name)}
-                            >
-                                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-                                <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-                                <div className="relative z-10 flex items-center gap-4">
-                                    {product.image_url && (
-                                        <div className="product-image-wrapper">
-                                            <img src={product.image_url} alt={product.name} className="product-image" />
-                                        </div>
+                    <>
+                        <div className="grid grid-cols-2 gap-3">
+                            {products.map((product, index) => (
+                                <div
+                                    key={product.slug}
+                                    className={cn(
+                                        'bg-white/70 backdrop-blur-sm rounded-2xl p-3 border border-gray-200/70 shadow-sm hover:shadow-md transition-all cursor-pointer hover:border-primary/30',
+                                        'card-enter',
+                                        isVisible && `card-enter-${Math.min(index + 1, 6)}`
                                     )}
-                                    <div className="flex-1 min-w-0 overflow-x-auto">
-                                        <p className="text-sm font-normal text-foreground whitespace-nowrap">{product.name}</p>
-                                        {product.category && <span className="text-xs text-muted-foreground">{product.category}</span>}
+                                    style={{ animationDelay: `${index * 0.05}s` }}
+                                    onClick={() => triggerCheck(product.name)}
+                                >
+                                    <div className="flex flex-col items-center">
+                                        {product.image_url ? (
+                                            <div className="w-full aspect-square rounded-xl overflow-hidden bg-gray-100 flex items-center justify-center">
+                                                <img
+                                                    src={product.image_url}
+                                                    alt={product.name}
+                                                    className="w-full h-full object-contain p-2"
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div className="w-full aspect-square rounded-xl bg-gray-100 flex items-center justify-center text-4xl">
+                                                🧴
+                                            </div>
+                                        )}
+                                        <div className="mt-2 text-center w-full">
+                                            <p className="text-xs font-normal text-foreground line-clamp-2 leading-tight">
+                                                {product.name}
+                                            </p>
+                                            {product.category && (
+                                                <span className="text-[10px] text-muted-foreground mt-0.5 block">
+                                                    {product.category}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); triggerCheck(product.name) }}
-                                        className="px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-normal hover:bg-primary/20 transition-colors"
-                                    >
-                                        Проверить
-                                    </button>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                            ))}
+                        </div>
 
-                {totalPages > 1 && (
-                    <div className="flex items-center justify-center gap-2 py-4">
-                        <button
-                            onClick={() => handlePageChange(currentPage - 1)}
-                            disabled={currentPage === 1}
-                            className="p-2 rounded-xl border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                        >
-                            <ChevronLeft className="size-4" />
-                        </button>
-                        <span className="text-sm text-muted-foreground">{currentPage} / {totalPages}</span>
-                        <button
-                            onClick={() => handlePageChange(currentPage + 1)}
-                            disabled={currentPage === totalPages}
-                            className="p-2 rounded-xl border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                        >
-                            <ChevronRight className="size-4" />
-                        </button>
-                    </div>
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-2 py-4 mt-2">
+                                <button
+                                    onClick={() => handlePageChange(currentPage - 1)}
+                                    disabled={currentPage === 1}
+                                    className="p-2 rounded-xl border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                                >
+                                    <ChevronLeft className="size-4" />
+                                </button>
+                                <span className="text-sm text-muted-foreground">{currentPage} / {totalPages}</span>
+                                <button
+                                    onClick={() => handlePageChange(currentPage + 1)}
+                                    disabled={currentPage === totalPages}
+                                    className="p-2 rounded-xl border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                                >
+                                    <ChevronRight className="size-4" />
+                                </button>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
 
