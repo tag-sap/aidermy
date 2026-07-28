@@ -20,7 +20,6 @@ export function TabBar({
   onChange: (id: TabId) => void
   isAuthenticated?: boolean
 }) {
-  // Фильтруем вкладки - скрываем историю и профиль для неавторизованных
   const visibleTabs = TABS.filter(tab => {
     if (!isAuthenticated && (tab.id === 'history' || tab.id === 'profile')) {
       return false
@@ -30,10 +29,10 @@ export function TabBar({
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md"
+      className="fixed bottom-0 left-0 right-0 z-30 bg-background border-t border-gray-200"
       aria-label="Основная навигация"
     >
-      <div className="panel-strong m-3 flex items-center justify-around rounded-lg px-2 py-2 backdrop-blur-xl">
+      <div className="mx-auto max-w-md flex items-center justify-around px-2 py-2">
         {visibleTabs.map(({ id, label, icon: Icon }) => {
           const isActive = active === id
           return (
