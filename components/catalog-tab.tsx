@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles, X } from 'lucide-react'
+import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles, X, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Chip } from '@/components/chip'
 import { SKIN_TYPES } from '@/lib/products'
 import type { SkinProfile } from '@/lib/store'
 
@@ -66,12 +65,14 @@ export function CatalogTab({
     const [brands, setBrands] = useState<string[]>([])
     const [showFilters, setShowFilters] = useState(false)
     const [isVisible, setIsVisible] = useState(false)
-    const [skinType, setSkinType] = useState(profile?.skinType || '')
+    const [skinTypeIndex, setSkinTypeIndex] = useState(() => {
+        const defaultIndex = SKIN_TYPES.indexOf(profile?.skinType || '')
+        return defaultIndex >= 0 ? defaultIndex : 0
+    })
 
-    const limit = 5  // ← 5 продуктов на страницу
+    const limit = 5
     const cardStyle = "relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-5 border border-primary/20 backdrop-blur-sm hover:shadow-md transition-shadow"
 
-    // Анимация появления
     useEffect(() => {
         const timer = setTimeout(() => setIsVisible(true), 50)
         return () => clearTimeout(timer)
@@ -130,7 +131,7 @@ export function CatalogTab({
 
     const triggerCheck = (productName: string) => {
         if (onCheck && profile) {
-            onCheck(productName, profile.skinType || 'Нормальная')
+            onCheck(productName, profile.skinType || SKIN_TYPES[skinTypeIndex])
         }
     }
 
@@ -138,6 +139,81 @@ export function CatalogTab({
         const name = profile?.name || ''
         const base = name ? `Привет, ${name}.` : 'Привет.'
         return `${base} Что ищем?`
+    }
+
+    const currentSkinType = profile?.skinType || SKIN_TYPES[skinTypeIndex] || 'Нормальная'
+
+    const handleSkinTypeChange = (direction: 'left' | 'right') => {
+        if (profile?.skinType) return // если есть профиль — не меняем
+        const newIndex = direction === 'left'
+            ? (skinTypeIndex - 1 + SKIN_TYPES.length) % SKIN_TYPES.length
+            : (skinTypeIndex + 1) % SKIN_TYPES.length
+        setSkinTypeIndex(newIndex)
+    }
+
+    // Фильтры — попап поверх главного меню
+    const FilterPopup = () => {
+        if (!showFilters) return null
+
+        return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
+                <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 animate-in fade-in zoom-in duration-200">
+                    <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-lg font-normal text-foreground">Фильтры</h3>
+                        <button onClick={() => setShowFilters(false)} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                            <X className="size-5" />
+                        </button>
+                    </div>
+
+                    <div className="space-y-5">
+                        <div>
+                            <label className="text-xs text-muted-foreground block mb-1.5">Категория</label>
+                            <select
+                                value={category}
+                                onChange={(e) => setCategory(e.target.value)}
+                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                            >
+                                <option value="">Все категории</option>
+                                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="text-xs text-muted-foreground block mb-1.5">Бренд</label>
+                            <select
+                                value={brand}
+                                onChange={(e) => setBrand(e.target.value)}
+                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                            >
+                                <option value="">Все бренды</option>
+                                {brands.map(b => <option key={b} value={b}>{b}</option>)}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="text-xs text-muted-foreground block mb-1.5">Сортировка</label>
+                            <select
+                                value={sort}
+                                onChange={(e) => setSort(e.target.value)}
+                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                            >
+                                <option value="popular">По популярности</option>
+                                <option value="score">По оценке</option>
+                                <option value="name">По названию</option>
+                            </select>
+                        </div>
+
+                        <button
+                            onClick={() => { setCategory(''); setBrand(''); setSort('popular') }}
+                            className="w-full py-2 rounded-xl border border-gray-200 text-sm text-muted-foreground hover:bg-gray-50 transition-colors"
+                        >
+                            Сбросить все
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )
     }
 
     return (
@@ -164,7 +240,7 @@ export function CatalogTab({
                     <div className="flex items-center gap-2 mb-3">
                         <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground flex-1">Поиск</label>
                         <button
-                            onClick={() => setShowFilters(!showFilters)}
+                            onClick={() => setShowFilters(true)}
                             className="p-1.5 rounded-lg hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
                         >
                             <Filter className="size-4" />
@@ -189,96 +265,39 @@ export function CatalogTab({
                 </div>
             </div>
 
-            {/* ФИЛЬТРЫ — ВЫЕЗЖАЮТ СБОКУ */}
-            {showFilters && (
-                <div className="fixed inset-0 z-50 flex justify-end">
-                    <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
-                    <div className="relative w-80 max-w-[85%] h-full bg-white shadow-2xl p-6 overflow-y-auto animate-in slide-in-from-right duration-300">
-                        <div className="flex items-center justify-between mb-6">
-                            <h3 className="text-lg font-normal text-foreground">Фильтры</h3>
-                            <button onClick={() => setShowFilters(false)} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
-                                <X className="size-5" />
-                            </button>
-                        </div>
-
-                        <div className="space-y-5">
-                            <div>
-                                <label className="text-xs text-muted-foreground block mb-1.5">Категория</label>
-                                <select
-                                    value={category}
-                                    onChange={(e) => setCategory(e.target.value)}
-                                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                                >
-                                    <option value="">Все категории</option>
-                                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="text-xs text-muted-foreground block mb-1.5">Бренд</label>
-                                <select
-                                    value={brand}
-                                    onChange={(e) => setBrand(e.target.value)}
-                                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                                >
-                                    <option value="">Все бренды</option>
-                                    {brands.map(b => <option key={b} value={b}>{b}</option>)}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="text-xs text-muted-foreground block mb-1.5">Сортировка</label>
-                                <select
-                                    value={sort}
-                                    onChange={(e) => setSort(e.target.value)}
-                                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                                >
-                                    <option value="popular">По популярности</option>
-                                    <option value="score">По оценке</option>
-                                    <option value="name">По названию</option>
-                                </select>
-                            </div>
-
-                            <button
-                                onClick={() => { setCategory(''); setBrand(''); setSort('popular') }}
-                                className="w-full py-2 rounded-xl border border-gray-200 text-sm text-muted-foreground hover:bg-gray-50 transition-colors"
-                            >
-                                Сбросить все
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ТИП КОЖИ + ОПРОСНИК */}
+            {/* ТИП КОЖИ — КАРУСЕЛЬ СО СТРЕЛКАМИ */}
             <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-2')}>
                 <div className="relative z-10">
-                    <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
+                    <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3 text-center">
                         {profile?.skinType ? 'Твой тип кожи' : 'Выбери тип кожи'}
                     </label>
 
-                    {!profile?.skinType ? (
-                        <div className="flex flex-wrap gap-2">
-                            {SKIN_TYPES.map((t) => (
-                                <Chip key={t} label={t} active={skinType === t} onClick={() => setSkinType(t)} />
-                            ))}
+                    {profile?.skinType ? (
+                        <div className="text-center">
+                            <span className="text-sm font-normal">{profile.skinType}</span>
                             {onStartQuiz && (
-                                <button
-                                    onClick={onStartQuiz}
-                                    className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1 bg-white/50 backdrop-blur-sm"
-                                >
-                                    <Sparkles className="size-3" /> Опросник
+                                <button onClick={onStartQuiz} className="ml-3 text-xs text-primary hover:underline">
+                                    <Sparkles className="inline size-3 mr-1" />Обновить
                                 </button>
                             )}
                         </div>
                     ) : (
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm font-normal">{profile.skinType}</span>
-                            {onStartQuiz && (
-                                <button onClick={onStartQuiz} className="text-xs text-primary hover:underline flex items-center gap-1">
-                                    <Sparkles className="size-3" /> Обновить
-                                </button>
-                            )}
+                        <div className="flex items-center justify-center gap-4">
+                            <button
+                                onClick={() => handleSkinTypeChange('left')}
+                                className="p-2 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
+                            >
+                                <ChevronLeft className="size-5" />
+                            </button>
+                            <span className="text-sm font-normal min-w-[120px] text-center transition-all duration-200">
+                                {SKIN_TYPES[skinTypeIndex]}
+                            </span>
+                            <button
+                                onClick={() => handleSkinTypeChange('right')}
+                                className="p-2 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
+                            >
+                                <ChevronRight className="size-5" />
+                            </button>
                         </div>
                     )}
                 </div>
@@ -362,6 +381,9 @@ export function CatalogTab({
                     </button>
                 </div>
             )}
+
+            {/* ФИЛЬТРЫ — ПОПАП ПОВЕРХ */}
+            <FilterPopup />
         </div>
     )
 }
