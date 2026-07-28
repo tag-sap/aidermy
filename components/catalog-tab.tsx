@@ -416,14 +416,8 @@ export function CatalogTab({
                                     key={product.slug}
                                     className={cn(
                                         'group bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-400 cursor-pointer hover:border-primary/30 active:scale-[0.97]',
-                                        viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3',
-                                        'card-enter',
-                                        `card-enter-${Math.min(index + 1, 6)}`
+                                        viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3'
                                     )}
-                                    style={{
-                                        animationDelay: `${Math.min(index, 5) * 80}ms`,
-                                        animationFillMode: 'forwards'
-                                    }}
                                     onClick={() => triggerCheck(product.name)}
                                 >
                                     <div className={cn(
