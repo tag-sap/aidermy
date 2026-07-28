@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles, X, ChevronDown } from 'lucide-react'
+import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SKIN_TYPES } from '@/lib/products'
 import type { SkinProfile } from '@/lib/store'
@@ -44,6 +44,9 @@ export function CatalogTab({
         const defaultIndex = SKIN_TYPES.indexOf(profile?.skinType || '')
         return defaultIndex >= 0 ? defaultIndex : 0
     })
+    const [isSearchSticky, setIsSearchSticky] = useState(false)
+    const searchRef = useRef<HTMLDivElement>(null)
+    const stickySentinelRef = useRef<HTMLDivElement>(null)
 
     const limit = 6
     const cardStyle = "relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-5 border border-primary/20 backdrop-blur-sm hover:shadow-md transition-shadow"
@@ -61,6 +64,26 @@ export function CatalogTab({
     useEffect(() => {
         fetchProducts()
     }, [category, brand, sort, offset, search])
+
+    // Intersection Observer для прилипания поиска
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsSearchSticky(!entry.isIntersecting)
+            },
+            {
+                root: null,
+                rootMargin: '-80px 0px 0px 0px',
+                threshold: 0
+            }
+        )
+
+        if (stickySentinelRef.current) {
+            observer.observe(stickySentinelRef.current)
+        }
+
+        return () => observer.disconnect()
+    }, [])
 
     const fetchCategories = async () => {
         try {
@@ -115,8 +138,6 @@ export function CatalogTab({
         const base = name ? `Привет, ${name}.` : 'Привет.'
         return `${base} Что ищем?`
     }
-
-    const currentSkinType = profile?.skinType || SKIN_TYPES[skinTypeIndex] || 'Нормальная'
 
     const handleSkinTypeChange = (direction: 'left' | 'right') => {
         if (profile?.skinType) return
@@ -191,7 +212,10 @@ export function CatalogTab({
     }
 
     return (
-        <div className="flex flex-col gap-5 max-w-md mx-auto">
+        <div className="flex flex-col gap-5 max-w-md mx-auto pb-20">
+            {/* СЕНТИНЕЛЬ ДЛЯ СЛЕЖЕНИЯ ЗА СКРОЛЛОМ */}
+            <div ref={stickySentinelRef} className="h-0" />
+
             {/* ПРИВЕТСТВИЕ + КАК ЭТО РАБОТАЕТ */}
             <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-1')}>
                 <div className="relative z-10">
@@ -208,11 +232,24 @@ export function CatalogTab({
                 </div>
             </div>
 
-            {/* ПОИСК + ФИЛЬТР */}
-            <div className={cardStyle}>
+            {/* ПОИСК + ФИЛЬТР — ПРИЛИПАЕТ */}
+            <div
+                ref={searchRef}
+                className={cn(
+                    cardStyle,
+                    'transition-all duration-300',
+                    isSearchSticky && 'fixed top-0 left-0 right-0 z-40 mx-auto max-w-md rounded-none border-t-0 shadow-lg'
+                )}
+                style={{
+                    marginTop: isSearchSticky ? '0' : '',
+                    borderRadius: isSearchSticky ? '0' : '',
+                }}
+            >
                 <div className="relative z-10">
                     <div className="flex items-center gap-2 mb-3">
-                        <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground flex-1">Поиск</label>
+                        <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground flex-1">
+                            {isSearchSticky ? '🔍 Поиск' : 'Поиск'}
+                        </label>
                         <button
                             onClick={() => setShowFilters(true)}
                             className="p-1.5 rounded-lg hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
@@ -238,6 +275,9 @@ export function CatalogTab({
                     </div>
                 </div>
             </div>
+
+            {/* ОТСТУП ДЛЯ ПРИЛИПШЕГО ПОИСКА */}
+            {isSearchSticky && <div className="h-24" />}
 
             {/* ТИП КОЖИ — КАРУСЕЛЬ СО СТРЕЛКАМИ */}
             <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-2')}>
