@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles } from 'lucide-react'
+import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Chip } from '@/components/chip'
 import { SKIN_TYPES } from '@/lib/products'
@@ -68,7 +68,7 @@ export function CatalogTab({
     const [isVisible, setIsVisible] = useState(false)
     const [skinType, setSkinType] = useState(profile?.skinType || '')
 
-    const limit = 20
+    const limit = 5  // ← 5 продуктов на страницу
     const cardStyle = "relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-5 border border-primary/20 backdrop-blur-sm hover:shadow-md transition-shadow"
 
     // Анимация появления
@@ -158,10 +158,18 @@ export function CatalogTab({
                 </div>
             </div>
 
-            {/* ПОИСК */}
+            {/* ПОИСК + ФИЛЬТР */}
             <div className={cardStyle}>
                 <div className="relative z-10">
-                    <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">Поиск</label>
+                    <div className="flex items-center gap-2 mb-3">
+                        <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground flex-1">Поиск</label>
+                        <button
+                            onClick={() => setShowFilters(!showFilters)}
+                            className="p-1.5 rounded-lg hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
+                        >
+                            <Filter className="size-4" />
+                        </button>
+                    </div>
                     <div className="relative">
                         <div className="flex items-center gap-3 rounded-xl border px-4 py-3 bg-white/50 transition-all border-gray-200/50 hover:border-gray-300">
                             <Search className="size-4 shrink-0 text-muted-foreground" />
@@ -181,52 +189,19 @@ export function CatalogTab({
                 </div>
             </div>
 
-            {/* ТИП КОЖИ + ОПРОСНИК */}
-            <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-2')}>
-                <div className="relative z-10">
-                    <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
-                        {profile?.skinType ? 'Твой тип кожи' : 'Выбери тип кожи'}
-                    </label>
-
-                    {!profile?.skinType ? (
-                        <div className="flex flex-wrap gap-2">
-                            {SKIN_TYPES.map((t) => (
-                                <Chip key={t} label={t} active={skinType === t} onClick={() => setSkinType(t)} />
-                            ))}
-                            {onStartQuiz && (
-                                <button
-                                    onClick={onStartQuiz}
-                                    className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1 bg-white/50 backdrop-blur-sm"
-                                >
-                                    <Sparkles className="size-3" /> Опросник
-                                </button>
-                            )}
+            {/* ФИЛЬТРЫ — ВЫЕЗЖАЮТ СБОКУ */}
+            {showFilters && (
+                <div className="fixed inset-0 z-50 flex justify-end">
+                    <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
+                    <div className="relative w-80 max-w-[85%] h-full bg-white shadow-2xl p-6 overflow-y-auto animate-in slide-in-from-right duration-300">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-lg font-normal text-foreground">Фильтры</h3>
+                            <button onClick={() => setShowFilters(false)} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                                <X className="size-5" />
+                            </button>
                         </div>
-                    ) : (
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm font-normal">{profile.skinType}</span>
-                            {onStartQuiz && (
-                                <button onClick={onStartQuiz} className="text-xs text-primary hover:underline flex items-center gap-1">
-                                    <Sparkles className="size-3" /> Обновить
-                                </button>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
 
-            {/* ФИЛЬТРЫ */}
-            <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-3')}>
-                <div className="relative z-10">
-                    <button
-                        onClick={() => setShowFilters(!showFilters)}
-                        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors mb-3"
-                    >
-                        <Filter className="size-4" /> Фильтры
-                    </button>
-
-                    {showFilters && (
-                        <div className="space-y-4">
+                        <div className="space-y-5">
                             <div>
                                 <label className="text-xs text-muted-foreground block mb-1.5">Категория</label>
                                 <select
@@ -263,13 +238,54 @@ export function CatalogTab({
                                     <option value="name">По названию</option>
                                 </select>
                             </div>
+
+                            <button
+                                onClick={() => { setCategory(''); setBrand(''); setSort('popular') }}
+                                className="w-full py-2 rounded-xl border border-gray-200 text-sm text-muted-foreground hover:bg-gray-50 transition-colors"
+                            >
+                                Сбросить все
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ТИП КОЖИ + ОПРОСНИК */}
+            <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-2')}>
+                <div className="relative z-10">
+                    <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">
+                        {profile?.skinType ? 'Твой тип кожи' : 'Выбери тип кожи'}
+                    </label>
+
+                    {!profile?.skinType ? (
+                        <div className="flex flex-wrap gap-2">
+                            {SKIN_TYPES.map((t) => (
+                                <Chip key={t} label={t} active={skinType === t} onClick={() => setSkinType(t)} />
+                            ))}
+                            {onStartQuiz && (
+                                <button
+                                    onClick={onStartQuiz}
+                                    className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1 bg-white/50 backdrop-blur-sm"
+                                >
+                                    <Sparkles className="size-3" /> Опросник
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-normal">{profile.skinType}</span>
+                            {onStartQuiz && (
+                                <button onClick={onStartQuiz} className="text-xs text-primary hover:underline flex items-center gap-1">
+                                    <Sparkles className="size-3" /> Обновить
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
             </div>
 
             {/* КАТАЛОГ */}
-            <div className={cn('card-enter', isVisible && 'card-enter-4')}>
+            <div className={cn('card-enter', isVisible && 'card-enter-3')}>
                 {loading ? (
                     <div className="flex justify-center py-10">
                         <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary/30 border-t-primary" />
@@ -340,7 +356,7 @@ export function CatalogTab({
 
             {/* ЗАПОЛНИТЬ АНКЕТУ */}
             {!profile?.skinType && (
-                <div className={cn('card-enter', isVisible && 'card-enter-5')}>
+                <div className={cn('card-enter', isVisible && 'card-enter-4')}>
                     <button onClick={onGoToProfile} className="w-full text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1 justify-center py-3 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl border border-primary/20 backdrop-blur-sm px-4">
                         Заполни анкету для точных рекомендаций
                     </button>
