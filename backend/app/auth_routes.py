@@ -310,30 +310,51 @@ async def save_profile(request: Request):
             )
         ''')
     
-    cursor.execute('''
-        INSERT INTO user_profiles (user_id, name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
-            name = excluded.name,
-            skin_type = excluded.skin_type,
-            age = excluded.age,
-            concerns = excluded.concerns,
-            allergies = excluded.allergies,
-            custom_text = excluded.custom_text,
-            quiz_answers = excluded.quiz_answers,
-            skin_type_determined = excluded.skin_type_determined,
-            updated_at = CURRENT_TIMESTAMP
-    ''', (
-        user_id,
-        profile.get('name'),
-        profile.get('skinType'),
-        profile.get('age'),
-        ','.join(profile.get('concerns', [])),
-        ','.join(profile.get('allergies', [])),
-        profile.get('customText'),
-        json.dumps(profile.get('quizAnswers', {})),
-        profile.get('skinTypeDetermined')
-    ))
+    # Сначала проверяем, есть ли запись
+    cursor.execute("SELECT id FROM user_profiles WHERE user_id = ?", (user_id,))
+    existing = cursor.fetchone()
+    
+    if existing:
+        # Обновляем
+        cursor.execute('''
+            UPDATE user_profiles SET
+                name = ?,
+                skin_type = ?,
+                age = ?,
+                concerns = ?,
+                allergies = ?,
+                custom_text = ?,
+                quiz_answers = ?,
+                skin_type_determined = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+        ''', (
+            profile.get('name'),
+            profile.get('skinType'),
+            profile.get('age'),
+            ','.join(profile.get('concerns', [])),
+            ','.join(profile.get('allergies', [])),
+            profile.get('customText'),
+            json.dumps(profile.get('quizAnswers', {})),
+            profile.get('skinTypeDetermined'),
+            user_id
+        ))
+    else:
+        # Вставляем
+        cursor.execute('''
+            INSERT INTO user_profiles (user_id, name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            user_id,
+            profile.get('name'),
+            profile.get('skinType'),
+            profile.get('age'),
+            ','.join(profile.get('concerns', [])),
+            ','.join(profile.get('allergies', [])),
+            profile.get('customText'),
+            json.dumps(profile.get('quizAnswers', {})),
+            profile.get('skinTypeDetermined')
+        ))
     
     conn.commit()
     conn.close()
