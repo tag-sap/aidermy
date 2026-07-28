@@ -620,3 +620,21 @@ div {
   background: #6c3ce1;
   border-radius: 4px;
 }
+
+html {
+  min-height: 100dvh;
+  height: auto;
+  background: #FAF9F6;
+}
+
+body {
+  min-height: 100dvh;
+  height: auto;
+  background: #FAF9F6;
+}
+
+#__next {
+  min-height: 100dvh;
+  height: auto;
+  background: #FAF9F6;
+}
