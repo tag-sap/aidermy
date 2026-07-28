@@ -237,8 +237,8 @@ export function CatalogTab({
                 ref={searchRef}
                 className={cn(
                     cardStyle,
-                    'transition-all duration-300',
-                    isSearchSticky && 'fixed top-0 left-0 right-0 z-40 mx-auto max-w-md rounded-none border-t-0 shadow-lg'
+                    'transition-all duration-300 z-40',
+                    isSearchSticky && 'fixed top-0 left-0 right-0 mx-auto max-w-md rounded-none border-t-0 shadow-lg'
                 )}
                 style={{
                     marginTop: isSearchSticky ? '0' : '',
@@ -331,7 +331,7 @@ export function CatalogTab({
                     </div>
                 ) : (
                     <>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 gap-3 min-h-[60vh]">
                             {products.map((product, index) => (
                                 <div
                                     key={product.slug}
