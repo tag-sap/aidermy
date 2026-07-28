@@ -377,7 +377,7 @@ export function CatalogTab({
             </div>
 
             {/* === ГРИД ПРОДУКТОВ === */}
-            <div className="flex-1 min-h-0 overflow-hidden px-0.5">
+            <div className="flex-1 min-h-0 overflow-hidden px-0.5 pb-16">
                 {loading ? (
                     <div className="flex justify-center items-center h-full">
                         <div className="relative">
@@ -417,8 +417,8 @@ export function CatalogTab({
                                     className={cn(
                                         'group bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-400 cursor-pointer hover:border-primary/30 active:scale-[0.97]',
                                         viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3',
-                                        'card-enter', // базовый класс
-                                        `card-enter-${Math.min(index + 1, 6)}` // номер анимации
+                                        'card-enter',
+                                        `card-enter-${Math.min(index + 1, 6)}`
                                     )}
                                     style={{
                                         animationDelay: `${Math.min(index, 5) * 80}ms`,
@@ -477,7 +477,7 @@ export function CatalogTab({
                 )}
             </div>
 
-            {/* === ФУТЕР — с большим отступом снизу === */}
+            {/* === ФУТЕР — только кнопка анкеты с большим отступом === */}
             <div className="flex-shrink-0 px-1 pb-4 pt-1 bg-gradient-to-t from-background via-background to-transparent">
                 {!profile?.skinType && (
                     <button
