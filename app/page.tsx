@@ -48,7 +48,7 @@ export default function Page() {
   const [userName, setUserName] = useState('')
   const [showInfo, setShowInfo] = useState(false)
 
-  // ===== ЗАГРУЗКА С СЕРВЕРА =====
+  // ===== ЗАГРУЗКА =====
   const loadProfileFromServer = async (token: string) => {
     try {
       const res = await fetch('/api/auth/profile/me', {
@@ -418,21 +418,7 @@ export default function Page() {
     <>
       <SplashScreen />
 
-      <div
-        className="fixed inset-0 overflow-hidden bg-background"
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100dvh',
-          width: '100dvw',
-        }}
-      >
+      <div className="fixed inset-0 overflow-hidden bg-[#FAFAF9]">
         <BrandMarquee />
         <CyberGrid />
         <div className="grid-shimmer" aria-hidden="true" />
@@ -447,38 +433,10 @@ export default function Page() {
           />
         </div>
 
-        <main
-          className="relative z-10 flex-1 min-h-0 overflow-hidden pb-14"
-          style={{
-            flex: '1 1 0%',
-            minHeight: 0,
-            overflow: 'hidden',
-            position: 'relative',
-            paddingBottom: '3.5rem',
-          }}
-        >
-          <div
-            className="h-full max-w-md mx-auto px-4"
-            style={{
-              height: '100%',
-              maxWidth: '28rem',
-              marginLeft: 'auto',
-              marginRight: 'auto',
-              paddingLeft: '1rem',
-              paddingRight: '1rem',
-              overflow: 'hidden',
-            }}
-          >
+        <main className="relative z-10 flex-1 min-h-0 overflow-hidden pb-20">
+          <div className="h-full max-w-md mx-auto px-4 overflow-hidden">
             {showQuiz ? (
-              <div
-                className="h-full overflow-y-auto py-4"
-                style={{
-                  height: '100%',
-                  overflowY: 'auto',
-                  paddingTop: '1rem',
-                  paddingBottom: '1rem',
-                }}
-              >
+              <div className="h-full overflow-y-auto py-4">
                 <SkinQuiz
                   onComplete={handleQuizComplete}
                   onCancel={() => setShowQuiz(false)}
@@ -491,7 +449,7 @@ export default function Page() {
                 />
               </div>
             ) : (
-              <div className="h-full" style={{ height: '100%', overflow: 'hidden' }}>
+              <div className="h-full overflow-hidden">
                 {tab === 'catalog' && (
                   <CatalogTab
                     key={hydrated ? 'catalog-ready' : 'catalog-loading'}
@@ -503,15 +461,7 @@ export default function Page() {
                   />
                 )}
                 {tab === 'history' && (
-                  <div
-                    className="h-full overflow-y-auto py-4"
-                    style={{
-                      height: '100%',
-                      overflowY: 'auto',
-                      paddingTop: '1rem',
-                      paddingBottom: '1rem',
-                    }}
-                  >
+                  <div className="h-full overflow-y-auto py-4">
                     <HistoryTab
                       history={history}
                       onClear={handleClearHistory}
@@ -524,15 +474,7 @@ export default function Page() {
                   </div>
                 )}
                 {tab === 'profile' && (
-                  <div
-                    className="h-full overflow-y-auto py-4"
-                    style={{
-                      height: '100%',
-                      overflowY: 'auto',
-                      paddingTop: '1rem',
-                      paddingBottom: '1rem',
-                    }}
-                  >
+                  <div className="h-full overflow-y-auto py-4">
                     <ProfileTab
                       ref={profileTabRef}
                       key={hydrated ? 'profile-ready' : 'profile-loading'}
@@ -590,11 +532,11 @@ export default function Page() {
             className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
             onClick={handleLeaveCancel}
           />
-          <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl border border-primary/20">
+          <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-xl border border-primary/20">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="size-5 text-orange-500" />
-                <h3 className="text-lg font-normal text-foreground">Несохранённые изменения</h3>
+                <h3 className="text-lg font-light text-foreground">Несохранённые изменения</h3>
               </div>
               <button
                 onClick={handleLeaveCancel}
@@ -609,19 +551,19 @@ export default function Page() {
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => handleLeaveConfirm('save')}
-                className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+                className="w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
               >
                 Сохранить и выйти
               </button>
               <button
                 onClick={() => handleLeaveConfirm('discard')}
-                className="w-full rounded-md border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
               >
                 Не сохранять
               </button>
               <button
                 onClick={handleLeaveCancel}
-                className="w-full rounded-md px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
+                className="w-full rounded-xl px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
               >
                 Остаться
               </button>
