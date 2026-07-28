@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles, X, Grid3x3, LayoutList, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SKIN_TYPES } from '@/lib/products'
@@ -50,6 +50,7 @@ export function CatalogTab({
     onStartQuiz?: () => void
     onInfoClick?: () => void
 }) {
+    // Состояния
     const [products, setProducts] = useState<Product[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
@@ -61,15 +62,23 @@ export function CatalogTab({
     const [categories, setCategories] = useState<string[]>([])
     const [brands, setBrands] = useState<string[]>([])
     const [showFilters, setShowFilters] = useState(false)
-    const [isVisible, setIsVisible] = useState(false)
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
     const [skinTypeIndex, setSkinTypeIndex] = useState(() => {
         const defaultIndex = SKIN_TYPES.indexOf(profile?.skinType || '')
         return defaultIndex >= 0 ? defaultIndex : 0
     })
     const [showSkinTypes, setShowSkinTypes] = useState(false)
+    const [isVisible, setIsVisible] = useState(false)
+    const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
 
-    const limit = 6
+    const limit = 8 // Увеличил для лучшего заполнения
+
+    // Refs для высоты
+    const headerRef = useRef<HTMLDivElement>(null)
+    const footerRef = useRef<HTMLDivElement>(null)
+    const containerRef = useRef<HTMLDivElement>(null)
+    const gridRef = useRef<HTMLDivElement>(null)
+    const [gridHeight, setGridHeight] = useState<number | null>(null)
 
     // Эффекты
     useEffect(() => {
@@ -84,8 +93,37 @@ export function CatalogTab({
 
     useEffect(() => {
         fetchProducts()
-    }, [category, brand, sort, offset, search])
+    }, [category, brand, sort, offset])
 
+    // Debounced search
+    useEffect(() => {
+        if (searchTimeout) clearTimeout(searchTimeout)
+        const timeout = setTimeout(() => {
+            setOffset(0)
+            fetchProducts()
+        }, 300)
+        setSearchTimeout(timeout)
+        return () => clearTimeout(timeout)
+    }, [search])
+
+    // Расчёт высоты грида
+    useEffect(() => {
+        const calculateHeight = () => {
+            if (headerRef.current && footerRef.current && containerRef.current) {
+                const headerHeight = headerRef.current.offsetHeight
+                const footerHeight = footerRef.current.offsetHeight
+                const containerHeight = containerRef.current.clientHeight
+                const available = containerHeight - headerHeight - footerHeight - 16 // отступы
+                setGridHeight(Math.max(available, 200))
+            }
+        }
+
+        calculateHeight()
+        window.addEventListener('resize', calculateHeight)
+        return () => window.removeEventListener('resize', calculateHeight)
+    }, [loading, products.length])
+
+    // Функции загрузки
     const fetchCategories = async () => {
         try {
             const res = await fetch('/api/categories')
@@ -100,10 +138,15 @@ export function CatalogTab({
     const fetchProducts = async () => {
         setLoading(true)
         try {
-            const params = new URLSearchParams({ limit: String(limit), offset: String(offset), sort })
+            const params = new URLSearchParams({ 
+                limit: String(limit), 
+                offset: String(offset), 
+                sort 
+            })
             if (category) params.append('category', category)
             if (brand) params.append('brand', brand)
             if (search) params.append('search', search)
+            
             const res = await fetch(`/api/catalog?${params}`)
             const data = await res.json()
             setProducts(data.products || [])
@@ -115,6 +158,7 @@ export function CatalogTab({
         }
     }
 
+    // Обработчики
     const totalPages = Math.ceil(total / limit)
     const currentPage = Math.floor(offset / limit) + 1
 
@@ -145,12 +189,22 @@ export function CatalogTab({
         return name ? `${greeting}, ${name}` : greeting
     }
 
+    // Очистка фильтров
+    const clearFilters = () => {
+        setCategory('')
+        setBrand('')
+        setSort('popular')
+        setOffset(0)
+        setShowFilters(false)
+    }
+
+    // Фильтр попап
     const FilterPopup = () => {
         if (!showFilters) return null
         return (
             <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 animate-in fade-in duration-200">
                 <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
-                <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 animate-in slide-in-from-bottom-4 duration-300">
+                <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 animate-in slide-in-from-bottom-4 duration-300 max-h-[80vh] overflow-y-auto">
                     <div className="flex items-center justify-between mb-6">
                         <h3 className="text-lg font-semibold text-foreground">Фильтры</h3>
                         <button onClick={() => setShowFilters(false)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors">
@@ -193,7 +247,7 @@ export function CatalogTab({
                             </select>
                         </div>
                         <button
-                            onClick={() => { setCategory(''); setBrand(''); setSort('popular') }}
+                            onClick={clearFilters}
                             className="w-full py-2.5 rounded-xl border border-gray-200 text-sm text-muted-foreground hover:bg-gray-50 transition-colors"
                         >
                             Сбросить все
@@ -204,28 +258,45 @@ export function CatalogTab({
         )
     }
 
+    // Вычисляем высоту для грида
+    const getGridItemHeight = useCallback(() => {
+        if (!gridHeight) return 'auto'
+        // 2 колонки, отступы 8px
+        const itemsPerRow = viewMode === 'grid' ? 2 : 1
+        const gap = viewMode === 'grid' ? 8 : 6
+        const headerHeight = 50 // примерная высота карточки с заголовком
+        const itemsPerColumn = Math.floor(gridHeight / (headerHeight + gap))
+        return Math.min(itemsPerColumn, Math.ceil(products.length / itemsPerRow) || 1)
+    }, [gridHeight, viewMode, products.length])
+
     return (
-        <div className="h-[calc(100dvh-60px)] flex flex-col max-w-md mx-auto px-4 overflow-hidden">
-            {/* ШАПКА — компактная */}
-            <div className="flex-shrink-0 pt-3 pb-2">
+        <div 
+            ref={containerRef}
+            className="h-[calc(100dvh-60px)] flex flex-col max-w-md mx-auto px-4 overflow-hidden"
+        >
+            {/* === ШАПКА — фиксированная === */}
+            <div ref={headerRef} className="flex-shrink-0 pt-3 pb-2">
                 {/* Приветствие + инфо */}
                 <div className="flex items-center justify-between mb-1.5">
-                    <h1 className="text-base font-semibold text-foreground tracking-tight">
+                    <h1 className="text-base font-semibold text-foreground tracking-tight truncate">
                         {getGreeting()}
                     </h1>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-shrink-0">
                         <button
                             onClick={onInfoClick}
                             className="p-1.5 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
+                            aria-label="Информация"
                         >
                             <Info className="size-3.5" />
                         </button>
                         <button
                             onClick={() => setShowSkinTypes(!showSkinTypes)}
-                            className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/5 text-primary hover:bg-primary/10 transition-colors flex items-center gap-0.5"
+                            className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/5 text-primary hover:bg-primary/10 transition-colors flex items-center gap-0.5 whitespace-nowrap"
                         >
-                            <span className="text-muted-foreground text-[9px]">Тип кожи:</span>
-                            {profile?.skinType || SKIN_TYPES[skinTypeIndex] || 'Выбрать'}
+                            <span className="text-muted-foreground text-[9px] hidden xs:inline">Тип кожи:</span>
+                            <span className="max-w-[60px] truncate">
+                                {profile?.skinType || SKIN_TYPES[skinTypeIndex] || 'Выбрать'}
+                            </span>
                             <ChevronDown className={cn('size-3 transition-transform', showSkinTypes && 'rotate-180')} />
                         </button>
                     </div>
@@ -233,17 +304,20 @@ export function CatalogTab({
 
                 {/* Поиск + фильтры + переключение вида */}
                 <div className="flex items-center gap-1.5">
-                    <div className="relative flex-1">
+                    <div className="relative flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50/50 px-3 py-1.5 focus-within:border-primary/50 focus-within:bg-white focus-within:shadow-[0_0_20px_rgba(108,60,225,0.06)] transition-all">
                             <Search className="size-3 shrink-0 text-muted-foreground" />
                             <input
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 placeholder="Поиск..."
-                                className="w-full bg-transparent text-sm placeholder:text-muted-foreground/60 focus:outline-none"
+                                className="w-full bg-transparent text-sm placeholder:text-muted-foreground/60 focus:outline-none min-w-0"
                             />
                             {search && (
-                                <button onClick={() => setSearch('')} className="p-0.5 rounded-full hover:bg-gray-200 transition-colors text-muted-foreground">
+                                <button 
+                                    onClick={() => setSearch('')} 
+                                    className="p-0.5 rounded-full hover:bg-gray-200 transition-colors text-muted-foreground shrink-0"
+                                >
                                     <X className="size-2.5" />
                                 </button>
                             )}
@@ -251,20 +325,23 @@ export function CatalogTab({
                     </div>
                     <button
                         onClick={() => setShowFilters(true)}
-                        className="p-1.5 rounded-xl border border-gray-200 hover:border-primary/30 hover:bg-primary/5 transition-all text-muted-foreground hover:text-primary"
+                        className="p-1.5 rounded-xl border border-gray-200 hover:border-primary/30 hover:bg-primary/5 transition-all text-muted-foreground hover:text-primary shrink-0"
+                        aria-label="Фильтры"
                     >
                         <Filter className="size-3.5" />
                     </button>
-                    <div className="flex border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="flex border border-gray-200 rounded-xl overflow-hidden shrink-0">
                         <button
                             onClick={() => setViewMode('grid')}
                             className={cn('p-1.5 transition-colors', viewMode === 'grid' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-gray-50')}
+                            aria-label="Сетка"
                         >
                             <Grid3x3 className="size-3" />
                         </button>
                         <button
                             onClick={() => setViewMode('list')}
                             className={cn('p-1.5 transition-colors border-l border-gray-200', viewMode === 'list' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-gray-50')}
+                            aria-label="Список"
                         >
                             <LayoutList className="size-3" />
                         </button>
@@ -278,6 +355,7 @@ export function CatalogTab({
                             <button
                                 onClick={() => handleSkinTypeChange('left')}
                                 className="p-1 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
+                                aria-label="Предыдущий тип"
                             >
                                 <ChevronLeft className="size-3.5" />
                             </button>
@@ -287,12 +365,16 @@ export function CatalogTab({
                             <button
                                 onClick={() => handleSkinTypeChange('right')}
                                 className="p-1 rounded-full hover:bg-primary/5 transition-colors text-muted-foreground hover:text-primary"
+                                aria-label="Следующий тип"
                             >
                                 <ChevronRight className="size-3.5" />
                             </button>
                         </div>
                         {onStartQuiz && (
-                            <button onClick={onStartQuiz} className="text-[10px] text-primary hover:underline block text-center mt-1">
+                            <button 
+                                onClick={onStartQuiz} 
+                                className="text-[10px] text-primary hover:underline block text-center mt-1"
+                            >
                                 <Sparkles className="inline size-2.5 mr-1" /> Пройти опросник
                             </button>
                         )}
@@ -302,13 +384,17 @@ export function CatalogTab({
                 {/* Счетчик результатов */}
                 {!loading && products.length > 0 && (
                     <p className="text-[10px] text-muted-foreground mt-1 text-center">
-                        Найдено {total} продуктов
+                        {total} продуктов
                     </p>
                 )}
             </div>
 
-            {/* КАТАЛОГ — занимает всё оставшееся место, без скролла */}
-            <div className="flex-1 min-h-0 overflow-hidden">
+            {/* === ГРИД ПРОДУКТОВ — заполняет всё оставшееся место === */}
+            <div 
+                ref={gridRef}
+                className="flex-1 min-h-0 overflow-hidden"
+                style={{ height: gridHeight ? `${gridHeight}px` : 'auto' }}
+            >
                 {loading ? (
                     <div className="flex justify-center items-center h-full">
                         <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary/20 border-t-primary" />
@@ -317,24 +403,38 @@ export function CatalogTab({
                     <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                         <span className="text-3xl mb-2">🔍</span>
                         <p className="text-sm">Ничего не найдено</p>
+                        {search && (
+                            <button 
+                                onClick={() => setSearch('')}
+                                className="mt-2 text-xs text-primary hover:underline"
+                            >
+                                Очистить поиск
+                            </button>
+                        )}
                     </div>
                 ) : (
-                    <div className="h-full overflow-y-auto pr-1 scrollbar-thin">
-                        <div className={cn('grid gap-2 pb-2', viewMode === 'grid' ? 'grid-cols-2' : 'grid-cols-1')}>
+                    <div className="h-full overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
+                        <div className={cn(
+                            'grid gap-2 pb-1',
+                            viewMode === 'grid' ? 'grid-cols-2' : 'grid-cols-1'
+                        )}>
                             {products.map((product, index) => (
                                 <div
                                     key={product.slug}
                                     className={cn(
-                                        'group bg-white/70 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer hover:border-primary/20',
+                                        'group bg-white/70 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer hover:border-primary/20 active:scale-[0.98]',
                                         viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3',
                                         'opacity-0 animate-in fade-in slide-in-from-bottom-3 duration-400'
                                     )}
-                                    style={{ animationDelay: `${index * 40}ms`, animationFillMode: 'forwards' }}
+                                    style={{ 
+                                        animationDelay: `${Math.min(index, 15) * 40}ms`, 
+                                        animationFillMode: 'forwards' 
+                                    }}
                                     onClick={() => triggerCheck(product.name)}
                                 >
                                     <div className={cn(
                                         'flex',
-                                        viewMode === 'grid' ? 'flex-col items-center' : 'items-center gap-3 flex-1'
+                                        viewMode === 'grid' ? 'flex-col items-center w-full' : 'items-center gap-3 flex-1 min-w-0'
                                     )}>
                                         <div className={cn(
                                             'rounded-lg overflow-hidden bg-gray-50 flex items-center justify-center flex-shrink-0',
@@ -344,6 +444,7 @@ export function CatalogTab({
                                                 <img
                                                     src={product.image_url}
                                                     alt={product.name}
+                                                    loading="lazy"
                                                     className="w-full h-full object-contain p-1.5 group-hover:scale-105 transition-transform duration-300"
                                                 />
                                             ) : (
@@ -351,14 +452,14 @@ export function CatalogTab({
                                             )}
                                         </div>
                                         <div className={cn(
-                                            'w-full text-center',
-                                            viewMode === 'grid' ? 'mt-1.5' : 'flex-1 text-left'
+                                            'w-full min-w-0',
+                                            viewMode === 'grid' ? 'mt-1.5 text-center' : 'flex-1 text-left'
                                         )}>
-                                            <p className="text-[11px] font-medium text-foreground line-clamp-2 leading-tight">
+                                            <p className="text-[11px] font-medium text-foreground line-clamp-2 leading-tight break-words">
                                                 {product.name}
                                             </p>
                                             {product.category && (
-                                                <span className="text-[9px] text-muted-foreground mt-0.5 block">
+                                                <span className="text-[9px] text-muted-foreground mt-0.5 block truncate">
                                                     {product.category}
                                                 </span>
                                             )}
@@ -366,7 +467,10 @@ export function CatalogTab({
                                     </div>
                                     {viewMode === 'list' && (
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); triggerCheck(product.name) }}
+                                            onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                triggerCheck(product.name) 
+                                            }}
                                             className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20 transition-colors flex-shrink-0"
                                         >
                                             Проверить
@@ -375,45 +479,49 @@ export function CatalogTab({
                                 </div>
                             ))}
                         </div>
-
-                        {/* Пагинация — если страниц > 1 */}
-                        {totalPages > 1 && (
-                            <div className="flex items-center justify-center gap-2 py-2 sticky bottom-0 bg-background/80 backdrop-blur-sm">
-                                <button
-                                    onClick={() => handlePageChange(currentPage - 1)}
-                                    disabled={currentPage === 1}
-                                    className="p-1.5 rounded-lg border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                                >
-                                    <ChevronLeft className="size-3.5" />
-                                </button>
-                                <span className="text-xs text-muted-foreground">
-                                    {currentPage} / {totalPages}
-                                </span>
-                                <button
-                                    onClick={() => handlePageChange(currentPage + 1)}
-                                    disabled={currentPage === totalPages}
-                                    className="p-1.5 rounded-lg border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                                >
-                                    <ChevronRight className="size-3.5" />
-                                </button>
-                            </div>
-                        )}
                     </div>
                 )}
             </div>
 
-            {/* ЗАПОЛНИТЬ АНКЕТУ — мини-кнопка внизу */}
-            {!profile?.skinType && (
-                <div className="flex-shrink-0 py-2">
+            {/* === ФУТЕР — пагинация и кнопка анкеты === */}
+            <div ref={footerRef} className="flex-shrink-0 py-2 space-y-1.5">
+                {/* Пагинация */}
+                {totalPages > 1 && !loading && products.length > 0 && (
+                    <div className="flex items-center justify-center gap-2">
+                        <button
+                            onClick={() => handlePageChange(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            className="p-1.5 rounded-lg border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                            aria-label="Предыдущая страница"
+                        >
+                            <ChevronLeft className="size-3.5" />
+                        </button>
+                        <span className="text-xs text-muted-foreground">
+                            {currentPage} / {totalPages}
+                        </span>
+                        <button
+                            onClick={() => handlePageChange(currentPage + 1)}
+                            disabled={currentPage === totalPages}
+                            className="p-1.5 rounded-lg border border-gray-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
+                            aria-label="Следующая страница"
+                        >
+                            <ChevronRight className="size-3.5" />
+                        </button>
+                    </div>
+                )}
+
+                {/* Кнопка "Заполнить анкету" */}
+                {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
-                        className="w-full py-2 rounded-xl text-xs font-medium bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20 text-primary hover:shadow-md transition-all"
+                        className="w-full py-2 rounded-xl text-xs font-medium bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20 text-primary hover:shadow-md transition-all active:scale-[0.98]"
                     >
                         ✨ Заполнить анкету
                     </button>
-                </div>
-            )}
+                )}
+            </div>
 
+            {/* Фильтр попап */}
             <FilterPopup />
         </div>
     )
