@@ -418,11 +418,12 @@ export default function Page() {
     <>
       <SplashScreen />
 
-      <div className="fixed inset-0 overflow-hidden bg-[#FAFAF9]">
+      <div className="fixed inset-0 flex flex-col bg-[#FAF9F6] overflow-hidden">
         <BrandMarquee />
         <CyberGrid />
         <div className="grid-shimmer" aria-hidden="true" />
 
+        {/* Хедер */}
         <div className="flex-shrink-0 z-20">
           <AppHeader
             onProfile={handleGoToProfile}
@@ -433,8 +434,9 @@ export default function Page() {
           />
         </div>
 
-        <main className="relative z-10 flex-1 min-h-0 overflow-hidden pb-20">
-          <div className="h-full max-w-md mx-auto px-4 overflow-hidden">
+        {/* Основной контент — центрирован */}
+        <main className="flex-1 min-h-0 overflow-hidden z-10 flex items-center justify-center">
+          <div className="w-full max-w-md h-full px-4 overflow-hidden">
             {showQuiz ? (
               <div className="h-full overflow-y-auto py-4">
                 <SkinQuiz
@@ -490,6 +492,7 @@ export default function Page() {
           </div>
         </main>
 
+        {/* Таб-бар */}
         <div className="flex-shrink-0 z-20">
           <TabBar
             active={tab}
