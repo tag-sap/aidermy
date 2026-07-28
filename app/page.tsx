@@ -54,7 +54,22 @@ export default function Page() {
   const [userName, setUserName] = useState('')
 
   const [showInfo, setShowInfo] = useState(false)
-
+  const loadProfileFromServer = async (token: string) => {
+    try {
+      const res = await fetch('/api/auth/profile/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.profile) {
+          setProfile(data.profile)
+          saveProfile(data.profile)
+        }
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки профиля:', error)
+    }
+  }
   // Проверяем токен при загрузке
   useEffect(() => {
     const token = localStorage.getItem('token')
