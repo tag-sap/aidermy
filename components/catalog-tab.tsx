@@ -209,7 +209,6 @@ export function CatalogTab({
         <div className="h-full flex flex-col overflow-hidden bg-gradient-to-b from-background via-background to-primary/5">
             {/* === ШАПКА === */}
             <div className="flex-shrink-0 px-1 pt-1.5 pb-1">
-                {/* Приветствие + тип кожи */}
                 <div className="flex items-center justify-between mb-1">
                     <h1 className="text-[15px] font-medium text-foreground tracking-tight truncate bg-gradient-to-r from-primary/80 to-primary bg-clip-text text-transparent">
                         {getGreeting()}
@@ -232,7 +231,6 @@ export function CatalogTab({
                     </div>
                 </div>
 
-                {/* Поиск + фильтры + вид */}
                 <div className="flex items-center gap-1.5 mb-1">
                     <div className="relative flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 rounded-xl bg-white/60 backdrop-blur-sm border border-gray-200/60 px-3 py-1.5 focus-within:border-primary/40 focus-within:bg-white focus-within:shadow-[0_0_30px_rgba(108,60,225,0.08)] transition-all duration-300">
@@ -275,7 +273,7 @@ export function CatalogTab({
                     </div>
                 </div>
 
-                {/* ПАГИНАЦИЯ — СВЕРХУ, ПОД ПОИСКОМ */}
+                {/* ПАГИНАЦИЯ СВЕРХУ */}
                 {totalPages > 1 && !loading && products.length > 0 && (
                     <div className="flex items-center justify-center gap-2 py-1">
                         <button
@@ -347,14 +345,12 @@ export function CatalogTab({
                     </div>
                 )}
 
-                {/* Счётчик */}
                 {!loading && products.length > 0 && (
                     <p className="text-[9px] text-muted-foreground/60 text-center font-medium tracking-wider">
                         {total} продуктов
                     </p>
                 )}
 
-                {/* Выбор типа кожи (раскрывается) */}
                 {showSkinTypes && !profile?.skinType && (
                     <div className="mt-1.5 pt-1.5 border-t border-gray-100/50 animate-in fade-in slide-in-from-top-2 duration-200">
                         <div className="flex items-center justify-center gap-4">
@@ -387,7 +383,7 @@ export function CatalogTab({
             </div>
 
             {/* === ГРИД ПРОДУКТОВ === */}
-            <div className="flex-1 min-h-0 overflow-hidden px-0.5">
+            <div className="flex-1 min-h-0 overflow-hidden px-0.5 pb-2">
                 {loading ? (
                     <div className="flex justify-center items-center h-full">
                         <div className="relative">
@@ -427,7 +423,7 @@ export function CatalogTab({
                                     className={cn(
                                         'group bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-400 cursor-pointer hover:border-primary/30 active:scale-[0.97]',
                                         viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3',
-                                        'card-enter',
+                                        'opacity-0',
                                         isVisible && `card-enter-${Math.min(index + 1, 6)}`
                                     )}
                                     style={{
@@ -487,7 +483,7 @@ export function CatalogTab({
                 )}
             </div>
 
-            {/* === ФУТЕР — только кнопка анкеты === */}
+            {/* === ФУТЕР === */}
             <div className="flex-shrink-0 px-1 py-1 bg-gradient-to-t from-background via-background to-transparent">
                 {!profile?.skinType && (
                     <button
