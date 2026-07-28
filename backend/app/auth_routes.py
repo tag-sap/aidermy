@@ -403,3 +403,64 @@ async def get_my_profile(request: Request):
             "skinTypeDetermined": row[7]
         }
     }
+@router.post("/history")
+async def save_history(request: Request):
+    data = await request.json()
+    user_id = data.get('user_id')
+    result = data.get('result')
+    
+    if not user_id or not result:
+        raise HTTPException(status_code=400, detail="Missing data")
+    
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, ingredients, slug, image_url, active_ingredients, how_to_use, expectations)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        user_id,
+        result.get('product'),
+        result.get('skinType'),
+        result.get('score'),
+        result.get('verdict'),
+        result.get('summary'),
+        result.get('ingredients'),
+        result.get('slug'),
+        result.get('image_url'),
+        json.dumps(result.get('active_ingredients')),
+        json.dumps(result.get('how_to_use')),
+        json.dumps(result.get('expectations'))
+    ))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"status": "ok"}
+
+@router.get("/history")
+async def get_history(request: Request):
+    from .auth import get_current_user_from_token
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+    user = await get_current_user_from_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT * FROM check_history
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 50
+    ''', (user['id'],))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return {"history": [dict(row) for row in rows]}

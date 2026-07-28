@@ -41,19 +41,18 @@ export default function Page() {
   const [profileDirty, setProfileDirty] = useState(false)
   const [pendingTab, setPendingTab] = useState<TabId | null>(null)
 
-  // Состояние для опросника
   const [showQuiz, setShowQuiz] = useState(false)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
   const handleCatalogClick = () => {
     setTab('catalog')
   }
-  // === АВТОРИЗАЦИЯ ===
+
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
-
   const [showInfo, setShowInfo] = useState(false)
+
   const loadProfileFromServer = async (token: string) => {
     try {
       const res = await fetch('/api/auth/profile/me', {
@@ -61,27 +60,41 @@ export default function Page() {
       })
       if (res.ok) {
         const data = await res.json()
-        console.log('📥 Профиль с сервера:', data)
         if (data.profile) {
           setProfile(data.profile)
           saveProfile(data.profile)
         }
-      } else {
-        console.log('ℹ️ Профиль на сервере не найден')
       }
     } catch (error) {
       console.error('Ошибка загрузки профиля:', error)
     }
   }
-  // Проверяем токен при загрузке
+
+  const loadHistoryFromServer = async (token: string) => {
+    try {
+      const res = await fetch('/api/auth/history', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.history) {
+          setHistory(data.history)
+          saveHistory(data.history)
+        }
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки истории:', error)
+    }
+  }
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (token) {
       setIsAuthenticated(true)
       const savedName = localStorage.getItem('userName')
       if (savedName) setUserName(savedName)
-      // Загружаем профиль с сервера
       loadProfileFromServer(token)
+      loadHistoryFromServer(token)
     }
 
     const urlParams = new URLSearchParams(window.location.search)
@@ -97,8 +110,8 @@ export default function Page() {
           const name = data.name || 'Пользователь'
           setUserName(name)
           localStorage.setItem('userName', name)
-          // Загружаем профиль с сервера
           loadProfileFromServer(urlToken)
+          loadHistoryFromServer(urlToken)
         })
         .catch(() => {
           setUserName('Пользователь')
@@ -114,7 +127,6 @@ export default function Page() {
     setHistory(loadHistory())
     setHydrated(true)
 
-    // Если есть ответы опросника, но нет skinType - определяем
     if (savedProfile.quizAnswers && Object.keys(savedProfile.quizAnswers).length > 0 && !savedProfile.skinType) {
       const determined = determineSkinTypeFromAnswers(savedProfile.quizAnswers)
       setProfile(prev => ({ ...prev, skinType: determined, skinTypeDetermined: determined }))
@@ -122,7 +134,6 @@ export default function Page() {
     }
   }, [])
 
-  // === ОБРАБОТЧИКИ АВТОРИЗАЦИИ ===
   const handleLogin = async (email: string, password: string) => {
     try {
       const res = await fetch('/api/auth/login', {
@@ -145,8 +156,8 @@ export default function Page() {
       setIsAuthenticated(true)
       setUserName(data.user?.name || email.split('@')[0])
 
-      // Загружаем профиль с сервера
       await loadProfileFromServer(token)
+      await loadHistoryFromServer(token)
     } catch (error) {
       console.error('Ошибка входа:', error)
       const message = error instanceof Error ? error.message : 'Не удалось войти'
@@ -180,11 +191,12 @@ export default function Page() {
     setIsAuthenticated(false)
     setUserName('')
     setProfile(emptyProfile)
+    setHistory([])
     localStorage.removeItem('token')
     localStorage.removeItem('userName')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
-    setTab('checker')  // ← переключаем на чекер
+    setTab('checker')
   }
 
   const handleSaveProfile = async (p: SkinProfile) => {
@@ -195,32 +207,30 @@ export default function Page() {
     const token = localStorage.getItem('token')
     if (token) {
       try {
-        // Сначала получаем user_id
         const userRes = await fetch('/api/auth/me', {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (!userRes.ok) throw new Error('Не удалось получить данные пользователя')
-
+        
         const userData = await userRes.json()
-
-        // Сохраняем профиль
+        
         const res = await fetch('/api/auth/profile', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`
           },
-          body: JSON.stringify({
+          body: JSON.stringify({ 
             user_id: userData.id,
-            profile: p
+            profile: p 
           })
         })
-
+        
         if (!res.ok) {
           const error = await res.json()
           throw new Error(error.detail || 'Ошибка сохранения')
         }
-
+        
         console.log('✅ Профиль сохранён на сервере')
       } catch (error) {
         console.error('Ошибка сохранения профиля:', error)
@@ -237,7 +247,6 @@ export default function Page() {
     saveHistory([])
   }
 
-  // === ОБРАБОТЧИК ОПРОСНИКА ===
   const handleQuizComplete = (answers: Record<string, string>, skinType: string) => {
     const updatedProfile = {
       ...profile,
@@ -257,7 +266,6 @@ export default function Page() {
     setLoading(true)
 
     try {
-      // ИСПОЛЬЗУЕМ /api/check — ОН САМ ИЩЕТ ПРОДУКТ В БД
       const response = await fetch('/api/check', {
         method: 'POST',
         headers: {
@@ -285,7 +293,6 @@ export default function Page() {
 
       const data = await response.json()
 
-      // Получаем картинку из отдельного запроса
       const productResponse = await fetch(`/api/products?q=${encodeURIComponent(product)}`)
       const productData = await productResponse.json()
       const foundProduct = productData.products?.find((p: any) => {
@@ -323,6 +330,32 @@ export default function Page() {
         return next
       })
 
+      // Сохраняем историю на сервер
+      const token = localStorage.getItem('token')
+      if (token && isAuthenticated) {
+        try {
+          const userRes = await fetch('/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+          if (userRes.ok) {
+            const userData = await userRes.json()
+            await fetch('/api/auth/history', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                user_id: userData.id,
+                result: fullResult
+              })
+            })
+          }
+        } catch (error) {
+          console.error('Ошибка сохранения истории:', error)
+        }
+      }
+
     } catch (error) {
       console.error('Ошибка проверки:', error)
       setLoading(false)
@@ -347,7 +380,6 @@ export default function Page() {
   const handleTabChange = (newTab: TabId) => {
     if (newTab === tab) return
 
-    // Запрещаем доступ к профилю без авторизации
     if (newTab === 'profile' && !isAuthenticated) {
       setIsAuthModalOpen(true)
       return
@@ -401,7 +433,6 @@ export default function Page() {
 
         <main className="relative z-10 mx-auto flex min-h-screen max-w-md flex-col px-5 pb-36 pt-4">
           <div className="mt-6 flex-1">
-            {/* Показываем опросник вместо обычного контента */}
             {showQuiz ? (
               <SkinQuiz
                 onComplete={handleQuizComplete}
