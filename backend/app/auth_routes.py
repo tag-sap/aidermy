@@ -403,6 +403,8 @@ async def get_my_profile(request: Request):
             "skinTypeDetermined": row[7]
         }
     }
+# === ИСТОРИЯ ===
+# === ИСТОРИЯ ===
 @router.post("/history")
 async def save_history(request: Request):
     data = await request.json()
