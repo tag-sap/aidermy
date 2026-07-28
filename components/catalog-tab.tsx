@@ -74,7 +74,7 @@ export function CatalogTab({
             },
             {
                 root: null,
-                rootMargin: '-80px 0px 0px 0px',
+                rootMargin: '0px 0px -100px 0px',
                 threshold: 0
             }
         )
@@ -125,12 +125,12 @@ export function CatalogTab({
 
     const handlePageChange = (page: number) => {
         setOffset((page - 1) * limit)
-        // Скроллим к контейнеру с продуктами, а не наверх
+        // Скроллим к контейнеру с продуктами
         if (productsContainerRef.current) {
             setTimeout(() => {
                 const rect = productsContainerRef.current?.getBoundingClientRect()
                 if (rect) {
-                    const top = rect.top + window.scrollY - 100
+                    const top = rect.top + window.scrollY - 80
                     window.scrollTo({ top, behavior: 'smooth' })
                 }
             }, 100)
@@ -242,7 +242,7 @@ export function CatalogTab({
                 </div>
             </div>
 
-            {/* ПОИСК + ФИЛЬТР — ПРИЛИПАЕТ */}
+            {/* ПОИСК + ФИЛЬТР — ПРИЛИПАЕТ ПОЗЖЕ */}
             <div
                 ref={searchRef}
                 className={cn(
