@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles, X, Grid3x3, LayoutList, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SKIN_TYPES } from '@/lib/products'
@@ -13,28 +13,6 @@ interface Product {
     ingredients: string | null
     category: string | null
     brand: string | null
-}
-
-// === БЕГУЩАЯ СТРОКА ===
-function MarqueeText({ text, className }: { text: string; className?: string }) {
-    const [isOverflowing, setIsOverflowing] = useState(false)
-    const textRef = useRef<HTMLSpanElement>(null)
-    const containerRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (textRef.current && containerRef.current) {
-            setIsOverflowing(textRef.current.scrollWidth > containerRef.current.clientWidth)
-        }
-    }, [text])
-
-    return (
-        <div ref={containerRef} className={cn('overflow-hidden relative w-full', className)}>
-            <div className={cn('whitespace-nowrap inline-block', isOverflowing && 'animate-marquee')}>
-                <span ref={textRef}>{text}</span>
-                {isOverflowing && <span className="ml-8">{text}</span>}
-            </div>
-        </div>
-    )
 }
 
 export function CatalogTab({
@@ -50,7 +28,6 @@ export function CatalogTab({
     onStartQuiz?: () => void
     onInfoClick?: () => void
 }) {
-    // Состояния
     const [products, setProducts] = useState<Product[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
@@ -68,16 +45,15 @@ export function CatalogTab({
         return defaultIndex >= 0 ? defaultIndex : 0
     })
     const [showSkinTypes, setShowSkinTypes] = useState(false)
-    const [isVisible, setIsVisible] = useState(false)
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
+    const [isVisible, setIsVisible] = useState(false)
 
-    const limit = 8 // Увеличил для лучшего заполнения
+    const limit = 8
 
     // Refs для высоты
     const headerRef = useRef<HTMLDivElement>(null)
     const footerRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
-    const gridRef = useRef<HTMLDivElement>(null)
     const [gridHeight, setGridHeight] = useState<number | null>(null)
 
     // Эффекты
@@ -113,7 +89,7 @@ export function CatalogTab({
                 const headerHeight = headerRef.current.offsetHeight
                 const footerHeight = footerRef.current.offsetHeight
                 const containerHeight = containerRef.current.clientHeight
-                const available = containerHeight - headerHeight - footerHeight - 16 // отступы
+                const available = containerHeight - headerHeight - footerHeight - 16
                 setGridHeight(Math.max(available, 200))
             }
         }
@@ -138,15 +114,15 @@ export function CatalogTab({
     const fetchProducts = async () => {
         setLoading(true)
         try {
-            const params = new URLSearchParams({ 
-                limit: String(limit), 
-                offset: String(offset), 
-                sort 
+            const params = new URLSearchParams({
+                limit: String(limit),
+                offset: String(offset),
+                sort
             })
             if (category) params.append('category', category)
             if (brand) params.append('brand', brand)
             if (search) params.append('search', search)
-            
+
             const res = await fetch(`/api/catalog?${params}`)
             const data = await res.json()
             setProducts(data.products || [])
@@ -189,7 +165,6 @@ export function CatalogTab({
         return name ? `${greeting}, ${name}` : greeting
     }
 
-    // Очистка фильтров
     const clearFilters = () => {
         setCategory('')
         setBrand('')
@@ -258,24 +233,23 @@ export function CatalogTab({
         )
     }
 
-    // Вычисляем высоту для грида
-    const getGridItemHeight = useCallback(() => {
-        if (!gridHeight) return 'auto'
-        // 2 колонки, отступы 8px
-        const itemsPerRow = viewMode === 'grid' ? 2 : 1
-        const gap = viewMode === 'grid' ? 8 : 6
-        const headerHeight = 50 // примерная высота карточки с заголовком
-        const itemsPerColumn = Math.floor(gridHeight / (headerHeight + gap))
-        return Math.min(itemsPerColumn, Math.ceil(products.length / itemsPerRow) || 1)
-    }, [gridHeight, viewMode, products.length])
-
     return (
-        <div 
+        <div
             ref={containerRef}
-            className="h-[calc(100dvh-60px)] flex flex-col max-w-md mx-auto px-4 overflow-hidden"
+            className="h-full flex flex-col overflow-hidden"
+            style={{
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+            }}
         >
             {/* === ШАПКА — фиксированная === */}
-            <div ref={headerRef} className="flex-shrink-0 pt-3 pb-2">
+            <div
+                ref={headerRef}
+                className="flex-shrink-0 pt-3 pb-2"
+                style={{ flexShrink: 0 }}
+            >
                 {/* Приветствие + инфо */}
                 <div className="flex items-center justify-between mb-1.5">
                     <h1 className="text-base font-semibold text-foreground tracking-tight truncate">
@@ -314,8 +288,8 @@ export function CatalogTab({
                                 className="w-full bg-transparent text-sm placeholder:text-muted-foreground/60 focus:outline-none min-w-0"
                             />
                             {search && (
-                                <button 
-                                    onClick={() => setSearch('')} 
+                                <button
+                                    onClick={() => setSearch('')}
                                     className="p-0.5 rounded-full hover:bg-gray-200 transition-colors text-muted-foreground shrink-0"
                                 >
                                     <X className="size-2.5" />
@@ -371,8 +345,8 @@ export function CatalogTab({
                             </button>
                         </div>
                         {onStartQuiz && (
-                            <button 
-                                onClick={onStartQuiz} 
+                            <button
+                                onClick={onStartQuiz}
                                 className="text-[10px] text-primary hover:underline block text-center mt-1"
                             >
                                 <Sparkles className="inline size-2.5 mr-1" /> Пройти опросник
@@ -390,10 +364,13 @@ export function CatalogTab({
             </div>
 
             {/* === ГРИД ПРОДУКТОВ — заполняет всё оставшееся место === */}
-            <div 
-                ref={gridRef}
+            <div
                 className="flex-1 min-h-0 overflow-hidden"
-                style={{ height: gridHeight ? `${gridHeight}px` : 'auto' }}
+                style={{
+                    flex: '1 1 0%',
+                    minHeight: 0,
+                    overflow: 'hidden',
+                }}
             >
                 {loading ? (
                     <div className="flex justify-center items-center h-full">
@@ -404,7 +381,7 @@ export function CatalogTab({
                         <span className="text-3xl mb-2">🔍</span>
                         <p className="text-sm">Ничего не найдено</p>
                         {search && (
-                            <button 
+                            <button
                                 onClick={() => setSearch('')}
                                 className="mt-2 text-xs text-primary hover:underline"
                             >
@@ -413,7 +390,14 @@ export function CatalogTab({
                         )}
                     </div>
                 ) : (
-                    <div className="h-full overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
+                    <div
+                        className="h-full overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent"
+                        style={{
+                            height: '100%',
+                            overflowY: 'auto',
+                            paddingRight: '0.25rem',
+                        }}
+                    >
                         <div className={cn(
                             'grid gap-2 pb-1',
                             viewMode === 'grid' ? 'grid-cols-2' : 'grid-cols-1'
@@ -426,9 +410,9 @@ export function CatalogTab({
                                         viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3',
                                         'opacity-0 animate-in fade-in slide-in-from-bottom-3 duration-400'
                                     )}
-                                    style={{ 
-                                        animationDelay: `${Math.min(index, 15) * 40}ms`, 
-                                        animationFillMode: 'forwards' 
+                                    style={{
+                                        animationDelay: `${Math.min(index, 15) * 40}ms`,
+                                        animationFillMode: 'forwards'
                                     }}
                                     onClick={() => triggerCheck(product.name)}
                                 >
@@ -467,9 +451,9 @@ export function CatalogTab({
                                     </div>
                                     {viewMode === 'list' && (
                                         <button
-                                            onClick={(e) => { 
-                                                e.stopPropagation(); 
-                                                triggerCheck(product.name) 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                triggerCheck(product.name)
                                             }}
                                             className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20 transition-colors flex-shrink-0"
                                         >
@@ -484,7 +468,11 @@ export function CatalogTab({
             </div>
 
             {/* === ФУТЕР — пагинация и кнопка анкеты === */}
-            <div ref={footerRef} className="flex-shrink-0 py-2 space-y-1.5">
+            <div
+                ref={footerRef}
+                className="flex-shrink-0 py-2 space-y-1.5"
+                style={{ flexShrink: 0 }}
+            >
                 {/* Пагинация */}
                 {totalPages > 1 && !loading && products.length > 0 && (
                     <div className="flex items-center justify-center gap-2">
