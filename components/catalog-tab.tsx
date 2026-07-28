@@ -46,10 +46,15 @@ export function CatalogTab({
     })
     const [showSkinTypes, setShowSkinTypes] = useState(false)
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
+    const [isVisible, setIsVisible] = useState(false)
 
     const limit = 8
 
-    // Функции загрузки
+    useEffect(() => {
+        const timer = setTimeout(() => setIsVisible(true), 50)
+        return () => clearTimeout(timer)
+    }, [])
+
     const fetchCategories = async () => {
         try {
             const res = await fetch('/api/categories')
@@ -84,7 +89,6 @@ export function CatalogTab({
         }
     }
 
-    // Эффекты
     useEffect(() => {
         fetchCategories()
         fetchProducts()
@@ -204,8 +208,11 @@ export function CatalogTab({
     return (
         <div className="h-full flex flex-col overflow-hidden bg-gradient-to-b from-background via-background to-primary/5">
             {/* === ШАПКА === */}
-            <div className="flex-shrink-0 px-1 pt-1.5 pb-1">
-                {/* Приветствие + тип кожи */}
+            <div className={cn(
+                'flex-shrink-0 px-1 pt-1.5 pb-1',
+                'opacity-0 animate-in fade-in slide-in-from-top-4 duration-500',
+                isVisible && 'opacity-100'
+            )}>
                 <div className="flex items-center justify-between mb-1">
                     <h1 className="text-[15px] font-medium text-foreground tracking-tight truncate bg-gradient-to-r from-primary/80 to-primary bg-clip-text text-transparent">
                         {getGreeting()}
@@ -228,7 +235,6 @@ export function CatalogTab({
                     </div>
                 </div>
 
-                {/* Поиск + фильтры + вид */}
                 <div className="flex items-center gap-1.5 mb-1">
                     <div className="relative flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 rounded-xl bg-white/60 backdrop-blur-sm border border-gray-200/60 px-3 py-1.5 focus-within:border-primary/40 focus-within:bg-white focus-within:shadow-[0_0_30px_rgba(108,60,225,0.08)] transition-all duration-300">
@@ -271,7 +277,6 @@ export function CatalogTab({
                     </div>
                 </div>
 
-                {/* Выбор типа кожи (раскрывается) */}
                 {showSkinTypes && !profile?.skinType && (
                     <div className="mt-1.5 pt-1.5 border-t border-gray-100/50 animate-in fade-in slide-in-from-top-2 duration-200">
                         <div className="flex items-center justify-center gap-4">
@@ -302,7 +307,6 @@ export function CatalogTab({
                     </div>
                 )}
 
-                {/* Счётчик */}
                 {!loading && products.length > 0 && (
                     <p className="text-[9px] text-muted-foreground/60 text-center mt-1 font-medium tracking-wider">
                         {total} продуктов
@@ -310,7 +314,7 @@ export function CatalogTab({
                 )}
             </div>
 
-            {/* === ГРИД ПРОДУКТОВ === */}
+            {/* === ГРИД ПРОДУКТОВ + ПАГИНАЦИЯ === */}
             <div className="flex-1 min-h-0 overflow-hidden px-0.5">
                 {loading ? (
                     <div className="flex justify-center items-center h-full">
@@ -342,7 +346,7 @@ export function CatalogTab({
                         }}
                     >
                         <div className={cn(
-                            'grid gap-2 pb-2',
+                            'grid gap-2 pb-1',
                             viewMode === 'grid' ? 'grid-cols-2' : 'grid-cols-1'
                         )}>
                             {products.map((product, index) => (
@@ -351,10 +355,11 @@ export function CatalogTab({
                                     className={cn(
                                         'group bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-400 cursor-pointer hover:border-primary/30 active:scale-[0.97]',
                                         viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3',
-                                        'opacity-0 animate-in fade-in slide-in-from-bottom-4 duration-500'
+                                        'card-enter',
+                                        isVisible && `card-enter-${Math.min(index + 1, 6)}`
                                     )}
                                     style={{
-                                        animationDelay: `${Math.min(index, 15) * 35}ms`,
+                                        animationDelay: `${Math.min(index, 5) * 80}ms`,
                                         animationFillMode: 'forwards'
                                     }}
                                     onClick={() => triggerCheck(product.name)}
@@ -406,89 +411,90 @@ export function CatalogTab({
                                 </div>
                             ))}
                         </div>
+
+                        {/* ПАГИНАЦИЯ */}
+                        {totalPages > 1 && (
+                            <div className="sticky bottom-0 pt-2 pb-1 bg-gradient-to-t from-background via-background/90 to-transparent">
+                                <div className="flex items-center justify-center gap-2 max-w-[260px] mx-auto">
+                                    <button
+                                        onClick={() => handlePageChange(currentPage - 1)}
+                                        disabled={currentPage === 1}
+                                        className={cn(
+                                            'p-1 rounded-lg border transition-all duration-300',
+                                            currentPage === 1
+                                                ? 'border-gray-100 text-muted-foreground/30 cursor-not-allowed'
+                                                : 'border-gray-200 hover:border-primary/30 hover:bg-primary/5 hover:text-primary hover:scale-105 active:scale-95 text-muted-foreground'
+                                        )}
+                                    >
+                                        <ArrowLeft className="size-3.5" />
+                                    </button>
+
+                                    <div className="flex items-center gap-1">
+                                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                            let pageNum
+                                            if (totalPages <= 5) {
+                                                pageNum = i + 1
+                                            } else if (currentPage <= 3) {
+                                                pageNum = i + 1
+                                            } else if (currentPage >= totalPages - 2) {
+                                                pageNum = totalPages - 4 + i
+                                            } else {
+                                                pageNum = currentPage - 2 + i
+                                            }
+
+                                            return (
+                                                <button
+                                                    key={pageNum}
+                                                    onClick={() => handlePageChange(pageNum)}
+                                                    className={cn(
+                                                        'w-6 h-6 rounded-lg text-[10px] font-medium transition-all duration-300',
+                                                        currentPage === pageNum
+                                                            ? 'bg-primary text-white shadow-sm shadow-primary/20 scale-105'
+                                                            : 'text-muted-foreground hover:bg-primary/10 hover:text-primary hover:scale-105'
+                                                    )}
+                                                >
+                                                    {pageNum}
+                                                </button>
+                                            )
+                                        })}
+                                        {totalPages > 5 && currentPage < totalPages - 2 && (
+                                            <>
+                                                <span className="text-muted-foreground/40 text-[10px]">...</span>
+                                                <button
+                                                    onClick={() => handlePageChange(totalPages)}
+                                                    className="w-6 h-6 rounded-lg text-[10px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all duration-300"
+                                                >
+                                                    {totalPages}
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    <button
+                                        onClick={() => handlePageChange(currentPage + 1)}
+                                        disabled={currentPage === totalPages}
+                                        className={cn(
+                                            'p-1 rounded-lg border transition-all duration-300',
+                                            currentPage === totalPages
+                                                ? 'border-gray-100 text-muted-foreground/30 cursor-not-allowed'
+                                                : 'border-gray-200 hover:border-primary/30 hover:bg-primary/5 hover:text-primary hover:scale-105 active:scale-95 text-muted-foreground'
+                                        )}
+                                    >
+                                        <ArrowRight className="size-3.5" />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
 
-            {/* === ФУТЕР С ПАГИНАЦИЕЙ === */}
+            {/* === ФУТЕР === */}
             <div className="flex-shrink-0 px-1 py-1 bg-gradient-to-t from-background via-background to-transparent">
-                {/* Пагинация - компактная, всегда видна */}
-                {totalPages > 1 && !loading && products.length > 0 && (
-                    <div className="flex items-center justify-between gap-1 max-w-[280px] mx-auto">
-                        <button
-                            onClick={() => handlePageChange(currentPage - 1)}
-                            disabled={currentPage === 1}
-                            className={cn(
-                                'p-1 rounded-lg border transition-all duration-300',
-                                currentPage === 1
-                                    ? 'border-gray-100 text-muted-foreground/30 cursor-not-allowed'
-                                    : 'border-gray-200 hover:border-primary/30 hover:bg-primary/5 hover:text-primary hover:scale-105 active:scale-95 text-muted-foreground'
-                            )}
-                        >
-                            <ArrowLeft className="size-3.5" />
-                        </button>
-
-                        <div className="flex items-center gap-1">
-                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                let pageNum
-                                if (totalPages <= 5) {
-                                    pageNum = i + 1
-                                } else if (currentPage <= 3) {
-                                    pageNum = i + 1
-                                } else if (currentPage >= totalPages - 2) {
-                                    pageNum = totalPages - 4 + i
-                                } else {
-                                    pageNum = currentPage - 2 + i
-                                }
-
-                                return (
-                                    <button
-                                        key={pageNum}
-                                        onClick={() => handlePageChange(pageNum)}
-                                        className={cn(
-                                            'w-6 h-6 rounded-lg text-[10px] font-medium transition-all duration-300',
-                                            currentPage === pageNum
-                                                ? 'bg-primary text-white shadow-sm shadow-primary/20 scale-105'
-                                                : 'text-muted-foreground hover:bg-primary/10 hover:text-primary hover:scale-105'
-                                        )}
-                                    >
-                                        {pageNum}
-                                    </button>
-                                )
-                            })}
-                            {totalPages > 5 && currentPage < totalPages - 2 && (
-                                <>
-                                    <span className="text-muted-foreground/40 text-[10px]">...</span>
-                                    <button
-                                        onClick={() => handlePageChange(totalPages)}
-                                        className="w-6 h-6 rounded-lg text-[10px] font-medium text-muted-foreground hover:bg-primary/10 hover:text-primary transition-all duration-300"
-                                    >
-                                        {totalPages}
-                                    </button>
-                                </>
-                            )}
-                        </div>
-
-                        <button
-                            onClick={() => handlePageChange(currentPage + 1)}
-                            disabled={currentPage === totalPages}
-                            className={cn(
-                                'p-1 rounded-lg border transition-all duration-300',
-                                currentPage === totalPages
-                                    ? 'border-gray-100 text-muted-foreground/30 cursor-not-allowed'
-                                    : 'border-gray-200 hover:border-primary/30 hover:bg-primary/5 hover:text-primary hover:scale-105 active:scale-95 text-muted-foreground'
-                            )}
-                        >
-                            <ArrowRight className="size-3.5" />
-                        </button>
-                    </div>
-                )}
-
-                {/* Кнопка "Заполнить анкету" - минимальная */}
                 {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
-                        className="w-full py-1.5 mt-1 rounded-lg text-[9px] font-medium bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 text-primary hover:shadow-lg hover:shadow-primary/10 transition-all duration-300 active:scale-[0.97] hover:scale-[1.01]"
+                        className="w-full py-1.5 rounded-lg text-[9px] font-medium bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 text-primary hover:shadow-lg hover:shadow-primary/10 transition-all duration-300 active:scale-[0.97] hover:scale-[1.01]"
                     >
                         ✨ Заполнить анкету
                     </button>
