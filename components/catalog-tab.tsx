@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { Search, X, Sparkles, ArrowRight, Compass, Zap, Heart, Eye, TrendingUp, Clock } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Search, X, Sparkles, ArrowRight, Compass, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SKIN_TYPES } from '@/lib/products'
 import type { SkinProfile } from '@/lib/store'
@@ -14,6 +14,18 @@ interface Product {
     category: string | null
     brand: string | null
 }
+
+// ===== СКЕЛЕТОН КАРТОЧКИ =====
+const SkeletonCard = () => (
+    <div className="bg-white/50 rounded-3xl border border-gray-100/50 overflow-hidden animate-pulse">
+        <div className="w-full aspect-square bg-gray-100/70" />
+        <div className="p-4 space-y-2">
+            <div className="h-4 bg-gray-100/70 rounded-full w-3/4" />
+            <div className="h-3 bg-gray-100/50 rounded-full w-1/2" />
+            <div className="h-8 bg-gray-100/50 rounded-2xl w-full mt-2" />
+        </div>
+    </div>
+)
 
 export function CatalogTab({
     onCheck,
@@ -40,12 +52,17 @@ export function CatalogTab({
     const [brands, setBrands] = useState<string[]>([])
     const [showFilters, setShowFilters] = useState(false)
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
-    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
     const [isFocused, setIsFocused] = useState(false)
-
-    const inputRef = useRef<HTMLInputElement>(null)
+    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+    const [isVisible, setIsVisible] = useState(false)
 
     const limit = 6
+
+    // Анимация появления
+    useEffect(() => {
+        const timer = setTimeout(() => setIsVisible(true), 100)
+        return () => clearTimeout(timer)
+    }, [])
 
     const fetchCategories = async () => {
         try {
@@ -72,6 +89,10 @@ export function CatalogTab({
 
             const res = await fetch(`/api/catalog?${params}`)
             const data = await res.json()
+
+            // Имитация загрузки для плавности
+            await new Promise(resolve => setTimeout(resolve, 400))
+
             setProducts(data.products || [])
             setTotal(data.total || 0)
         } catch (error) {
@@ -130,21 +151,15 @@ export function CatalogTab({
         setShowFilters(false)
     }
 
-    // ===== ВИЗУАЛЬНЫЕ СОСТОЯНИЯ =====
-    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
-    const [rotationAngles] = useState(() =>
-        products.map(() => (Math.random() - 0.5) * 4)
-    )
-
     const FilterPopup = () => {
         if (!showFilters) return null
         return (
-            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-                <div className="absolute inset-0 bg-black/50 backdrop-blur-md" onClick={() => setShowFilters(false)} />
-                <div className="relative w-full max-w-sm bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl p-6 border border-white/20 max-h-[80vh] overflow-y-auto">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
+                <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 border border-white/20 max-h-[80vh] overflow-y-auto">
                     <div className="flex items-center justify-between mb-6">
                         <h3 className="text-lg font-light text-foreground">Настроить поиск</h3>
-                        <button onClick={() => setShowFilters(false)} className="p-2 hover:bg-gray-100/50 rounded-full transition-colors">
+                        <button onClick={() => setShowFilters(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                             <X className="size-5" />
                         </button>
                     </div>
@@ -185,7 +200,7 @@ export function CatalogTab({
                         </div>
                         <button
                             onClick={clearFilters}
-                            className="w-full py-3 rounded-2xl border border-gray-200/50 text-sm text-muted-foreground hover:bg-gray-50/50 transition-colors"
+                            className="w-full py-3 rounded-2xl border border-gray-200/50 text-sm text-muted-foreground hover:bg-gray-50 transition-colors"
                         >
                             Сбросить все
                         </button>
@@ -195,39 +210,43 @@ export function CatalogTab({
         )
     }
 
-    // ===== КОМПОНЕНТ КАРТОЧКИ =====
+    // ===== КАРТОЧКА ПРОДУКТА =====
     const ProductCard = ({ product, index }: { product: Product; index: number }) => {
         const isHovered = hoveredIndex === index
+        const delay = index * 60
 
         return (
             <div
                 className={cn(
-                    'group relative bg-white/60 backdrop-blur-sm rounded-3xl border border-white/40 shadow-sm transition-all duration-500 cursor-pointer overflow-hidden',
-                    isHovered ? 'scale-[1.02] shadow-2xl border-primary/20' : 'hover:scale-[1.02] hover:shadow-xl'
+                    'group relative bg-white/80 backdrop-blur-sm rounded-3xl border border-white/40 shadow-sm overflow-hidden cursor-pointer transition-all duration-500',
+                    isHovered ? 'scale-[1.02] shadow-2xl border-primary/20 -translate-y-1' : 'hover:scale-[1.02] hover:shadow-xl hover:-translate-y-1',
+                    'opacity-0 animate-fade-up'
                 )}
                 style={{
-                    transform: `rotate(${rotationAngles[index] || 0}deg)`,
-                    transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+                    animationDelay: `${delay}ms`,
+                    animationFillMode: 'forwards'
                 }}
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
                 onClick={() => triggerCheck(product.name)}
             >
-                {/* Градиентный фон */}
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+                {/* Glow эффект */}
+                <div className={cn(
+                    'absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent transition-opacity duration-700 pointer-events-none',
+                    isHovered ? 'opacity-100' : 'opacity-0'
+                )} />
 
                 {/* Изображение */}
-                <div className={cn(
-                    'w-full aspect-square overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100/30 flex items-center justify-center',
-                    'transition-all duration-700',
-                    isHovered ? 'scale-105' : ''
-                )}>
+                <div className="w-full aspect-square overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100/30 flex items-center justify-center">
                     {product.image_url ? (
                         <img
                             src={product.image_url}
                             alt={product.name}
                             loading="lazy"
-                            className="w-full h-full object-contain p-4 group-hover:scale-110 transition-transform duration-700"
+                            className={cn(
+                                'w-full h-full object-contain p-4 transition-transform duration-700',
+                                isHovered ? 'scale-110' : 'scale-100'
+                            )}
                         />
                     ) : (
                         <span className="text-5xl opacity-20">🧴</span>
@@ -236,7 +255,7 @@ export function CatalogTab({
 
                 {/* Информация */}
                 <div className="p-4 space-y-1">
-                    <p className="text-sm font-medium text-foreground/90 line-clamp-2 leading-snug group-hover:text-primary transition-colors duration-300">
+                    <p className="text-sm font-medium text-foreground/90 line-clamp-2 leading-snug transition-colors duration-300 group-hover:text-primary">
                         {product.name}
                     </p>
                     {product.category && (
@@ -245,9 +264,9 @@ export function CatalogTab({
                         </p>
                     )}
 
-                    {/* Кнопка "Проверить" появляется при наведении */}
+                    {/* Кнопка появляется при наведении */}
                     <div className={cn(
-                        'overflow-hidden transition-all duration-500',
+                        'overflow-hidden transition-all duration-500 ease-out',
                         isHovered ? 'max-h-12 opacity-100 mt-2' : 'max-h-0 opacity-0'
                     )}>
                         <button
@@ -258,7 +277,7 @@ export function CatalogTab({
                             className="w-full py-2 rounded-2xl bg-primary/10 text-primary text-[11px] font-medium hover:bg-primary/20 transition-all duration-300 flex items-center justify-center gap-2"
                         >
                             Проверить состав
-                            <ArrowRight className="size-3.5" />
+                            <ArrowRight className="size-3.5 transition-transform duration-300 group-hover:translate-x-1" />
                         </button>
                     </div>
                 </div>
@@ -267,10 +286,9 @@ export function CatalogTab({
     }
 
     return (
-        <div className="h-full flex flex-col overflow-hidden bg-gradient-to-br from-slate-50 via-white to-primary/[0.03]">
+        <div className="h-full flex flex-col overflow-hidden">
             {/* === ХЕДЕР === */}
-            <div className="flex-shrink-0 px-6 pt-4 pb-3">
-                {/* Верхняя строка */}
+            <div className="flex-shrink-0 px-4 pt-4 pb-3">
                 <div className="flex items-start justify-between mb-4">
                     <div>
                         <h1 className="text-2xl font-light text-foreground tracking-tight">
@@ -299,13 +317,13 @@ export function CatalogTab({
                     </button>
                 </div>
 
-                {/* Поиск — увеличенный, с фокусом */}
+                {/* Поиск */}
                 <div className={cn(
                     'relative rounded-2xl transition-all duration-300',
-                    isFocused ? 'shadow-[0_0_50px_rgba(108,60,225,0.08)]' : ''
+                    isFocused ? 'shadow-[0_0_50px_rgba(108,60,225,0.06)]' : ''
                 )}>
                     <div className={cn(
-                        'flex items-center gap-3 rounded-2xl border px-5 py-3.5 transition-all duration-300',
+                        'flex items-center gap-3 rounded-2xl border px-4 py-3 transition-all duration-300',
                         isFocused
                             ? 'border-primary/30 bg-white shadow-sm'
                             : 'border-gray-200/50 bg-white/60 backdrop-blur-sm'
@@ -315,12 +333,11 @@ export function CatalogTab({
                             isFocused ? 'text-primary' : 'text-muted-foreground/30'
                         )} />
                         <input
-                            ref={inputRef}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             onFocus={() => setIsFocused(true)}
                             onBlur={() => setIsFocused(false)}
-                            placeholder="Что ищем сегодня? ✨"
+                            placeholder="Что ищем сегодня?"
                             className="w-full bg-transparent text-sm placeholder:text-muted-foreground/30 focus:outline-none"
                         />
                         {search && (
@@ -334,7 +351,7 @@ export function CatalogTab({
                     </div>
                 </div>
 
-                {/* Фильтры и навигация */}
+                {/* Фильтры и пагинация */}
                 <div className="flex items-center justify-between mt-3">
                     <div className="flex items-center gap-2">
                         <button
@@ -388,14 +405,12 @@ export function CatalogTab({
             </div>
 
             {/* === ГАЛЕРЕЯ === */}
-            <div className="flex-1 min-h-0 overflow-hidden px-6 pb-24">
+            <div className="flex-1 min-h-0 overflow-hidden px-4 pb-28">
                 {loading ? (
-                    <div className="flex flex-col items-center justify-center h-full gap-4">
-                        <div className="relative w-12 h-12">
-                            <div className="absolute inset-0 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-                            <div className="absolute inset-2 rounded-full border-2 border-primary/5 animate-pulse" />
-                        </div>
-                        <p className="text-xs text-muted-foreground/30 font-light animate-pulse">Ищем...</p>
+                    <div className="grid grid-cols-2 gap-3">
+                        {Array.from({ length: 6 }).map((_, i) => (
+                            <SkeletonCard key={i} />
+                        ))}
                     </div>
                 ) : products.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center">
@@ -432,7 +447,7 @@ export function CatalogTab({
             </div>
 
             {/* === ФУТЕР === */}
-            <div className="flex-shrink-0 px-6 pb-4 pt-2 bg-gradient-to-t from-white via-white/80 to-transparent">
+            <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-gradient-to-t from-white via-white/80 to-transparent">
                 {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
@@ -440,7 +455,7 @@ export function CatalogTab({
                     >
                         <Zap className="size-4" />
                         Заполнить анкету
-                        <ArrowRight className="size-4" />
+                        <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
                     </button>
                 )}
             </div>
