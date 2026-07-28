@@ -46,14 +46,8 @@ export function CatalogTab({
     })
     const [showSkinTypes, setShowSkinTypes] = useState(false)
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
-    const [isVisible, setIsVisible] = useState(false)
 
     const limit = 8
-
-    useEffect(() => {
-        const timer = setTimeout(() => setIsVisible(true), 50)
-        return () => clearTimeout(timer)
-    }, [])
 
     const fetchCategories = async () => {
         try {
@@ -149,9 +143,9 @@ export function CatalogTab({
     const FilterPopup = () => {
         if (!showFilters) return null
         return (
-            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
                 <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
-                <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 animate-in slide-in-from-bottom-4 duration-300 max-h-[80vh] overflow-y-auto">
+                <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 max-h-[80vh] overflow-y-auto">
                     <div className="flex items-center justify-between mb-6">
                         <h3 className="text-lg font-semibold text-foreground">Фильтры</h3>
                         <button onClick={() => setShowFilters(false)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors">
@@ -207,7 +201,7 @@ export function CatalogTab({
 
     return (
         <div className="h-full flex flex-col overflow-hidden bg-gradient-to-b from-background via-background to-primary/5">
-            {/* === ШАПКА === */}
+            {/* ШАПКА */}
             <div className="flex-shrink-0 px-1 pt-1.5 pb-1">
                 <div className="flex items-center justify-between mb-1">
                     <h1 className="text-[15px] font-medium text-foreground tracking-tight truncate bg-gradient-to-r from-primary/80 to-primary bg-clip-text text-transparent">
@@ -352,7 +346,7 @@ export function CatalogTab({
                 )}
 
                 {showSkinTypes && !profile?.skinType && (
-                    <div className="mt-1.5 pt-1.5 border-t border-gray-100/50 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <div className="mt-1.5 pt-1.5 border-t border-gray-100/50">
                         <div className="flex items-center justify-center gap-4">
                             <button
                                 onClick={() => handleSkinTypeChange('left')}
@@ -382,8 +376,8 @@ export function CatalogTab({
                 )}
             </div>
 
-            {/* === ГРИД ПРОДУКТОВ === */}
-            <div className="flex-1 min-h-0 overflow-hidden px-0.5 pb-2">
+            {/* ГРИД */}
+            <div className="flex-1 min-h-0 overflow-hidden px-0.5 pb-16">
                 {loading ? (
                     <div className="flex justify-center items-center h-full">
                         <div className="relative">
@@ -423,8 +417,8 @@ export function CatalogTab({
                                     className={cn(
                                         'group bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-400 cursor-pointer hover:border-primary/30 active:scale-[0.97]',
                                         viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3',
-                                        'opacity-0',
-                                        isVisible && `card-enter-${Math.min(index + 1, 6)}`
+                                        'card-enter',
+                                        `card-enter-${Math.min(index + 1, 6)}`
                                     )}
                                     style={{
                                         animationDelay: `${Math.min(index, 5) * 80}ms`,
@@ -483,8 +477,8 @@ export function CatalogTab({
                 )}
             </div>
 
-            {/* === ФУТЕР === */}
-            <div className="flex-shrink-0 px-1 py-1 bg-gradient-to-t from-background via-background to-transparent">
+            {/* ФУТЕР */}
+            <div className="flex-shrink-0 px-1 pb-4 pt-1 bg-gradient-to-t from-background via-background to-transparent">
                 {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
