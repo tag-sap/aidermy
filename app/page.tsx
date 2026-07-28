@@ -331,6 +331,7 @@ export default function Page() {
       })
 
       // Сохраняем историю на сервер
+      // Сохраняем историю на сервер
       const token = localStorage.getItem('token')
       if (token && isAuthenticated) {
         try {
@@ -348,9 +349,21 @@ export default function Page() {
               body: JSON.stringify({
                 user_id: userData.id,
                 result: {
-                  ...fullResult,
                   product: product,
-                  createdAt: Date.now()
+                  skinType: skinType,
+                  score: data.score || 0,
+                  verdict: data.verdict || 'Нет данных',
+                  summary: data.summary || 'Не удалось получить рекомендацию.',
+                  stats: data.stats || {},
+                  skin_type_recommendation: data.skin_type_recommendation || '',
+                  safe_ingredients: data.safe_ingredients || [],
+                  caution_ingredients: data.caution_ingredients || [],
+                  slug: data.slug || '',
+                  image_url: image_url,
+                  createdAt: Date.now(),
+                  active_ingredients: data.active_ingredients,
+                  how_to_use: data.how_to_use,
+                  expectations: data.expectations,
                 }
               })
             })

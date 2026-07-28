@@ -638,3 +638,9 @@ body {
   height: auto;
   background: #FAF9F6;
 }
+
+main {
+  min-height: 100dvh;
+  height: auto;
+  background: #FAF9F6;
+}
