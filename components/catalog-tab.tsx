@@ -46,14 +46,8 @@ export function CatalogTab({
     })
     const [showSkinTypes, setShowSkinTypes] = useState(false)
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
-    const [isVisible, setIsVisible] = useState(false)
 
     const limit = 8
-
-    useEffect(() => {
-        const timer = setTimeout(() => setIsVisible(true), 50)
-        return () => clearTimeout(timer)
-    }, [])
 
     const fetchCategories = async () => {
         try {
@@ -423,8 +417,8 @@ export function CatalogTab({
                                     className={cn(
                                         'group bg-white/80 backdrop-blur-sm rounded-xl border border-gray-100/50 shadow-sm hover:shadow-xl transition-all duration-400 cursor-pointer hover:border-primary/30 active:scale-[0.97]',
                                         viewMode === 'grid' ? 'p-2.5' : 'p-3 flex items-center gap-3',
-                                        'opacity-0',
-                                        isVisible && `card-enter-${Math.min(index + 1, 6)}`
+                                        'card-enter', // базовый класс
+                                        `card-enter-${Math.min(index + 1, 6)}` // номер анимации
                                     )}
                                     style={{
                                         animationDelay: `${Math.min(index, 5) * 80}ms`,
@@ -483,8 +477,8 @@ export function CatalogTab({
                 )}
             </div>
 
-            {/* === ФУТЕР — с отступом снизу для таб-бара === */}
-            <div className="flex-shrink-0 px-1 pb-2 pt-1 bg-gradient-to-t from-background via-background to-transparent">
+            {/* === ФУТЕР — с большим отступом снизу === */}
+            <div className="flex-shrink-0 px-1 pb-4 pt-1 bg-gradient-to-t from-background via-background to-transparent">
                 {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
