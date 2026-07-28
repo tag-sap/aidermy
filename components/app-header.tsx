@@ -21,16 +21,6 @@ export function AppHeader({
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
-  const [isCentered, setIsCentered] = useState(false)
-
-  useEffect(() => {
-    const checkWidth = () => {
-      setIsCentered(window.innerWidth < 1024)
-    }
-    checkWidth()
-    window.addEventListener('resize', checkWidth)
-    return () => window.removeEventListener('resize', checkWidth)
-  }, [])
 
   const handleProfileClick = () => {
     if (isAuthenticated) {
@@ -42,38 +32,40 @@ export function AppHeader({
 
   return (
     <>
-      <header className="relative z-20 flex w-full flex-col items-center pt-6 pb-1 md:pt-0">
-        <div className={`w-full flex ${isCentered ? 'justify-center' : 'justify-start pl-6'} transition-all duration-300`}>
+      <header className="relative z-20 flex w-full items-center justify-between px-4 py-1.5">
+        {/* Логотип - компактный */}
+        <div className="flex-shrink-0">
           <AidermyLogo />
         </div>
 
-        <div className="absolute right-4 top-3 flex items-center gap-2 md:right-6 md:top-4">
+        {/* Кнопки - компактные */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           <button
             type="button"
             aria-label="Помощь"
             onClick={() => setShowHelp(!showHelp)}
-            className="relative z-50 flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
+            className="flex size-7 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
           >
-            <span className="text-sm font-normal">?</span>
+            <span className="text-xs font-normal">?</span>
           </button>
 
           {isAuthenticated ? (
             <button
               type="button"
               onClick={handleProfileClick}
-              className="flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10 relative"
+              className="flex size-7 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10 relative"
             >
-              <span className="text-sm font-normal uppercase">{userName?.[0] || 'U'}</span>
-              <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 border-2 border-white" />
+              <span className="text-xs font-normal uppercase">{userName?.[0] || 'U'}</span>
+              <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-green-500 border-2 border-white" />
             </button>
           ) : (
             <button
               type="button"
               onClick={onAuth}
-              className="flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
+              className="flex size-7 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
               aria-label="Войти"
             >
-              <LogIn className="size-5" />
+              <LogIn className="size-4" />
             </button>
           )}
         </div>
@@ -83,22 +75,22 @@ export function AppHeader({
       {isAuthenticated && showUserMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-          <div className="fixed right-4 top-16 z-50 w-56 rounded-lg bg-white shadow-xl border border-primary/10 overflow-hidden md:right-6 md:top-14">
-            <div className="px-4 py-3 border-b border-gray-100">
-              <p className="font-normal text-sm text-foreground">{userName}</p>
-              <p className="text-xs text-muted-foreground">Личный кабинет</p>
+          <div className="fixed right-4 top-12 z-50 w-52 rounded-lg bg-white shadow-xl border border-primary/10 overflow-hidden">
+            <div className="px-3 py-2 border-b border-gray-100">
+              <p className="font-normal text-xs text-foreground truncate">{userName}</p>
+              <p className="text-[10px] text-muted-foreground">Личный кабинет</p>
             </div>
 
-            <div className="py-1">
+            <div className="py-0.5">
               <button
                 onClick={() => {
                   setShowUserMenu(false)
                   onProfile()
                 }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 transition-colors"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-primary/5 transition-colors"
               >
-                <Settings className="size-4 text-muted-foreground" />
-                Анкета и настройки
+                <Settings className="size-3.5 text-muted-foreground" />
+                Анкета
               </button>
 
               <button
@@ -106,32 +98,32 @@ export function AppHeader({
                   setShowUserMenu(false)
                   onProfile()
                 }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 transition-colors"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-primary/5 transition-colors"
               >
-                <History className="size-4 text-muted-foreground" />
-                История проверок
+                <History className="size-3.5 text-muted-foreground" />
+                История
               </button>
 
               <button
                 onClick={() => {
                   setShowUserMenu(false)
                 }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 transition-colors"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-primary/5 transition-colors"
               >
-                <Heart className="size-4 text-muted-foreground" />
+                <Heart className="size-3.5 text-muted-foreground" />
                 Избранное
               </button>
             </div>
 
-            <div className="border-t border-gray-100 py-1">
+            <div className="border-t border-gray-100 py-0.5">
               <button
                 onClick={() => {
                   setShowUserMenu(false)
                   onLogout?.()
                 }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-500 hover:bg-red-50 transition-colors"
               >
-                <LogOut className="size-4" />
+                <LogOut className="size-3.5" />
                 Выйти
               </button>
             </div>
@@ -146,34 +138,34 @@ export function AppHeader({
             className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
             onClick={() => setShowHelp(false)}
           />
-          <div className="fixed right-4 top-20 z-50 w-64 rounded-lg bg-white p-4 shadow-xl border border-primary/10 md:right-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-normal text-foreground">Помощь</h3>
+          <div className="fixed right-4 top-14 z-50 w-52 rounded-lg bg-white p-3 shadow-xl border border-primary/10">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-normal text-foreground">Помощь</h3>
               <button
                 onClick={() => setShowHelp(false)}
                 className="text-muted-foreground hover:text-foreground"
               >
-                <X className="size-4" />
+                <X className="size-3.5" />
               </button>
             </div>
-            <p className="mb-3 text-xs text-muted-foreground">
+            <p className="mb-2 text-[10px] text-muted-foreground">
               Есть вопросы? Напишите нам!
             </p>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5">
               <a
                 href="https://t.me/aidermy_news"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
+                className="flex items-center gap-2 rounded-md border border-primary/15 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
               >
-                <span className="text-base">📱</span>
+                <span className="text-sm">📱</span>
                 Telegram
               </a>
               <a
                 href="mailto:lyr.ami.tag@gmail.com"
-                className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
+                className="flex items-center gap-2 rounded-md border border-primary/15 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
               >
-                <span className="text-base">✉️</span>
+                <span className="text-sm">✉️</span>
                 Email
               </a>
             </div>
