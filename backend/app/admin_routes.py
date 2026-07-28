@@ -49,15 +49,27 @@ def setup_admin_routes(app: FastAPI):
         except:
             pass
         
-        # Получаем пользователей
+        # Получаем пользователей с профилями
         users = []
         try:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT id, email, name, is_verified, created_at 
-                FROM users 
-                ORDER BY created_at DESC
+                SELECT 
+                    u.id,
+                    u.email,
+                    u.name,
+                    u.is_verified,
+                    u.created_at,
+                    p.skin_type,
+                    p.age,
+                    p.concerns,
+                    p.allergies,
+                    p.custom_text,
+                    p.updated_at as profile_updated
+                FROM users u
+                LEFT JOIN user_profiles p ON u.id = p.user_id
+                ORDER BY u.created_at DESC
                 LIMIT 50
             ''')
             users = cursor.fetchall()
@@ -234,13 +246,15 @@ def setup_admin_routes(app: FastAPI):
                 row = dict(u)
                 verified_badge = '<span class="badge-green">✅ Да</span>' if row.get('is_verified') else '<span class="badge-red">❌ Нет</span>'
                 html += f"""
-                                <tr>
-                                    <td>{row['id']}</td>
-                                    <td><strong>{row['email']}</strong></td>
-                                    <td>{row.get('name', '—')}</td>
-                                    <td>{verified_badge}</td>
-                                    <td style="font-size: 12px;">{row['created_at']}</td>
-                                </tr>
+                    <tr>
+                        <td>{row['id']}</td>
+                        <td><strong>{row['email']}</strong></td>
+                        <td>{row.get('name', '—')}</td>
+                        <td>{row.get('skin_type', '—')}</td>
+                        <td>{row.get('age', '—')}</td>
+                        <td>{verified_badge}</td>
+                        <td style="font-size: 12px;">{row['created_at']}</td>
+                    </tr>
                 """
         else:
             html += """<tr><td colspan="5" class="empty-state">👤 Нет зарегистрированных пользователей</td></tr>"""
