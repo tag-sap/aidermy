@@ -418,8 +418,8 @@ async def save_history(request: Request):
     cursor = conn.cursor()
     
     cursor.execute('''
-        INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, ingredients, slug, image_url, active_ingredients, how_to_use, expectations)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, ingredients, slug, image_url, active_ingredients, how_to_use, expectations, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ''', (
         user_id,
         result.get('product'),

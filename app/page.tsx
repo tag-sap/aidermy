@@ -211,26 +211,26 @@ export default function Page() {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (!userRes.ok) throw new Error('Не удалось получить данные пользователя')
-        
+
         const userData = await userRes.json()
-        
+
         const res = await fetch('/api/auth/profile', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`
           },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             user_id: userData.id,
-            profile: p 
+            profile: p
           })
         })
-        
+
         if (!res.ok) {
           const error = await res.json()
           throw new Error(error.detail || 'Ошибка сохранения')
         }
-        
+
         console.log('✅ Профиль сохранён на сервере')
       } catch (error) {
         console.error('Ошибка сохранения профиля:', error)
@@ -347,7 +347,11 @@ export default function Page() {
               },
               body: JSON.stringify({
                 user_id: userData.id,
-                result: fullResult
+                result: {
+                  ...fullResult,
+                  product: product,
+                  createdAt: Date.now()
+                }
               })
             })
           }
