@@ -1,11 +1,11 @@
 'use client'
 
-import { ScanLine, History, User, Search } from 'lucide-react'
+import { Search, History, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
-export type TabId = 'checker' | 'catalog' | 'history' | 'profile'
 
-const TABS: { id: TabId; label: string; icon: typeof ScanLine }[] = [
-  { id: 'checker', label: 'Чекер', icon: ScanLine },
+export type TabId = 'catalog' | 'history' | 'profile'
+
+const TABS: { id: TabId; label: string; icon: typeof Search }[] = [
   { id: 'catalog', label: 'Каталог', icon: Search },
   { id: 'history', label: 'История', icon: History },
   { id: 'profile', label: 'Профиль', icon: User },

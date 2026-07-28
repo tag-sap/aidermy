@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles, ScanSearch, Gem } from 'lucide-react'
+import { Search, Filter, ChevronLeft, ChevronRight, Info, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Chip } from '@/components/chip'
 import { SKIN_TYPES } from '@/lib/products'
@@ -67,7 +67,6 @@ export function CatalogTab({
     const [showFilters, setShowFilters] = useState(false)
     const [isVisible, setIsVisible] = useState(false)
     const [skinType, setSkinType] = useState(profile?.skinType || '')
-    const [popularProducts, setPopularProducts] = useState<Array<{ name: string; image_url?: string }>>([])
 
     const limit = 20
     const cardStyle = "relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-5 border border-primary/20 backdrop-blur-sm hover:shadow-md transition-shadow"
@@ -76,25 +75,6 @@ export function CatalogTab({
     useEffect(() => {
         const timer = setTimeout(() => setIsVisible(true), 50)
         return () => clearTimeout(timer)
-    }, [])
-
-    // Популярные продукты
-    useEffect(() => {
-        const fetchPopular = async () => {
-            try {
-                const res = await fetch('/api/popular-products')
-                if (res.ok) {
-                    const data = await res.json()
-                    setPopularProducts(data.products.map((p: any) => ({
-                        name: p.name,
-                        image_url: p.image_url || ''
-                    })))
-                }
-            } catch (error) {
-                console.error('Ошибка загрузки популярных продуктов:', error)
-            }
-        }
-        fetchPopular()
     }, [])
 
     useEffect(() => {
@@ -154,14 +134,6 @@ export function CatalogTab({
         }
     }
 
-    const activeSkinType = profile?.skinType || skinType
-    const canCheck = search.trim().length > 0 && activeSkinType.length > 0
-
-    const handleCheck = () => {
-        if (!canCheck) return
-        triggerCheck(search.trim())
-    }
-
     const getGreeting = () => {
         const name = profile?.name || ''
         const base = name ? `Привет, ${name}.` : 'Привет.'
@@ -170,12 +142,15 @@ export function CatalogTab({
 
     return (
         <div className="flex flex-col gap-5 max-w-md mx-auto">
-            {/* ПРИВЕТСТВИЕ */}
+            {/* ПРИВЕТСТВИЕ + КАК ЭТО РАБОТАЕТ */}
             <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-1')}>
                 <div className="relative z-10">
                     <div className="flex items-center justify-between">
                         <h1 className="text-2xl font-normal text-foreground tracking-tight">{getGreeting()}</h1>
-                        <button onClick={onInfoClick} className="px-3 py-1.5 rounded-full bg-white/50 text-xs text-muted-foreground hover:text-primary hover:bg-white transition-colors border border-gray-200/50 backdrop-blur-sm">
+                        <button
+                            onClick={onInfoClick}
+                            className="px-3 py-1.5 rounded-full bg-white/50 text-xs text-muted-foreground hover:text-primary hover:bg-white transition-colors border border-gray-200/50 backdrop-blur-sm"
+                        >
                             <Info className="inline size-3 mr-1" />Как это работает
                         </button>
                     </div>
@@ -186,9 +161,7 @@ export function CatalogTab({
             {/* ПОИСК */}
             <div className={cardStyle}>
                 <div className="relative z-10">
-                    <div className="flex items-center justify-between mb-3">
-                        <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">Поиск</label>
-                    </div>
+                    <label className="block text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground mb-3">Поиск</label>
                     <div className="relative">
                         <div className="flex items-center gap-3 rounded-xl border px-4 py-3 bg-white/50 transition-all border-gray-200/50 hover:border-gray-300">
                             <Search className="size-4 shrink-0 text-muted-foreground" />
@@ -221,7 +194,10 @@ export function CatalogTab({
                                 <Chip key={t} label={t} active={skinType === t} onClick={() => setSkinType(t)} />
                             ))}
                             {onStartQuiz && (
-                                <button onClick={onStartQuiz} className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1 bg-white/50 backdrop-blur-sm">
+                                <button
+                                    onClick={onStartQuiz}
+                                    className="px-4 py-1.5 rounded-full text-sm text-primary border border-primary/30 hover:bg-primary/5 transition-colors flex items-center gap-1 bg-white/50 backdrop-blur-sm"
+                                >
                                     <Sparkles className="size-3" /> Опросник
                                 </button>
                             )}
@@ -239,48 +215,8 @@ export function CatalogTab({
                 </div>
             </div>
 
-            {/* КНОПКА ПРОВЕРИТЬ */}
-            <div className={cn('card-enter', isVisible && 'card-enter-3')}>
-                <button
-                    onClick={handleCheck}
-                    disabled={!canCheck}
-                    className={cn(
-                        'w-full py-4 rounded-2xl text-white font-normal text-base transition-all',
-                        canCheck ? 'bg-gradient-to-r from-primary to-primary/80 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98]' : 'bg-gray-200/70 text-gray-400 cursor-not-allowed backdrop-blur-sm'
-                    )}
-                >
-                    <ScanSearch className="inline size-4 mr-2" /> Проверить
-                </button>
-            </div>
-
-            {/* ПОПУЛЯРНОЕ */}
-            <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-4')}>
-                <div className="relative z-10">
-                    <label className="text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground flex items-center gap-1.5">
-                        <Gem className="size-3 text-primary" /> Популярное
-                    </label>
-                    <div className="mt-3 flex flex-col gap-2 w-full">
-                        {popularProducts.map((p) => (
-                            <div
-                                key={p.name}
-                                onClick={() => setSearch(p.name)}
-                                className="w-full px-4 py-2.5 rounded-xl border cursor-pointer transition-all border-primary/10 hover:border-primary/30 hover:bg-primary/5 bg-white/30 backdrop-blur-sm flex items-center gap-3"
-                            >
-                                {p.image_url && (
-                                    <div className="product-image-wrapper">
-                                        <img src={p.image_url} alt={p.name} className="product-image" />
-                                    </div>
-                                )}
-                                <MarqueeText text={p.name} className="text-sm" />
-                            </div>
-                        ))}
-                        {popularProducts.length === 0 && <p className="text-sm text-muted-foreground py-2">Загрузка...</p>}
-                    </div>
-                </div>
-            </div>
-
             {/* ФИЛЬТРЫ */}
-            <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-5')}>
+            <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-3')}>
                 <div className="relative z-10">
                     <button
                         onClick={() => setShowFilters(!showFilters)}
@@ -333,7 +269,7 @@ export function CatalogTab({
             </div>
 
             {/* КАТАЛОГ */}
-            <div className={cn('card-enter', isVisible && 'card-enter-6')}>
+            <div className={cn('card-enter', isVisible && 'card-enter-4')}>
                 {loading ? (
                     <div className="flex justify-center py-10">
                         <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary/30 border-t-primary" />
@@ -365,8 +301,8 @@ export function CatalogTab({
                                             <img src={product.image_url} alt={product.name} className="product-image" />
                                         </div>
                                     )}
-                                    <div className="flex-1 min-w-0">
-                                        <MarqueeText text={product.name} className="text-sm font-normal text-foreground" />
+                                    <div className="flex-1 min-w-0 overflow-x-auto">
+                                        <p className="text-sm font-normal text-foreground whitespace-nowrap">{product.name}</p>
                                         {product.category && <span className="text-xs text-muted-foreground">{product.category}</span>}
                                     </div>
                                     <button
@@ -404,7 +340,7 @@ export function CatalogTab({
 
             {/* ЗАПОЛНИТЬ АНКЕТУ */}
             {!profile?.skinType && (
-                <div className={cn('card-enter', isVisible && 'card-enter-7')}>
+                <div className={cn('card-enter', isVisible && 'card-enter-5')}>
                     <button onClick={onGoToProfile} className="w-full text-sm text-primary hover:text-primary/80 transition-colors flex items-center gap-1 justify-center py-3 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl border border-primary/20 backdrop-blur-sm px-4">
                         Заполни анкету для точных рекомендаций
                     </button>

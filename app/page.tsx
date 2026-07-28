@@ -6,7 +6,6 @@ import { CyberGrid } from '@/components/cyber-grid'
 import { AppHeader } from '@/components/app-header'
 import { AuthModal } from '@/components/auth-modal'
 import { TabBar, type TabId } from '@/components/tab-bar'
-import { CheckerTab } from '@/components/checker-tab'
 import { HistoryTab } from '@/components/history-tab'
 import { ProfileTab } from '@/components/profile-tab'
 import { ResultSheet } from '@/components/result-sheet'
@@ -29,7 +28,7 @@ import {
 } from '@/lib/store'
 
 export default function Page() {
-  const [tab, setTab] = useState<TabId>('checker')
+  const [tab, setTab] = useState<TabId>('catalog')
   const [profile, setProfile] = useState<SkinProfile>(emptyProfile)
   const [history, setHistory] = useState<CheckResult[]>([])
   const [hydrated, setHydrated] = useState(false)
@@ -44,9 +43,6 @@ export default function Page() {
   const [showQuiz, setShowQuiz] = useState(false)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
-  const handleCatalogClick = () => {
-    setTab('catalog')
-  }
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -196,7 +192,7 @@ export default function Page() {
     localStorage.removeItem('userName')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
-    setTab('checker')
+    setTab('catalog')
   }
 
   const handleSaveProfile = async (p: SkinProfile) => {
@@ -257,7 +253,7 @@ export default function Page() {
     setProfile(updatedProfile)
     saveProfile(updatedProfile)
     setShowQuiz(false)
-    setTab('checker')
+    setTab('catalog')
   }
 
   const handleCheck = async (product: string, skinType: string) => {
@@ -330,7 +326,6 @@ export default function Page() {
         return next
       })
 
-      // Сохраняем историю на сервер
       // Сохраняем историю на сервер
       const token = localStorage.getItem('token')
       if (token && isAuthenticated) {
@@ -463,25 +458,15 @@ export default function Page() {
               />
             ) : (
               <div className="tab-content-wrapper">
-                {tab === 'checker' && (
+                {tab === 'catalog' && (
                   <div className="tab-content">
-                    <CheckerTab
-                      key={hydrated ? 'checker-ready' : 'checker-loading'}
+                    <CatalogTab
+                      key={hydrated ? 'catalog-ready' : 'catalog-loading'}
                       profile={profile}
-                      profileComplete={hydrated && isProfileComplete(profile)}
                       onCheck={handleCheck}
                       onGoToProfile={handleGoToProfile}
                       onStartQuiz={() => setShowQuiz(true)}
                       onInfoClick={() => setShowInfo(true)}
-                      onCatalogClick={() => setTab('catalog')}
-                    />
-                  </div>
-                )}
-                {tab === 'catalog' && (
-                  <div className="tab-content">
-                    <CatalogTab
-                      onCheck={handleCheck}
-                      profile={profile}
                     />
                   </div>
                 )}
