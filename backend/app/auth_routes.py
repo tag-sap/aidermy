@@ -276,3 +276,117 @@ async def submit_product(
         "message": "Продукт отправлен на модерацию. Спасибо за вклад! 🙌",
         "pending_id": pending_id
     }
+@app.post("/api/profile")
+async def save_profile(request: Request):
+    data = await request.json()
+    user_id = data.get('user_id')
+    profile = data.get('profile')
+    
+    if not user_id or not profile:
+        raise HTTPException(status_code=400, detail="Missing data")
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        INSERT INTO user_profiles (user_id, name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            name = excluded.name,
+            skin_type = excluded.skin_type,
+            age = excluded.age,
+            concerns = excluded.concerns,
+            allergies = excluded.allergies,
+            custom_text = excluded.custom_text,
+            quiz_answers = excluded.quiz_answers,
+            skin_type_determined = excluded.skin_type_determined,
+            updated_at = CURRENT_TIMESTAMP
+    ''', (
+        user_id,
+        profile.get('name'),
+        profile.get('skinType'),
+        profile.get('age'),
+        ','.join(profile.get('concerns', [])),
+        ','.join(profile.get('allergies', [])),
+        profile.get('customText'),
+        json.dumps(profile.get('quizAnswers', {})),
+        profile.get('skinTypeDetermined')
+    ))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"status": "ok"}
+
+@app.get("/api/profile/{user_id}")
+async def get_profile(user_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined
+        FROM user_profiles
+        WHERE user_id = ?
+        ORDER BY updated_at DESC
+        LIMIT 1
+    ''', (user_id,))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return {"profile": None}
+    
+    return {
+        "profile": {
+            "name": row[0],
+            "skinType": row[1],
+            "age": row[2],
+            "concerns": row[3].split(',') if row[3] else [],
+            "allergies": row[4].split(',') if row[4] else [],
+            "customText": row[5],
+            "quizAnswers": json.loads(row[6]) if row[6] else {},
+            "skinTypeDetermined": row[7]
+        }
+    }
+@app.get("/api/profile/me")
+async def get_my_profile(request: Request):
+    from .auth import get_current_user_from_token
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
+    user = await get_current_user_from_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined
+        FROM user_profiles
+        WHERE user_id = ?
+        ORDER BY updated_at DESC
+        LIMIT 1
+    ''', (user['id'],))
+    
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return {"profile": None}
+    
+    return {
+        "profile": {
+            "name": row[0],
+            "skinType": row[1],
+            "age": row[2],
+            "concerns": row[3].split(',') if row[3] else [],
+            "allergies": row[4].split(',') if row[4] else [],
+            "customText": row[5],
+            "quizAnswers": json.loads(row[6]) if row[6] else {},
+            "skinTypeDetermined": row[7]
+        }
+    }

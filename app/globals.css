@@ -613,3 +613,19 @@ div {
   mix-blend-mode: multiply;
   /* убирает белый фон */
 }
+
+.scrollable-text {
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.scrollable-text::-webkit-scrollbar {
+  height: 4px;
+}
+
+.scrollable-text::-webkit-scrollbar-thumb {
+  background: #6c3ce1;
+  border-radius: 4px;
+}

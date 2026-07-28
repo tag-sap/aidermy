@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
 import { CyberGrid } from '@/components/cyber-grid'
 import { AppHeader } from '@/components/app-header'
@@ -15,6 +15,7 @@ import { SkinQuiz } from '@/components/skin-quiz'
 import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
 import { CatalogTab } from '@/components/catalog-tab'
+
 import {
   emptyProfile,
   isProfileComplete,
@@ -121,10 +122,27 @@ export default function Page() {
     localStorage.removeItem('userName')
   }
 
-  const handleSaveProfile = (p: SkinProfile) => {
+  const handleSaveProfile = async (p: SkinProfile) => {
     setProfile(p)
     saveProfile(p)
     setProfileDirty(false)
+
+    // Сохраняем на сервер
+    const token = localStorage.getItem('token')
+    if (token) {
+      try {
+        await fetch('/api/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ profile: p })
+        })
+      } catch (error) {
+        console.error('Ошибка сохранения профиля на сервере:', error)
+      }
+    }
   }
 
   const handleProfileChange = (dirty: boolean) => {

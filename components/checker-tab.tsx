@@ -354,7 +354,7 @@ export function CheckerTab({
                         />
                       </div>
                     )}
-                    <span className="overflow-x-auto">{product.name}</span>
+                    <span className="scrollable-text">{product.name}</span>
                   </button>
                 ))}
               </div>
