@@ -24,8 +24,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     const [isVisible, setIsVisible] = useState(false)
 
     const MAX_CUSTOM_TEXT = 100
-    const isFirstRender = useRef(true)
-    const prevDraftRef = useRef<SkinProfile>(profile)
     const scrollRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -33,7 +31,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       return () => clearTimeout(timer)
     }, [])
 
-    // Скролл наверх при монтировании
     useEffect(() => {
       if (scrollRef.current) {
         scrollRef.current.scrollTop = 0
@@ -44,45 +41,34 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       getDraft: () => draft,
     }))
 
-    // Проверка изменений - сравниваем с предыдущим draft
+    // Проверка изменений для кнопки "Сохранить"
     useEffect(() => {
-      // Пропускаем первый рендер
-      if (isFirstRender.current) {
-        isFirstRender.current = false
-        prevDraftRef.current = draft
-        return
-      }
-
-      // Сравниваем с предыдущим значением draft
-      const isChanged = JSON.stringify(draft) !== JSON.stringify(prevDraftRef.current)
-      
+      const isChanged = JSON.stringify(draft) !== JSON.stringify(profile)
+      setHasChanges(isChanged)
       if (isChanged) {
-        setHasChanges(true)
         setSaved(false)
-        // Вызываем onDirtyChange только если есть реальные изменения
-        if (onDirtyChange) {
-          onDirtyChange(true)
-        }
-      } else {
-        // Если ничего не изменилось, но hasChanges остался true - сбрасываем
-        if (hasChanges) {
-          setHasChanges(false)
-          if (onDirtyChange) {
-            onDirtyChange(false)
-          }
-        }
       }
-      
-      // Обновляем предыдущее значение
-      prevDraftRef.current = draft
-    }, [draft, onDirtyChange, hasChanges])
+    }, [draft, profile])
+
+    // Вызываем onDirtyChange только при изменении чипов (не текстовых полей)
+    const handleDirtyChange = (isDirty: boolean) => {
+      if (onDirtyChange) {
+        onDirtyChange(isDirty)
+      }
+    }
 
     const toggleArray = (key: 'concerns' | 'allergies', value: string) => {
       setDraft((prev) => {
         const set = new Set(prev[key])
         if (set.has(value)) set.delete(value)
         else set.add(value)
-        return { ...prev, [key]: Array.from(set) }
+        const newDraft = { ...prev, [key]: Array.from(set) }
+        // Вызываем onDirtyChange при изменении чипов
+        const isChanged = JSON.stringify(newDraft) !== JSON.stringify(profile)
+        if (isChanged) {
+          handleDirtyChange(true)
+        }
+        return newDraft
       })
     }
 
@@ -90,14 +76,23 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       onSave(draft)
       setSaved(true)
       setHasChanges(false)
-      prevDraftRef.current = draft
-      if (onDirtyChange) {
-        onDirtyChange(false)
-      }
+      handleDirtyChange(false)
     }
 
     const handleChange = (field: keyof SkinProfile, value: any) => {
       setDraft((prev) => ({ ...prev, [field]: value }))
+      // Не вызываем onDirtyChange при текстовом вводе
+    }
+
+    const handleChipChange = (field: 'skinType' | 'age', value: string) => {
+      setDraft((prev) => {
+        const newDraft = { ...prev, [field]: value }
+        const isChanged = JSON.stringify(newDraft) !== JSON.stringify(profile)
+        if (isChanged) {
+          handleDirtyChange(true)
+        }
+        return newDraft
+      })
     }
 
     const handleReset = () => {
@@ -113,11 +108,8 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       onSave(emptyProfile)
       setSaved(true)
       setHasChanges(false)
-      prevDraftRef.current = emptyProfile
       setShowResetConfirm(false)
-      if (onDirtyChange) {
-        onDirtyChange(false)
-      }
+      handleDirtyChange(false)
     }
 
     const isProfileEmpty = () => {
@@ -168,7 +160,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
 
     return (
       <div className="h-full flex flex-col overflow-hidden pb-24">
-        {/* Заголовок */}
         <div className="flex-shrink-0 pt-1 pb-3">
           <ScrambleText
             as="h1"
@@ -180,12 +171,10 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           </p>
         </div>
 
-        {/* Контент со скроллом */}
         <div 
           ref={scrollRef}
           className="flex-1 min-h-0 overflow-y-auto pr-1 pb-4 space-y-3"
         >
-          {/* Имя */}
           <Section icon={User} title="Как к вам обращаться?" delay={1}>
             <input
               type="text"
@@ -200,7 +189,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
             </div>
           </Section>
 
-          {/* Тип кожи */}
           <Section icon={Droplets} title="Тип кожи" delay={2}>
             <div className="flex flex-wrap gap-1.5">
               {SKIN_TYPES.map((t) => (
@@ -208,13 +196,12 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                   key={t}
                   label={t}
                   active={draft.skinType === t}
-                  onClick={() => handleChange('skinType', t)}
+                  onClick={() => handleChipChange('skinType', t)}
                 />
               ))}
             </div>
           </Section>
 
-          {/* Возраст */}
           <Section icon={Calendar} title="Возраст" delay={3}>
             <div className="flex flex-wrap gap-1.5">
               {AGE_GROUPS.map((a) => (
@@ -222,13 +209,12 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                   key={a}
                   label={a}
                   active={draft.age === a}
-                  onClick={() => handleChange('age', a)}
+                  onClick={() => handleChipChange('age', a)}
                 />
               ))}
             </div>
           </Section>
 
-          {/* Что беспокоит */}
           <Section icon={AlertCircle} title="Что беспокоит" delay={4}>
             <div className="flex flex-wrap gap-1.5">
               {SKIN_CONCERNS.map((c) => (
@@ -242,7 +228,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
             </div>
           </Section>
 
-          {/* Аллергии */}
           <Section icon={AlertCircle} title="Аллергии" delay={5}>
             <div className="flex flex-wrap gap-1.5">
               {ALLERGIES.map((a) => (
@@ -256,7 +241,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
             </div>
           </Section>
 
-          {/* Опишите проблему */}
           <Section icon={Sparkles} title="Опишите проблему" delay={6}>
             <p className="text-[10px] text-muted-foreground/50 font-light mb-2">
               Коротко, 1 предложение (до 100 символов)
@@ -279,7 +263,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
             </div>
           </Section>
 
-          {/* Кнопки */}
           {!profileEmpty && (
             <div className="flex gap-2 pt-1 pb-2">
               <button
@@ -315,7 +298,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           )}
         </div>
 
-        {/* Попап подтверждения сброса */}
         {showResetConfirm && (
           <>
             <div
