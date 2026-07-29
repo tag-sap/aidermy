@@ -51,10 +51,12 @@ async def get_products(q: str = ""):
     products = search_products(q)
     return {"products": products}
 
+# main.py — в эндпоинте /api/check
+
 @app.post("/api/check", response_model=CheckResponse)
-async def check_product(request: CheckRequest):
+async def check_product(request: CheckRequest, current_user: dict = Depends(get_current_user_optional)):
     try:
-        from .database import get_connection, PRODUCTS_DB
+        from .database import get_connection, PRODUCTS_DB, save_check_result
         
         result = await check_product_with_ai(
             request.product_name,
@@ -74,8 +76,9 @@ async def check_product(request: CheckRequest):
         existing_product = cursor_products.fetchone()
         conn_products.close()
         
-        # Сохраняем в историю ТОЛЬКО если продукт есть в базе
+        # Сохраняем в историю с user_id (если пользователь авторизован)
         if result.get("ingredients") and existing_product:
+            user_id = current_user.get('id') if current_user else None
             save_check_result(
                 request.product_name,
                 request.skin_type,
@@ -83,7 +86,8 @@ async def check_product(request: CheckRequest):
                 result.get("verdict", "Нейтрально"),
                 result.get("summary", "Не удалось получить рекомендацию."),
                 result.get("ingredients", ""),
-                slug
+                slug,
+                user_id  # <-- ПЕРЕДАЁМ user_id
             )
         
         return CheckResponse(

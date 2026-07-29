@@ -440,29 +440,12 @@ async def save_history(request: Request):
     
     return {"status": "ok"}
 
+# auth_routes.py
+
 @router.get("/history")
-async def get_history(request: Request):
-    from .auth import get_current_user_from_token
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+async def get_history(current_user: dict = Depends(get_current_user)):
+    """Получить историю проверок текущего пользователя"""
+    from .database import get_user_check_history
     
-    token = auth_header.split(" ")[1] if " " in auth_header else auth_header
-    user = await get_current_user_from_token(token)
-    if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    
-    conn = get_connection(AIDERMY_DB)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT * FROM check_history
-        WHERE user_id = ?
-        ORDER BY created_at DESC
-        LIMIT 50
-    ''', (user['id'],))
-    
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return {"history": [dict(row) for row in rows]}
+    history = get_user_check_history(current_user['id'])
+    return {"history": history}

@@ -88,23 +88,51 @@ def init_db():
     print("✅ Базы данных инициализированы")
 
 # === РАБОТА С ИСТОРИЕЙ ===
-def save_check_result(product_name: str, skin_type: str, score: int, verdict: str, summary: str, ingredients: str = "", slug: str = None):
+# database.py
+
+def save_check_result(
+    product_name: str, 
+    skin_type: str, 
+    score: int, 
+    verdict: str, 
+    summary: str, 
+    ingredients: str = "", 
+    slug: str = None,
+    user_id: int = None  # <-- ДОБАВЛЯЕМ user_id
+):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO check_history (product_name, skin_type, score, verdict, summary, ingredients, slug, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ''', (product_name, skin_type, score, verdict, summary, ingredients, slug))
+        INSERT INTO check_history (product_name, skin_type, score, verdict, summary, ingredients, slug, user_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ''', (product_name, skin_type, score, verdict, summary, ingredients, slug, user_id))
     conn.commit()
     conn.close()
-    print(f"📊 Проверка сохранена: {product_name} — {score}%")
+    print(f"📊 Проверка сохранена: {product_name} — {score}% (user_id: {user_id})")
 
-def get_all_check_history(limit: int = 100):
+def get_user_check_history(user_id: int, limit: int = 100):
+    """Получить историю проверок конкретного пользователя"""
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
         SELECT * FROM check_history 
+        WHERE user_id = ?
         ORDER BY created_at DESC 
+        LIMIT ?
+    ''', (user_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_all_check_history(limit: int = 100):
+    """Получить всю историю (для админа)"""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT ch.*, u.email as user_email
+        FROM check_history ch
+        LEFT JOIN users u ON ch.user_id = u.id
+        ORDER BY ch.created_at DESC 
         LIMIT ?
     ''', (limit,))
     rows = cursor.fetchall()

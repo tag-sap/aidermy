@@ -63,6 +63,8 @@ export default function Page() {
     }
   }
 
+  // page.tsx — обновляем loadHistoryFromServer
+
   const loadHistoryFromServer = async (token: string) => {
     try {
       const res = await fetch('/api/auth/history', {

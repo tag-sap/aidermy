@@ -230,3 +230,14 @@ def update_user_profile(user_id: int, data: dict):
     cursor.execute(query, values)
     conn.commit()
     conn.close()
+
+    # auth.py
+
+async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme, optional=True)):
+    """Получить пользователя, если авторизован, иначе None"""
+    if not token:
+        return None
+    try:
+        return await get_current_user(token)
+    except:
+        return None
