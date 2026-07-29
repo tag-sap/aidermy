@@ -46,7 +46,6 @@ export function CatalogTab({
 
     const limit = 6
 
-    // Анимация появления - как в HistoryTab
     useEffect(() => {
         const timer = setTimeout(() => setIsVisible(true), 50)
         return () => clearTimeout(timer)
@@ -343,7 +342,6 @@ export function CatalogTab({
                                         className={cn(
                                             'group bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300',
                                             isHovered ? 'scale-[1.02] shadow-md border-primary/20' : 'hover:scale-[1.02] hover:shadow-md',
-                                            'card-enter',
                                             isVisible && `card-enter-${Math.min(index + 1, 6)}`
                                         )}
                                         style={{
