@@ -42,15 +42,22 @@ const CatalogTabComponent = ({
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
     const [isFocused, setIsFocused] = useState(false)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
+    const [isVisible, setIsVisible] = useState(false)
 
-    // Флаг для предотвращения двойного запроса
     const isMounted = useRef(false)
     const abortControllerRef = useRef<AbortController | null>(null)
 
     const limit = 6
 
+    // Анимация появления - как в HistoryTab
+    useEffect(() => {
+        if (!loading && products.length > 0 && isMounted.current) {
+            const timer = setTimeout(() => setIsVisible(true), 50)
+            return () => clearTimeout(timer)
+        }
+    }, [loading, products.length])
+
     const fetchCategories = async () => {
-        // Отменяем предыдущий запрос если есть
         if (abortControllerRef.current) {
             abortControllerRef.current.abort()
         }
@@ -72,13 +79,13 @@ const CatalogTabComponent = ({
     }
 
     const fetchProducts = async () => {
-        // Отменяем предыдущий запрос если есть
         if (abortControllerRef.current) {
             abortControllerRef.current.abort()
         }
         abortControllerRef.current = new AbortController()
 
         setLoading(true)
+        setIsVisible(false)
         try {
             const params = new URLSearchParams({
                 limit: String(limit),
@@ -108,7 +115,6 @@ const CatalogTabComponent = ({
         }
     }
 
-    // Монтирование только один раз
     useEffect(() => {
         isMounted.current = true
         fetchCategories()
@@ -122,7 +128,6 @@ const CatalogTabComponent = ({
         }
     }, [])
 
-    // Эффекты с зависимостями
     useEffect(() => {
         if (isMounted.current) {
             fetchProducts()
@@ -140,7 +145,6 @@ const CatalogTabComponent = ({
         return () => clearTimeout(timeout)
     }, [search])
 
-    // Отдельный эффект для fetch при смене offset через поиск
     useEffect(() => {
         if (isMounted.current) {
             fetchProducts()
@@ -247,6 +251,8 @@ const CatalogTabComponent = ({
             </div>
         </div>
     )
+
+    const cardStyle = "bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-md hover:scale-[1.02]"
 
     return (
         <div className="h-full flex flex-col overflow-hidden">
@@ -360,7 +366,7 @@ const CatalogTabComponent = ({
                 </div>
             </div>
 
-            {/* Галерея */}
+            {/* Галерея с анимацией */}
             <div className="flex-1 min-h-0 overflow-hidden">
                 {loading ? (
                     <div className="grid grid-cols-2 gap-2.5 pb-2">
@@ -378,15 +384,20 @@ const CatalogTabComponent = ({
                 ) : (
                     <div className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-gray-200/50 scrollbar-track-transparent pb-20">
                         <div className="grid grid-cols-2 gap-2.5 pb-2">
-                            {products.map((product) => {
+                            {products.map((product, index) => {
                                 const isHovered = hoveredId === product.slug
                                 return (
                                     <div
                                         key={product.slug}
                                         className={cn(
-                                            'bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300',
-                                            isHovered ? 'scale-[1.02] shadow-md border-primary/20' : 'hover:scale-[1.02] hover:shadow-md'
+                                            cardStyle,
+                                            isHovered && 'border-primary/20 shadow-md',
+                                            'card-enter',
+                                            isVisible && `card-enter-${Math.min(index + 1, 6)}`
                                         )}
+                                        style={{
+                                            animationDelay: `${index * 0.08}s`
+                                        }}
                                         onMouseEnter={() => setHoveredId(product.slug)}
                                         onMouseLeave={() => setHoveredId(null)}
                                         onClick={() => triggerCheck(product.name)}
