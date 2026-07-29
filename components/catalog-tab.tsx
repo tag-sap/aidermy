@@ -333,7 +333,7 @@ const CatalogTabComponent = ({
                     </div>
                 </div>
 
-                {/* Кнопка "Заполнить анкету" - сверху, под поиском */}
+                {/* Кнопка "Заполнить анкету" */}
                 {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
@@ -391,7 +391,7 @@ const CatalogTabComponent = ({
                 </div>
             </div>
 
-            {/* Галерея с анимацией - увеличен отступ снизу */}
+            {/* Галерея */}
             <div className="flex-1 min-h-0 overflow-hidden">
                 {loading ? (
                     <div className="grid grid-cols-2 gap-2.5 pb-2">
@@ -421,10 +421,9 @@ const CatalogTabComponent = ({
                             height: '100%',
                             overflowY: 'auto',
                             paddingRight: '0.25rem',
-                            paddingBottom: '80px', // ← увеличенный отступ снизу для таб-бара
                         }}
                     >
-                        <div className="grid grid-cols-2 gap-2.5 pb-2">
+                        <div className="grid grid-cols-2 gap-2.5">
                             {products.map((product, index) => {
                                 const isHovered = hoveredId === product.slug
                                 return (
@@ -485,6 +484,8 @@ const CatalogTabComponent = ({
                                     </div>
                                 )
                             })}
+                            {/* ПУСТОЙ БЛОК ДЛЯ ОТСТУПА СНИЗУ */}
+                            <div className="h-20 col-span-2" />
                         </div>
                     </div>
                 )}
