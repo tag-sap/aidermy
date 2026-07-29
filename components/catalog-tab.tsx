@@ -15,16 +15,6 @@ interface Product {
     brand: string | null
 }
 
-const SkeletonCard = () => (
-    <div className="bg-white/60 rounded-2xl border border-gray-100/50 overflow-hidden animate-pulse">
-        <div className="w-full aspect-square bg-gray-100/60" />
-        <div className="p-3 space-y-2">
-            <div className="h-3.5 bg-gray-100/60 rounded-full w-3/4" />
-            <div className="h-2.5 bg-gray-100/40 rounded-full w-1/2" />
-        </div>
-    </div>
-)
-
 export function CatalogTab({
     onCheck,
     profile,
@@ -52,8 +42,16 @@ export function CatalogTab({
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
     const [isFocused, setIsFocused] = useState(false)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
+    const [isVisible, setIsVisible] = useState(false)
+    const [imagesLoaded, setImagesLoaded] = useState<Record<string, boolean>>({})
 
     const limit = 6
+
+    // Анимация появления
+    useEffect(() => {
+        const timer = setTimeout(() => setIsVisible(true), 100)
+        return () => clearTimeout(timer)
+    }, [])
 
     const fetchCategories = async () => {
         try {
@@ -68,6 +66,7 @@ export function CatalogTab({
 
     const fetchProducts = async () => {
         setLoading(true)
+        setImagesLoaded({})
         try {
             const params = new URLSearchParams({
                 limit: String(limit),
@@ -80,9 +79,7 @@ export function CatalogTab({
 
             const res = await fetch(`/api/catalog?${params}`)
             const data = await res.json()
-            
-            await new Promise(resolve => setTimeout(resolve, 300))
-            
+
             setProducts(data.products || [])
             setTotal(data.total || 0)
         } catch (error) {
@@ -139,6 +136,10 @@ export function CatalogTab({
         setSort('popular')
         setOffset(0)
         setShowFilters(false)
+    }
+
+    const handleImageLoad = (slug: string) => {
+        setImagesLoaded(prev => ({ ...prev, [slug]: true }))
     }
 
     const FilterPopup = () => {
@@ -200,6 +201,89 @@ export function CatalogTab({
         )
     }
 
+    // Скелетон карточки
+    const SkeletonCard = () => (
+        <div className="bg-white/60 rounded-xl border border-gray-100/50 overflow-hidden animate-pulse">
+            <div className="w-full aspect-square bg-gray-100/60" />
+            <div className="p-3 space-y-2">
+                <div className="h-3.5 bg-gray-100/60 rounded-full w-3/4" />
+                <div className="h-2.5 bg-gray-100/40 rounded-full w-1/2" />
+            </div>
+        </div>
+    )
+
+    // Карточка продукта с предзагрузкой изображения
+    const ProductCard = ({ product, index }: { product: Product; index: number }) => {
+        const isHovered = hoveredId === product.slug
+        const isImageLoaded = imagesLoaded[product.slug] || false
+        const delay = index * 80
+
+        return (
+            <div
+                className={cn(
+                    'group bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300',
+                    isHovered ? 'scale-[1.02] shadow-md border-primary/20' : 'hover:scale-[1.02] hover:shadow-md',
+                    'opacity-0',
+                    isVisible && isImageLoaded && `card-enter-${Math.min(index + 1, 6)}`
+                )}
+                style={{
+                    animationDelay: isVisible && isImageLoaded ? `${delay}ms` : '0ms',
+                    animationFillMode: 'forwards'
+                }}
+                onMouseEnter={() => setHoveredId(product.slug)}
+                onMouseLeave={() => setHoveredId(null)}
+                onClick={() => triggerCheck(product.name)}
+            >
+                <div className="w-full aspect-square overflow-hidden bg-gray-50/50 flex items-center justify-center relative">
+                    {product.image_url ? (
+                        <>
+                            {!isImageLoaded && (
+                                <div className="absolute inset-0 bg-gray-100/50 animate-pulse" />
+                            )}
+                            <img
+                                src={product.image_url}
+                                alt={product.name}
+                                loading="lazy"
+                                className={cn(
+                                    'w-full h-full object-contain p-3 transition-all duration-500',
+                                    isHovered ? 'scale-105' : 'scale-100',
+                                    isImageLoaded ? 'opacity-100' : 'opacity-0'
+                                )}
+                                onLoad={() => handleImageLoad(product.slug)}
+                            />
+                        </>
+                    ) : (
+                        <span className="text-3xl opacity-20">🧴</span>
+                    )}
+                </div>
+                <div className="p-3">
+                    <p className="text-xs font-medium text-foreground/90 line-clamp-2 leading-snug">
+                        {product.name}
+                    </p>
+                    {product.category && (
+                        <p className="text-[8px] text-muted-foreground/40 uppercase tracking-wider mt-0.5">
+                            {product.category}
+                        </p>
+                    )}
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            triggerCheck(product.name)
+                        }}
+                        className={cn(
+                            'w-full mt-1.5 py-1.5 rounded-xl text-[9px] font-medium transition-all duration-300',
+                            isHovered
+                                ? 'bg-primary/10 text-primary opacity-100'
+                                : 'bg-transparent text-transparent opacity-0'
+                        )}
+                    >
+                        Проверить
+                    </button>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="h-full flex flex-col overflow-hidden">
             {/* Хедер */}
@@ -239,8 +323,8 @@ export function CatalogTab({
                 )}>
                     <div className={cn(
                         'flex items-center gap-2.5 rounded-xl border px-3.5 py-2 transition-all duration-300',
-                        isFocused 
-                            ? 'border-primary/30 bg-white shadow-sm' 
+                        isFocused
+                            ? 'border-primary/30 bg-white shadow-sm'
                             : 'border-gray-200/50 bg-white/60'
                     )}>
                         <Search className={cn(
@@ -330,61 +414,9 @@ export function CatalogTab({
                 ) : (
                     <div className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-gray-200/50 scrollbar-track-transparent pb-20">
                         <div className="grid grid-cols-2 gap-2.5 pb-2">
-                            {products.map((product, index) => {
-                                const isHovered = hoveredId === product.slug
-                                return (
-                                    <div
-                                        key={product.slug}
-                                        className={cn(
-                                            'group bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300',
-                                            isHovered ? 'scale-[1.02] shadow-md border-primary/20' : 'hover:scale-[1.02] hover:shadow-md'
-                                        )}
-                                        onMouseEnter={() => setHoveredId(product.slug)}
-                                        onMouseLeave={() => setHoveredId(null)}
-                                        onClick={() => triggerCheck(product.name)}
-                                    >
-                                        <div className="w-full aspect-square overflow-hidden bg-gray-50/50 flex items-center justify-center">
-                                            {product.image_url ? (
-                                                <img
-                                                    src={product.image_url}
-                                                    alt={product.name}
-                                                    loading="lazy"
-                                                    className={cn(
-                                                        'w-full h-full object-contain p-3 transition-transform duration-500',
-                                                        isHovered ? 'scale-105' : 'scale-100'
-                                                    )}
-                                                />
-                                            ) : (
-                                                <span className="text-3xl opacity-20">🧴</span>
-                                            )}
-                                        </div>
-                                        <div className="p-2.5">
-                                            <p className="text-xs font-medium text-foreground/90 line-clamp-2 leading-snug">
-                                                {product.name}
-                                            </p>
-                                            {product.category && (
-                                                <p className="text-[8px] text-muted-foreground/40 uppercase tracking-wider mt-0.5">
-                                                    {product.category}
-                                                </p>
-                                            )}
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    triggerCheck(product.name)
-                                                }}
-                                                className={cn(
-                                                    'w-full mt-1.5 py-1.5 rounded-xl text-[9px] font-medium transition-all duration-300',
-                                                    isHovered 
-                                                        ? 'bg-primary/10 text-primary opacity-100' 
-                                                        : 'bg-transparent text-transparent opacity-0'
-                                                )}
-                                            >
-                                                Проверить
-                                            </button>
-                                        </div>
-                                    </div>
-                                )
-                            })}
+                            {products.map((product, index) => (
+                                <ProductCard key={product.slug} product={product} index={index} />
+                            ))}
                         </div>
                     </div>
                 )}
