@@ -24,6 +24,8 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
 
     const MAX_CUSTOM_TEXT = 100
     const scrollRef = useRef<HTMLDivElement>(null)
+    // Храним исходный профиль при монтировании
+    const initialProfileRef = useRef<SkinProfile>(profile)
 
     useEffect(() => {
       const timer = setTimeout(() => setIsVisible(true), 50)
@@ -40,13 +42,25 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       getDraft: () => draft,
     }))
 
+    // Сравниваем с initialProfileRef, а не с profile
     useEffect(() => {
-      const isChanged = JSON.stringify(draft) !== JSON.stringify(profile)
+      const isChanged = JSON.stringify(draft) !== JSON.stringify(initialProfileRef.current)
       setHasChanges(isChanged)
       if (isChanged) {
         setSaved(false)
       }
-    }, [draft, profile])
+    }, [draft])
+
+    // Обновляем initialProfileRef только когда profile действительно изменился извне
+    useEffect(() => {
+      // Если profile изменился и отличается от текущего draft, обновляем draft
+      if (JSON.stringify(profile) !== JSON.stringify(draft)) {
+        setDraft(profile)
+        initialProfileRef.current = profile
+        setSaved(true)
+        setHasChanges(false)
+      }
+    }, [profile])
 
     const toggleArray = (key: 'concerns' | 'allergies', value: string) => {
       setDraft((prev) => {
@@ -61,6 +75,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       onSave(draft)
       setSaved(true)
       setHasChanges(false)
+      initialProfileRef.current = draft
     }
 
     const handleChange = (field: keyof SkinProfile, value: any) => {
@@ -80,6 +95,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       onSave(emptyProfile)
       setSaved(true)
       setHasChanges(false)
+      initialProfileRef.current = emptyProfile
       setShowResetConfirm(false)
     }
 
@@ -107,7 +123,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     )
 
     const Section = ({ icon: Icon, title, children, className, delay }: any) => (
-      <div 
+      <div
         className={cn(
           glassCardStyle,
           'card-enter',
@@ -142,7 +158,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           </p>
         </div>
 
-        <div 
+        <div
           ref={scrollRef}
           className="flex-1 min-h-0 overflow-y-auto pr-1 pb-4 space-y-3"
         >
