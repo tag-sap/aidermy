@@ -42,14 +42,8 @@ export function CatalogTab({
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
     const [isFocused, setIsFocused] = useState(false)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
-    const [isVisible, setIsVisible] = useState(false)
 
     const limit = 6
-
-    useEffect(() => {
-        const timer = setTimeout(() => setIsVisible(true), 50)
-        return () => clearTimeout(timer)
-    }, [])
 
     const fetchCategories = async () => {
         try {
@@ -343,7 +337,7 @@ export function CatalogTab({
                                             'group bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300',
                                             isHovered ? 'scale-[1.02] shadow-md border-primary/20' : 'hover:scale-[1.02] hover:shadow-md',
                                             'card-enter',
-                                            isVisible && `card-enter-${Math.min(index + 1, 6)}`
+                                            `card-enter-${Math.min(index + 1, 6)}`
                                         )}
                                         style={{
                                             animationDelay: `${Math.min(index, 5) * 80}ms`,
