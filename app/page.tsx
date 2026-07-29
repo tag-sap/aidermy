@@ -452,7 +452,7 @@ export default function Page() {
               <div className="h-full overflow-hidden">
                 {tab === 'catalog' && (
                   <CatalogTab
-                    key={hydrated ? 'catalog-ready' : 'catalog-loading'}
+                    key="catalog" // ← ФИКС: постоянный key!
                     profile={profile}
                     onCheck={handleCheck}
                     onGoToProfile={handleGoToProfile}
@@ -477,7 +477,7 @@ export default function Page() {
                   <div className="h-full overflow-y-auto py-4">
                     <ProfileTab
                       ref={profileTabRef}
-                      key={hydrated ? 'profile-ready' : 'profile-loading'}
+                      key="profile"
                       profile={profile}
                       onSave={handleSaveProfile}
                       onDirtyChange={handleProfileChange}
