@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Sparkles, Clock, AlertCircle, CheckCircle, Info } from 'lucide-react'
+import { X, Sparkles, Clock, Shield, AlertCircle, CheckCircle, Info } from 'lucide-react'
 import { ScrambleText } from '@/components/scramble-text'
 import type { CheckResult, SkinProfile } from '@/lib/store'
 import { cn } from '@/lib/utils'
@@ -20,30 +20,35 @@ function ScoreRing({ score }: { score: number }) {
 
   const offset = circumference - (progress / 100) * circumference
 
+  // Цвета в зависимости от процента
   const getColors = (s: number) => {
     if (s >= 80) {
       return {
         ring: '#6C3CE1',
         glow: 'rgba(108, 60, 225, 0.3)',
         text: '#6C3CE1',
+        bg: 'rgba(108, 60, 225, 0.08)'
       }
     } else if (s >= 60) {
       return {
         ring: '#8B5CF6',
         glow: 'rgba(139, 92, 246, 0.3)',
         text: '#8B5CF6',
+        bg: 'rgba(139, 92, 246, 0.08)'
       }
     } else if (s >= 40) {
       return {
         ring: '#A78BFA',
         glow: 'rgba(167, 139, 250, 0.3)',
         text: '#A78BFA',
+        bg: 'rgba(167, 139, 250, 0.08)'
       }
     } else {
       return {
         ring: '#C4B5FD',
         glow: 'rgba(196, 181, 253, 0.3)',
         text: '#C4B5FD',
+        bg: 'rgba(196, 181, 253, 0.08)'
       }
     }
   }
@@ -58,7 +63,7 @@ function ScoreRing({ score }: { score: number }) {
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="rgba(108, 60, 225, 0.08)"
+          stroke="rgba(108, 60, 225, 0.06)"
           strokeWidth={stroke}
         />
         <circle
@@ -81,7 +86,7 @@ function ScoreRing({ score }: { score: number }) {
         <span className="text-2xl font-light" style={{ color: colors.text }}>
           {score}%
         </span>
-        <span className="text-[9px] text-muted-foreground/40 font-light tracking-wider">
+        <span className="text-[9px] text-muted-foreground/50 font-light tracking-wider">
           совместимость
         </span>
       </div>
@@ -189,12 +194,11 @@ export function ResultSheet({
     )
   }
 
+  // Секция с иконкой и цветом
   const Section = ({ icon: Icon, title, children, className }: any) => (
     <div className={cn(
-      'rounded-2xl p-3.5 border transition-all duration-300',
-      'bg-white/40 backdrop-blur-md border-white/40',
-      'hover:bg-white/60 hover:border-primary/20',
-      'shadow-[0_4px_16px_rgba(108,60,225,0.04)]',
+      'rounded-xl p-3.5 border transition-all duration-300',
+      'bg-white/50 backdrop-blur-sm',
       className
     )}>
       <div className="flex items-center gap-2 mb-2">
@@ -213,7 +217,7 @@ export function ResultSheet({
         'fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-400',
         isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
       )}
-      style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}
+      style={{ backgroundColor: 'rgba(0,0,0,0.3)' }}
     >
       <button
         type="button"
@@ -224,19 +228,12 @@ export function ResultSheet({
 
       <div
         className={cn(
-          'relative w-full max-w-md p-5 transition-all duration-400 max-h-[90vh] overflow-y-auto',
+          'relative w-full max-w-md rounded-2xl bg-white/95 backdrop-blur-xl p-5 shadow-2xl border border-white/20 transition-all duration-400 max-h-[90vh] overflow-y-auto',
           isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
         )}
         style={{
           transform: isVisible ? 'scale(1) translateY(0)' : 'scale(0.95) translateY(10px)',
           opacity: isVisible ? 1 : 0,
-          // Прямоугольная трапеция: верхний левый угол торчит вверх
-          clipPath: 'polygon(0% 8%, 100% 0%, 100% 100%, 0% 100%)',
-          borderRadius: '20px 20px 16px 16px',
-          background: 'rgba(255, 255, 255, 0.6)',
-          backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(255, 255, 255, 0.4)',
-          boxShadow: '0 8px 40px rgba(108, 60, 225, 0.08), inset 0 1px 0 rgba(255,255,255,0.6)',
         }}
         role="dialog"
         aria-modal="true"
@@ -245,7 +242,7 @@ export function ResultSheet({
           type="button"
           onClick={handleClose}
           aria-label="Закрыть"
-          className="absolute right-3 top-3 text-foreground/30 transition-colors hover:text-foreground/60 z-10"
+          className="absolute right-3 top-3 text-muted-foreground/40 transition-colors hover:text-foreground z-10"
         >
           <X className="size-4.5" />
         </button>
@@ -273,10 +270,10 @@ export function ResultSheet({
               />
             </div>
 
-            {/* Картинка + Скрор + Вердикт */}
+            {/* Картинка + Скрор + Вердикт в ряд */}
             <div className="flex items-center gap-4">
               {result.image_url && (
-                <div className="w-16 h-16 rounded-2xl overflow-hidden bg-white/40 flex items-center justify-center border border-white/30 flex-shrink-0 backdrop-blur-sm">
+                <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-50/80 flex items-center justify-center border border-gray-100/50 flex-shrink-0">
                   <img
                     src={result.image_url}
                     alt={result.product}
@@ -402,7 +399,7 @@ export function ResultSheet({
 
             {/* Ввод состава */}
             {showIngredientsInput && (
-              <div className="rounded-2xl bg-white/40 backdrop-blur-md p-3.5 border border-white/40">
+              <div className="rounded-xl bg-gray-50/80 p-3.5 border border-gray-100/50">
                 <p className="text-[10px] text-muted-foreground/60 font-light mb-2">
                   Уточните состав продукта (INCI)
                 </p>
@@ -411,19 +408,19 @@ export function ResultSheet({
                   value={productNameInput}
                   onChange={(e) => setProductNameInput(e.target.value)}
                   placeholder="Название продукта"
-                  className="w-full rounded-xl bg-white/40 border border-white/30 px-3 py-2 text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all backdrop-blur-sm"
+                  className="w-full rounded-lg border border-gray-200/60 bg-white/60 px-3 py-2 text-sm focus:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/5 transition-all"
                 />
                 <textarea
                   value={ingredientsInput}
                   onChange={(e) => setIngredientsInput(e.target.value)}
                   placeholder="Aqua, Glycerin, Cetearyl Alcohol..."
-                  className="w-full rounded-xl bg-white/40 border border-white/30 px-3 py-2 mt-1.5 text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all backdrop-blur-sm resize-none"
+                  className="w-full rounded-lg border border-gray-200/60 bg-white/60 px-3 py-2 mt-1.5 text-sm focus:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/5 transition-all resize-none"
                   rows={2}
                 />
                 <button
                   onClick={handleCheckWithIngredients}
                   disabled={!ingredientsInput.trim() || isCheckingIngredients}
-                  className="w-full rounded-xl bg-primary/15 text-primary text-xs font-medium py-2 mt-2 transition-all hover:bg-primary/25 disabled:opacity-40 disabled:cursor-not-allowed backdrop-blur-sm"
+                  className="w-full rounded-lg bg-primary/10 text-primary text-xs font-medium py-2 mt-2 transition-all hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {isCheckingIngredients ? 'Анализируем...' : 'Проверить состав →'}
                 </button>
@@ -435,14 +432,14 @@ export function ResultSheet({
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex-1 rounded-xl border border-gray-200/50 py-2.5 text-xs font-medium text-muted-foreground transition-all hover:bg-gray-50/50"
+                className="flex-1 rounded-xl border border-gray-200/60 py-2.5 text-xs font-medium text-muted-foreground transition-all hover:bg-gray-50/80"
               >
                 Закрыть
               </button>
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex-1 rounded-xl bg-primary/15 text-primary text-xs font-medium py-2.5 transition-all hover:bg-primary/25"
+                className="flex-1 rounded-xl bg-primary/10 text-primary text-xs font-medium py-2.5 transition-all hover:bg-primary/20"
               >
                 Сохранить
               </button>
