@@ -1,7 +1,7 @@
 'use client'
 
-import { forwardRef, useState, useImperativeHandle, useRef } from 'react'
-import { Check, X } from 'lucide-react'
+import { forwardRef, useState, useImperativeHandle } from 'react'
+import { Check, X, User, Droplets, Calendar, AlertCircle, Sparkles } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { AGE_GROUPS, ALLERGIES, SKIN_CONCERNS, SKIN_TYPES } from '@/lib/products'
 import type { SkinProfile } from '@/lib/store'
@@ -15,7 +15,6 @@ interface ProfileTabProps {
 
 export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTabProps>(
   ({ profile, onSave, onStartQuiz }, ref) => {
-    // ПРОСТО ПОЛЯ
     const [name, setName] = useState(profile.name || '')
     const [skinType, setSkinType] = useState(profile.skinType || '')
     const [age, setAge] = useState(profile.age || '')
@@ -65,100 +64,177 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
 
     const isEmpty = !name && !skinType && !age && concerns.length === 0 && allergies.length === 0 && !customText
 
+    const glassCardStyle = (delay: number) => cn(
+      'bg-white/20 backdrop-blur-xl',
+      'border border-white/20',
+      'shadow-[0_8px_32px_rgba(108,60,225,0.06)]',
+      'hover:shadow-[0_12px_48px_rgba(108,60,225,0.1)]',
+      'transition-all duration-500',
+      'rounded-2xl p-4',
+      'hover:bg-white/30 hover:border-primary/20',
+      'card-enter',
+      `card-enter-${delay}`
+    )
+
+    const Section = ({ icon: Icon, title, children, delay }: any) => (
+      <div className={glassCardStyle(delay)}>
+        <div className="flex items-center gap-2 mb-3">
+          <Icon className="size-4 text-primary/60" strokeWidth={1.5} />
+          <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+            {title}
+          </h2>
+        </div>
+        {children}
+      </div>
+    )
+
     return (
-      <div className="h-full flex flex-col overflow-y-auto pb-24 space-y-3">
-        {/* ПОЛЕ ИМЯ */}
-        <div className="bg-white/20 backdrop-blur-xl border border-white/20 rounded-2xl p-4">
+      <div className="h-full flex flex-col overflow-y-auto pb-24 space-y-3 pr-1">
+        <Section icon={User} title="Как к вам обращаться?" delay={1}>
           <input
             type="text"
             value={name}
             onChange={(e) => { setName(e.target.value); setSaved(false) }}
-            placeholder="Ваше имя..."
+            placeholder="Например: Райан Гослинг..."
             className="w-full bg-transparent text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:outline-none"
+            maxLength={30}
           />
-        </div>
+          <div className="mt-1 text-right text-[10px] text-muted-foreground/40">
+            {name.length}/30
+          </div>
+        </Section>
 
-        {/* ТИП КОЖИ */}
-        <div className="bg-white/20 backdrop-blur-xl border border-white/20 rounded-2xl p-4">
+        <Section icon={Droplets} title="Тип кожи" delay={2}>
           <div className="flex flex-wrap gap-1.5">
             {SKIN_TYPES.map((t) => (
-              <Chip key={t} label={t} active={skinType === t} onClick={() => { setSkinType(t); setSaved(false) }} />
+              <Chip 
+                key={t} 
+                label={t} 
+                active={skinType === t} 
+                onClick={() => { setSkinType(t); setSaved(false) }} 
+              />
             ))}
           </div>
-        </div>
+        </Section>
 
-        {/* ВОЗРАСТ */}
-        <div className="bg-white/20 backdrop-blur-xl border border-white/20 rounded-2xl p-4">
+        <Section icon={Calendar} title="Возраст" delay={3}>
           <div className="flex flex-wrap gap-1.5">
             {AGE_GROUPS.map((a) => (
-              <Chip key={a} label={a} active={age === a} onClick={() => { setAge(a); setSaved(false) }} />
+              <Chip 
+                key={a} 
+                label={a} 
+                active={age === a} 
+                onClick={() => { setAge(a); setSaved(false) }} 
+              />
             ))}
           </div>
-        </div>
+        </Section>
 
-        {/* ПРОБЛЕМЫ */}
-        <div className="bg-white/20 backdrop-blur-xl border border-white/20 rounded-2xl p-4">
+        <Section icon={AlertCircle} title="Что беспокоит" delay={4}>
           <div className="flex flex-wrap gap-1.5">
             {SKIN_CONCERNS.map((c) => (
-              <Chip key={c} label={c} active={concerns.includes(c)} onClick={() => toggle('concerns', c)} />
+              <Chip 
+                key={c} 
+                label={c} 
+                active={concerns.includes(c)} 
+                onClick={() => toggle('concerns', c)} 
+              />
             ))}
           </div>
-        </div>
+        </Section>
 
-        {/* АЛЛЕРГИИ */}
-        <div className="bg-white/20 backdrop-blur-xl border border-white/20 rounded-2xl p-4">
+        <Section icon={AlertCircle} title="Аллергии" delay={5}>
           <div className="flex flex-wrap gap-1.5">
             {ALLERGIES.map((a) => (
-              <Chip key={a} label={a} active={allergies.includes(a)} onClick={() => toggle('allergies', a)} />
+              <Chip 
+                key={a} 
+                label={a} 
+                active={allergies.includes(a)} 
+                onClick={() => toggle('allergies', a)} 
+              />
             ))}
           </div>
-        </div>
+        </Section>
 
-        {/* ТЕКСТАРЯ */}
-        <div className="bg-white/20 backdrop-blur-xl border border-white/20 rounded-2xl p-4">
+        <Section icon={Sparkles} title="Опишите проблему" delay={6}>
+          <p className="text-[10px] text-muted-foreground/50 font-light mb-2">
+            Коротко, 1 предложение (до 100 символов)
+          </p>
           <textarea
             value={customText}
-            onChange={(e) => { setCustomText(e.target.value); setSaved(false) }}
-            placeholder="Опишите проблему..."
+            onChange={(e) => { 
+              const text = e.target.value
+              if (text.length <= 100) {
+                setCustomText(text)
+                setSaved(false)
+              }
+            }}
+            placeholder="Например: кожа стягивается после умывания..."
             className="w-full bg-transparent text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:outline-none resize-none"
             rows={2}
           />
-        </div>
+          <div className={`mt-1 text-right text-[10px] ${customText.length >= 100 ? 'text-orange-400' : 'text-muted-foreground/40'}`}>
+            {customText.length}/100
+          </div>
+        </Section>
 
-        {/* КНОПКИ */}
         {!isEmpty && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 pt-1">
             <button
               onClick={() => setShowReset(true)}
-              className="px-4 py-2.5 rounded-xl border border-red-200/50 text-xs text-red-400"
+              className="px-4 py-2.5 rounded-xl border border-red-200/50 bg-white/10 backdrop-blur-sm text-xs font-medium text-red-400 transition-all hover:bg-red-500/10"
             >
+              <Trash2 className="size-3.5 inline mr-1.5" />
               Сбросить
             </button>
             <button
               onClick={handleSave}
               disabled={!hasChanges || saved}
               className={cn(
-                'flex-1 px-6 py-2.5 rounded-xl text-xs font-medium transition-all',
+                'flex-1 px-6 py-2.5 rounded-xl text-xs font-medium uppercase tracking-wider transition-all',
                 !hasChanges || saved
-                  ? 'bg-white/10 text-muted-foreground/40 cursor-default'
-                  : 'bg-primary/20 text-primary hover:bg-primary/30'
+                  ? 'bg-white/10 backdrop-blur-sm text-muted-foreground/40 cursor-default border border-white/10'
+                  : 'bg-primary/20 backdrop-blur-sm border border-primary/30 text-primary hover:bg-primary/30 hover:shadow-[0_0_30px_rgba(108,60,225,0.15)] active:scale-[0.97]'
               )}
             >
-              {saved ? '✅ Сохранено' : 'Сохранить'}
+              {saved ? (
+                <>
+                  <Check className="size-3.5 inline mr-1.5" />
+                  Сохранено
+                </>
+              ) : (
+                'Сохранить'
+              )}
             </button>
           </div>
         )}
 
-        {/* ПОПАП СБРОСА */}
         {showReset && (
           <>
-            <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setShowReset(false)} />
-            <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white/90 backdrop-blur-xl border border-white/30 p-6">
-              <h3 className="text-base font-light mb-2">Сбросить анкету?</h3>
-              <p className="text-sm text-muted-foreground/70 mb-4">Данные будут удалены.</p>
-              <div className="flex gap-2">
-                <button onClick={() => setShowReset(false)} className="flex-1 px-4 py-2 rounded-xl border text-xs">Отмена</button>
-                <button onClick={handleReset} className="flex-1 px-4 py-2 rounded-xl bg-red-500/20 text-red-400 text-xs">Сбросить</button>
+            <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={() => setShowReset(false)} />
+            <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white/90 backdrop-blur-xl border border-white/30 p-6 shadow-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-light text-foreground">Сбросить анкету?</h3>
+                <button onClick={() => setShowReset(false)} className="text-muted-foreground/60 hover:text-foreground">
+                  <X className="size-4.5" />
+                </button>
+              </div>
+              <p className="text-sm text-muted-foreground/70 font-light mb-6">
+                Все данные анкеты будут удалены. Это действие нельзя отменить.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowReset(false)}
+                  className="flex-1 rounded-xl border border-gray-200/50 px-4 py-2.5 text-xs font-medium text-muted-foreground transition-all hover:bg-gray-50/50"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="flex-1 rounded-xl bg-red-500/20 backdrop-blur-sm border border-red-300/30 px-4 py-2.5 text-xs font-medium text-red-400 transition-all hover:bg-red-500/30"
+                >
+                  Сбросить
+                </button>
               </div>
             </div>
           </>
