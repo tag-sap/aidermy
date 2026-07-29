@@ -29,10 +29,10 @@ export function TabBar({
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-30 bg-background border-t border-gray-200"
+      className="fixed bottom-0 left-0 right-0 z-30 bg-background/80 backdrop-blur-sm border-t border-gray-200/50"
       aria-label="Основная навигация"
     >
-      <div className="mx-auto max-w-md flex items-center justify-around px-2 py-2">
+      <div className="mx-auto max-w-md flex items-center justify-around px-2 py-1.5">
         {visibleTabs.map(({ id, label, icon: Icon }) => {
           const isActive = active === id
           return (
@@ -42,15 +42,15 @@ export function TabBar({
               onClick={() => onChange(id)}
               aria-current={isActive ? 'page' : undefined}
               className={cn(
-                'flex flex-1 flex-col items-center gap-1 rounded-md px-2 py-2 transition-colors',
-                isActive ? 'text-primary' : 'text-muted-foreground',
+                'flex flex-1 flex-col items-center gap-0.5 rounded-md px-2 py-1.5 transition-colors',
+                isActive ? 'text-primary' : 'text-muted-foreground'
               )}
             >
               <Icon
-                className={cn('size-5', isActive && 'drop-shadow-[0_0_8px_rgba(255,79,0,0.6)]')}
+                className={cn('size-4.5', isActive && 'drop-shadow-[0_0_8px_rgba(108,60,225,0.3)]')}
                 strokeWidth={2}
               />
-              <span className="text-[11px] font-normal">{label}</span>
+              <span className="text-[9px] font-normal leading-none">{label}</span>
             </button>
           )
         })}

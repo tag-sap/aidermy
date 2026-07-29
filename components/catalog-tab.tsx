@@ -50,7 +50,6 @@ const CatalogTabComponent = ({
 
     const limit = 6
 
-    // Анимация появления - срабатывает после загрузки данных
     useEffect(() => {
         if (animationTimerRef.current) {
             clearTimeout(animationTimerRef.current)
@@ -148,14 +147,12 @@ const CatalogTabComponent = ({
         }
     }, [])
 
-    // Обновляем при изменении фильтров и поиска
     useEffect(() => {
         if (isMounted.current) {
             fetchProducts()
         }
     }, [category, brand, sort, offset, search])
 
-    // Debounce для поиска - сбрасываем offset на 0
     useEffect(() => {
         if (searchTimeout) clearTimeout(searchTimeout)
         const timeout = setTimeout(() => {
@@ -273,8 +270,8 @@ const CatalogTabComponent = ({
     return (
         <div className="h-full flex flex-col overflow-hidden">
             {/* Хедер */}
-            <div className="flex-shrink-0 pt-1 pb-2">
-                <div className="flex items-center justify-between mb-2.5">
+            <div className="flex-shrink-0 pt-1 pb-1">
+                <div className="flex items-center justify-between mb-1.5">
                     <div>
                         <h1 className="text-lg font-medium text-foreground">
                             {getGreeting()}
@@ -304,7 +301,7 @@ const CatalogTabComponent = ({
 
                 {/* Поиск */}
                 <div className={cn(
-                    'relative rounded-xl transition-all duration-300',
+                    'relative rounded-xl transition-all duration-300 mb-1.5',
                     isFocused ? 'shadow-[0_0_40px_rgba(108,60,225,0.05)]' : ''
                 )}>
                     <div className={cn(
@@ -336,11 +333,23 @@ const CatalogTabComponent = ({
                     </div>
                 </div>
 
+                {/* Кнопка "Заполнить анкету" - сверху, под поиском */}
+                {!profile?.skinType && (
+                    <button
+                        onClick={onGoToProfile}
+                        className="w-full py-1.5 rounded-xl text-[10px] font-medium bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20 text-primary hover:shadow-md transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 mb-1.5"
+                    >
+                        <Zap className="size-3" />
+                        Заполнить анкету
+                        <ArrowRight className="size-3" />
+                    </button>
+                )}
+
                 {/* Фильтры + пагинация */}
-                <div className="flex items-center justify-between mt-2.5">
+                <div className="flex items-center justify-between">
                     <button
                         onClick={() => setShowFilters(true)}
-                        className="px-3 py-1.5 rounded-xl border border-gray-200/50 bg-white/50 text-[10px] text-muted-foreground hover:text-primary hover:border-primary/30 transition-all duration-300 flex items-center gap-1.5"
+                        className="px-3 py-1 rounded-xl border border-gray-200/50 bg-white/50 text-[10px] text-muted-foreground hover:text-primary hover:border-primary/30 transition-all duration-300 flex items-center gap-1.5"
                     >
                         <span>Фильтры</span>
                         {(category || brand) && (
@@ -470,20 +479,6 @@ const CatalogTabComponent = ({
                             })}
                         </div>
                     </div>
-                )}
-            </div>
-
-            {/* Футер */}
-            <div className="flex-shrink-0 pb-3 pt-1 bg-gradient-to-t from-[#FAF9F6] via-[#FAF9F6]/80 to-transparent">
-                {!profile?.skinType && (
-                    <button
-                        onClick={onGoToProfile}
-                        className="w-full py-2.5 rounded-xl text-xs font-medium bg-primary/5 border border-primary/15 text-primary hover:bg-primary/10 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2"
-                    >
-                        <Zap className="size-3.5" />
-                        Заполнить анкету
-                        <ArrowRight className="size-3.5" />
-                    </button>
                 )}
             </div>
 
