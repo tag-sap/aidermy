@@ -418,7 +418,7 @@ export default function Page() {
     <>
       <SplashScreen />
 
-      <div className="fixed inset-0 flex flex-col bg-background overflow-hidden">
+      <div className="fixed inset-0 flex flex-col bg-gradient-to-br from-[#FAF9F6] via-[#F0EDE8] to-[#E8E4DE] overflow-hidden">
         <BrandMarquee />
         <CyberGrid />
         <div className="grid-shimmer" aria-hidden="true" />
@@ -527,14 +527,14 @@ export default function Page() {
       {pendingTab && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
             onClick={handleLeaveCancel}
           />
-          <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl border border-primary/20">
+          <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white/80 backdrop-blur-xl border border-white/30 p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="size-5 text-orange-500" />
-                <h3 className="text-lg font-normal text-foreground">Несохранённые изменения</h3>
+                <h3 className="text-lg font-light text-foreground">Несохранённые изменения</h3>
               </div>
               <button
                 onClick={handleLeaveCancel}
@@ -549,19 +549,19 @@ export default function Page() {
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => handleLeaveConfirm('save')}
-                className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+                className="w-full rounded-xl bg-primary/20 backdrop-blur-sm border border-primary/30 px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/30"
               >
                 Сохранить и выйти
               </button>
               <button
                 onClick={() => handleLeaveConfirm('discard')}
-                className="w-full rounded-md border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                className="w-full rounded-xl border border-gray-200/50 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50/50"
               >
                 Не сохранять
               </button>
               <button
                 onClick={handleLeaveCancel}
-                className="w-full rounded-md px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
+                className="w-full rounded-xl px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
               >
                 Остаться
               </button>

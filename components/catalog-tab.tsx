@@ -122,7 +122,7 @@ const CatalogTabComponent = ({
                 signal: abortControllerRef.current.signal
             })
             const data = await res.json()
-            
+
             if (isMounted.current) {
                 setProducts(data.products || [])
                 setTotal(data.total || 0)
@@ -327,8 +327,8 @@ const CatalogTabComponent = ({
                         'flex items-center gap-2.5 rounded-xl border px-3.5 py-2 transition-all duration-300',
                         'bg-white/20 backdrop-blur-sm',
                         'border-white/20',
-                        isFocused 
-                            ? 'border-primary/30 bg-white/30 shadow-sm' 
+                        isFocused
+                            ? 'border-primary/30 bg-white/30 shadow-sm'
                             : 'hover:border-white/40'
                     )}>
                         <Search className={cn(
@@ -436,7 +436,7 @@ const CatalogTabComponent = ({
                         )}
                     </div>
                 ) : (
-                    <div 
+                    <div
                         ref={scrollContainerRef}
                         className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent"
                         style={{
@@ -459,8 +459,8 @@ const CatalogTabComponent = ({
                                         )}
                                         style={{
                                             animationDelay: `${index * 0.08}s`,
-                                            // Трапециевидная форма для карточек
-                                            clipPath: 'polygon(3% 0%, 97% 0%, 100% 100%, 0% 100%)',
+                                            // Прямоугольная трапеция: правый верхний угол торчит вверх
+                                            clipPath: 'polygon(0% 0%, 100% 8%, 100% 100%, 0% 100%)',
                                             borderRadius: '16px 16px 12px 12px',
                                         }}
                                         onMouseEnter={() => setHoveredId(product.slug)}
@@ -468,7 +468,7 @@ const CatalogTabComponent = ({
                                         onClick={() => triggerCheck(product.name)}
                                     >
                                         {/* Дополнительный слой размытия */}
-                                        <div 
+                                        <div
                                             className="absolute inset-0 -z-10"
                                             style={{
                                                 background: 'rgba(255,255,255,0.05)',
@@ -497,8 +497,8 @@ const CatalogTabComponent = ({
                                                 {product.name}
                                             </p>
                                             {product.category && (
-                                                <p className="text-[8px] text-muted-foreground/40 uppercase tracking-wider mt-0.5">
-                                                    {product.category}
+                                                <p className="text-xs font-medium text-foreground/80 line-clamp-2 leading-snug">
+                                                    {product.name}
                                                 </p>
                                             )}
                                             <button
@@ -508,8 +508,8 @@ const CatalogTabComponent = ({
                                                 }}
                                                 className={cn(
                                                     'w-full mt-1.5 py-1.5 rounded-xl text-[9px] font-medium transition-all duration-500',
-                                                    isHovered 
-                                                        ? 'bg-primary/20 text-primary/90 opacity-100 backdrop-blur-sm' 
+                                                    isHovered
+                                                        ? 'bg-primary/20 text-primary/90 opacity-100 backdrop-blur-sm'
                                                         : 'bg-transparent text-transparent opacity-0'
                                                 )}
                                             >
