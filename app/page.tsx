@@ -36,9 +36,6 @@ export default function Page() {
   const [result, setResult] = useState<CheckResult | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
 
-  const [profileDirty, setProfileDirty] = useState(false)
-  const [pendingTab, setPendingTab] = useState<TabId | null>(null)
-
   const [showQuiz, setShowQuiz] = useState(false)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
@@ -83,7 +80,7 @@ export default function Page() {
     }
   }
 
-  // ===== ЭФФЕКТЫ =====
+  // ===== ЭФФЕКТЫ - ТОЛЬКО ПРИ ЗАГРУЗКЕ =====
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (token) {
@@ -118,6 +115,7 @@ export default function Page() {
     }
   }, [])
 
+  // ТОЛЬКО ОДИН РАЗ ПРИ МОНТИРОВАНИИ
   useEffect(() => {
     const savedProfile = loadProfile()
     setProfile(savedProfile)
@@ -126,8 +124,9 @@ export default function Page() {
 
     if (savedProfile.quizAnswers && Object.keys(savedProfile.quizAnswers).length > 0 && !savedProfile.skinType) {
       const determined = determineSkinTypeFromAnswers(savedProfile.quizAnswers)
-      setProfile(prev => ({ ...prev, skinType: determined, skinTypeDetermined: determined }))
-      saveProfile({ ...savedProfile, skinType: determined, skinTypeDetermined: determined })
+      const newProfile = { ...savedProfile, skinType: determined, skinTypeDetermined: determined }
+      setProfile(newProfile)
+      saveProfile(newProfile)
     }
   }, [])
 
@@ -197,11 +196,10 @@ export default function Page() {
     setTab('catalog')
   }
 
-  // ===== ПРОФИЛЬ =====
+  // ===== ПРОФИЛЬ - ПРОСТО СОХРАНЯЕМ =====
   const handleSaveProfile = async (p: SkinProfile) => {
     setProfile(p)
     saveProfile(p)
-    setProfileDirty(false)
 
     const token = localStorage.getItem('token')
     if (token) {
@@ -213,7 +211,7 @@ export default function Page() {
 
         const userData = await userRes.json()
 
-        const res = await fetch('/api/auth/profile', {
+        await fetch('/api/auth/profile', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -225,20 +223,11 @@ export default function Page() {
           })
         })
 
-        if (!res.ok) {
-          const error = await res.json()
-          throw new Error(error.detail || 'Ошибка сохранения')
-        }
-
         console.log('✅ Профиль сохранён на сервере')
       } catch (error) {
         console.error('Ошибка сохранения профиля:', error)
       }
     }
-  }
-
-  const handleProfileChange = (dirty: boolean) => {
-    setProfileDirty(dirty)
   }
 
   // ===== ИСТОРИЯ =====
@@ -380,37 +369,11 @@ export default function Page() {
 
   const handleTabChange = (newTab: TabId) => {
     if (newTab === tab) return
-
     if (newTab === 'profile' && !isAuthenticated) {
       setIsAuthModalOpen(true)
       return
     }
-
-    if (profileDirty && tab === 'profile') {
-      setPendingTab(newTab)
-      return
-    }
-
     setTab(newTab)
-  }
-
-  const handleLeaveConfirm = (action: 'save' | 'discard') => {
-    if (action === 'save' && profileTabRef.current) {
-      const draft = profileTabRef.current.getDraft()
-      handleSaveProfile(draft)
-    }
-
-    setProfileDirty(false)
-    setPendingTab(null)
-
-    if (pendingTab) {
-      setTab(pendingTab)
-      setPendingTab(null)
-    }
-  }
-
-  const handleLeaveCancel = () => {
-    setPendingTab(null)
   }
 
   // ===== RENDER =====
@@ -476,7 +439,7 @@ export default function Page() {
                   <div className="h-full overflow-y-auto py-4">
                     <ProfileTab
                       ref={profileTabRef}
-                      profile={profile}  // ← оставляем profile
+                      profile={profile}
                       onSave={handleSaveProfile}
                       onStartQuiz={() => setShowQuiz(true)}
                     />
@@ -522,52 +485,6 @@ export default function Page() {
         isOpen={showInfo}
         onClose={() => setShowInfo(false)}
       />
-
-      {pendingTab && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
-            onClick={handleLeaveCancel}
-          />
-          <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl border border-primary/20">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="size-5 text-orange-500" />
-                <h3 className="text-lg font-normal text-foreground">Несохранённые изменения</h3>
-              </div>
-              <button
-                onClick={handleLeaveCancel}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-5" />
-              </button>
-            </div>
-            <p className="text-sm text-muted-foreground mb-6">
-              У вас есть несохранённые изменения в анкете. Что хотите сделать?
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => handleLeaveConfirm('save')}
-                className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
-              >
-                Сохранить и выйти
-              </button>
-              <button
-                onClick={() => handleLeaveConfirm('discard')}
-                className="w-full rounded-md border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-              >
-                Не сохранять
-              </button>
-              <button
-                onClick={handleLeaveCancel}
-                className="w-full rounded-md px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
-              >
-                Остаться
-              </button>
-            </div>
-          </div>
-        </>
-      )}
     </>
   )
 }
