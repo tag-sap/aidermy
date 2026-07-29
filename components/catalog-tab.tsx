@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, memo } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { Search, X, Sparkles, ArrowRight, Compass, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SKIN_TYPES } from '@/lib/products'
@@ -43,20 +43,41 @@ const CatalogTabComponent = ({
     const [isFocused, setIsFocused] = useState(false)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
 
+    // Флаг для предотвращения двойного запроса
+    const isMounted = useRef(false)
+    const abortControllerRef = useRef<AbortController | null>(null)
+
     const limit = 6
 
     const fetchCategories = async () => {
+        // Отменяем предыдущий запрос если есть
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort()
+        }
+        abortControllerRef.current = new AbortController()
+
         try {
-            const res = await fetch('/api/categories')
+            const res = await fetch('/api/categories', {
+                signal: abortControllerRef.current.signal
+            })
             const data = await res.json()
-            setCategories(data.categories || [])
-            setBrands(data.brands || [])
+            if (isMounted.current) {
+                setCategories(data.categories || [])
+                setBrands(data.brands || [])
+            }
         } catch (error) {
+            if ((error as Error).name === 'AbortError') return
             console.error('Ошибка загрузки категорий:', error)
         }
     }
 
     const fetchProducts = async () => {
+        // Отменяем предыдущий запрос если есть
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort()
+        }
+        abortControllerRef.current = new AbortController()
+
         setLoading(true)
         try {
             const params = new URLSearchParams({
@@ -68,42 +89,71 @@ const CatalogTabComponent = ({
             if (brand) params.append('brand', brand)
             if (search) params.append('search', search)
 
-            const res = await fetch(`/api/catalog?${params}`)
+            const res = await fetch(`/api/catalog?${params}`, {
+                signal: abortControllerRef.current.signal
+            })
             const data = await res.json()
-            
-            setProducts(data.products || [])
-            setTotal(data.total || 0)
+
+            if (isMounted.current) {
+                setProducts(data.products || [])
+                setTotal(data.total || 0)
+            }
         } catch (error) {
+            if ((error as Error).name === 'AbortError') return
             console.error('Ошибка загрузки каталога:', error)
         } finally {
-            setLoading(false)
+            if (isMounted.current) {
+                setLoading(false)
+            }
         }
     }
 
+    // Монтирование только один раз
     useEffect(() => {
+        isMounted.current = true
         fetchCategories()
         fetchProducts()
+
+        return () => {
+            isMounted.current = false
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort()
+            }
+        }
     }, [])
 
+    // Эффекты с зависимостями
     useEffect(() => {
-        fetchProducts()
+        if (isMounted.current) {
+            fetchProducts()
+        }
     }, [category, brand, sort, offset])
 
     useEffect(() => {
         if (searchTimeout) clearTimeout(searchTimeout)
         const timeout = setTimeout(() => {
-            setOffset(0)
-            fetchProducts()
+            if (isMounted.current) {
+                setOffset(0)
+            }
         }, 300)
         setSearchTimeout(timeout)
         return () => clearTimeout(timeout)
     }, [search])
 
+    // Отдельный эффект для fetch при смене offset через поиск
+    useEffect(() => {
+        if (isMounted.current) {
+            fetchProducts()
+        }
+    }, [offset])
+
     const totalPages = Math.ceil(total / limit)
     const currentPage = Math.floor(offset / limit) + 1
 
     const handlePageChange = (page: number) => {
-        setOffset((page - 1) * limit)
+        if (isMounted.current) {
+            setOffset((page - 1) * limit)
+        }
     }
 
     const triggerCheck = (productName: string) => {
@@ -237,8 +287,8 @@ const CatalogTabComponent = ({
                 )}>
                     <div className={cn(
                         'flex items-center gap-2.5 rounded-xl border px-3.5 py-2 transition-all duration-300',
-                        isFocused 
-                            ? 'border-primary/30 bg-white shadow-sm' 
+                        isFocused
+                            ? 'border-primary/30 bg-white shadow-sm'
                             : 'border-gray-200/50 bg-white/60'
                     )}>
                         <Search className={cn(
@@ -310,7 +360,7 @@ const CatalogTabComponent = ({
                 </div>
             </div>
 
-            {/* Галерея - БЕЗ АНИМАЦИИ */}
+            {/* Галерея */}
             <div className="flex-1 min-h-0 overflow-hidden">
                 {loading ? (
                     <div className="grid grid-cols-2 gap-2.5 pb-2">
@@ -372,8 +422,8 @@ const CatalogTabComponent = ({
                                                 }}
                                                 className={cn(
                                                     'w-full mt-1.5 py-1.5 rounded-xl text-[9px] font-medium transition-all duration-300',
-                                                    isHovered 
-                                                        ? 'bg-primary/10 text-primary opacity-100' 
+                                                    isHovered
+                                                        ? 'bg-primary/10 text-primary opacity-100'
                                                         : 'bg-transparent text-transparent opacity-0'
                                                 )}
                                             >
@@ -407,5 +457,4 @@ const CatalogTabComponent = ({
     )
 }
 
-// Обёртка с memo чтобы предотвратить лишние перерендеры
 export const CatalogTab = memo(CatalogTabComponent)
