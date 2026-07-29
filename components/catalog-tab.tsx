@@ -47,11 +47,10 @@ const CatalogTabComponent = ({
     const isMounted = useRef(false)
     const abortControllerRef = useRef<AbortController | null>(null)
     const animationTimerRef = useRef<NodeJS.Timeout | null>(null)
-    const scrollContainerRef = useRef<HTMLDivElement>(null) // ← реф для скролла
+    const scrollContainerRef = useRef<HTMLDivElement>(null)
 
     const limit = 6
 
-    // Скролл наверх при смене страницы
     useEffect(() => {
         if (scrollContainerRef.current) {
             scrollContainerRef.current.scrollTop = 0
@@ -123,7 +122,7 @@ const CatalogTabComponent = ({
                 signal: abortControllerRef.current.signal
             })
             const data = await res.json()
-
+            
             if (isMounted.current) {
                 setProducts(data.products || [])
                 setTotal(data.total || 0)
@@ -208,43 +207,43 @@ const CatalogTabComponent = ({
         if (!showFilters) return null
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
-                <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-xl p-6 max-h-[80vh] overflow-y-auto">
+                <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowFilters(false)} />
+                <div className="relative w-full max-w-sm bg-white/30 backdrop-blur-xl border border-white/30 rounded-2xl shadow-2xl p-6 max-h-[80vh] overflow-y-auto">
                     <div className="flex items-center justify-between mb-5">
-                        <h3 className="text-base font-medium text-foreground">Фильтры</h3>
-                        <button onClick={() => setShowFilters(false)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors">
+                        <h3 className="text-base font-light text-foreground/80">Фильтры</h3>
+                        <button onClick={() => setShowFilters(false)} className="p-1.5 hover:bg-white/20 rounded-full transition-colors">
                             <X className="size-4" />
                         </button>
                     </div>
                     <div className="space-y-4">
                         <div>
-                            <label className="text-xs text-muted-foreground block mb-1.5">Категория</label>
+                            <label className="text-xs text-muted-foreground/60 block mb-1.5">Категория</label>
                             <select
                                 value={category}
                                 onChange={(e) => setCategory(e.target.value)}
-                                className="w-full rounded-xl border border-gray-200 bg-white/50 px-3.5 py-2.5 text-sm focus:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/5 transition-all"
+                                className="w-full rounded-xl bg-white/20 backdrop-blur-sm border border-white/20 px-3.5 py-2.5 text-sm text-foreground/80 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
                             >
                                 <option value="">Все категории</option>
                                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="text-xs text-muted-foreground block mb-1.5">Бренд</label>
+                            <label className="text-xs text-muted-foreground/60 block mb-1.5">Бренд</label>
                             <select
                                 value={brand}
                                 onChange={(e) => setBrand(e.target.value)}
-                                className="w-full rounded-xl border border-gray-200 bg-white/50 px-3.5 py-2.5 text-sm focus:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/5 transition-all"
+                                className="w-full rounded-xl bg-white/20 backdrop-blur-sm border border-white/20 px-3.5 py-2.5 text-sm text-foreground/80 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
                             >
                                 <option value="">Все бренды</option>
                                 {brands.map(b => <option key={b} value={b}>{b}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="text-xs text-muted-foreground block mb-1.5">Сортировка</label>
+                            <label className="text-xs text-muted-foreground/60 block mb-1.5">Сортировка</label>
                             <select
                                 value={sort}
                                 onChange={(e) => setSort(e.target.value)}
-                                className="w-full rounded-xl border border-gray-200 bg-white/50 px-3.5 py-2.5 text-sm focus:border-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/5 transition-all"
+                                className="w-full rounded-xl bg-white/20 backdrop-blur-sm border border-white/20 px-3.5 py-2.5 text-sm text-foreground/80 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
                             >
                                 <option value="popular">По популярности</option>
                                 <option value="score">По оценке</option>
@@ -253,7 +252,7 @@ const CatalogTabComponent = ({
                         </div>
                         <button
                             onClick={clearFilters}
-                            className="w-full py-2.5 rounded-xl border border-gray-200 text-sm text-muted-foreground hover:bg-gray-50 transition-colors"
+                            className="w-full py-2.5 rounded-xl border border-white/20 text-sm text-muted-foreground/60 hover:bg-white/20 transition-colors"
                         >
                             Сбросить все
                         </button>
@@ -264,16 +263,28 @@ const CatalogTabComponent = ({
     }
 
     const SkeletonCard = () => (
-        <div className="bg-white/60 rounded-xl border border-gray-100/50 overflow-hidden animate-pulse">
-            <div className="w-full aspect-square bg-gray-100/60" />
+        <div className="bg-white/20 backdrop-blur-sm rounded-2xl border border-white/20 overflow-hidden animate-pulse">
+            <div className="w-full aspect-square bg-white/10" />
             <div className="p-3 space-y-2">
-                <div className="h-3.5 bg-gray-100/60 rounded-full w-3/4" />
-                <div className="h-2.5 bg-gray-100/40 rounded-full w-1/2" />
+                <div className="h-3.5 bg-white/10 rounded-full w-3/4" />
+                <div className="h-2.5 bg-white/10 rounded-full w-1/2" />
             </div>
         </div>
     )
 
-    const cardStyle = "bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-md hover:scale-[1.02]"
+    // Стеклянная карточка с трапециевидной формой
+    const glassCardStyle = cn(
+        'bg-white/20 backdrop-blur-xl',
+        'border border-white/20',
+        'shadow-[0_8px_32px_rgba(108,60,225,0.06)]',
+        'hover:shadow-[0_12px_48px_rgba(108,60,225,0.12)]',
+        'transition-all duration-500',
+        'overflow-hidden cursor-pointer',
+        'hover:bg-white/30 hover:border-primary/20',
+        // Трапециевидная форма
+        'rounded-2xl',
+        'hover:scale-[1.02]'
+    )
 
     return (
         <div className="h-full flex flex-col overflow-hidden">
@@ -281,10 +292,10 @@ const CatalogTabComponent = ({
             <div className="flex-shrink-0 pt-1 pb-1">
                 <div className="flex items-center justify-between mb-1.5">
                     <div>
-                        <h1 className="text-lg font-medium text-foreground">
+                        <h1 className="text-lg font-light text-foreground/90">
                             {getGreeting()}
                         </h1>
-                        <span className="text-[10px] text-muted-foreground/60">
+                        <span className="text-[10px] text-muted-foreground/50 font-light">
                             {profile?.skinType ? `Тип кожи: ${profile.skinType}` : 'Выберите тип кожи'}
                         </span>
                     </div>
@@ -300,7 +311,7 @@ const CatalogTabComponent = ({
                         )}
                         <button
                             onClick={onInfoClick}
-                            className="w-8 h-8 rounded-xl border border-gray-200/50 bg-white/50 flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/30 transition-all duration-300 text-sm"
+                            className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-sm border border-white/20 flex items-center justify-center text-muted-foreground/60 hover:text-primary hover:border-primary/30 transition-all duration-300 text-sm"
                         >
                             ?
                         </button>
@@ -310,13 +321,15 @@ const CatalogTabComponent = ({
                 {/* Поиск */}
                 <div className={cn(
                     'relative rounded-xl transition-all duration-300 mb-1.5',
-                    isFocused ? 'shadow-[0_0_40px_rgba(108,60,225,0.05)]' : ''
+                    isFocused ? 'shadow-[0_0_40px_rgba(108,60,225,0.06)]' : ''
                 )}>
                     <div className={cn(
                         'flex items-center gap-2.5 rounded-xl border px-3.5 py-2 transition-all duration-300',
-                        isFocused
-                            ? 'border-primary/30 bg-white shadow-sm'
-                            : 'border-gray-200/50 bg-white/60'
+                        'bg-white/20 backdrop-blur-sm',
+                        'border-white/20',
+                        isFocused 
+                            ? 'border-primary/30 bg-white/30 shadow-sm' 
+                            : 'hover:border-white/40'
                     )}>
                         <Search className={cn(
                             'size-4 transition-colors duration-300',
@@ -328,12 +341,12 @@ const CatalogTabComponent = ({
                             onFocus={() => setIsFocused(true)}
                             onBlur={() => setIsFocused(false)}
                             placeholder="Поиск продуктов..."
-                            className="w-full bg-transparent text-sm placeholder:text-muted-foreground/30 focus:outline-none"
+                            className="w-full bg-transparent text-sm placeholder:text-muted-foreground/30 focus:outline-none text-foreground/80"
                         />
                         {search && (
                             <button
                                 onClick={() => setSearch('')}
-                                className="p-1 rounded-full hover:bg-gray-100/50 transition-colors"
+                                className="p-1 rounded-full hover:bg-white/20 transition-colors"
                             >
                                 <X className="size-3.5 text-muted-foreground/40" />
                             </button>
@@ -345,7 +358,7 @@ const CatalogTabComponent = ({
                 {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
-                        className="w-full py-1.5 rounded-xl text-[10px] font-medium bg-gradient-to-r from-primary/5 to-primary/10 border border-primary/20 text-primary hover:shadow-md transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 mb-1.5"
+                        className="w-full py-1.5 rounded-xl text-[10px] font-medium bg-primary/10 backdrop-blur-sm border border-primary/20 text-primary hover:bg-primary/20 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 mb-1.5"
                     >
                         <Zap className="size-3" />
                         Заполнить анкету
@@ -357,7 +370,7 @@ const CatalogTabComponent = ({
                 <div className="flex items-center justify-between">
                     <button
                         onClick={() => setShowFilters(true)}
-                        className="px-3 py-1 rounded-xl border border-gray-200/50 bg-white/50 text-[10px] text-muted-foreground hover:text-primary hover:border-primary/30 transition-all duration-300 flex items-center gap-1.5"
+                        className="px-3 py-1 rounded-xl bg-white/20 backdrop-blur-sm border border-white/20 text-[10px] text-muted-foreground/60 hover:text-primary hover:border-primary/30 transition-all duration-300 flex items-center gap-1.5"
                     >
                         <span>Фильтры</span>
                         {(category || brand) && (
@@ -371,25 +384,25 @@ const CatalogTabComponent = ({
                                 onClick={() => handlePageChange(currentPage - 1)}
                                 disabled={currentPage === 1}
                                 className={cn(
-                                    'w-7 h-7 rounded-xl border transition-all duration-300 flex items-center justify-center',
+                                    'w-7 h-7 rounded-xl border transition-all duration-300 flex items-center justify-center bg-white/10 backdrop-blur-sm',
                                     currentPage === 1
-                                        ? 'border-gray-100 text-muted-foreground/20 cursor-not-allowed'
-                                        : 'border-gray-200/50 hover:border-primary/30 hover:text-primary text-muted-foreground/60'
+                                        ? 'border-white/10 text-muted-foreground/20 cursor-not-allowed'
+                                        : 'border-white/20 hover:border-primary/30 hover:text-primary text-muted-foreground/60 hover:bg-white/20'
                                 )}
                             >
                                 <ArrowRight className="size-3 rotate-180" />
                             </button>
-                            <span className="text-[10px] text-muted-foreground/40 px-1.5 min-w-[32px] text-center">
+                            <span className="text-[10px] text-muted-foreground/40 px-1.5 min-w-[32px] text-center font-light">
                                 {currentPage}/{totalPages}
                             </span>
                             <button
                                 onClick={() => handlePageChange(currentPage + 1)}
                                 disabled={currentPage === totalPages}
                                 className={cn(
-                                    'w-7 h-7 rounded-xl border transition-all duration-300 flex items-center justify-center',
+                                    'w-7 h-7 rounded-xl border transition-all duration-300 flex items-center justify-center bg-white/10 backdrop-blur-sm',
                                     currentPage === totalPages
-                                        ? 'border-gray-100 text-muted-foreground/20 cursor-not-allowed'
-                                        : 'border-gray-200/50 hover:border-primary/30 hover:text-primary text-muted-foreground/60'
+                                        ? 'border-white/10 text-muted-foreground/20 cursor-not-allowed'
+                                        : 'border-white/20 hover:border-primary/30 hover:text-primary text-muted-foreground/60 hover:bg-white/20'
                                 )}
                             >
                                 <ArrowRight className="size-3" />
@@ -399,7 +412,7 @@ const CatalogTabComponent = ({
                 </div>
             </div>
 
-            {/* Галерея с рефом для скролла */}
+            {/* Галерея */}
             <div className="flex-1 min-h-0 overflow-hidden">
                 {loading ? (
                     <div className="grid grid-cols-2 gap-2.5 pb-2">
@@ -409,10 +422,10 @@ const CatalogTabComponent = ({
                     </div>
                 ) : products.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full">
-                        <div className="w-16 h-16 rounded-full bg-gray-100/50 flex items-center justify-center mb-3">
+                        <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center mb-3">
                             <Compass className="size-6 text-muted-foreground/20" />
                         </div>
-                        <p className="text-sm text-muted-foreground/50">Ничего не найдено</p>
+                        <p className="text-sm text-muted-foreground/50 font-light">Ничего не найдено</p>
                         {search && (
                             <button
                                 onClick={() => setSearch('')}
@@ -423,9 +436,9 @@ const CatalogTabComponent = ({
                         )}
                     </div>
                 ) : (
-                    <div
+                    <div 
                         ref={scrollContainerRef}
-                        className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-gray-200/50 scrollbar-track-transparent"
+                        className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent"
                         style={{
                             height: '100%',
                             overflowY: 'auto',
@@ -439,19 +452,32 @@ const CatalogTabComponent = ({
                                     <div
                                         key={product.slug}
                                         className={cn(
-                                            cardStyle,
-                                            isHovered && 'border-primary/20 shadow-md',
+                                            glassCardStyle,
+                                            isHovered && 'border-primary/30 shadow-[0_12px_48px_rgba(108,60,225,0.15)]',
                                             'card-enter',
                                             isVisible && `card-enter-${Math.min(index + 1, 6)}`
                                         )}
                                         style={{
-                                            animationDelay: `${index * 0.08}s`
+                                            animationDelay: `${index * 0.08}s`,
+                                            // Трапециевидная форма для карточек
+                                            clipPath: 'polygon(3% 0%, 97% 0%, 100% 100%, 0% 100%)',
+                                            borderRadius: '16px 16px 12px 12px',
                                         }}
                                         onMouseEnter={() => setHoveredId(product.slug)}
                                         onMouseLeave={() => setHoveredId(null)}
                                         onClick={() => triggerCheck(product.name)}
                                     >
-                                        <div className="w-full aspect-square overflow-hidden bg-gray-50/50 flex items-center justify-center">
+                                        {/* Дополнительный слой размытия */}
+                                        <div 
+                                            className="absolute inset-0 -z-10"
+                                            style={{
+                                                background: 'rgba(255,255,255,0.05)',
+                                                backdropFilter: 'blur(12px)',
+                                                clipPath: 'polygon(3% 0%, 97% 0%, 100% 100%, 0% 100%)',
+                                                borderRadius: '16px 16px 12px 12px',
+                                            }}
+                                        />
+                                        <div className="w-full aspect-square overflow-hidden bg-white/5 flex items-center justify-center">
                                             {product.image_url ? (
                                                 <img
                                                     src={product.image_url}
@@ -467,7 +493,7 @@ const CatalogTabComponent = ({
                                             )}
                                         </div>
                                         <div className="p-3">
-                                            <p className="text-xs font-medium text-foreground/90 line-clamp-2 leading-snug">
+                                            <p className="text-xs font-medium text-foreground/80 line-clamp-2 leading-snug">
                                                 {product.name}
                                             </p>
                                             {product.category && (
@@ -481,9 +507,9 @@ const CatalogTabComponent = ({
                                                     triggerCheck(product.name)
                                                 }}
                                                 className={cn(
-                                                    'w-full mt-1.5 py-1.5 rounded-xl text-[9px] font-medium transition-all duration-300',
-                                                    isHovered
-                                                        ? 'bg-primary/10 text-primary opacity-100'
+                                                    'w-full mt-1.5 py-1.5 rounded-xl text-[9px] font-medium transition-all duration-500',
+                                                    isHovered 
+                                                        ? 'bg-primary/20 text-primary/90 opacity-100 backdrop-blur-sm' 
                                                         : 'bg-transparent text-transparent opacity-0'
                                                 )}
                                             >
