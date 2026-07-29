@@ -25,6 +25,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
 
     const MAX_CUSTOM_TEXT = 100
     const isFirstRender = useRef(true)
+    const prevDraftRef = useRef<SkinProfile>(profile)
     const scrollRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -43,25 +44,38 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       getDraft: () => draft,
     }))
 
-    // Проверка изменений - НЕ вызываем onDirtyChange при первом рендере
+    // Проверка изменений - сравниваем с предыдущим draft
     useEffect(() => {
-      const isChanged = JSON.stringify(draft) !== JSON.stringify(profile)
-      setHasChanges(isChanged)
-      if (isChanged) {
-        setSaved(false)
-      }
-
       // Пропускаем первый рендер
       if (isFirstRender.current) {
         isFirstRender.current = false
+        prevDraftRef.current = draft
         return
       }
 
-      // Вызываем onDirtyChange только если есть реальные изменения
-      if (onDirtyChange) {
-        onDirtyChange(isChanged)
+      // Сравниваем с предыдущим значением draft
+      const isChanged = JSON.stringify(draft) !== JSON.stringify(prevDraftRef.current)
+      
+      if (isChanged) {
+        setHasChanges(true)
+        setSaved(false)
+        // Вызываем onDirtyChange только если есть реальные изменения
+        if (onDirtyChange) {
+          onDirtyChange(true)
+        }
+      } else {
+        // Если ничего не изменилось, но hasChanges остался true - сбрасываем
+        if (hasChanges) {
+          setHasChanges(false)
+          if (onDirtyChange) {
+            onDirtyChange(false)
+          }
+        }
       }
-    }, [draft, profile, onDirtyChange])
+      
+      // Обновляем предыдущее значение
+      prevDraftRef.current = draft
+    }, [draft, onDirtyChange, hasChanges])
 
     const toggleArray = (key: 'concerns' | 'allergies', value: string) => {
       setDraft((prev) => {
@@ -76,6 +90,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       onSave(draft)
       setSaved(true)
       setHasChanges(false)
+      prevDraftRef.current = draft
       if (onDirtyChange) {
         onDirtyChange(false)
       }
@@ -98,6 +113,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       onSave(emptyProfile)
       setSaved(true)
       setHasChanges(false)
+      prevDraftRef.current = emptyProfile
       setShowResetConfirm(false)
       if (onDirtyChange) {
         onDirtyChange(false)
