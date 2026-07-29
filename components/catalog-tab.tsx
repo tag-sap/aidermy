@@ -52,16 +52,13 @@ const CatalogTabComponent = ({
 
     // Анимация появления - срабатывает после загрузки данных
     useEffect(() => {
-        // Очищаем предыдущий таймер
         if (animationTimerRef.current) {
             clearTimeout(animationTimerRef.current)
             animationTimerRef.current = null
         }
 
         if (!loading && products.length > 0 && isMounted.current) {
-            // Сбрасываем isVisible перед новой анимацией
             setIsVisible(false)
-            // Небольшая задержка перед включением анимации
             animationTimerRef.current = setTimeout(() => {
                 if (isMounted.current) {
                     setIsVisible(true)
@@ -151,19 +148,21 @@ const CatalogTabComponent = ({
         }
     }, [])
 
+    // Обновляем при изменении фильтров и поиска
     useEffect(() => {
         if (isMounted.current) {
             fetchProducts()
         }
-    }, [category, brand, sort, offset])
+    }, [category, brand, sort, offset, search])
 
+    // Debounce для поиска - сбрасываем offset на 0
     useEffect(() => {
         if (searchTimeout) clearTimeout(searchTimeout)
         const timeout = setTimeout(() => {
             if (isMounted.current) {
                 setOffset(0)
             }
-        }, 300)
+        }, 400)
         setSearchTimeout(timeout)
         return () => clearTimeout(timeout)
     }, [search])
@@ -397,6 +396,14 @@ const CatalogTabComponent = ({
                             <Compass className="size-6 text-muted-foreground/20" />
                         </div>
                         <p className="text-sm text-muted-foreground/50">Ничего не найдено</p>
+                        {search && (
+                            <button
+                                onClick={() => setSearch('')}
+                                className="mt-2 text-xs text-primary/60 hover:text-primary transition-colors"
+                            >
+                                Очистить поиск
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <div className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-gray-200/50 scrollbar-track-transparent pb-20">
