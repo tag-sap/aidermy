@@ -42,16 +42,15 @@ export function CatalogTab({
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
     const [isFocused, setIsFocused] = useState(false)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
-    const [isReady, setIsReady] = useState(false)
+    const [isVisible, setIsVisible] = useState(false)
 
     const limit = 6
 
+    // ===== КАК В HISTORYTAB =====
     useEffect(() => {
-        if (!loading && products.length > 0) {
-            const timer = setTimeout(() => setIsReady(true), 50)
-            return () => clearTimeout(timer)
-        }
-    }, [loading, products.length])
+        const timer = setTimeout(() => setIsVisible(true), 50)
+        return () => clearTimeout(timer)
+    }, [])
 
     const fetchCategories = async () => {
         try {
@@ -66,7 +65,6 @@ export function CatalogTab({
 
     const fetchProducts = async () => {
         setLoading(true)
-        setIsReady(false)
         try {
             const params = new URLSearchParams({
                 limit: String(limit),
@@ -113,10 +111,6 @@ export function CatalogTab({
 
     const handlePageChange = (page: number) => {
         setOffset((page - 1) * limit)
-        setIsReady(false)
-        setTimeout(() => {
-            if (!loading) setIsReady(true)
-        }, 100)
     }
 
     const triggerCheck = (productName: string) => {
@@ -210,6 +204,9 @@ export function CatalogTab({
             </div>
         </div>
     )
+
+    // ===== КАК В HISTORYTAB =====
+    const cardStyle = "bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-md hover:scale-[1.02]"
 
     return (
         <div className="h-full flex flex-col overflow-hidden">
@@ -347,13 +344,13 @@ export function CatalogTab({
                                     <div
                                         key={product.slug}
                                         className={cn(
-                                            'group bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300',
-                                            isHovered ? 'scale-[1.02] shadow-md border-primary/20' : 'hover:scale-[1.02] hover:shadow-md',
-                                            isReady && `card-enter-${Math.min(index + 1, 6)}`
+                                            cardStyle,
+                                            isHovered && 'border-primary/20 shadow-md',
+                                            'card-enter',
+                                            isVisible && `card-enter-${Math.min(index + 1, 6)}`
                                         )}
                                         style={{
-                                            animationDelay: `${Math.min(index, 5) * 80}ms`,
-                                            animationFillMode: 'forwards'
+                                            animationDelay: `${index * 0.08}s`
                                         }}
                                         onMouseEnter={() => setHoveredId(product.slug)}
                                         onMouseLeave={() => setHoveredId(null)}
