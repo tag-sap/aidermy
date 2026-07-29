@@ -42,15 +42,8 @@ export function CatalogTab({
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
     const [isFocused, setIsFocused] = useState(false)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
-    const [isVisible, setIsVisible] = useState(false)
 
     const limit = 6
-
-    // ===== КАК В HISTORYTAB =====
-    useEffect(() => {
-        const timer = setTimeout(() => setIsVisible(true), 50)
-        return () => clearTimeout(timer)
-    }, [])
 
     const fetchCategories = async () => {
         try {
@@ -205,9 +198,6 @@ export function CatalogTab({
         </div>
     )
 
-    // ===== КАК В HISTORYTAB =====
-    const cardStyle = "bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-md hover:scale-[1.02]"
-
     return (
         <div className="h-full flex flex-col overflow-hidden">
             {/* Хедер */}
@@ -320,7 +310,7 @@ export function CatalogTab({
                 </div>
             </div>
 
-            {/* Галерея */}
+            {/* Галерея - БЕЗ АНИМАЦИИ */}
             <div className="flex-1 min-h-0 overflow-hidden">
                 {loading ? (
                     <div className="grid grid-cols-2 gap-2.5 pb-2">
@@ -338,20 +328,15 @@ export function CatalogTab({
                 ) : (
                     <div className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-gray-200/50 scrollbar-track-transparent pb-20">
                         <div className="grid grid-cols-2 gap-2.5 pb-2">
-                            {products.map((product, index) => {
+                            {products.map((product) => {
                                 const isHovered = hoveredId === product.slug
                                 return (
                                     <div
                                         key={product.slug}
                                         className={cn(
-                                            cardStyle,
-                                            isHovered && 'border-primary/20 shadow-md',
-                                            'card-enter',
-                                            isVisible && `card-enter-${Math.min(index + 1, 6)}`
+                                            'bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300',
+                                            isHovered ? 'scale-[1.02] shadow-md border-primary/20' : 'hover:scale-[1.02] hover:shadow-md'
                                         )}
-                                        style={{
-                                            animationDelay: `${index * 0.08}s`
-                                        }}
                                         onMouseEnter={() => setHoveredId(product.slug)}
                                         onMouseLeave={() => setHoveredId(null)}
                                         onClick={() => triggerCheck(product.name)}
