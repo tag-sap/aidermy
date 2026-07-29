@@ -9,23 +9,20 @@ import type { SkinProfile } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 interface ProfileTabProps {
-  profile: SkinProfile
+  initialProfile: SkinProfile
   onSave: (p: SkinProfile) => void
   onStartQuiz?: () => void
 }
 
 export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTabProps>(
-  ({ profile, onSave, onStartQuiz }, ref) => {
-    const [draft, setDraft] = useState<SkinProfile>(profile)
-    const [saved, setSaved] = useState(false)
-    const [hasChanges, setHasChanges] = useState(false)
+  ({ initialProfile, onSave, onStartQuiz }, ref) => {
+    const [draft, setDraft] = useState<SkinProfile>(initialProfile)
+    const [isSaved, setIsSaved] = useState(false)
     const [showResetConfirm, setShowResetConfirm] = useState(false)
     const [isVisible, setIsVisible] = useState(false)
 
     const MAX_CUSTOM_TEXT = 100
     const scrollRef = useRef<HTMLDivElement>(null)
-    // Храним исходный профиль при монтировании
-    const initialProfileRef = useRef<SkinProfile>(profile)
 
     useEffect(() => {
       const timer = setTimeout(() => setIsVisible(true), 50)
@@ -42,25 +39,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       getDraft: () => draft,
     }))
 
-    // Сравниваем с initialProfileRef, а не с profile
-    useEffect(() => {
-      const isChanged = JSON.stringify(draft) !== JSON.stringify(initialProfileRef.current)
-      setHasChanges(isChanged)
-      if (isChanged) {
-        setSaved(false)
-      }
-    }, [draft])
-
-    // Обновляем initialProfileRef только когда profile действительно изменился извне
-    useEffect(() => {
-      // Если profile изменился и отличается от текущего draft, обновляем draft
-      if (JSON.stringify(profile) !== JSON.stringify(draft)) {
-        setDraft(profile)
-        initialProfileRef.current = profile
-        setSaved(true)
-        setHasChanges(false)
-      }
-    }, [profile])
+    const hasChanges = JSON.stringify(draft) !== JSON.stringify(initialProfile)
 
     const toggleArray = (key: 'concerns' | 'allergies', value: string) => {
       setDraft((prev) => {
@@ -69,17 +48,17 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         else set.add(value)
         return { ...prev, [key]: Array.from(set) }
       })
+      setIsSaved(false)
     }
 
     const handleSave = () => {
       onSave(draft)
-      setSaved(true)
-      setHasChanges(false)
-      initialProfileRef.current = draft
+      setIsSaved(true)
     }
 
     const handleChange = (field: keyof SkinProfile, value: any) => {
       setDraft((prev) => ({ ...prev, [field]: value }))
+      setIsSaved(false)
     }
 
     const handleReset = () => {
@@ -93,9 +72,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       }
       setDraft(emptyProfile)
       onSave(emptyProfile)
-      setSaved(true)
-      setHasChanges(false)
-      initialProfileRef.current = emptyProfile
+      setIsSaved(true)
       setShowResetConfirm(false)
     }
 
@@ -264,15 +241,15 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={!hasChanges || saved}
+                disabled={!hasChanges || isSaved}
                 className={cn(
                   'flex-1 flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-xs font-medium uppercase tracking-wider transition-all',
-                  !hasChanges || saved
+                  !hasChanges || isSaved
                     ? 'bg-white/10 backdrop-blur-sm text-muted-foreground/40 cursor-default border border-white/10'
                     : 'bg-primary/20 backdrop-blur-sm border border-primary/30 text-primary hover:bg-primary/30 hover:shadow-[0_0_30px_rgba(108,60,225,0.15)] active:scale-[0.97]'
                 )}
               >
-                {saved || !hasChanges ? (
+                {isSaved || !hasChanges ? (
                   <>
                     <Check className="size-3.5" />
                     Сохранено
