@@ -391,7 +391,7 @@ const CatalogTabComponent = ({
                 </div>
             </div>
 
-            {/* Галерея с анимацией */}
+            {/* Галерея с анимацией - увеличен отступ снизу */}
             <div className="flex-1 min-h-0 overflow-hidden">
                 {loading ? (
                     <div className="grid grid-cols-2 gap-2.5 pb-2">
@@ -415,7 +415,15 @@ const CatalogTabComponent = ({
                         )}
                     </div>
                 ) : (
-                    <div className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-gray-200/50 scrollbar-track-transparent pb-20">
+                    <div
+                        className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-gray-200/50 scrollbar-track-transparent"
+                        style={{
+                            height: '100%',
+                            overflowY: 'auto',
+                            paddingRight: '0.25rem',
+                            paddingBottom: '80px', // ← увеличенный отступ снизу для таб-бара
+                        }}
+                    >
                         <div className="grid grid-cols-2 gap-2.5 pb-2">
                             {products.map((product, index) => {
                                 const isHovered = hoveredId === product.slug
