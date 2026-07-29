@@ -24,18 +24,26 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     const [isVisible, setIsVisible] = useState(false)
 
     const MAX_CUSTOM_TEXT = 100
-    const dirtyTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const isFirstRender = useRef(true)
+    const scrollRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
       const timer = setTimeout(() => setIsVisible(true), 50)
       return () => clearTimeout(timer)
     }, [])
 
+    // Скролл наверх при монтировании
+    useEffect(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = 0
+      }
+    }, [])
+
     useImperativeHandle(ref, () => ({
       getDraft: () => draft,
     }))
 
-    // Проверка изменений с debounce
+    // Проверка изменений - НЕ вызываем onDirtyChange при первом рендере
     useEffect(() => {
       const isChanged = JSON.stringify(draft) !== JSON.stringify(profile)
       setHasChanges(isChanged)
@@ -43,20 +51,15 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         setSaved(false)
       }
 
-      // Debounce для onDirtyChange
-      if (dirtyTimeoutRef.current) {
-        clearTimeout(dirtyTimeoutRef.current)
+      // Пропускаем первый рендер
+      if (isFirstRender.current) {
+        isFirstRender.current = false
+        return
       }
-      dirtyTimeoutRef.current = setTimeout(() => {
-        if (onDirtyChange) {
-          onDirtyChange(isChanged)
-        }
-      }, 300)
 
-      return () => {
-        if (dirtyTimeoutRef.current) {
-          clearTimeout(dirtyTimeoutRef.current)
-        }
+      // Вызываем onDirtyChange только если есть реальные изменения
+      if (onDirtyChange) {
+        onDirtyChange(isChanged)
       }
     }, [draft, profile, onDirtyChange])
 
@@ -73,6 +76,9 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       onSave(draft)
       setSaved(true)
       setHasChanges(false)
+      if (onDirtyChange) {
+        onDirtyChange(false)
+      }
     }
 
     const handleChange = (field: keyof SkinProfile, value: any) => {
@@ -93,6 +99,9 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       setSaved(true)
       setHasChanges(false)
       setShowResetConfirm(false)
+      if (onDirtyChange) {
+        onDirtyChange(false)
+      }
     }
 
     const isProfileEmpty = () => {
@@ -156,7 +165,10 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* Контент со скроллом */}
-        <div className="flex-1 min-h-0 overflow-y-auto pr-1 pb-4 space-y-3">
+        <div 
+          ref={scrollRef}
+          className="flex-1 min-h-0 overflow-y-auto pr-1 pb-4 space-y-3"
+        >
           {/* Имя */}
           <Section icon={User} title="Как к вам обращаться?" delay={1}>
             <input
