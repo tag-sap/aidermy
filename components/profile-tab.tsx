@@ -41,7 +41,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     }, [])
 
     // Проверка на изменения
-    const hasChanges =
+    const hasChanges = 
       name !== (profile.name || '') ||
       skinType !== (profile.skinType || '') ||
       age !== (profile.age || '') ||
@@ -62,11 +62,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
 
     const toggleArray = (key: 'concerns' | 'allergies', value: string) => {
       if (key === 'concerns') {
-        setConcerns(prev =>
+        setConcerns(prev => 
           prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
         )
       } else {
-        setAllergies(prev =>
+        setAllergies(prev => 
           prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
         )
       }
@@ -128,7 +128,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     )
 
     const Section = ({ icon: Icon, title, children, className, delay }: any) => (
-      <div
+      <div 
         className={cn(
           glassCardStyle,
           'card-enter',
@@ -163,7 +163,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           </p>
         </div>
 
-        <div
+        <div 
           ref={scrollRef}
           className="flex-1 min-h-0 overflow-y-auto pr-1 pb-4 space-y-3"
         >

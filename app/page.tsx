@@ -476,7 +476,7 @@ export default function Page() {
                   <div className="h-full overflow-y-auto py-4">
                     <ProfileTab
                       ref={profileTabRef}
-                      initialProfile={profile}  // ← переименовано
+                      profile={profile}  // ← оставляем profile
                       onSave={handleSaveProfile}
                       onStartQuiz={() => setShowQuiz(true)}
                     />
