@@ -433,7 +433,7 @@ export default function Page() {
           />
         </div>
 
-        <main className="relative z-10 flex-1 min-h-0 overflow-hidden pb-20">
+        <main className="relative z-10 flex-1 min-h-0 overflow-hidden pb-24">
           <div className="h-full max-w-md mx-auto px-4 overflow-hidden">
             {showQuiz ? (
               <div className="h-full overflow-y-auto py-4">
