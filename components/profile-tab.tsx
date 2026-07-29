@@ -11,12 +11,11 @@ import { cn } from '@/lib/utils'
 interface ProfileTabProps {
   profile: SkinProfile
   onSave: (p: SkinProfile) => void
-  onDirtyChange?: (dirty: boolean) => void
   onStartQuiz?: () => void
 }
 
 export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTabProps>(
-  ({ profile, onSave, onDirtyChange, onStartQuiz }, ref) => {
+  ({ profile, onSave, onStartQuiz }, ref) => {
     const [draft, setDraft] = useState<SkinProfile>(profile)
     const [saved, setSaved] = useState(false)
     const [hasChanges, setHasChanges] = useState(false)
