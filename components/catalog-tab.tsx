@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { Search, X, Sparkles, ArrowRight, Compass, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SKIN_TYPES } from '@/lib/products'
@@ -15,7 +15,7 @@ interface Product {
     brand: string | null
 }
 
-export function CatalogTab({
+const CatalogTabComponent = ({
     onCheck,
     profile,
     onGoToProfile,
@@ -27,7 +27,7 @@ export function CatalogTab({
     onGoToProfile?: () => void
     onStartQuiz?: () => void
     onInfoClick?: () => void
-}) {
+}) => {
     const [products, setProducts] = useState<Product[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
@@ -406,3 +406,6 @@ export function CatalogTab({
         </div>
     )
 }
+
+// Обёртка с memo чтобы предотвратить лишние перерендеры
+export const CatalogTab = memo(CatalogTabComponent)
