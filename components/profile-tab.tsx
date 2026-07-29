@@ -1,7 +1,7 @@
 'use client'
 
-import { forwardRef, useState, useEffect, useImperativeHandle } from 'react'
-import { Check, Trash2, X, User, Droplets, Calendar, AlertCircle, Sparkles, Zap } from 'lucide-react'
+import { forwardRef, useState, useEffect, useImperativeHandle, useRef } from 'react'
+import { Check, Trash2, X, User, Droplets, Calendar, AlertCircle, Sparkles } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { ScrambleText } from '@/components/scramble-text'
 import { AGE_GROUPS, ALLERGIES, SKIN_CONCERNS, SKIN_TYPES } from '@/lib/products'
@@ -24,6 +24,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     const [isVisible, setIsVisible] = useState(false)
 
     const MAX_CUSTOM_TEXT = 100
+    const dirtyTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
     useEffect(() => {
       const timer = setTimeout(() => setIsVisible(true), 50)
@@ -34,14 +35,28 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       getDraft: () => draft,
     }))
 
+    // Проверка изменений с debounce
     useEffect(() => {
       const isChanged = JSON.stringify(draft) !== JSON.stringify(profile)
       setHasChanges(isChanged)
       if (isChanged) {
         setSaved(false)
       }
-      if (onDirtyChange) {
-        onDirtyChange(isChanged)
+
+      // Debounce для onDirtyChange
+      if (dirtyTimeoutRef.current) {
+        clearTimeout(dirtyTimeoutRef.current)
+      }
+      dirtyTimeoutRef.current = setTimeout(() => {
+        if (onDirtyChange) {
+          onDirtyChange(isChanged)
+        }
+      }, 300)
+
+      return () => {
+        if (dirtyTimeoutRef.current) {
+          clearTimeout(dirtyTimeoutRef.current)
+        }
       }
     }, [draft, profile, onDirtyChange])
 
@@ -93,7 +108,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
 
     const profileEmpty = isProfileEmpty()
 
-    // Стеклянная карточка
     const glassCardStyle = cn(
       'bg-white/20 backdrop-blur-xl',
       'border border-white/20',
@@ -104,9 +118,8 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       'hover:bg-white/30 hover:border-primary/20'
     )
 
-    // Секция с иконкой
     const Section = ({ icon: Icon, title, children, className, delay }: any) => (
-      <div
+      <div 
         className={cn(
           glassCardStyle,
           'card-enter',
