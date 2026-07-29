@@ -1,7 +1,7 @@
 'use client'
 
 import { forwardRef, useState, useEffect, useImperativeHandle } from 'react'
-import { Check, Trash2, X } from 'lucide-react'
+import { Check, Trash2, X, User, Droplets, Calendar, AlertCircle, Sparkles, Zap } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { ScrambleText } from '@/components/scramble-text'
 import { AGE_GROUPS, ALLERGIES, SKIN_CONCERNS, SKIN_TYPES } from '@/lib/products'
@@ -92,47 +92,76 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     }
 
     const profileEmpty = isProfileEmpty()
-    const cardStyle = "relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent rounded-2xl p-5 border border-primary/20 backdrop-blur-sm hover:shadow-md transition-shadow"
+
+    // Стеклянная карточка
+    const glassCardStyle = cn(
+      'bg-white/20 backdrop-blur-xl',
+      'border border-white/20',
+      'shadow-[0_8px_32px_rgba(108,60,225,0.06)]',
+      'hover:shadow-[0_12px_48px_rgba(108,60,225,0.1)]',
+      'transition-all duration-500',
+      'rounded-2xl p-4',
+      'hover:bg-white/30 hover:border-primary/20'
+    )
+
+    // Секция с иконкой
+    const Section = ({ icon: Icon, title, children, className, delay }: any) => (
+      <div
+        className={cn(
+          glassCardStyle,
+          'card-enter',
+          isVisible && `card-enter-${delay || 1}`,
+          className
+        )}
+        style={{
+          animationDelay: `${((delay || 1) - 1) * 80}ms`,
+          animationFillMode: 'forwards'
+        }}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <Icon className="size-4 text-primary/60" strokeWidth={1.5} />
+          <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+            {title}
+          </h2>
+        </div>
+        {children}
+      </div>
+    )
 
     return (
-      <div className="flex flex-col gap-5 max-w-md mx-auto">
-        <ScrambleText
-          as="h1"
-          text="Мои данные для AI"
-          className="text-2xl font-normal text-foreground"
-        />
+      <div className="h-full flex flex-col overflow-hidden pb-24">
+        {/* Заголовок */}
+        <div className="flex-shrink-0 pt-1 pb-3">
+          <ScrambleText
+            as="h1"
+            text="Мои данные"
+            className="text-xl font-light text-foreground/90"
+          />
+          <p className="text-[10px] text-muted-foreground/50 font-light mt-0.5">
+            Заполните анкету для точных рекомендаций
+          </p>
+        </div>
 
-        {/* === ИМЯ === */}
-        <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-1')}>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-          <div className="relative">
-            <h2 className="mb-3 text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">
-              Как к вам обращаться?
-            </h2>
+        {/* Контент со скроллом */}
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1 pb-4 space-y-3">
+          {/* Имя */}
+          <Section icon={User} title="Как к вам обращаться?" delay={1}>
             <input
               type="text"
               value={draft.name || ''}
               onChange={(e) => handleChange('name', e.target.value)}
               placeholder="Например: Райан Гослинг..."
-              className="w-full rounded-xl border border-primary/15 bg-white/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full rounded-xl bg-white/30 backdrop-blur-sm border border-white/20 px-4 py-2.5 text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
               maxLength={30}
             />
-            <div className="mt-1 text-right text-xs text-muted-foreground">
+            <div className="mt-1 text-right text-[10px] text-muted-foreground/40">
               {(draft.name?.length || 0)}/30
             </div>
-          </div>
-        </div>
+          </Section>
 
-        {/* === ТИП КОЖИ === */}
-        <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-2')}>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-          <div className="relative">
-            <h2 className="mb-3 text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">
-              Тип кожи
-            </h2>
-            <div className="flex flex-wrap gap-2">
+          {/* Тип кожи */}
+          <Section icon={Droplets} title="Тип кожи" delay={2}>
+            <div className="flex flex-wrap gap-1.5">
               {SKIN_TYPES.map((t) => (
                 <Chip
                   key={t}
@@ -142,18 +171,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 />
               ))}
             </div>
-          </div>
-        </div>
+          </Section>
 
-        {/* === ВОЗРАСТ === */}
-        <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-3')}>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-          <div className="relative">
-            <h2 className="mb-3 text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">
-              Возраст
-            </h2>
-            <div className="flex flex-wrap gap-2">
+          {/* Возраст */}
+          <Section icon={Calendar} title="Возраст" delay={3}>
+            <div className="flex flex-wrap gap-1.5">
               {AGE_GROUPS.map((a) => (
                 <Chip
                   key={a}
@@ -163,18 +185,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 />
               ))}
             </div>
-          </div>
-        </div>
+          </Section>
 
-        {/* === ЧТО БЕСПОКОИТ === */}
-        <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-4')}>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-          <div className="relative">
-            <h2 className="mb-3 text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">
-              Что беспокоит
-            </h2>
-            <div className="flex flex-wrap gap-2">
+          {/* Что беспокоит */}
+          <Section icon={AlertCircle} title="Что беспокоит" delay={4}>
+            <div className="flex flex-wrap gap-1.5">
               {SKIN_CONCERNS.map((c) => (
                 <Chip
                   key={c}
@@ -184,18 +199,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 />
               ))}
             </div>
-          </div>
-        </div>
+          </Section>
 
-        {/* === АЛЛЕРГИИ === */}
-        <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-5')}>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-          <div className="relative">
-            <h2 className="mb-3 text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">
-              Аллергии
-            </h2>
-            <div className="flex flex-wrap gap-2">
+          {/* Аллергии */}
+          <Section icon={AlertCircle} title="Аллергии" delay={5}>
+            <div className="flex flex-wrap gap-1.5">
               {ALLERGIES.map((a) => (
                 <Chip
                   key={a}
@@ -205,18 +213,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 />
               ))}
             </div>
-          </div>
-        </div>
+          </Section>
 
-        {/* === ОПИШИТЕ ПРОБЛЕМУ === */}
-        <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-6')}>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
-          <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-          <div className="relative">
-            <h2 className="mb-3 text-xs font-normal uppercase tracking-[0.08em] text-muted-foreground">
-              Опишите проблему
-            </h2>
-            <p className="mb-2 text-xs text-muted-foreground">
+          {/* Опишите проблему */}
+          <Section icon={Sparkles} title="Опишите проблему" delay={6}>
+            <p className="text-[10px] text-muted-foreground/50 font-light mb-2">
               Коротко, 1 предложение (до 100 символов)
             </p>
             <textarea
@@ -228,79 +229,81 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 }
               }}
               placeholder="Например: кожа стягивается после умывания"
-              className="w-full rounded-xl border border-primary/15 bg-white/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full rounded-xl bg-white/30 backdrop-blur-sm border border-white/20 px-4 py-2.5 text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all resize-none"
               rows={2}
               maxLength={MAX_CUSTOM_TEXT}
             />
-            <div className={`mt-1 text-right text-xs ${(draft.customText?.length || 0) >= MAX_CUSTOM_TEXT ? 'text-orange-500' : 'text-muted-foreground'}`}>
+            <div className={`mt-1 text-right text-[10px] ${(draft.customText?.length || 0) >= MAX_CUSTOM_TEXT ? 'text-orange-400' : 'text-muted-foreground/40'}`}>
               {draft.customText?.length || 0}/{MAX_CUSTOM_TEXT}
             </div>
-          </div>
+          </Section>
+
+          {/* Кнопки */}
+          {!profileEmpty && (
+            <div className="flex gap-2 pt-1 pb-2">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(true)}
+                className="flex items-center justify-center gap-2 rounded-xl border border-red-200/50 bg-white/10 backdrop-blur-sm px-4 py-2.5 text-xs font-medium text-red-400 transition-all hover:bg-red-500/10 hover:border-red-300/50"
+              >
+                <Trash2 className="size-3.5" />
+                Сбросить
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!hasChanges || saved}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-xs font-medium uppercase tracking-wider transition-all',
+                  !hasChanges || saved
+                    ? 'bg-white/10 backdrop-blur-sm text-muted-foreground/40 cursor-default border border-white/10'
+                    : 'bg-primary/20 backdrop-blur-sm border border-primary/30 text-primary hover:bg-primary/30 hover:shadow-[0_0_30px_rgba(108,60,225,0.15)] active:scale-[0.97]'
+                )}
+              >
+                {saved || !hasChanges ? (
+                  <>
+                    <Check className="size-3.5" />
+                    Сохранено
+                  </>
+                ) : (
+                  'Сохранить'
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* === КНОПКИ === */}
-        {!profileEmpty && (
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setShowResetConfirm(true)}
-              className="flex items-center justify-center gap-2 rounded-xl border border-red-300 px-4 py-3 text-sm font-normal text-red-500 transition-all hover:bg-red-50 hover:border-red-400"
-            >
-              <Trash2 className="size-4" />
-              Сбросить
-            </button>
-
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!hasChanges || saved}
-              className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-6 py-3 font-normal uppercase tracking-wider transition-all ${!hasChanges || saved
-                  ? 'bg-transparent text-primary hover:bg-transparent hover:shadow-none cursor-default'
-                  : 'bg-primary text-primary-foreground hover:shadow-[0_0_28px_rgba(255,79,0,0.5)] active:scale-[0.97]'
-                }`}
-            >
-              {saved || !hasChanges ? (
-                <>
-                  <Check className="size-4" />
-                  Сохранено
-                </>
-              ) : (
-                'Сохранить'
-              )}
-            </button>
-          </div>
-        )}
-
-        {/* === ПОПАП ПОДТВЕРЖДЕНИЯ СБРОСА === */}
+        {/* Попап подтверждения сброса */}
         {showResetConfirm && (
           <>
             <div
-              className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
+              className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
               onClick={() => setShowResetConfirm(false)}
             />
-            <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-xl border border-red-200">
+            <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white/80 backdrop-blur-xl border border-white/30 p-6 shadow-2xl">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-normal text-foreground">Сбросить анкету?</h3>
+                <h3 className="text-base font-light text-foreground">Сбросить анкету?</h3>
                 <button
                   onClick={() => setShowResetConfirm(false)}
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground/60 hover:text-foreground transition-colors"
                 >
-                  <X className="size-5" />
+                  <X className="size-4.5" />
                 </button>
               </div>
-              <p className="text-sm text-muted-foreground mb-6">
+              <p className="text-sm text-muted-foreground/70 font-light mb-6">
                 Все данные анкеты будут удалены. Это действие нельзя отменить.
               </p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowResetConfirm(false)}
-                  className="flex-1 rounded-xl border border-gray-200 px-4 py-2 text-sm font-normal text-gray-600 transition-colors hover:bg-gray-50"
+                  className="flex-1 rounded-xl border border-gray-200/50 px-4 py-2.5 text-xs font-medium text-muted-foreground transition-all hover:bg-gray-50/50"
                 >
                   Отмена
                 </button>
                 <button
                   onClick={handleReset}
-                  className="flex-1 rounded-xl bg-red-500 px-4 py-2 text-sm font-normal text-white transition-colors hover:bg-red-600"
+                  className="flex-1 rounded-xl bg-red-500/20 backdrop-blur-sm border border-red-300/30 px-4 py-2.5 text-xs font-medium text-red-400 transition-all hover:bg-red-500/30"
                 >
                   Сбросить
                 </button>
