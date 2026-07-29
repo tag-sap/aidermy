@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from .auth_routes import router as auth_router
 from .admin_routes import setup_admin_routes
 from typing import Optional, List
+from .auth import get_current_user_optional  # <-- ДОБАВИТЬ ЭТОТ ИМПОРТ
 
 from .services import search_products
 
@@ -51,12 +52,13 @@ async def get_products(q: str = ""):
     products = search_products(q)
     return {"products": products}
 
-# main.py — в эндпоинте /api/check
-
 @app.post("/api/check", response_model=CheckResponse)
-async def check_product(request: CheckRequest, current_user: dict = Depends(get_current_user_optional)):
+async def check_product(
+    request: CheckRequest, 
+    current_user: dict = Depends(get_current_user_optional)  # <-- ТЕПЕРЬ РАБОТАЕТ
+):
     try:
-        from .database import get_connection, PRODUCTS_DB, save_check_result
+        from .database import get_connection, PRODUCTS_DB
         
         result = await check_product_with_ai(
             request.product_name,
@@ -76,7 +78,7 @@ async def check_product(request: CheckRequest, current_user: dict = Depends(get_
         existing_product = cursor_products.fetchone()
         conn_products.close()
         
-        # Сохраняем в историю с user_id (если пользователь авторизован)
+        # Сохраняем в историю ТОЛЬКО если продукт есть в базе
         if result.get("ingredients") and existing_product:
             user_id = current_user.get('id') if current_user else None
             save_check_result(
@@ -87,7 +89,7 @@ async def check_product(request: CheckRequest, current_user: dict = Depends(get_
                 result.get("summary", "Не удалось получить рекомендацию."),
                 result.get("ingredients", ""),
                 slug,
-                user_id  # <-- ПЕРЕДАЁМ user_id
+                user_id
             )
         
         return CheckResponse(
@@ -107,11 +109,14 @@ async def check_product(request: CheckRequest, current_user: dict = Depends(get_
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
     
 @app.post("/api/check-with-ingredients", response_model=CheckResponse)
-async def check_with_ingredients(request: Request, check_request: CheckWithIngredientsRequest):
+async def check_with_ingredients(
+    request: Request, 
+    check_request: CheckWithIngredientsRequest,
+    current_user: dict = Depends(get_current_user_optional)  # <-- ТЕПЕРЬ РАБОТАЕТ
+):
     try:
         from .services import generate_slug, check_product_with_ingredients
         from .auth_routes import save_pending_product
-        from .auth import get_current_user_from_token
         from .database import get_connection, PRODUCTS_DB
         
         result = await check_product_with_ingredients(
@@ -133,13 +138,7 @@ async def check_with_ingredients(request: Request, check_request: CheckWithIngre
         existing_product = cursor_products.fetchone()
         conn_products.close()
         
-        user_id = None
-        auth_header = request.headers.get("Authorization")
-        if auth_header:
-            token = auth_header.split(" ")[1] if " " in auth_header else auth_header
-            user = await get_current_user_from_token(token)
-            if user:
-                user_id = user['id']
+        user_id = current_user.get('id') if current_user else None
         
         # Отправляем в модерацию
         if check_request.ingredients and result.get("score", 0) > 0:
@@ -158,12 +157,10 @@ async def check_with_ingredients(request: Request, check_request: CheckWithIngre
                 result.get("verdict", "С осторожностью"),
                 result.get("summary", "Не удалось проанализировать состав."),
                 check_request.ingredients,
-                slug
+                slug,
+                user_id
             )
-        print("🔍 result keys:", result.keys())
-        print("🔍 active_ingredients:", result.get("active_ingredients"))
-        print("🔍 how_to_use:", result.get("how_to_use"))
-        print("🔍 expectations:", result.get("expectations"))
+        
         return CheckResponse(
             score=result.get("score", 50),
             verdict=result.get("verdict", "Нейтрально"),
@@ -258,6 +255,7 @@ async def get_popular_products():
                 "image_url": row['image_url']
             } for row in rows]
         }
+
 @app.get("/api/catalog")
 async def get_catalog(
     category: Optional[str] = None,
