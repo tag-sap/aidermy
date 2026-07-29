@@ -272,7 +272,7 @@ const CatalogTabComponent = ({
         </div>
     )
 
-    // Стеклянная карточка с трапециевидной формой
+    // Стеклянная карточка с обычным скруглением
     const glassCardStyle = cn(
         'bg-white/20 backdrop-blur-xl',
         'border border-white/20',
@@ -281,7 +281,6 @@ const CatalogTabComponent = ({
         'transition-all duration-500',
         'overflow-hidden cursor-pointer',
         'hover:bg-white/30 hover:border-primary/20',
-        // Трапециевидная форма
         'rounded-2xl',
         'hover:scale-[1.02]'
     )
@@ -459,24 +458,12 @@ const CatalogTabComponent = ({
                                         )}
                                         style={{
                                             animationDelay: `${index * 0.08}s`,
-                                            // Прямоугольная трапеция: правый верхний угол торчит вверх
-                                            clipPath: 'polygon(0% 0%, 100% 8%, 100% 100%, 0% 100%)',
-                                            borderRadius: '16px 16px 12px 12px',
+                                            borderRadius: '16px',
                                         }}
                                         onMouseEnter={() => setHoveredId(product.slug)}
                                         onMouseLeave={() => setHoveredId(null)}
                                         onClick={() => triggerCheck(product.name)}
                                     >
-                                        {/* Дополнительный слой размытия */}
-                                        <div
-                                            className="absolute inset-0 -z-10"
-                                            style={{
-                                                background: 'rgba(255,255,255,0.05)',
-                                                backdropFilter: 'blur(12px)',
-                                                clipPath: 'polygon(3% 0%, 97% 0%, 100% 100%, 0% 100%)',
-                                                borderRadius: '16px 16px 12px 12px',
-                                            }}
-                                        />
                                         <div className="w-full aspect-square overflow-hidden bg-white/5 flex items-center justify-center">
                                             {product.image_url ? (
                                                 <img
@@ -497,8 +484,8 @@ const CatalogTabComponent = ({
                                                 {product.name}
                                             </p>
                                             {product.category && (
-                                                <p className="text-xs font-medium text-foreground/80 line-clamp-2 leading-snug">
-                                                    {product.name}
+                                                <p className="text-[8px] text-muted-foreground/40 uppercase tracking-wider mt-0.5">
+                                                    {product.category}
                                                 </p>
                                             )}
                                             <button
