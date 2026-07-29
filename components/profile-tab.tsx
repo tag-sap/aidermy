@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 interface ProfileTabProps {
   profile: SkinProfile
   onSave: (p: SkinProfile) => void
-  onDirtyChange: (dirty: boolean) => void
+  onDirtyChange?: (dirty: boolean) => void
   onStartQuiz?: () => void
 }
 
@@ -41,7 +41,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       getDraft: () => draft,
     }))
 
-    // Проверка изменений для кнопки "Сохранить"
     useEffect(() => {
       const isChanged = JSON.stringify(draft) !== JSON.stringify(profile)
       setHasChanges(isChanged)
@@ -50,25 +49,12 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       }
     }, [draft, profile])
 
-    // Вызываем onDirtyChange только при изменении чипов (не текстовых полей)
-    const handleDirtyChange = (isDirty: boolean) => {
-      if (onDirtyChange) {
-        onDirtyChange(isDirty)
-      }
-    }
-
     const toggleArray = (key: 'concerns' | 'allergies', value: string) => {
       setDraft((prev) => {
         const set = new Set(prev[key])
         if (set.has(value)) set.delete(value)
         else set.add(value)
-        const newDraft = { ...prev, [key]: Array.from(set) }
-        // Вызываем onDirtyChange при изменении чипов
-        const isChanged = JSON.stringify(newDraft) !== JSON.stringify(profile)
-        if (isChanged) {
-          handleDirtyChange(true)
-        }
-        return newDraft
+        return { ...prev, [key]: Array.from(set) }
       })
     }
 
@@ -76,23 +62,10 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       onSave(draft)
       setSaved(true)
       setHasChanges(false)
-      handleDirtyChange(false)
     }
 
     const handleChange = (field: keyof SkinProfile, value: any) => {
       setDraft((prev) => ({ ...prev, [field]: value }))
-      // Не вызываем onDirtyChange при текстовом вводе
-    }
-
-    const handleChipChange = (field: 'skinType' | 'age', value: string) => {
-      setDraft((prev) => {
-        const newDraft = { ...prev, [field]: value }
-        const isChanged = JSON.stringify(newDraft) !== JSON.stringify(profile)
-        if (isChanged) {
-          handleDirtyChange(true)
-        }
-        return newDraft
-      })
     }
 
     const handleReset = () => {
@@ -109,7 +82,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       setSaved(true)
       setHasChanges(false)
       setShowResetConfirm(false)
-      handleDirtyChange(false)
     }
 
     const isProfileEmpty = () => {
@@ -196,7 +168,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                   key={t}
                   label={t}
                   active={draft.skinType === t}
-                  onClick={() => handleChipChange('skinType', t)}
+                  onClick={() => handleChange('skinType', t)}
                 />
               ))}
             </div>
@@ -209,7 +181,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                   key={a}
                   label={a}
                   active={draft.age === a}
-                  onClick={() => handleChipChange('age', a)}
+                  onClick={() => handleChange('age', a)}
                 />
               ))}
             </div>
