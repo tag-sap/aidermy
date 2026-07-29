@@ -12,7 +12,7 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 # === ХЕШИРОВАНИЕ ПАРОЛЯ ===
 def get_password_hash(password: str) -> str:
@@ -48,6 +48,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    if not token:
+        raise credentials_exception
     
     payload = decode_access_token(token)
     if payload is None:
@@ -88,6 +91,16 @@ async def get_current_user_from_token(token: str):
             return None
         
         return dict(user)
+    except:
+        return None
+
+# === ПОЛУЧЕНИЕ ПОЛЬЗОВАТЕЛЯ ОПЦИОНАЛЬНО (для необязательной авторизации) ===
+async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme)):
+    """Получить пользователя, если авторизован, иначе None"""
+    if not token:
+        return None
+    try:
+        return await get_current_user(token)
     except:
         return None
 
@@ -230,14 +243,3 @@ def update_user_profile(user_id: int, data: dict):
     cursor.execute(query, values)
     conn.commit()
     conn.close()
-
-    # auth.py
-
-async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme, optional=True)):
-    """Получить пользователя, если авторизован, иначе None"""
-    if not token:
-        return None
-    try:
-        return await get_current_user(token)
-    except:
-        return None
