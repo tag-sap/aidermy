@@ -1,7 +1,7 @@
 'use client'
 
 import { forwardRef, useState, useImperativeHandle } from 'react'
-import { Check, X, User, Droplets, Calendar, AlertCircle, Sparkles } from 'lucide-react'
+import { Check, X, User, Droplets, Calendar, AlertCircle, Sparkles, Trash2 } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { AGE_GROUPS, ALLERGIES, SKIN_CONCERNS, SKIN_TYPES } from '@/lib/products'
 import type { SkinProfile } from '@/lib/store'
@@ -28,7 +28,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       getDraft: () => ({ name, skinType, age, concerns, allergies, customText }),
     }))
 
-    const hasChanges = 
+    const hasChanges =
       name !== profile.name ||
       skinType !== profile.skinType ||
       age !== profile.age ||
@@ -107,11 +107,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         <Section icon={Droplets} title="Тип кожи" delay={2}>
           <div className="flex flex-wrap gap-1.5">
             {SKIN_TYPES.map((t) => (
-              <Chip 
-                key={t} 
-                label={t} 
-                active={skinType === t} 
-                onClick={() => { setSkinType(t); setSaved(false) }} 
+              <Chip
+                key={t}
+                label={t}
+                active={skinType === t}
+                onClick={() => { setSkinType(t); setSaved(false) }}
               />
             ))}
           </div>
@@ -120,11 +120,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         <Section icon={Calendar} title="Возраст" delay={3}>
           <div className="flex flex-wrap gap-1.5">
             {AGE_GROUPS.map((a) => (
-              <Chip 
-                key={a} 
-                label={a} 
-                active={age === a} 
-                onClick={() => { setAge(a); setSaved(false) }} 
+              <Chip
+                key={a}
+                label={a}
+                active={age === a}
+                onClick={() => { setAge(a); setSaved(false) }}
               />
             ))}
           </div>
@@ -133,11 +133,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         <Section icon={AlertCircle} title="Что беспокоит" delay={4}>
           <div className="flex flex-wrap gap-1.5">
             {SKIN_CONCERNS.map((c) => (
-              <Chip 
-                key={c} 
-                label={c} 
-                active={concerns.includes(c)} 
-                onClick={() => toggle('concerns', c)} 
+              <Chip
+                key={c}
+                label={c}
+                active={concerns.includes(c)}
+                onClick={() => toggle('concerns', c)}
               />
             ))}
           </div>
@@ -146,11 +146,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         <Section icon={AlertCircle} title="Аллергии" delay={5}>
           <div className="flex flex-wrap gap-1.5">
             {ALLERGIES.map((a) => (
-              <Chip 
-                key={a} 
-                label={a} 
-                active={allergies.includes(a)} 
-                onClick={() => toggle('allergies', a)} 
+              <Chip
+                key={a}
+                label={a}
+                active={allergies.includes(a)}
+                onClick={() => toggle('allergies', a)}
               />
             ))}
           </div>
@@ -162,7 +162,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           </p>
           <textarea
             value={customText}
-            onChange={(e) => { 
+            onChange={(e) => {
               const text = e.target.value
               if (text.length <= 100) {
                 setCustomText(text)
