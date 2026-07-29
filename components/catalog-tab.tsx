@@ -42,14 +42,17 @@ export function CatalogTab({
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
     const [isFocused, setIsFocused] = useState(false)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
-    const [isVisible, setIsVisible] = useState(false)
+    const [isReady, setIsReady] = useState(false)
 
     const limit = 6
 
+    // Ждём загрузки данных и только потом включаем анимацию
     useEffect(() => {
-        const timer = setTimeout(() => setIsVisible(true), 50)
-        return () => clearTimeout(timer)
-    }, [])
+        if (!loading && products.length > 0) {
+            const timer = setTimeout(() => setIsReady(true), 50)
+            return () => clearTimeout(timer)
+        }
+    }, [loading, products.length])
 
     const fetchCategories = async () => {
         try {
@@ -64,6 +67,7 @@ export function CatalogTab({
 
     const fetchProducts = async () => {
         setLoading(true)
+        setIsReady(false)
         try {
             const params = new URLSearchParams({
                 limit: String(limit),
@@ -76,7 +80,7 @@ export function CatalogTab({
 
             const res = await fetch(`/api/catalog?${params}`)
             const data = await res.json()
-            
+
             setProducts(data.products || [])
             setTotal(data.total || 0)
         } catch (error) {
@@ -110,6 +114,11 @@ export function CatalogTab({
 
     const handlePageChange = (page: number) => {
         setOffset((page - 1) * limit)
+        setIsReady(false)
+        // Включаем анимацию после загрузки новой страницы
+        setTimeout(() => {
+            if (!loading) setIsReady(true)
+        }, 100)
     }
 
     const triggerCheck = (productName: string) => {
@@ -243,8 +252,8 @@ export function CatalogTab({
                 )}>
                     <div className={cn(
                         'flex items-center gap-2.5 rounded-xl border px-3.5 py-2 transition-all duration-300',
-                        isFocused 
-                            ? 'border-primary/30 bg-white shadow-sm' 
+                        isFocused
+                            ? 'border-primary/30 bg-white shadow-sm'
                             : 'border-gray-200/50 bg-white/60'
                     )}>
                         <Search className={cn(
@@ -342,7 +351,7 @@ export function CatalogTab({
                                         className={cn(
                                             'group bg-white/80 rounded-xl border border-gray-100/50 shadow-sm overflow-hidden cursor-pointer transition-all duration-300',
                                             isHovered ? 'scale-[1.02] shadow-md border-primary/20' : 'hover:scale-[1.02] hover:shadow-md',
-                                            isVisible && `card-enter-${Math.min(index + 1, 6)}`
+                                            isReady && `card-enter-${Math.min(index + 1, 6)}`
                                         )}
                                         style={{
                                             animationDelay: `${Math.min(index, 5) * 80}ms`,
@@ -383,8 +392,8 @@ export function CatalogTab({
                                                 }}
                                                 className={cn(
                                                     'w-full mt-1.5 py-1.5 rounded-xl text-[9px] font-medium transition-all duration-300',
-                                                    isHovered 
-                                                        ? 'bg-primary/10 text-primary opacity-100' 
+                                                    isHovered
+                                                        ? 'bg-primary/10 text-primary opacity-100'
                                                         : 'bg-transparent text-transparent opacity-0'
                                                 )}
                                             >
