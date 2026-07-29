@@ -9,15 +9,20 @@ import type { SkinProfile } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 interface ProfileTabProps {
-  initialProfile: SkinProfile
+  profile: SkinProfile
   onSave: (p: SkinProfile) => void
   onStartQuiz?: () => void
 }
 
 export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTabProps>(
-  ({ initialProfile, onSave, onStartQuiz }, ref) => {
-    const [draft, setDraft] = useState<SkinProfile>(initialProfile)
-    const [isSaved, setIsSaved] = useState(false)
+  ({ profile, onSave, onStartQuiz }, ref) => {
+    const [name, setName] = useState(profile.name || '')
+    const [skinType, setSkinType] = useState(profile.skinType || '')
+    const [age, setAge] = useState(profile.age || '')
+    const [concerns, setConcerns] = useState<string[]>(profile.concerns || [])
+    const [allergies, setAllergies] = useState<string[]>(profile.allergies || [])
+    const [customText, setCustomText] = useState(profile.customText || '')
+    const [isSaved, setIsSaved] = useState(true)
     const [showResetConfirm, setShowResetConfirm] = useState(false)
     const [isVisible, setIsVisible] = useState(false)
 
@@ -35,55 +40,78 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       }
     }, [])
 
+    // Проверка на изменения
+    const hasChanges =
+      name !== (profile.name || '') ||
+      skinType !== (profile.skinType || '') ||
+      age !== (profile.age || '') ||
+      JSON.stringify(concerns) !== JSON.stringify(profile.concerns || []) ||
+      JSON.stringify(allergies) !== JSON.stringify(profile.allergies || []) ||
+      customText !== (profile.customText || '')
+
     useImperativeHandle(ref, () => ({
-      getDraft: () => draft,
+      getDraft: () => ({
+        name,
+        skinType,
+        age,
+        concerns,
+        allergies,
+        customText,
+      }),
     }))
 
-    const hasChanges = JSON.stringify(draft) !== JSON.stringify(initialProfile)
-
     const toggleArray = (key: 'concerns' | 'allergies', value: string) => {
-      setDraft((prev) => {
-        const set = new Set(prev[key])
-        if (set.has(value)) set.delete(value)
-        else set.add(value)
-        return { ...prev, [key]: Array.from(set) }
-      })
+      if (key === 'concerns') {
+        setConcerns(prev =>
+          prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
+        )
+      } else {
+        setAllergies(prev =>
+          prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
+        )
+      }
       setIsSaved(false)
     }
 
     const handleSave = () => {
-      onSave(draft)
+      onSave({
+        name,
+        skinType,
+        age,
+        concerns,
+        allergies,
+        customText,
+      })
       setIsSaved(true)
     }
 
-    const handleChange = (field: keyof SkinProfile, value: any) => {
-      setDraft((prev) => ({ ...prev, [field]: value }))
-      setIsSaved(false)
-    }
-
     const handleReset = () => {
-      const emptyProfile: SkinProfile = {
+      setName('')
+      setSkinType('')
+      setAge('')
+      setConcerns([])
+      setAllergies([])
+      setCustomText('')
+      onSave({
         name: '',
         skinType: '',
         age: '',
         concerns: [],
         allergies: [],
         customText: '',
-      }
-      setDraft(emptyProfile)
-      onSave(emptyProfile)
+      })
       setIsSaved(true)
       setShowResetConfirm(false)
     }
 
     const isProfileEmpty = () => {
       return (
-        !draft.name &&
-        !draft.skinType &&
-        !draft.age &&
-        draft.concerns.length === 0 &&
-        draft.allergies.length === 0 &&
-        !draft.customText
+        !name &&
+        !skinType &&
+        !age &&
+        concerns.length === 0 &&
+        allergies.length === 0 &&
+        !customText
       )
     }
 
@@ -142,14 +170,14 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           <Section icon={User} title="Как к вам обращаться?" delay={1}>
             <input
               type="text"
-              value={draft.name || ''}
-              onChange={(e) => handleChange('name', e.target.value)}
+              value={name}
+              onChange={(e) => { setName(e.target.value); setIsSaved(false) }}
               placeholder="Например: Райан Гослинг..."
               className="w-full rounded-xl bg-white/30 backdrop-blur-sm border border-white/20 px-4 py-2.5 text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
               maxLength={30}
             />
             <div className="mt-1 text-right text-[10px] text-muted-foreground/40">
-              {(draft.name?.length || 0)}/30
+              {name.length}/30
             </div>
           </Section>
 
@@ -159,8 +187,8 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 <Chip
                   key={t}
                   label={t}
-                  active={draft.skinType === t}
-                  onClick={() => handleChange('skinType', t)}
+                  active={skinType === t}
+                  onClick={() => { setSkinType(t); setIsSaved(false) }}
                 />
               ))}
             </div>
@@ -172,8 +200,8 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 <Chip
                   key={a}
                   label={a}
-                  active={draft.age === a}
-                  onClick={() => handleChange('age', a)}
+                  active={age === a}
+                  onClick={() => { setAge(a); setIsSaved(false) }}
                 />
               ))}
             </div>
@@ -185,7 +213,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 <Chip
                   key={c}
                   label={c}
-                  active={draft.concerns.includes(c)}
+                  active={concerns.includes(c)}
                   onClick={() => toggleArray('concerns', c)}
                 />
               ))}
@@ -198,7 +226,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 <Chip
                   key={a}
                   label={a}
-                  active={draft.allergies.includes(a)}
+                  active={allergies.includes(a)}
                   onClick={() => toggleArray('allergies', a)}
                 />
               ))}
@@ -210,11 +238,12 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
               Коротко, 1 предложение (до 100 символов)
             </p>
             <textarea
-              value={draft.customText || ''}
+              value={customText}
               onChange={(e) => {
                 const text = e.target.value
                 if (text.length <= MAX_CUSTOM_TEXT) {
-                  handleChange('customText', text)
+                  setCustomText(text)
+                  setIsSaved(false)
                 }
               }}
               placeholder="Например: кожа стягивается после умывания"
@@ -222,8 +251,8 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
               rows={2}
               maxLength={MAX_CUSTOM_TEXT}
             />
-            <div className={`mt-1 text-right text-[10px] ${(draft.customText?.length || 0) >= MAX_CUSTOM_TEXT ? 'text-orange-400' : 'text-muted-foreground/40'}`}>
-              {draft.customText?.length || 0}/{MAX_CUSTOM_TEXT}
+            <div className={`mt-1 text-right text-[10px] ${customText.length >= MAX_CUSTOM_TEXT ? 'text-orange-400' : 'text-muted-foreground/40'}`}>
+              {customText.length}/{MAX_CUSTOM_TEXT}
             </div>
           </Section>
 
