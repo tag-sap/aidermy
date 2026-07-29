@@ -1,6 +1,6 @@
 'use client'
 
-import { forwardRef, useState, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useState, useImperativeHandle, useRef } from 'react'
 import { Check, Trash2, X, User, Droplets, Calendar, AlertCircle, Sparkles } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { ScrambleText } from '@/components/scramble-text'
@@ -16,38 +16,31 @@ interface ProfileTabProps {
 
 export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTabProps>(
   ({ profile, onSave, onStartQuiz }, ref) => {
+    // ПРОСТО ПОЛЯ, БЕЗ ВСЯКОЙ ХУЙНИ
     const [name, setName] = useState(profile.name || '')
     const [skinType, setSkinType] = useState(profile.skinType || '')
     const [age, setAge] = useState(profile.age || '')
     const [concerns, setConcerns] = useState<string[]>(profile.concerns || [])
     const [allergies, setAllergies] = useState<string[]>(profile.allergies || [])
     const [customText, setCustomText] = useState(profile.customText || '')
-    const [isSaved, setIsSaved] = useState(true)
+    const [saved, setSaved] = useState(true)
     const [showResetConfirm, setShowResetConfirm] = useState(false)
     const [isVisible, setIsVisible] = useState(false)
 
     const MAX_CUSTOM_TEXT = 100
     const scrollRef = useRef<HTMLDivElement>(null)
 
-    useEffect(() => {
-      const timer = setTimeout(() => setIsVisible(true), 50)
-      return () => clearTimeout(timer)
-    }, [])
+    // АНИМАЦИЯ - ТОЛЬКО ЭТОТ useEffect
+    useState(() => {
+      setTimeout(() => setIsVisible(true), 50)
+    })
 
-    useEffect(() => {
+    // СКРОЛЛ - ТОЛЬКО ЭТОТ useEffect
+    useState(() => {
       if (scrollRef.current) {
         scrollRef.current.scrollTop = 0
       }
-    }, [])
-
-    // Проверка на изменения
-    const hasChanges = 
-      name !== (profile.name || '') ||
-      skinType !== (profile.skinType || '') ||
-      age !== (profile.age || '') ||
-      JSON.stringify(concerns) !== JSON.stringify(profile.concerns || []) ||
-      JSON.stringify(allergies) !== JSON.stringify(profile.allergies || []) ||
-      customText !== (profile.customText || '')
+    })
 
     useImperativeHandle(ref, () => ({
       getDraft: () => ({
@@ -60,6 +53,15 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       }),
     }))
 
+    // ПРОВЕРКА ИЗМЕНЕНИЙ - ПРОСТО ПРЯМО В РЕНДЕРЕ
+    const hasChanges = 
+      name !== profile.name ||
+      skinType !== profile.skinType ||
+      age !== profile.age ||
+      JSON.stringify(concerns) !== JSON.stringify(profile.concerns) ||
+      JSON.stringify(allergies) !== JSON.stringify(profile.allergies) ||
+      customText !== profile.customText
+
     const toggleArray = (key: 'concerns' | 'allergies', value: string) => {
       if (key === 'concerns') {
         setConcerns(prev => 
@@ -70,7 +72,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]
         )
       }
-      setIsSaved(false)
+      setSaved(false)
     }
 
     const handleSave = () => {
@@ -82,7 +84,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         allergies,
         customText,
       })
-      setIsSaved(true)
+      setSaved(true)
     }
 
     const handleReset = () => {
@@ -100,22 +102,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         allergies: [],
         customText: '',
       })
-      setIsSaved(true)
+      setSaved(true)
       setShowResetConfirm(false)
     }
 
-    const isProfileEmpty = () => {
-      return (
-        !name &&
-        !skinType &&
-        !age &&
-        concerns.length === 0 &&
-        allergies.length === 0 &&
-        !customText
-      )
-    }
-
-    const profileEmpty = isProfileEmpty()
+    const isProfileEmpty = !name && !skinType && !age && concerns.length === 0 && allergies.length === 0 && !customText
 
     const glassCardStyle = cn(
       'bg-white/20 backdrop-blur-xl',
@@ -171,7 +162,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
             <input
               type="text"
               value={name}
-              onChange={(e) => { setName(e.target.value); setIsSaved(false) }}
+              onChange={(e) => { setName(e.target.value); setSaved(false) }}
               placeholder="Например: Райан Гослинг..."
               className="w-full rounded-xl bg-white/30 backdrop-blur-sm border border-white/20 px-4 py-2.5 text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
               maxLength={30}
@@ -188,7 +179,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                   key={t}
                   label={t}
                   active={skinType === t}
-                  onClick={() => { setSkinType(t); setIsSaved(false) }}
+                  onClick={() => { setSkinType(t); setSaved(false) }}
                 />
               ))}
             </div>
@@ -201,7 +192,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                   key={a}
                   label={a}
                   active={age === a}
-                  onClick={() => { setAge(a); setIsSaved(false) }}
+                  onClick={() => { setAge(a); setSaved(false) }}
                 />
               ))}
             </div>
@@ -243,7 +234,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 const text = e.target.value
                 if (text.length <= MAX_CUSTOM_TEXT) {
                   setCustomText(text)
-                  setIsSaved(false)
+                  setSaved(false)
                 }
               }}
               placeholder="Например: кожа стягивается после умывания"
@@ -256,7 +247,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
             </div>
           </Section>
 
-          {!profileEmpty && (
+          {!isProfileEmpty && (
             <div className="flex gap-2 pt-1 pb-2">
               <button
                 type="button"
@@ -270,15 +261,15 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={!hasChanges || isSaved}
+                disabled={!hasChanges || saved}
                 className={cn(
                   'flex-1 flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-xs font-medium uppercase tracking-wider transition-all',
-                  !hasChanges || isSaved
+                  !hasChanges || saved
                     ? 'bg-white/10 backdrop-blur-sm text-muted-foreground/40 cursor-default border border-white/10'
                     : 'bg-primary/20 backdrop-blur-sm border border-primary/30 text-primary hover:bg-primary/30 hover:shadow-[0_0_30px_rgba(108,60,225,0.15)] active:scale-[0.97]'
                 )}
               >
-                {isSaved || !hasChanges ? (
+                {saved || !hasChanges ? (
                   <>
                     <Check className="size-3.5" />
                     Сохранено
