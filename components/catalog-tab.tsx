@@ -46,16 +46,35 @@ const CatalogTabComponent = ({
 
     const isMounted = useRef(false)
     const abortControllerRef = useRef<AbortController | null>(null)
+    const animationTimerRef = useRef<NodeJS.Timeout | null>(null)
 
     const limit = 6
 
-    // Анимация появления - как в HistoryTab
+    // Анимация появления - срабатывает после загрузки данных
     useEffect(() => {
-        if (!loading && products.length > 0 && isMounted.current) {
-            const timer = setTimeout(() => setIsVisible(true), 50)
-            return () => clearTimeout(timer)
+        // Очищаем предыдущий таймер
+        if (animationTimerRef.current) {
+            clearTimeout(animationTimerRef.current)
+            animationTimerRef.current = null
         }
-    }, [loading, products.length])
+
+        if (!loading && products.length > 0 && isMounted.current) {
+            // Сбрасываем isVisible перед новой анимацией
+            setIsVisible(false)
+            // Небольшая задержка перед включением анимации
+            animationTimerRef.current = setTimeout(() => {
+                if (isMounted.current) {
+                    setIsVisible(true)
+                }
+            }, 50)
+        }
+        return () => {
+            if (animationTimerRef.current) {
+                clearTimeout(animationTimerRef.current)
+                animationTimerRef.current = null
+            }
+        }
+    }, [loading, products.length, offset])
 
     const fetchCategories = async () => {
         if (abortControllerRef.current) {
@@ -125,6 +144,10 @@ const CatalogTabComponent = ({
             if (abortControllerRef.current) {
                 abortControllerRef.current.abort()
             }
+            if (animationTimerRef.current) {
+                clearTimeout(animationTimerRef.current)
+                animationTimerRef.current = null
+            }
         }
     }, [])
 
@@ -144,12 +167,6 @@ const CatalogTabComponent = ({
         setSearchTimeout(timeout)
         return () => clearTimeout(timeout)
     }, [search])
-
-    useEffect(() => {
-        if (isMounted.current) {
-            fetchProducts()
-        }
-    }, [offset])
 
     const totalPages = Math.ceil(total / limit)
     const currentPage = Math.floor(offset / limit) + 1
