@@ -1,6 +1,6 @@
 'use client'
 
-import { forwardRef, useState, useImperativeHandle } from 'react'
+import { forwardRef, useState, useImperativeHandle, useRef } from 'react'
 import { Check, X, User, Droplets, Calendar, AlertCircle, Sparkles, Trash2 } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { AGE_GROUPS, ALLERGIES, SKIN_CONCERNS, SKIN_TYPES } from '@/lib/products'
@@ -15,12 +15,15 @@ interface ProfileTabProps {
 
 export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTabProps>(
   ({ profile, onSave, onStartQuiz }, ref) => {
-    const [name, setName] = useState(profile.name || '')
-    const [skinType, setSkinType] = useState(profile.skinType || '')
-    const [age, setAge] = useState(profile.age || '')
-    const [concerns, setConcerns] = useState<string[]>(profile.concerns || [])
-    const [allergies, setAllergies] = useState<string[]>(profile.allergies || [])
-    const [customText, setCustomText] = useState(profile.customText || '')
+    // ЗАПОМИНАЕМ НАЧАЛЬНЫЙ ПРОФИЛЬ ПРИ ПЕРВОМ РЕНДЕРЕ
+    const initialProfileRef = useRef(profile)
+    
+    const [name, setName] = useState(initialProfileRef.current.name || '')
+    const [skinType, setSkinType] = useState(initialProfileRef.current.skinType || '')
+    const [age, setAge] = useState(initialProfileRef.current.age || '')
+    const [concerns, setConcerns] = useState<string[]>(initialProfileRef.current.concerns || [])
+    const [allergies, setAllergies] = useState<string[]>(initialProfileRef.current.allergies || [])
+    const [customText, setCustomText] = useState(initialProfileRef.current.customText || '')
     const [saved, setSaved] = useState(true)
     const [showReset, setShowReset] = useState(false)
 
@@ -28,13 +31,14 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       getDraft: () => ({ name, skinType, age, concerns, allergies, customText }),
     }))
 
-    const hasChanges =
-      name !== profile.name ||
-      skinType !== profile.skinType ||
-      age !== profile.age ||
-      JSON.stringify(concerns) !== JSON.stringify(profile.concerns) ||
-      JSON.stringify(allergies) !== JSON.stringify(profile.allergies) ||
-      customText !== profile.customText
+    // СРАВНИВАЕМ С НАЧАЛЬНЫМ ПРОФИЛЕМ, А НЕ С ПРИХОДЯЩИМ
+    const hasChanges = 
+      name !== initialProfileRef.current.name ||
+      skinType !== initialProfileRef.current.skinType ||
+      age !== initialProfileRef.current.age ||
+      JSON.stringify(concerns) !== JSON.stringify(initialProfileRef.current.concerns) ||
+      JSON.stringify(allergies) !== JSON.stringify(initialProfileRef.current.allergies) ||
+      customText !== initialProfileRef.current.customText
 
     const toggle = (key: 'concerns' | 'allergies', value: string) => {
       if (key === 'concerns') {
@@ -46,18 +50,23 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     }
 
     const handleSave = () => {
-      onSave({ name, skinType, age, concerns, allergies, customText })
+      const newProfile = { name, skinType, age, concerns, allergies, customText }
+      onSave(newProfile)
+      // ОБНОВЛЯЕМ НАЧАЛЬНЫЙ ПРОФИЛЬ ПОСЛЕ СОХРАНЕНИЯ
+      initialProfileRef.current = newProfile
       setSaved(true)
     }
 
     const handleReset = () => {
+      const emptyProfile = { name: '', skinType: '', age: '', concerns: [], allergies: [], customText: '' }
       setName('')
       setSkinType('')
       setAge('')
       setConcerns([])
       setAllergies([])
       setCustomText('')
-      onSave({ name: '', skinType: '', age: '', concerns: [], allergies: [], customText: '' })
+      onSave(emptyProfile)
+      initialProfileRef.current = emptyProfile
       setSaved(true)
       setShowReset(false)
     }
@@ -107,11 +116,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         <Section icon={Droplets} title="Тип кожи" delay={2}>
           <div className="flex flex-wrap gap-1.5">
             {SKIN_TYPES.map((t) => (
-              <Chip
-                key={t}
-                label={t}
-                active={skinType === t}
-                onClick={() => { setSkinType(t); setSaved(false) }}
+              <Chip 
+                key={t} 
+                label={t} 
+                active={skinType === t} 
+                onClick={() => { setSkinType(t); setSaved(false) }} 
               />
             ))}
           </div>
@@ -120,11 +129,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         <Section icon={Calendar} title="Возраст" delay={3}>
           <div className="flex flex-wrap gap-1.5">
             {AGE_GROUPS.map((a) => (
-              <Chip
-                key={a}
-                label={a}
-                active={age === a}
-                onClick={() => { setAge(a); setSaved(false) }}
+              <Chip 
+                key={a} 
+                label={a} 
+                active={age === a} 
+                onClick={() => { setAge(a); setSaved(false) }} 
               />
             ))}
           </div>
@@ -133,11 +142,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         <Section icon={AlertCircle} title="Что беспокоит" delay={4}>
           <div className="flex flex-wrap gap-1.5">
             {SKIN_CONCERNS.map((c) => (
-              <Chip
-                key={c}
-                label={c}
-                active={concerns.includes(c)}
-                onClick={() => toggle('concerns', c)}
+              <Chip 
+                key={c} 
+                label={c} 
+                active={concerns.includes(c)} 
+                onClick={() => toggle('concerns', c)} 
               />
             ))}
           </div>
@@ -146,11 +155,11 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         <Section icon={AlertCircle} title="Аллергии" delay={5}>
           <div className="flex flex-wrap gap-1.5">
             {ALLERGIES.map((a) => (
-              <Chip
-                key={a}
-                label={a}
-                active={allergies.includes(a)}
-                onClick={() => toggle('allergies', a)}
+              <Chip 
+                key={a} 
+                label={a} 
+                active={allergies.includes(a)} 
+                onClick={() => toggle('allergies', a)} 
               />
             ))}
           </div>
@@ -162,7 +171,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
           </p>
           <textarea
             value={customText}
-            onChange={(e) => {
+            onChange={(e) => { 
               const text = e.target.value
               if (text.length <= 100) {
                 setCustomText(text)
