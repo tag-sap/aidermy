@@ -46,7 +46,6 @@ export function CatalogTab({
 
     const limit = 6
 
-    // Ждём загрузки данных и только потом включаем анимацию
     useEffect(() => {
         if (!loading && products.length > 0) {
             const timer = setTimeout(() => setIsReady(true), 50)
@@ -80,7 +79,7 @@ export function CatalogTab({
 
             const res = await fetch(`/api/catalog?${params}`)
             const data = await res.json()
-
+            
             setProducts(data.products || [])
             setTotal(data.total || 0)
         } catch (error) {
@@ -115,7 +114,6 @@ export function CatalogTab({
     const handlePageChange = (page: number) => {
         setOffset((page - 1) * limit)
         setIsReady(false)
-        // Включаем анимацию после загрузки новой страницы
         setTimeout(() => {
             if (!loading) setIsReady(true)
         }, 100)
@@ -252,8 +250,8 @@ export function CatalogTab({
                 )}>
                     <div className={cn(
                         'flex items-center gap-2.5 rounded-xl border px-3.5 py-2 transition-all duration-300',
-                        isFocused
-                            ? 'border-primary/30 bg-white shadow-sm'
+                        isFocused 
+                            ? 'border-primary/30 bg-white shadow-sm' 
                             : 'border-gray-200/50 bg-white/60'
                     )}>
                         <Search className={cn(
@@ -392,8 +390,8 @@ export function CatalogTab({
                                                 }}
                                                 className={cn(
                                                     'w-full mt-1.5 py-1.5 rounded-xl text-[9px] font-medium transition-all duration-300',
-                                                    isHovered
-                                                        ? 'bg-primary/10 text-primary opacity-100'
+                                                    isHovered 
+                                                        ? 'bg-primary/10 text-primary opacity-100' 
                                                         : 'bg-transparent text-transparent opacity-0'
                                                 )}
                                             >
