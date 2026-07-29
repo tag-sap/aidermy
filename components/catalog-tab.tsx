@@ -47,8 +47,16 @@ const CatalogTabComponent = ({
     const isMounted = useRef(false)
     const abortControllerRef = useRef<AbortController | null>(null)
     const animationTimerRef = useRef<NodeJS.Timeout | null>(null)
+    const scrollContainerRef = useRef<HTMLDivElement>(null) // ← реф для скролла
 
     const limit = 6
+
+    // Скролл наверх при смене страницы
+    useEffect(() => {
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = 0
+        }
+    }, [offset])
 
     useEffect(() => {
         if (animationTimerRef.current) {
@@ -391,7 +399,7 @@ const CatalogTabComponent = ({
                 </div>
             </div>
 
-            {/* Галерея */}
+            {/* Галерея с рефом для скролла */}
             <div className="flex-1 min-h-0 overflow-hidden">
                 {loading ? (
                     <div className="grid grid-cols-2 gap-2.5 pb-2">
@@ -416,6 +424,7 @@ const CatalogTabComponent = ({
                     </div>
                 ) : (
                     <div
+                        ref={scrollContainerRef}
                         className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-gray-200/50 scrollbar-track-transparent"
                         style={{
                             height: '100%',
@@ -484,7 +493,6 @@ const CatalogTabComponent = ({
                                     </div>
                                 )
                             })}
-                            {/* ПУСТОЙ БЛОК ДЛЯ ОТСТУПА СНИЗУ */}
                             <div className="h-20 col-span-2" />
                         </div>
                     </div>
