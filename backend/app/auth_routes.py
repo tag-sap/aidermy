@@ -457,4 +457,23 @@ async def get_history(current_user: dict = Depends(get_current_user)):
     from .database import get_user_check_history
     
     history = get_user_check_history(current_user['id'])
+    
+    # Преобразуем JSON строки обратно в объекты
+    for item in history:
+        if item.get('active_ingredients'):
+            try:
+                item['active_ingredients'] = json.loads(item['active_ingredients'])
+            except:
+                pass
+        if item.get('how_to_use'):
+            try:
+                item['how_to_use'] = json.loads(item['how_to_use'])
+            except:
+                pass
+        if item.get('expectations'):
+            try:
+                item['expectations'] = json.loads(item['expectations'])
+            except:
+                pass
+    
     return {"history": history}

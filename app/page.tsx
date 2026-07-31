@@ -73,6 +73,7 @@ export default function Page() {
       })
       if (res.ok) {
         const data = await res.json()
+        console.log('📦 История с сервера:', data)  // <-- ДОБАВЬ ЭТО
         if (data.history && Array.isArray(data.history)) {
           setHistory(data.history)
           saveHistory(data.history)

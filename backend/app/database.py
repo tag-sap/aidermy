@@ -111,11 +111,13 @@ def save_check_result(
     print(f"📊 Проверка сохранена: {product_name} — {score}% (user_id: {user_id})")
 
 def get_user_check_history(user_id: int, limit: int = 100):
-    """Получить историю проверок конкретного пользователя"""
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT * FROM check_history 
+        SELECT id, user_id, product_name, skin_type, score, verdict, summary, 
+               ingredients, slug, image_url, active_ingredients, how_to_use, 
+               expectations, created_at
+        FROM check_history 
         WHERE user_id = ?
         ORDER BY created_at DESC 
         LIMIT ?
