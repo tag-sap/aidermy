@@ -480,7 +480,6 @@ export default function Page() {
                       key={hydrated ? 'profile-ready' : 'profile-loading'}
                       profile={profile}
                       onSave={handleSaveProfile}
-                      onDirtyChange={handleProfileChange}
                       onStartQuiz={() => setShowQuiz(true)}
                     />
                   </div>
