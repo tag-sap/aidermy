@@ -1,3 +1,5 @@
+# services.py
+
 import httpx
 import os
 import json
@@ -16,6 +18,42 @@ def generate_slug(name: str) -> str:
     slug = re.sub(r'[^a-zA-Z0-9\s-]', '', name)
     slug = re.sub(r'[-\s]+', '-', slug)
     return slug.lower().strip('-')
+
+def clean_json_response(content: str) -> str:
+    """Очищает ответ от лишнего текста, оставляя только JSON"""
+    # Ищем JSON в ответе
+    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+    if json_match:
+        return json_match.group()
+    return content
+
+def extract_json_from_response(content: str) -> dict:
+    """Извлекает JSON из ответа AI"""
+    # Пробуем найти JSON в блоке кода
+    code_block_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content, re.DOTALL)
+    if code_block_match:
+        content = code_block_match.group(1).strip()
+    
+    # Пробуем найти JSON в тексте
+    json_match = re.search(r'\{[\s\S]*\}', content, re.DOTALL)
+    if json_match:
+        content = json_match.group()
+    
+    # Очищаем от лишних символов
+    content = content.strip()
+    
+    # Пробуем распарсить
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        # Если не получилось, пробуем починить
+        # Удаляем trailing commas
+        content = re.sub(r',\s*}', '}', content)
+        content = re.sub(r',\s*\]', ']', content)
+        try:
+            return json.loads(content)
+        except:
+            raise Exception("Невалидный JSON")
 
 async def check_product_with_ai(product_name: str, skin_type: str, profile: dict) -> dict:
     saved_ingredients = get_ingredients(product_name)
@@ -93,7 +131,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 - 81–100: идеально решает проблему пользователя
 
 ### Инструкция:
-1. Оцени, решает ли состав проблему пользователя. Если проблема не указана — оценивай продукт по типу кожи и возрасту.
+1. Оцени, решает ли состав проблему пользователя.
 2. Активный ингредиент — по позиции в составе (1–3 = высокая, 4–6 = средняя, 7+ = низкая).
 3. Как применять, чего ожидать, когда бить тревогу.
 
@@ -102,7 +140,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 <bad> — негативные слова
 
 ### ВАЖНО:
-Верни ТОЛЬКО JSON. Все поля обязательны. active_ingredients — ЭТО ОБЪЕКТ, НЕ МАССИВ.
+Верни ТОЛЬКО JSON без лишнего текста. Все поля обязательны.
 
 ### Формат:
 {{
@@ -154,19 +192,24 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     print("📥 ОТВЕТ AI:")
     print(content)
     print("---")
-    try:
-        result = json.loads(content)
-    except json.JSONDecodeError:
-        match = re.search(r'\{.*\}', content, re.DOTALL)
-        if match:
-            try:
-                result = json.loads(match.group())
-            except:
-                raise Exception("Невалидный JSON от AI")
-        else:
-            raise Exception("Невалидный JSON от AI")
     
-    return result
+    # Пробуем извлечь JSON
+    try:
+        result = extract_json_from_response(content)
+        return result
+    except Exception as e:
+        print(f"❌ Ошибка парсинга JSON: {e}")
+        # Возвращаем дефолтный результат
+        return {
+            "score": 50,
+            "verdict": "Нейтрально",
+            "summary": "Не удалось получить рекомендацию.",
+            "safe_ingredients": [],
+            "caution_ingredients": [],
+            "active_ingredients": None,
+            "how_to_use": None,
+            "expectations": None
+        }
 
 def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB
@@ -177,7 +220,6 @@ def search_products(query: str) -> List[dict]:
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    # Сначала ищем точное совпадение
     cursor.execute(
         "SELECT name, slug, image_url, ingredients FROM products WHERE LOWER(name) = ? LIMIT 1",
         (q,)
@@ -187,7 +229,6 @@ def search_products(query: str) -> List[dict]:
         conn.close()
         return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]}]
     
-    # Если точного нет — ищем по словам
     words = q.split()
     if len(words) == 1:
         cursor.execute(
@@ -236,7 +277,6 @@ def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     return "Нормальная"
 
 def transliterate(text: str) -> str:
-    """Транслитерация с кириллицы на латиницу"""
     cyrillic_to_latin = {
         'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
         'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
@@ -253,11 +293,7 @@ def transliterate(text: str) -> str:
     return ''.join(result)
 
 def normalize_search_query(query: str) -> str:
-    """Нормализует запрос для поиска"""
-    # Убираем лишние пробелы
     query = ' '.join(query.split())
-    # Транслитерируем
     transliterated = transliterate(query)
-    # Убираем спецсимволы
     transliterated = re.sub(r'[^a-z0-9\s-]', '', transliterated)
     return transliterated.strip()
