@@ -405,14 +405,18 @@ async def get_my_profile(request: Request):
     }
 # === ИСТОРИЯ ===
 # === ИСТОРИЯ ===
-@router.post("/history")
-async def save_history(request: Request):
+router.post("/history")
+async def save_history(
+    request: Request,
+    current_user: dict = Depends(get_current_user)  # <-- получаем пользователя из токена
+):
     data = await request.json()
-    user_id = data.get('user_id')
     result = data.get('result')
     
-    if not user_id or not result:
-        raise HTTPException(status_code=400, detail="Missing data")
+    if not result:
+        raise HTTPException(status_code=400, detail="Missing result")
+    
+    user_id = current_user['id']  # <-- берём из токена
     
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()

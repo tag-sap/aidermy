@@ -323,26 +323,22 @@ export default function Page() {
         return next
       })
 
+      // Сохраняем историю на сервер
       const token = localStorage.getItem('token')
-      if (token && isAuthenticated) {
+      if (token) {
         try {
-          const userRes = await fetch('/api/auth/me', {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-          if (userRes.ok) {
-            const userData = await userRes.json()
-            await fetch('/api/auth/history', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                user_id: userData.id,
-                result: fullResult
-              })
+          // Получаем user_id из токена или просто шлём запрос
+          await fetch('/api/auth/history', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              result: fullResult
+              // user_id получим на сервере из токена
             })
-          }
+          })
         } catch (error) {
           console.error('Ошибка сохранения истории:', error)
         }
