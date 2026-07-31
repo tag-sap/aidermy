@@ -403,48 +403,53 @@ async def get_my_profile(request: Request):
             "skinTypeDetermined": row[7]
         }
     }
+
 # === ИСТОРИЯ ===
-# === ИСТОРИЯ ===
-router.post("/history")
+@router.post("/history")
 async def save_history(
     request: Request,
-    current_user: dict = Depends(get_current_user)  # <-- получаем пользователя из токена
+    current_user: dict = Depends(get_current_user)
 ):
+    """Сохранить результат проверки в историю"""
     data = await request.json()
     result = data.get('result')
     
     if not result:
         raise HTTPException(status_code=400, detail="Missing result")
     
-    user_id = current_user['id']  # <-- берём из токена
+    user_id = current_user['id']
     
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     
-    cursor.execute('''
-        INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, ingredients, slug, image_url, active_ingredients, how_to_use, expectations, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ''', (
-        user_id,
-        result.get('product'),
-        result.get('skinType'),
-        result.get('score'),
-        result.get('verdict'),
-        result.get('summary'),
-        result.get('ingredients'),
-        result.get('slug'),
-        result.get('image_url'),
-        json.dumps(result.get('active_ingredients')),
-        json.dumps(result.get('how_to_use')),
-        json.dumps(result.get('expectations'))
-    ))
-    
-    conn.commit()
-    conn.close()
-    
-    return {"status": "ok"}
-
-# auth_routes.py
+    try:
+        cursor.execute('''
+            INSERT INTO check_history (
+                user_id, product_name, skin_type, score, verdict, summary, 
+                ingredients, slug, image_url, active_ingredients, how_to_use, expectations, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (
+            user_id,
+            result.get('product'),
+            result.get('skinType'),
+            result.get('score'),
+            result.get('verdict'),
+            result.get('summary'),
+            result.get('ingredients'),
+            result.get('slug'),
+            result.get('image_url'),
+            json.dumps(result.get('active_ingredients')),
+            json.dumps(result.get('how_to_use')),
+            json.dumps(result.get('expectations'))
+        ))
+        conn.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        print(f"❌ Ошибка сохранения истории: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 @router.get("/history")
 async def get_history(current_user: dict = Depends(get_current_user)):
