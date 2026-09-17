@@ -77,7 +77,9 @@ class PendingProductRequest(BaseModel):
 # === GOOGLE OAuth ===
 @router.get("/google")
 async def google_login(request: Request):
-    redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:3000/api/auth/google/callback')
+    redirect_uri = os.getenv('GOOGLE_REDIRECT_URI') or (
+        f"{os.getenv('PUBLIC_APP_URL', 'http://localhost:3000')}/api/auth/google/callback"
+    )
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @router.get("/google/callback")
@@ -98,8 +100,8 @@ async def google_callback(request: Request):
             user = get_user_by_email(email)
         
         access_token = create_access_token(data={"sub": str(user['id'])})
-        
-        redirect_url = f"http://aidermy.ru?token={access_token}"
+        app_url = os.getenv('PUBLIC_APP_URL', 'http://localhost:3000')
+        redirect_url = f"{app_url.rstrip('/')}?token={access_token}"
         return RedirectResponse(url=redirect_url)
         
     except Exception as e:
@@ -279,12 +281,12 @@ async def submit_product(
 
 # === СОХРАНЕНИЕ ПРОФИЛЯ ===
 @router.post("/profile")
-async def save_profile(request: Request):
+async def save_profile(request: Request, current_user: dict = Depends(get_current_user)):
     data = await request.json()
-    user_id = data.get('user_id')
     profile = data.get('profile')
+    user_id = current_user['id']
     
-    if not user_id or not profile:
+    if not profile:
         raise HTTPException(status_code=400, detail="Missing data")
     
     conn = get_connection(AIDERMY_DB)
@@ -413,6 +415,7 @@ async def save_history(
     """Сохранить результат проверки в историю"""
     data = await request.json()
     result = data.get('result')
+    profile_snapshot = data.get('profile_snapshot') or {}
     
     if not result:
         raise HTTPException(status_code=400, detail="Missing result")
@@ -426,9 +429,9 @@ async def save_history(
         cursor.execute('''
             INSERT INTO check_history (
                 user_id, product_name, skin_type, score, verdict, summary, 
-                ingredients, slug, image_url, active_ingredients, how_to_use, expectations, created_at
+                ingredients, slug, image_url, active_ingredients, how_to_use, expectations, profile_snapshot, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (
             user_id,
             result.get('product'),
@@ -441,7 +444,8 @@ async def save_history(
             result.get('image_url'),
             json.dumps(result.get('active_ingredients')),
             json.dumps(result.get('how_to_use')),
-            json.dumps(result.get('expectations'))
+            json.dumps(result.get('expectations')),
+            json.dumps(profile_snapshot or {}, ensure_ascii=False),
         ))
         conn.commit()
         return {"status": "ok"}
@@ -473,6 +477,11 @@ async def get_history(current_user: dict = Depends(get_current_user)):
         if item.get('expectations'):
             try:
                 item['expectations'] = json.loads(item['expectations'])
+            except:
+                pass
+        if item.get('profile_snapshot'):
+            try:
+                item['profile_snapshot'] = json.loads(item['profile_snapshot'])
             except:
                 pass
     

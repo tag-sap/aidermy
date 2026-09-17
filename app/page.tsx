@@ -69,8 +69,9 @@ export default function Page() {
       if (res.ok) {
         const data = await res.json()
         if (data.profile) {
-          setProfile(data.profile)
-          saveProfile(data.profile)
+          const mergedProfile = { ...emptyProfile, ...loadProfile(), ...data.profile }
+          setProfile(mergedProfile)
+          saveProfile(mergedProfile)
         }
       }
     } catch (error) {
@@ -132,15 +133,16 @@ export default function Page() {
   }, [])
 
   useEffect(() => {
-    const savedProfile = loadProfile()
+    const savedProfile = { ...emptyProfile, ...loadProfile() }
     setProfile(savedProfile)
     setHistory(loadHistory())
     setHydrated(true)
 
     if (savedProfile.quizAnswers && Object.keys(savedProfile.quizAnswers).length > 0 && !savedProfile.skinType) {
       const determined = determineSkinTypeFromAnswers(savedProfile.quizAnswers)
-      setProfile(prev => ({ ...prev, skinType: determined, skinTypeDetermined: determined }))
-      saveProfile({ ...savedProfile, skinType: determined, skinTypeDetermined: determined })
+      const normalized = { ...savedProfile, skinType: determined, skinTypeDetermined: determined }
+      setProfile(normalized)
+      saveProfile(normalized)
     }
   }, [])
 
@@ -212,8 +214,9 @@ export default function Page() {
 
   // ===== ПРОФИЛЬ =====
   const handleSaveProfile = async (p: SkinProfile) => {
-    setProfile(p)
-    saveProfile(p)
+    const mergedProfile = { ...emptyProfile, ...profile, ...p }
+    setProfile(mergedProfile)
+    saveProfile(mergedProfile)
     setProfileDirty(false)
 
     const token = localStorage.getItem('token')
@@ -233,7 +236,6 @@ export default function Page() {
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            user_id: userData.id,
             profile: p
           })
         })
@@ -263,6 +265,7 @@ export default function Page() {
   // ===== КВИЗ =====
   const handleQuizComplete = (answers: Record<string, string>, skinType: string) => {
     const updatedProfile = {
+      ...emptyProfile,
       ...profile,
       quizAnswers: answers,
       skinType: skinType,
@@ -281,6 +284,7 @@ export default function Page() {
     setLoading(true)
 
     try {
+      const currentProfile = { ...emptyProfile, ...profile }
       const response = await fetch('/api/check', {
         method: 'POST',
         headers: {
@@ -291,13 +295,13 @@ export default function Page() {
           product_name: product,
           skin_type: skinType,
           profile: {
-            name: profile.name || '',
-            age: profile.age || '',
-            concerns: profile.concerns || [],
-            allergies: profile.allergies || [],
-            custom_text: profile.customText || '',
-            quiz_answers: profile.quizAnswers || {},
-            skin_type_determined: profile.skinTypeDetermined || '',
+            name: currentProfile.name || '',
+            age: currentProfile.age || '',
+            concerns: currentProfile.concerns || [],
+            allergies: currentProfile.allergies || [],
+            custom_text: currentProfile.customText || '',
+            quiz_answers: currentProfile.quizAnswers || {},
+            skin_type_determined: currentProfile.skinTypeDetermined || '',
           },
         }),
       })
@@ -356,7 +360,20 @@ export default function Page() {
               Authorization: `Bearer ${token}`
             },
             body: JSON.stringify({
-              result: fullResult
+              result: {
+                ...fullResult,
+                ingredients: fullResult.safe_ingredients?.join(', ') || '',
+              },
+              profile_snapshot: {
+                name: profile.name || '',
+                age: profile.age || '',
+                concerns: profile.concerns || [],
+                allergies: profile.allergies || [],
+                customText: profile.customText || '',
+                quizAnswers: profile.quizAnswers || {},
+                skinType: profile.skinType || skinType,
+                skinTypeDetermined: profile.skinTypeDetermined || skinType,
+              }
             })
           })
           if (historyRes.ok) {

@@ -38,6 +38,7 @@ def init_db():
             ingredients TEXT DEFAULT '',
             slug TEXT,
             user_id INTEGER,
+            profile_snapshot TEXT DEFAULT '{}',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -64,6 +65,8 @@ def init_db():
         cursor.execute('ALTER TABLE check_history ADD COLUMN slug TEXT')
     if 'user_id' not in columns:
         cursor.execute('ALTER TABLE check_history ADD COLUMN user_id INTEGER')
+    if 'profile_snapshot' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN profile_snapshot TEXT DEFAULT "{}"')
     
     conn.commit()
     conn.close()
@@ -98,14 +101,15 @@ def save_check_result(
     summary: str, 
     ingredients: str = "", 
     slug: str = None,
-    user_id: int = None  # <-- ДОБАВЛЯЕМ user_id
+    user_id: int = None,
+    profile_snapshot: str = "{}",
 ):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO check_history (product_name, skin_type, score, verdict, summary, ingredients, slug, user_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ''', (product_name, skin_type, score, verdict, summary, ingredients, slug, user_id))
+        INSERT INTO check_history (product_name, skin_type, score, verdict, summary, ingredients, slug, user_id, profile_snapshot, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ''', (product_name, skin_type, score, verdict, summary, ingredients, slug, user_id, profile_snapshot or "{}"))
     conn.commit()
     conn.close()
     print(f"📊 Проверка сохранена: {product_name} — {score}% (user_id: {user_id})")
@@ -116,7 +120,7 @@ def get_user_check_history(user_id: int, limit: int = 100):
     cursor.execute('''
         SELECT id, user_id, product_name, skin_type, score, verdict, summary, 
                ingredients, slug, image_url, active_ingredients, how_to_use, 
-               expectations, created_at
+               expectations, profile_snapshot, created_at
         FROM check_history 
         WHERE user_id = ?
         ORDER BY created_at DESC 
