@@ -47,6 +47,18 @@ export default function Page() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
   const [showInfo, setShowInfo] = useState(false)
+  const [pointerGlow, setPointerGlow] = useState({ x: 50, y: 50 })
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const x = (event.clientX / window.innerWidth) * 100
+      const y = (event.clientY / window.innerHeight) * 100
+      setPointerGlow({ x, y })
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    return () => window.removeEventListener('pointermove', handlePointerMove)
+  }, [])
 
   // ===== ЗАГРУЗКА С СЕРВЕРА =====
   const loadProfileFromServer = async (token: string) => {
@@ -419,22 +431,32 @@ export default function Page() {
     <>
       <SplashScreen />
 
-      <div className="fixed inset-0 flex flex-col bg-background overflow-hidden">
+      <div className="relative min-h-screen overflow-hidden bg-background">
+        <div
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{
+            background: `radial-gradient(circle at ${pointerGlow.x}% ${pointerGlow.y}%, rgba(78, 159, 110, 0.2), rgba(111, 191, 141, 0.1) 15%, rgba(255, 255, 255, 0) 33%)`,
+            transition: 'background 220ms ease-out',
+            filter: 'blur(8px)',
+          }}
+        />
+
         <BrandMarquee />
         <CyberGrid />
         <div className="grid-shimmer" aria-hidden="true" />
 
-        <div className="flex-shrink-0 z-20">
-          <AppHeader
-            onProfile={handleGoToProfile}
-            onAuth={() => setIsAuthModalOpen(true)}
-            isAuthenticated={isAuthenticated}
-            userName={userName}
-            onLogout={handleLogout}
-          />
-        </div>
+        <div className="relative z-20 flex min-h-screen flex-col">
+          <div className="flex-shrink-0">
+            <AppHeader
+              onProfile={handleGoToProfile}
+              onAuth={() => setIsAuthModalOpen(true)}
+              isAuthenticated={isAuthenticated}
+              userName={userName}
+              onLogout={handleLogout}
+            />
+          </div>
 
-        <main className="relative z-10 flex-1 min-h-0 overflow-hidden pb-22">
+          <main className="relative z-10 flex-1 min-h-0 overflow-hidden pb-22">
           <div className="h-full max-w-md mx-auto px-4 overflow-hidden">
             {showQuiz ? (
               <div className="h-full overflow-y-auto py-4">
@@ -490,29 +512,30 @@ export default function Page() {
           </div>
         </main>
 
-        <div className="flex-shrink-0 z-20">
-          <TabBar
-            active={tab}
-            onChange={handleTabChange}
-            isAuthenticated={isAuthenticated}
+          <div className="flex-shrink-0">
+            <TabBar
+              active={tab}
+              onChange={handleTabChange}
+              isAuthenticated={isAuthenticated}
+            />
+          </div>
+
+          <ResultSheet
+            isOpen={isSheetOpen}
+            result={result}
+            loading={loading}
+            onClose={closeSheet}
+            profile={profile}
+            onResultUpdate={(data) => {
+              setResult(data)
+              setHistory((prev) => {
+                const next = [data, ...prev].slice(0, 50)
+                saveHistory(next)
+                return next
+              })
+            }}
           />
         </div>
-
-        <ResultSheet
-          isOpen={isSheetOpen}
-          result={result}
-          loading={loading}
-          onClose={closeSheet}
-          profile={profile}
-          onResultUpdate={(data) => {
-            setResult(data)
-            setHistory((prev) => {
-              const next = [data, ...prev].slice(0, 50)
-              saveHistory(next)
-              return next
-            })
-          }}
-        />
       </div>
 
       <AuthModal

@@ -21,8 +21,8 @@ function ScoreRing({ score }: { score: number }) {
   const offset = circumference - (progress / 100) * circumference
 
   const getColors = (s: number) => {
-    if (s >= 80) return { ring: '#6C3CE1', glow: 'rgba(108,60,225,0.3)', text: '#6C3CE1' }
-    if (s >= 60) return { ring: '#8B5CF6', glow: 'rgba(139,92,246,0.3)', text: '#8B5CF6' }
+    if (s >= 80) return { ring: '#4E9F6E', glow: 'rgba(78,159,110,0.3)', text: '#4E9F6E' }
+    if (s >= 60) return { ring: '#6FBF8D', glow: 'rgba(111,191,141,0.3)', text: '#6FBF8D' }
     if (s >= 40) return { ring: '#A78BFA', glow: 'rgba(167,139,250,0.3)', text: '#A78BFA' }
     return { ring: '#C4B5FD', glow: 'rgba(196,181,253,0.3)', text: '#C4B5FD' }
   }
@@ -135,7 +135,7 @@ export function ResultSheet({
 
   const renderWithColors = (text: string) => {
     if (!text) return null
-    return <span dangerouslySetInnerHTML={{ __html: text.replace(/<good>/g, '<span style="color:#6C3CE1;font-weight:500;">').replace(/<bad>/g, '<span style="color:#EF4444;font-weight:500;">').replace(/<\/good>/g, '</span>').replace(/<\/bad>/g, '</span>') }} />
+    return <span dangerouslySetInnerHTML={{ __html: text.replace(/<good>/g, '<span style="color:#4E9F6E;font-weight:500;">').replace(/<bad>/g, '<span style="color:#EF4444;font-weight:500;">').replace(/<\/good>/g, '</span>').replace(/<\/bad>/g, '</span>') }} />
   }
 
   const Section = ({ icon: Icon, title, children, className }: any) => (

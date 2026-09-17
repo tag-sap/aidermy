@@ -4,3 +4,10 @@ pydantic
 python-dotenv
 httpx
 jinja2
+authlib
+yagmail
+python-jose[cryptography]
+email-validator
+python-multipart
+authlib
+yagmail

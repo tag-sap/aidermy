@@ -30,18 +30,18 @@
 
 :root {
   color-scheme: light;
-  --background: #FAF9F6;
-  --foreground: #1A1A1A;
+  --background: #F4F9F3;
+  --foreground: #1A2E1F;
   --card: #FFFFFF;
-  --card-foreground: #1A1A1A;
-  --muted: #F0EFEB;
-  --muted-foreground: #1A1A1A;
-  --primary: #6C3CE1;
+  --card-foreground: #1A2E1F;
+  --muted: #EAF5EA;
+  --muted-foreground: #1A2E1F;
+  --primary: #4E9F6E;
   --primary-foreground: #FFFFFF;
-  --accent: #8B5CF6;
+  --accent: #6FBF8D;
   --accent-foreground: #FFFFFF;
-  --border: rgba(108, 60, 225, 0.2);
-  --ring: rgba(108, 60, 225, 0.3);
+  --border: rgba(78, 159, 110, 0.2);
+  --ring: rgba(78, 159, 110, 0.3);
   --radius: 0.35rem;
 }
 
@@ -410,6 +410,30 @@ div {
 .brand-bg {
   pointer-events: none;
   z-index: 0;
+}
+
+.cursor-glow {
+  position: relative;
+  overflow: hidden;
+}
+
+.cursor-glow::before {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  background: radial-gradient(
+    circle at var(--x, 50%) var(--y, 50%),
+    rgba(167, 139, 250, 0.55),
+    rgba(124, 58, 237, 0.18) 18%,
+    rgba(255, 255, 255, 0) 38%
+  );
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+}
+
+.cursor-glow:hover::before {
+  opacity: 1;
 }
 
 .marquee-row {
