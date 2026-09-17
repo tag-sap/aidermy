@@ -78,9 +78,9 @@ async def check_product(
         existing_product = cursor_products.fetchone()
         conn_products.close()
         
-        # Сохраняем в историю ТОЛЬКО если продукт есть в базе
-        if result.get("ingredients") and existing_product:
-            user_id = current_user.get('id') if current_user else None
+        # Сохраняем в историю ТОЛЬКО для авторизованных пользователей
+        user_id = current_user.get('id') if current_user else None
+        if result.get("ingredients") and existing_product and user_id is not None:
             save_check_result(
                 request.product_name,
                 request.skin_type,
@@ -148,8 +148,8 @@ async def check_with_ingredients(
                 user_id=user_id
             )
         
-        # Сохраняем в историю ТОЛЬКО если продукт уже есть в базе (одобрен)
-        if existing_product:
+        # Сохраняем в историю ТОЛЬКО если продукт уже есть в базе и пользователь авторизован
+        if existing_product and user_id is not None:
             save_check_result(
                 check_request.product_name,
                 check_request.skin_type,

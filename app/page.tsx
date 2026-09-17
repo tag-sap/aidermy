@@ -26,6 +26,25 @@ import {
   type SkinProfile,
 } from '@/lib/store'
 
+const normalizeHistoryItem = (item: any): CheckResult => ({
+  id: String(item?.id ?? `${item?.product_name ?? item?.product ?? 'history'}-${item?.created_at ?? Date.now()}`),
+  product: item?.product_name ?? item?.product ?? 'Неизвестный продукт',
+  skinType: item?.skin_type ?? item?.skinType ?? 'Нормальная',
+  score: Number(item?.score ?? 50),
+  verdict: item?.verdict ?? 'С осторожностью',
+  summary: item?.summary ?? 'Не удалось получить рекомендацию.',
+  safe_ingredients: Array.isArray(item?.safe_ingredients) ? item.safe_ingredients : [],
+  caution_ingredients: Array.isArray(item?.caution_ingredients) ? item.caution_ingredients : [],
+  stats: item?.stats ?? {},
+  skin_type_recommendation: item?.skin_type_recommendation ?? '',
+  slug: item?.slug ?? '',
+  image_url: item?.image_url ?? '',
+  createdAt: item?.created_at ? new Date(item.created_at).getTime() : Date.now(),
+  active_ingredients: item?.active_ingredients ?? undefined,
+  how_to_use: item?.how_to_use ?? undefined,
+  expectations: item?.expectations ?? undefined,
+})
+
 export default function Page() {
   const [tab, setTab] = useState<TabId>('catalog')
   const [profile, setProfile] = useState<SkinProfile>(emptyProfile)
@@ -86,14 +105,17 @@ export default function Page() {
       })
       if (res.ok) {
         const data = await res.json()
-        console.log('📦 История с сервера:', data)  // <-- ДОБАВЬ ЭТО
-        if (data.history && Array.isArray(data.history)) {
-          setHistory(data.history)
-          saveHistory(data.history)
-        }
+        const nextHistory = Array.isArray(data.history) ? data.history.map(normalizeHistoryItem) : []
+        setHistory(nextHistory)
+        saveHistory(nextHistory)
+      } else {
+        setHistory([])
+        saveHistory([])
       }
     } catch (error) {
       console.error('Ошибка загрузки истории:', error)
+      setHistory([])
+      saveHistory([])
     }
   }
 
@@ -133,9 +155,18 @@ export default function Page() {
   }, [])
 
   useEffect(() => {
+    const token = localStorage.getItem('token')
     const savedProfile = { ...emptyProfile, ...loadProfile() }
     setProfile(savedProfile)
-    setHistory(loadHistory())
+
+    if (!token) {
+      setHistory([])
+      saveHistory([])
+      localStorage.removeItem('aidermy:history')
+    } else {
+      setHistory(loadHistory())
+    }
+
     setHydrated(true)
 
     if (savedProfile.quizAnswers && Object.keys(savedProfile.quizAnswers).length > 0 && !savedProfile.skinType) {
@@ -205,6 +236,7 @@ export default function Page() {
     setUserName('')
     setProfile(emptyProfile)
     setHistory([])
+    saveHistory([])
     localStorage.removeItem('token')
     localStorage.removeItem('userName')
     localStorage.removeItem('aidermy:profile')
@@ -257,9 +289,21 @@ export default function Page() {
   }
 
   // ===== ИСТОРИЯ =====
-  const handleClearHistory = () => {
+  const handleClearHistory = async () => {
     setHistory([])
     saveHistory([])
+
+    const token = localStorage.getItem('token')
+    if (token) {
+      try {
+        await fetch('/api/auth/history', {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      } catch (error) {
+        console.error('Ошибка очистки истории на сервере:', error)
+      }
+    }
   }
 
   // ===== КВИЗ =====

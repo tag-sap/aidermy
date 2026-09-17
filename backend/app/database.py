@@ -130,6 +130,17 @@ def get_user_check_history(user_id: int, limit: int = 100):
     conn.close()
     return [dict(row) for row in rows]
 
+
+def clear_user_check_history(user_id: int):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM check_history WHERE user_id = ?', (user_id,))
+    conn.commit()
+    deleted = cursor.rowcount
+    conn.close()
+    return deleted
+
+
 def get_all_check_history(limit: int = 100):
     """Получить всю историю (для админа)"""
     conn = get_connection(AIDERMY_DB)

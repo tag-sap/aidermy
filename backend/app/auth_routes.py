@@ -9,7 +9,7 @@ import yagmail
 import os
 import json
 
-from .database import get_connection, AIDERMY_DB, PRODUCTS_DB
+from .database import get_connection, AIDERMY_DB, PRODUCTS_DB, clear_user_check_history
 from .auth import (
     get_user_by_email,
     create_user,
@@ -486,3 +486,10 @@ async def get_history(current_user: dict = Depends(get_current_user)):
                 pass
     
     return {"history": history}
+
+
+@router.delete("/history")
+async def clear_history(current_user: dict = Depends(get_current_user)):
+    """Полностью очистить историю текущего пользователя"""
+    deleted = clear_user_check_history(current_user['id'])
+    return {"status": "ok", "deleted": deleted}
