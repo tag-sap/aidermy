@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -400,23 +401,25 @@ def _profile_from_user(user: dict) -> dict:
     }
 
 
-def _score_ingredients(name: str, ingredients: str, profile: dict) -> int:
-    if not ingredients:
-        return 0
-    from .analysis_service import AnalysisService
-    priorities = {"hydration": 0.35, "barrier_support": 0.25, "sensitivity": 0.2, "acne_control": 0.1, "brightening": 0.1}
-    try:
-        result = AnalysisService().analyze(name, ingredients, profile, priorities)
-        return int(result.get("score", 0) or 0)
-    except Exception:
-        return 0
+def _checked_score_for_product(user_id: int, slug: str, name: str):
+    """Оценка из истории проверок, если продукт проверялся пользователем, иначе None."""
+    from .database import get_user_check_history
+    history = get_user_check_history(user_id, limit=100)
+    cleaned_name = (name or "").replace("\n", " ").strip().lower()
+    for h in history:
+        h_slug = (h.get("slug") or "").strip()
+        h_name = (h.get("product_name") or "").replace("\n", " ").strip().lower()
+        if slug and h_slug and h_slug == slug:
+            return int(h.get("score") or 0)
+        if cleaned_name and h_name and (h_name == cleaned_name or h_name in cleaned_name or cleaned_name in h_name):
+            return int(h.get("score") or 0)
+    return None
 
 
 @app.get("/api/shelf")
 async def get_shelf(current_user: dict = Depends(get_current_user)):
     from .database import get_user_shelf, get_product_by_id
     shelf = get_user_shelf(current_user["id"])
-    profile = _profile_from_user(current_user)
     items = []
     for s in shelf:
         p = get_product_by_id(s["product_id"])
@@ -433,7 +436,7 @@ async def get_shelf(current_user: dict = Depends(get_current_user)):
             "image_url": p.get("image_url") or "",
             "slug": p.get("slug") or "",
             "ingredients": p.get("ingredients") or "",
-            "score": _score_ingredients(p.get("name") or "", p.get("ingredients") or "", profile),
+            "score": _checked_score_for_product(current_user["id"], p.get("slug") or "", p.get("name") or ""),
         })
     return {"items": items, "categories": SHELF_CATEGORIES}
 
@@ -470,7 +473,7 @@ async def delete_shelf_product(shelf_id: int, current_user: dict = Depends(get_c
 @app.get("/api/shelf/analysis")
 async def analyze_shelf(current_user: dict = Depends(get_current_user)):
     from .database import get_user_shelf, get_product_by_id
-    from .analysis_service import AnalysisService
+    from .ingredient_normalizer import canonicalize_ingredient_name
 
     shelf = get_user_shelf(current_user["id"])
     products = []
@@ -479,68 +482,87 @@ async def analyze_shelf(current_user: dict = Depends(get_current_user)):
         if p and p.get("ingredients"):
             products.append({
                 "name": (p.get("name") or "").replace("\n", " "),
-                "brand": p.get("brand") or "",
                 "category": s.get("category") or "",
                 "ingredients": p.get("ingredients") or "",
             })
     if not products:
-        return {"products": [], "overall_score": 0, "repeated_ingredients": [], "duplicate_actives": [], "conflicts": [], "coverage": {}}
+        return {
+            "overall_score": 0,
+            "total_products": 0,
+            "coverage": {"present": [], "missing": []},
+            "repeated_ingredients": [],
+            "duplicate_actives": [],
+            "conflicts": [],
+        }
 
-    profile = _profile_from_user(current_user)
-    priorities = {"hydration": 0.35, "barrier_support": 0.25, "sensitivity": 0.2, "acne_control": 0.1, "brightening": 0.1}
-    service = AnalysisService()
+    def parse_ingredients(raw: str) -> set:
+        out = set()
+        for part in re.split(r'[,;\n]+', raw or ''):
+            c = canonicalize_ingredient_name(part)
+            if c:
+                out.add(c)
+        return out
 
-    analyzed = []
-    ingredient_sets = []
-    ingredient_counts = {}
-    active_counts = {}
-    positive_property = {}
-    dimensions = {}
-    for p in products:
-        r = service.analyze(p["name"], p["ingredients"], profile, priorities)
-        score = int(r.get("score", 0) or 0)
-        analyzed.append({"name": p["name"], "brand": p["brand"], "category": p["category"], "score": score})
-        norm = set(r.get("normalized_ingredients", []))
-        ingredient_sets.append(norm)
-        for ing in norm:
-            ingredient_counts[ing] = ingredient_counts.get(ing, 0) + 1
-        for f in r.get("positive_factors", []):
-            ing = (f.get("ingredient") or "").lower()
-            if ing:
-                active_counts[ing] = active_counts.get(ing, 0) + 1
-                positive_property[ing] = f.get("property", "")
-        for dim, val in (r.get("dimensions") or {}).items():
-            dimensions[dim] = dimensions.get(dim, 0.0) + float(val or 0)
+    ingredient_sets = [parse_ingredients(p["ingredients"]) for p in products]
+    all_ing = set().union(*ingredient_sets) if ingredient_sets else set()
 
-    overall_score = round(sum(a["score"] for a in analyzed) / len(analyzed))
+    # Повторяющиеся ингредиенты (один и тот же компонент в нескольких продуктах)
+    counts: dict = {}
+    for s in ingredient_sets:
+        for ing in s:
+            counts[ing] = counts.get(ing, 0) + 1
     repeated_ingredients = sorted(
-        [{"ingredient": k, "count": v} for k, v in ingredient_counts.items() if v > 1],
-        key=lambda x: -x["count"],
-    )[:15]
-    duplicate_actives = sorted(
-        [{"ingredient": k, "count": v, "property": positive_property.get(k, "")} for k, v in active_counts.items() if v > 1],
+        [{"ingredient": k, "count": v} for k, v in counts.items() if v > 1],
         key=lambda x: -x["count"],
     )[:15]
 
+    # Дублирующиеся активы (перебор одного и того же актива в разных продуктах)
+    common_actives = {
+        "niacinamide", "hyaluronic acid", "sodium hyaluronate", "salicylic acid",
+        "glycolic acid", "lactic acid", "retinol", "retinal", "retinyl", "bakuchiol",
+        "vitamin c", "ascorbic acid", "azelaic acid", "ceramide", "panthenol",
+        "centella", "madecassoside", "peptide", "collagen", "adenosine",
+        "tranexamic acid", "arbutin", "alpha arbutin", "kojic acid", "zinc", "tea tree",
+    }
+    active_counts: dict = {}
+    for act in common_actives:
+        for s in ingredient_sets:
+            if act in s:
+                active_counts[act] = active_counts.get(act, 0) + 1
+    duplicate_actives = sorted(
+        [{"ingredient": k, "count": v} for k, v in active_counts.items() if v > 1],
+        key=lambda x: -x["count"],
+    )[:15]
+
+    # Конфликты компонентов
     conflict_rules = [
-        ({"retinol", "retinal", "tretinoin", "retinyl"}, {"glycolic acid", "salicylic acid", "lactic acid", "aha", "bha"}),
-        ({"niacinamide"}, {"ascorbic acid", "vitamin c"}),
+        ({"retinol", "retinal", "tretinoin", "retinyl", "adapalene"}, {"glycolic acid", "salicylic acid", "lactic acid", "mandelic acid", "aha", "bha"}),
+        ({"niacinamide"}, {"ascorbic acid", "vitamin c", "ascorbyl"}),
+        ({"retinol", "retinal", "retinyl"}, {"benzoyl peroxide"}),
     ]
     conflicts = []
-    all_ing = set().union(*ingredient_sets) if ingredient_sets else set()
     for a_set, b_set in conflict_rules:
         a = all_ing & a_set
         b = all_ing & b_set
         if a and b:
             conflicts.append({"a": sorted(a), "b": sorted(b)})
 
+    # Покрытие шагов ухода
+    core_steps = ["Очищение", "Тонер", "Сыворотка", "Крем", "SPF"]
+    present = sorted({p["category"] for p in products if p["category"]})
+    missing = [c for c in core_steps if c not in present]
+
+    # Комплексная оценка: штрафы за конфликты и дубли активов
+    penalty = min(60, 20 * len(conflicts)) + min(25, 5 * len(duplicate_actives))
+    overall_score = max(0, 100 - penalty)
+
     return {
-        "products": analyzed,
         "overall_score": overall_score,
+        "total_products": len(products),
+        "coverage": {"present": present, "missing": missing},
         "repeated_ingredients": repeated_ingredients,
         "duplicate_actives": duplicate_actives,
         "conflicts": conflicts,
-        "coverage": {k: round(v, 3) for k, v in dimensions.items()},
     }
 
 

@@ -8,8 +8,8 @@ export type TabId = 'routine' | 'catalog' | 'history' | 'shelf' | 'profile'
 const TABS: { id: TabId; label: string; icon: typeof Search }[] = [
   { id: 'routine', label: 'Подбор', icon: Wand2 },
   { id: 'catalog', label: 'Каталог', icon: Search },
-  { id: 'history', label: 'История', icon: History },
   { id: 'shelf', label: 'Моя полка', icon: Sparkles },
+  { id: 'history', label: 'История', icon: History },
   { id: 'profile', label: 'Профиль', icon: User },
 ]
 
@@ -45,7 +45,7 @@ export function TabBar({
                 key={id}
                 type="button"
                 onClick={() => onChange(id)}
-                className="relative -mt-6 flex flex-col items-center gap-0.5"
+                className="relative -mt-6 flex flex-1 flex-col items-center gap-0.5"
               >
                 <span
                   className={cn(

@@ -14,7 +14,7 @@ export type ShelfItem = {
   image_url: string
   slug: string
   ingredients: string
-  score: number
+  score: number | null
 }
 
 const CATEGORIES = ['Очищение', 'Тонер', 'Сыворотка', 'Крем', 'SPF', 'Маска']
@@ -171,7 +171,7 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
                     <p className="line-clamp-2 text-[11px] font-medium leading-snug text-foreground/80">{item.name}</p>
                     <p className="mt-0.5 text-[9px] text-muted-foreground/50">{item.brand}</p>
                     {item.notes && <span className="mt-1 inline-block max-w-full truncate rounded-full bg-primary/10 px-2 py-0.5 text-[9px] text-primary">{item.notes}</span>}
-                    {item.score > 0 && <span className="mt-1.5 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[9px] text-primary">{item.score}%</span>}
+                    {item.score != null && item.score > 0 && <span className="mt-1.5 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[9px] text-primary">Проверено: {item.score}%</span>}
                   </button>
                   <select value={item.category} onChange={(e) => changeCategory(item.id, e.target.value)} className="mt-2 w-full rounded-lg border border-white/30 bg-white/40 px-1.5 py-1 text-[9px] text-foreground/60 focus:outline-none">
                     <option value="">Категория…</option>
@@ -192,23 +192,26 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
                 <div className="mt-3 space-y-3">
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-light text-primary">{analysis.overall_score}%</span>
-                    <span className="text-[10px] text-muted-foreground/60">общая совместимость рутины</span>
+                    <span className="text-[10px] text-muted-foreground/60">комплексная совместимость ухода</span>
                   </div>
-                  {analysis.products?.length > 0 && (
-                    <div className="space-y-1">
-                      {analysis.products.map((p: any) => (
-                        <div key={p.name} className="flex items-center justify-between gap-2 text-[10px]">
-                          <span className="truncate text-muted-foreground/70">{p.name}</span>
-                          <span className="shrink-0 text-foreground/70">{p.score}%</span>
-                        </div>
+                  {analysis.coverage && (
+                    <div className="flex flex-wrap gap-1">
+                      {(analysis.coverage.present || []).map((c: string) => (
+                        <span key={c} className="rounded-full bg-primary/10 px-2 py-0.5 text-[9px] text-primary">{c}</span>
+                      ))}
+                      {(analysis.coverage.missing || []).map((c: string) => (
+                        <span key={c} className="rounded-full bg-gray-100 px-2 py-0.5 text-[9px] text-muted-foreground/50 line-through">нет {c}</span>
                       ))}
                     </div>
                   )}
-                  {analysis.duplicate_actives?.length > 0 && (
-                    <p className="text-[10px] text-muted-foreground/70">Дублируются активы: {analysis.duplicate_actives.slice(0, 5).map((d: any) => d.ingredient).join(', ')}</p>
-                  )}
                   {analysis.conflicts?.length > 0 && (
-                    <p className="text-[10px] text-red-500/80">Возможные конфликты: {analysis.conflicts.map((c: any) => `${c.a.join('/')} + ${c.b.join('/')}`).join('; ')}</p>
+                    <p className="text-[10px] text-red-500/80">⚠ Возможные конфликты: {analysis.conflicts.map((c: any) => `${c.a.join('/')} + ${c.b.join('/')}`).join('; ')}</p>
+                  )}
+                  {analysis.duplicate_actives?.length > 0 && (
+                    <p className="text-[10px] text-amber-600/80">Дублируются активы: {analysis.duplicate_actives.slice(0, 5).map((d: any) => d.ingredient).join(', ')}</p>
+                  )}
+                  {analysis.repeated_ingredients?.length > 0 && (
+                    <p className="text-[10px] text-muted-foreground/60">Повторяются ингредиенты: {analysis.repeated_ingredients.slice(0, 5).map((d: any) => d.ingredient).join(', ')}</p>
                   )}
                 </div>
               )}

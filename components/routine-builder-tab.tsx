@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Wand2, Sparkles, ArrowRight, LoaderCircle, CheckCircle2, ListChecks, User } from 'lucide-react'
+import { Wand2, Sparkles, ArrowRight, LoaderCircle, CheckCircle2, ListChecks, User, Check } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { isProfileComplete, type SkinProfile } from '@/lib/store'
 
 type RoutineProduct = {
@@ -54,6 +55,7 @@ export function RoutineBuilderTab({
     const [shelfName, setShelfName] = useState('')
     const [saving, setSaving] = useState(false)
     const [savedMsg, setSavedMsg] = useState('')
+    const [selected, setSelected] = useState<Record<string, string>>({})
 
     const profileReady = isProfileComplete(profile)
 
@@ -91,6 +93,11 @@ export function RoutineBuilderTab({
             const data = await res.json()
             setRoutine(data)
             setShelfName(data.name || '')
+            const sel: Record<string, string> = {}
+            ;(data.steps || []).forEach((s: RoutineStep) => {
+                if (s.products?.[0]) sel[s.step] = s.products[0].slug
+            })
+            setSelected(sel)
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Не удалось подобрать уход')
         } finally {
@@ -108,7 +115,12 @@ export function RoutineBuilderTab({
         setSavedMsg('')
         try {
             const token = localStorage.getItem('token')
-            const items = routine.steps.flatMap((s) => s.products.map((p) => ({ slug: p.slug, category: s.step })))
+            const items = routine.steps
+                .map((s) => {
+                    const slug = selected[s.step]
+                    return slug ? { slug, category: s.step } : null
+                })
+                .filter(Boolean) as { slug: string; category: string }[]
             const res = await fetch('/api/routine/to-shelf', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -129,6 +141,11 @@ export function RoutineBuilderTab({
         setSavedMsg('')
         setNeedProfile(false)
         setQuery('')
+        setSelected({})
+    }
+
+    const selectProduct = (step: string, slug: string) => {
+        setSelected((prev) => ({ ...prev, [step]: slug }))
     }
 
     return (
@@ -230,6 +247,7 @@ export function RoutineBuilderTab({
                             </button>
                         </div>
                         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/70">{routine.description}</p>
+                        <p className="mt-2 text-[10px] text-muted-foreground/50">Выберите по одному продукту на каждый шаг — отмеченные попадут на полку.</p>
 
                         <button
                             onClick={handleAddToShelf}
@@ -257,28 +275,42 @@ export function RoutineBuilderTab({
                                     <div className="h-full rounded-full bg-primary/70 transition-all" style={{ width: `${step.weight}%` }} />
                                 </div>
                                 <div className="mt-2.5 space-y-2">
-                                    {step.products.map((p) => (
-                                        <div key={p.slug} className="flex items-center gap-2.5">
-                                            <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/70">
-                                                {p.image_url ? (
-                                                    <img src={p.image_url} alt="" className="h-full w-full object-contain p-1" />
-                                                ) : (
-                                                    <Sparkles className="size-4 text-muted-foreground/30" />
+                                    {step.products.map((p) => {
+                                        const isSelected = selected[step.step] === p.slug
+                                        return (
+                                            <button
+                                                key={p.slug}
+                                                type="button"
+                                                onClick={() => selectProduct(step.step, p.slug)}
+                                                className={cn(
+                                                    'flex w-full items-center gap-2.5 rounded-xl border p-2 text-left transition-all',
+                                                    isSelected ? 'border-primary/40 bg-primary/5' : 'border-transparent hover:bg-white/60'
                                                 )}
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <p className="truncate text-[11px] font-medium text-foreground/80">{p.name}</p>
-                                                <p className="truncate text-[9px] text-muted-foreground/50">{p.brand}</p>
-                                            </div>
-                                            {p.matched_actives.length > 0 && (
-                                                <div className="hidden shrink-0 flex-wrap justify-end gap-1 sm:flex">
-                                                    {p.matched_actives.slice(0, 3).map((a) => (
-                                                        <span key={a} className="rounded-full bg-primary/5 px-1.5 py-0.5 text-[8px] text-primary/70">{a}</span>
-                                                    ))}
+                                            >
+                                                <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/70">
+                                                    {p.image_url ? (
+                                                        <img src={p.image_url} alt="" className="h-full w-full object-contain p-1" />
+                                                    ) : (
+                                                        <Sparkles className="size-4 text-muted-foreground/30" />
+                                                    )}
                                                 </div>
-                                            )}
-                                        </div>
-                                    ))}
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="truncate text-[11px] font-medium text-foreground/80">{p.name}</p>
+                                                    <p className="truncate text-[9px] text-muted-foreground/50">{p.brand}</p>
+                                                </div>
+                                                {p.matched_actives.length > 0 && (
+                                                    <div className="hidden shrink-0 flex-wrap justify-end gap-1 sm:flex">
+                                                        {p.matched_actives.slice(0, 3).map((a) => (
+                                                            <span key={a} className="rounded-full bg-primary/5 px-1.5 py-0.5 text-[8px] text-primary/70">{a}</span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                <span className={cn('flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors', isSelected ? 'border-primary bg-primary text-white' : 'border-gray-300')}>
+                                                    {isSelected && <Check className="size-2.5" strokeWidth={3} />}
+                                                </span>
+                                            </button>
+                                        )
+                                    })}
                                 </div>
                             </div>
                         ))}
