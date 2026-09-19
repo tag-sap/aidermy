@@ -175,7 +175,7 @@ export function ShelfAddModal({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.detail || 'Не удалось подобрать')
-      const recommendations = data.recommendations || []
+      const recommendations: Recommendation[] = (data.recommendations || []) as Recommendation[]
       setRecs(recommendations)
       // Автоматически анализируем все три продукта (для скоринговых шкафов)
       if (isScoring) {

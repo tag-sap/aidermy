@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment } from 'react'
+import { Fragment, type ReactNode } from 'react'
 
 // Цвета совпадают с палитрой Aidermy (зелёный / янтарный / красный).
 const TAG_COLORS: Record<string, string> = {
@@ -18,7 +18,7 @@ export function MarkupText({ text, className }: { text?: string | null; classNam
 
   const parts = text.split(/(<\/?(?:good|warning|bad)>)/g)
   const stack: string[] = []
-  const nodes: React.ReactNode[] = []
+  const nodes: ReactNode[] = []
   let key = 0
 
   for (const part of parts) {
