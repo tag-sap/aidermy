@@ -25,8 +25,8 @@ type ProductDetail = {
     score?: number
     safe_ingredients?: string[]
     caution_ingredients?: string[]
-    active_ingredients?: { name: string; position: number; concentration: string; effectiveness: string } | null
-    how_to_use?: { application: string; time: string; note?: string } | null
+    active_ingredients?: { name: string; position: number; concentration: 'высокая' | 'средняя' | 'низкая'; effectiveness: 'рабочая' | 'средняя' | 'минимальная' } | null
+    how_to_use?: { application: string; time: string; note: string } | null
     expectations?: { when: string; normal: string; danger: string } | null
   } | null
   on_shelf: { shelf_id: number; cabinet: string; category: string } | null
