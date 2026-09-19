@@ -533,6 +533,12 @@ export default function Page() {
     setLoading(false)
   }
 
+  const handleOpenReport = (data: CheckResult) => {
+    setResult(data)
+    setLoading(false)
+    setIsSheetOpen(true)
+  }
+
   // ===== НАВИГАЦИЯ =====
   const handleGoToProfile = () => {
     if (!isAuthenticated) {
@@ -656,7 +662,7 @@ export default function Page() {
                   </div>
                 )}
                 {tab === 'shelf' && (
-                  <ShelfTab />
+                  <ShelfTab onOpenReport={handleOpenReport} />
                 )}
               </div>
             )}

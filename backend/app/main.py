@@ -741,12 +741,19 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     finally:
         conn.close()
 
+    # AI-обогащение базы знаний ингредиентов (постепенное наполнение)
+    from .shelf_service import enrich_ingredient_knowledge
+    enrich_ingredient_knowledge(result.get("ingredient_claims") or [])
+
     analysis = {
         "verdict": result.get("verdict") or "",
         "summary": result.get("summary") or "",
         "score": int(result.get("score") or 0),
         "safe_ingredients": result.get("safe_ingredients") or [],
         "caution_ingredients": result.get("caution_ingredients") or [],
+        "active_ingredients": result.get("active_ingredients"),
+        "how_to_use": result.get("how_to_use"),
+        "expectations": result.get("expectations"),
     }
     return {"status": "ok", "cached": False, "score": int(result.get("score") or 0), "analysis": analysis}
 

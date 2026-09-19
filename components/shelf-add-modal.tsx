@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { X, Search, Link2, Wand2, LoaderCircle, Sparkles, ChevronLeft } from 'lucide-react'
 import { CABINET_TITLES, CABINET_META } from '@/lib/shelf'
+import { MarkupText } from '@/components/markup-text'
 
 type Mode = 'menu' | 'base' | 'url' | 'recommend'
 
@@ -196,7 +197,7 @@ export function ShelfAddModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
-      <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-4 sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-t-2xl bg-white p-4 sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {mode !== 'menu' && (
@@ -208,7 +209,7 @@ export function ShelfAddModal({
               {mode === 'menu' ? 'Добавить продукт' : mode === 'base' ? 'Выбрать из базы' : mode === 'url' ? 'Добавить по ссылке' : 'Подобрать автоматически'}
             </h2>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
+          <button type="button" onClick={onClose} className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
         </div>
 
         {mode !== 'menu' && <p className="mb-3 text-[11px] text-muted-foreground/60">В полку: {title}</p>}
@@ -295,7 +296,7 @@ export function ShelfAddModal({
                         ) : null}
                       </div>
                     </div>
-                    {r.reason && <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/60">{r.reason}</p>}
+                    {r.reason && <p className="mt-2 break-words text-[10px] leading-relaxed text-muted-foreground/60"><MarkupText text={r.reason} /></p>}
                     <div className="mt-2 flex gap-1.5">
                       {onOpenProduct && (
                         <button

@@ -264,9 +264,19 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     "danger": "с <good>, <warning> или <bad>"
   }},
   "safe_ingredients": ["инг1"],
-  "caution_ingredients": ["инг1"]
+  "caution_ingredients": ["инг1"],
+  "ingredient_claims": [
+    {{"ingredient": "ингредиент", "property": "hydration|barrier_support|sensitivity|acne_control|brightening", "direction": "positive|negative", "strength": 0.8, "confidence": 0.9}}
+  ]
 }}
 """
+
+    enrichment_note = (
+        "\n\nДополнительно: в поле ingredient_claims перечисли 3–6 ключевых ингредиентов состава "
+        "и для каждого укажи его основное свойство (property), направление влияния (direction), "
+        "силу (strength 0–1) и уверенность (confidence 0–1). Эти данные пополняют базу знаний Aidermy."
+    )
+    prompt = prompt + enrichment_note
 
     fallback = {
         "score": 50,

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, LoaderCircle, Sparkles, X, Check, ListChecks } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ShelfItem } from '@/lib/shelf'
+import type { CheckResult } from '@/lib/store'
 import { ShelfAddModal } from '@/components/shelf-add-modal'
 import { ProductModal } from '@/components/product-modal'
 
@@ -26,7 +27,7 @@ function scoreBadge(s: number | null) {
   return 'bg-[#B7A7F0]/15 text-[#8B7CF6]'
 }
 
-export function ShelfTab() {
+export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult) => void }) {
   const [cabinets, setCabinets] = useState<Cabinet[]>([])
   const [loading, setLoading] = useState(true)
   const [activeCabinet, setActiveCabinet] = useState('face')
@@ -168,7 +169,7 @@ export function ShelfTab() {
       </div>
 
       {selectionMode && (
-        <div className="sticky top-0 z-10 mb-4 flex items-center justify-between gap-2 rounded-2xl border border-primary/20 bg-white/90 p-3 shadow-sm backdrop-blur">
+        <div className="sticky top-0 z-10 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-primary/20 bg-white/90 p-3 shadow-sm backdrop-blur">
           <span className="text-sm text-foreground/80">Выбрано: {selected.size}</span>
           <div className="flex items-center gap-1.5">
             <button onClick={() => setSelected(new Set(currentItems.map((i) => i.id)))} className="rounded-full px-2.5 py-1 text-xs text-primary hover:bg-primary/5">
@@ -358,6 +359,7 @@ export function ShelfTab() {
           slug={detailSlug}
           onClose={() => setDetailSlug(null)}
           onChanged={refreshShelf}
+          onOpenReport={onOpenReport}
         />
       )}
 

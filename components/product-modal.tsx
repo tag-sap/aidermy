@@ -5,6 +5,7 @@ import { X, Sparkles, LoaderCircle, Check, Trash2, ShieldCheck } from 'lucide-re
 import { cn } from '@/lib/utils'
 import { MarkupText } from '@/components/markup-text'
 import { CABINET_META, CABINET_TITLES } from '@/lib/shelf'
+import type { CheckResult } from '@/lib/store'
 
 type ProductDetail = {
   product: {
@@ -24,6 +25,9 @@ type ProductDetail = {
     score?: number
     safe_ingredients?: string[]
     caution_ingredients?: string[]
+    active_ingredients?: { name: string; position: number; concentration: string; effectiveness: string } | null
+    how_to_use?: { application: string; time: string; note?: string } | null
+    expectations?: { when: string; normal: string; danger: string } | null
   } | null
   on_shelf: { shelf_id: number; cabinet: string; category: string } | null
 }
@@ -66,10 +70,12 @@ export function ProductModal({
   slug,
   onClose,
   onChanged,
+  onOpenReport,
 }: {
   slug: string | null
   onClose: () => void
   onChanged: () => void
+  onOpenReport?: (result: CheckResult) => void
 }) {
   const [data, setData] = useState<ProductDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -186,11 +192,33 @@ export function ProductModal({
     }
   }
 
+  const openFullReport = () => {
+    if (!data || !product || !data.analysis || !onOpenReport) return
+    const a = data.analysis
+    const result: CheckResult = {
+      id: String(product.id),
+      product: product.name,
+      skinType: 'Нормальная',
+      score: data.score ?? 0,
+      verdict: a.verdict || '',
+      summary: a.summary || '',
+      safe_ingredients: asList(a.safe_ingredients),
+      caution_ingredients: asList(a.caution_ingredients),
+      slug: product.slug,
+      image_url: product.image_url,
+      createdAt: Date.now(),
+      active_ingredients: a.active_ingredients ?? undefined,
+      how_to_use: a.how_to_use ?? undefined,
+      expectations: a.expectations ?? undefined,
+    }
+    onOpenReport(result)
+  }
+
   const meta = CABINET_META.find((c) => c.key === pickCabinet) || CABINET_META[0]
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
       <div
-        className="no-scrollbar max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-4 sm:rounded-2xl"
+        className="no-scrollbar max-h-[92dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-t-2xl bg-white p-4 sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (
@@ -201,9 +229,9 @@ export function ProductModal({
           <div className="py-10 text-center text-sm text-muted-foreground/60">{error}</div>
         ) : product ? (
           <>
-            <div className="mb-3 flex items-start justify-between">
+            <div className="mb-3 flex items-start justify-between gap-3">
               <h2 className="text-base font-normal text-foreground">Продукт</h2>
-              <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+              <button type="button" onClick={onClose} className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground">
                 <X className="size-4" />
               </button>
             </div>
@@ -241,7 +269,7 @@ export function ProductModal({
             <div className="mt-3">
               <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground/50">Состав (INCI)</p>
               {product.ingredients ? (
-                <div className="max-h-32 overflow-y-auto rounded-xl border border-gray-100 bg-gray-50/60 p-2.5 text-[11px] leading-relaxed text-foreground/60">
+                <div className="max-h-32 overflow-y-auto break-words rounded-xl border border-gray-100 bg-gray-50/60 p-2.5 text-[11px] leading-relaxed text-foreground/60">
                   {product.ingredients}
                 </div>
               ) : (
@@ -258,7 +286,7 @@ export function ProductModal({
                   <span className="text-xs font-medium text-foreground/80">{data.analysis.verdict || 'Проверено'}</span>
                 </div>
                 {data.analysis.summary && (
-                  <p className="mt-1 text-[11px] leading-relaxed text-foreground/60"><MarkupText text={data.analysis.summary} /></p>
+                  <p className="mt-1 break-words text-[11px] leading-relaxed text-foreground/60"><MarkupText text={data.analysis.summary} /></p>
                 )}
                 {(asList(data.analysis.safe_ingredients).length > 0 || asList(data.analysis.caution_ingredients).length > 0) && (
                   <div className="mt-2 flex flex-wrap gap-1">
@@ -275,6 +303,15 @@ export function ProductModal({
               <div className="mt-3 rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">
                 Анализ ещё не выполнен
               </div>
+            )}
+
+            {data?.analysis && onOpenReport && (
+              <button
+                onClick={openFullReport}
+                className="mt-2 w-full rounded-xl border border-primary/20 bg-white py-2 text-xs text-primary transition-colors hover:bg-primary/5"
+              >
+                Открыть полный отчёт
+              </button>
             )}
 
             {error && product && <p className="mt-2 text-[11px] text-red-500">{error}</p>}

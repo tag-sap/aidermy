@@ -238,6 +238,20 @@ def _as_str_list(value: Any) -> List[str]:
     return [str(value)]
 
 
+def _parse_json(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        import json
+        try:
+            return json.loads(value)
+        except Exception:
+            return None
+    return None
+
+
 def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
     """Приводит запись истории проверки к единому виду (списки вместо JSON-строк)."""
     return {
@@ -246,7 +260,57 @@ def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
         "score": int(h.get("score") or 0) if h.get("score") is not None else None,
         "safe_ingredients": _as_str_list(h.get("safe_ingredients")),
         "caution_ingredients": _as_str_list(h.get("caution_ingredients")),
+        "active_ingredients": _parse_json(h.get("active_ingredients")),
+        "how_to_use": _parse_json(h.get("how_to_use")),
+        "expectations": _parse_json(h.get("expectations")),
     }
+
+
+def enrich_ingredient_knowledge(claims: List[Dict[str, Any]]) -> int:
+    """AI-обогащение базы знаний ингредиентов (постепенное наполнение).
+
+    Использует существующий IngredientRepository и детерминированный движок.
+    Возвращает количество добавленных claims.
+    """
+    if not claims:
+        return 0
+    try:
+        from .ingredient_repository import IngredientRepository
+        from .ingredient_normalizer import canonicalize_ingredient_name
+    except Exception:
+        return 0
+
+    repo = IngredientRepository()
+    repo.ensure_ingredient_tables()
+
+    allowed_props = {"hydration", "barrier_support", "sensitivity", "acne_control", "brightening"}
+    added = 0
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        name = str(claim.get("ingredient") or "").strip()
+        if not name:
+            continue
+        canonical = canonicalize_ingredient_name(name)
+        if not canonical:
+            continue
+        property_name = str(claim.get("property") or "").strip().lower()
+        if property_name not in allowed_props:
+            continue
+        direction = str(claim.get("direction") or "positive").strip().lower()
+        if direction not in {"positive", "negative", "neutral"}:
+            continue
+        try:
+            strength = max(0.0, min(1.0, float(claim.get("strength") or 0.5)))
+            confidence = max(0.0, min(1.0, float(claim.get("confidence") or 0.5)))
+        except (TypeError, ValueError):
+            strength, confidence = 0.5, 0.5
+
+        ing_id = repo.upsert_ingredient(name, canonical, canonical)
+        if ing_id:
+            repo.add_claim(ing_id, property_name, direction, strength, confidence, evidence_level="ai")
+            added += 1
+    return added
 
 
 def _find_history_score(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
