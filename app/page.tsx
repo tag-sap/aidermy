@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { AlertTriangle, X, ScanSearch } from 'lucide-react'
+import { AlertTriangle, X } from 'lucide-react'
 import { CyberGrid } from '@/components/cyber-grid'
 import { AppHeader } from '@/components/app-header'
 import { AuthModal } from '@/components/auth-modal'
@@ -13,7 +13,6 @@ import { SplashScreen } from '@/components/splash-screen'
 import { SkinQuiz } from '@/components/skin-quiz'
 import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
-import { CatalogTab } from '@/components/catalog-tab'
 import { ShelfTab } from '@/components/shelf-tab'
 import { CheckModal } from '@/components/check-modal'
 
@@ -48,7 +47,7 @@ const normalizeHistoryItem = (item: any): CheckResult => ({
 })
 
 export default function Page() {
-  const [tab, setTab] = useState<TabId>('catalog')
+  const [tab, setTab] = useState<TabId>('shelf')
   const [profile, setProfile] = useState<SkinProfile>(emptyProfile)
   const [history, setHistory] = useState<CheckResult[]>([])
   const [hydrated, setHydrated] = useState(false)
@@ -241,7 +240,7 @@ export default function Page() {
     localStorage.removeItem('userName')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
-    setTab('catalog')
+    setTab('shelf')
   }
 
   // ===== ПРОФИЛЬ =====
@@ -594,49 +593,38 @@ export default function Page() {
         <div className="grid-shimmer" aria-hidden="true" />
 
         <div className="relative z-20 flex h-dvh flex-col">
-          <div className="flex-shrink-0">
-            <AppHeader
-              onProfile={handleGoToProfile}
-              onAuth={() => setIsAuthModalOpen(true)}
-              isAuthenticated={isAuthenticated}
-              userName={userName}
-              onLogout={handleLogout}
-            />
-          </div>
+          <main className="relative z-10 flex-1 min-h-0 overflow-y-auto pb-24">
+            <div className="mx-auto w-full max-w-md px-4">
+              <AppHeader
+                onProfile={handleGoToProfile}
+                onAuth={() => setIsAuthModalOpen(true)}
+                isAuthenticated={isAuthenticated}
+                userName={userName}
+                onLogout={handleLogout}
+              />
 
-          <button
-            onClick={() => setCheckModalOpen(true)}
-            className="fixed right-4 top-16 z-30 flex items-center gap-1.5 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary/30 transition-transform hover:scale-105 active:scale-95"
-          >
-            <ScanSearch className="size-4" />
-            Проверить
-          </button>
-
-          <main className="relative z-10 flex-1 min-h-0 overflow-hidden pb-22">
-          <div className="h-full w-full max-w-md md:max-w-6xl mx-auto px-4 overflow-hidden">
-            {showQuiz ? (
-              <div className="h-full overflow-y-auto py-4">
-                <SkinQuiz
-                  onComplete={handleQuizComplete}
-                  onCancel={() => setShowQuiz(false)}
-                  onRegister={() => {
-                    setShowQuiz(false)
-                    setIsAuthModalOpen(true)
-                  }}
-                  initialAnswers={profile.quizAnswers || {}}
-                  isAuthenticated={isAuthenticated}
-                />
+              <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-gray-200/50 bg-background/85 px-4 py-2.5 backdrop-blur-sm">
+                <h1 className="text-xl font-light text-foreground">
+                  {tab === 'history' ? 'История' : tab === 'profile' ? 'Профиль' : 'Моя полка'}
+                </h1>
               </div>
-            ) : (
-              <div className="h-full overflow-hidden">
-                {tab === 'catalog' && (
-                  <CatalogTab
-                    key={hydrated ? 'catalog-ready' : 'catalog-loading'}
-                    onCheck={(product) => handleCheck(product, profile.skinType || 'Нормальная')}
+
+              {showQuiz ? (
+                <div className="py-4">
+                  <SkinQuiz
+                    onComplete={handleQuizComplete}
+                    onCancel={() => setShowQuiz(false)}
+                    onRegister={() => {
+                      setShowQuiz(false)
+                      setIsAuthModalOpen(true)
+                    }}
+                    initialAnswers={profile.quizAnswers || {}}
+                    isAuthenticated={isAuthenticated}
                   />
-                )}
-                {tab === 'history' && (
-                  <div className="no-scrollbar h-full overflow-y-auto py-4">
+                </div>
+              ) : (
+                <div>
+                  {tab === 'history' && (
                     <HistoryTab
                       history={history}
                       onClear={handleClearHistory}
@@ -648,10 +636,8 @@ export default function Page() {
                         setLoading(false)
                       }}
                     />
-                  </div>
-                )}
-                {tab === 'profile' && (
-                  <div className="no-scrollbar h-full overflow-y-auto py-4">
+                  )}
+                  {tab === 'profile' && (
                     <ProfileTab
                       ref={profileTabRef}
                       key={hydrated ? 'profile-ready' : 'profile-loading'}
@@ -659,20 +645,20 @@ export default function Page() {
                       onSave={handleSaveProfile}
                       onStartQuiz={() => setShowQuiz(true)}
                     />
-                  </div>
-                )}
-                {tab === 'shelf' && (
-                  <ShelfTab onOpenReport={handleOpenReport} />
-                )}
-              </div>
-            )}
-          </div>
-        </main>
+                  )}
+                  {tab === 'shelf' && (
+                    <ShelfTab onOpenReport={handleOpenReport} />
+                  )}
+                </div>
+              )}
+            </div>
+          </main>
 
           <div className="flex-shrink-0">
             <TabBar
               active={tab}
               onChange={handleTabChange}
+              onCheck={() => setCheckModalOpen(true)}
               isAuthenticated={isAuthenticated}
             />
           </div>

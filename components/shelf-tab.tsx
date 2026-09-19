@@ -35,6 +35,7 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [addContext, setAddContext] = useState<{ cabinet: string; category: string } | null>(null)
   const [detailSlug, setDetailSlug] = useState<string | null>(null)
+  const [detailContext, setDetailContext] = useState<{ cabinet: string; category: string } | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -124,6 +125,11 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
     })
   }
 
+  const openDetail = (slug: string, cabinet: string, category: string) => {
+    setDetailContext({ cabinet, category })
+    setDetailSlug(slug)
+  }
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -133,12 +139,8 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
   }
 
   return (
-    <div className="no-scrollbar h-full overflow-y-auto px-1 py-5 pb-28">
-      <header className="mb-4 flex items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-light text-foreground">Моя полка</h1>
-          <p className="mt-1 text-sm text-muted-foreground/60">Твоя персональная система косметики</p>
-        </div>
+    <div className="px-1 py-2 pb-28">
+      <div className="mb-4 flex items-center justify-end">
         <button
           onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
           className={cn(
@@ -149,7 +151,7 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
           <ListChecks className="size-3.5" />
           {selectionMode ? 'Готово' : 'Управление'}
         </button>
-      </header>
+      </div>
 
       <div className="no-scrollbar -mx-1 mb-4 flex gap-1.5 overflow-x-auto border-b border-gray-200/60 px-1">
         {cabinets.map((cab) => (
@@ -274,7 +276,7 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
                         return (
                           <div key={item.id} className="group relative w-[130px] shrink-0">
                             <button
-                              onClick={() => (selectionMode ? toggleSelect(item.id) : setDetailSlug(item.slug))}
+                              onClick={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
                               className={cn(
                                 'w-full overflow-hidden rounded-2xl border text-left transition-all',
                                 selectionMode && isSelected
@@ -348,6 +350,7 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
           onClose={() => setAddContext(null)}
           onAdded={refreshShelf}
           onOpenProduct={(slug) => {
+            setDetailContext({ cabinet: addContext.cabinet, category: addContext.category })
             setAddContext(null)
             setDetailSlug(slug)
           }}
@@ -357,6 +360,7 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
       {detailSlug && (
         <ProductModal
           slug={detailSlug}
+          shelfContext={detailContext}
           onClose={() => setDetailSlug(null)}
           onChanged={refreshShelf}
           onOpenReport={onOpenReport}
@@ -364,8 +368,8 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
       )}
 
       {confirm && (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center sm:p-4" onClick={() => setConfirm(null)}>
-          <div className="w-full max-w-sm rounded-t-2xl bg-white p-4 sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" onClick={() => setConfirm(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-normal text-foreground">{confirm.title}</h2>
               <button onClick={() => setConfirm(null)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>

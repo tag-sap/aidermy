@@ -75,8 +75,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     )
 
     return (
-      <div className="h-full w-full flex flex-col overflow-y-auto pb-24 space-y-3 pr-1 md:max-w-2xl md:mx-auto">
-        <h1 className="text-xl font-light text-foreground">Профиль</h1>
+      <div className="w-full flex flex-col pb-24 space-y-3 pr-1 md:max-w-2xl md:mx-auto">
         {/* КАРТОЧКА ИМЯ */}
         <div className={cn(glassCardStyle, 'card-enter-1')}>
           <div className="flex items-center gap-2 mb-3">

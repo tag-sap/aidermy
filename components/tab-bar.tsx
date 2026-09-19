@@ -3,11 +3,11 @@
 import { Search, History, User, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type TabId = 'catalog' | 'history' | 'shelf' | 'profile'
+export type TabId = 'history' | 'shelf' | 'profile'
 
-const TABS: { id: TabId; label: string; icon: typeof Search }[] = [
-  { id: 'catalog', label: 'Проверить', icon: Search },
+const TABS: { id: TabId | 'check'; label: string; icon: typeof Search }[] = [
   { id: 'history', label: 'История', icon: History },
+  { id: 'check', label: 'Проверить', icon: Search },
   { id: 'shelf', label: 'Моя полка', icon: Sparkles },
   { id: 'profile', label: 'Профиль', icon: User },
 ]
@@ -15,10 +15,12 @@ const TABS: { id: TabId; label: string; icon: typeof Search }[] = [
 export function TabBar({
   active,
   onChange,
+  onCheck,
   isAuthenticated = false,
 }: {
   active: TabId
   onChange: (id: TabId) => void
+  onCheck: () => void
   isAuthenticated?: boolean
 }) {
   const visibleTabs = TABS.filter(tab => {
@@ -67,7 +69,7 @@ export function TabBar({
             <button
               key={id}
               type="button"
-              onClick={() => onChange(id)}
+              onClick={() => (id === 'check' ? onCheck() : onChange(id as TabId))}
               aria-current={isActive ? 'page' : undefined}
               data-active={isActive ? 'true' : 'false'}
               className={cn(

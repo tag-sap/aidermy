@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { X, Sparkles, LoaderCircle, Check, Trash2, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkupText } from '@/components/markup-text'
-import { CABINET_META, CABINET_TITLES } from '@/lib/shelf'
+import { CABINET_TITLES } from '@/lib/shelf'
 import type { CheckResult } from '@/lib/store'
 
 type ProductDetail = {
@@ -39,20 +39,6 @@ function scoreColor(s: number) {
   return 'text-[#B7A7F0] bg-[#B7A7F0]/10 border-[#B7A7F0]/30'
 }
 
-function guessCategory(legacyCategory: string): string {
-  const map: Record<string, string> = {
-    'Очищение': 'Очищение',
-    'Тонер': 'Тонизация',
-    'Тоник': 'Тонизация',
-    'Сыворотка': 'Сыворотки',
-    'Крем': 'Увлажнение',
-    'SPF': 'SPF',
-    'Защита': 'SPF',
-    'Маска': 'Маски',
-  }
-  return map[legacyCategory] || ''
-}
-
 function asList(v: unknown): string[] {
   if (Array.isArray(v)) return v as string[]
   if (typeof v === 'string') {
@@ -68,11 +54,13 @@ function asList(v: unknown): string[] {
 }
 export function ProductModal({
   slug,
+  shelfContext,
   onClose,
   onChanged,
   onOpenReport,
 }: {
   slug: string | null
+  shelfContext?: { cabinet: string; category: string } | null
   onClose: () => void
   onChanged: () => void
   onOpenReport?: (result: CheckResult) => void
@@ -82,9 +70,6 @@ export function ProductModal({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
-  const [showPicker, setShowPicker] = useState(false)
-  const [pickCabinet, setPickCabinet] = useState('face')
-  const [pickCategory, setPickCategory] = useState('')
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
@@ -92,7 +77,6 @@ export function ProductModal({
     if (!slug) return
     setLoading(true)
     setError('')
-    setShowPicker(false)
     fetch(`/api/products/${encodeURIComponent(slug)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
@@ -102,7 +86,6 @@ export function ProductModal({
       })
       .then((d) => {
         setData(d)
-        setPickCategory('')
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Ошибка загрузки'))
       .finally(() => setLoading(false))
@@ -122,20 +105,18 @@ export function ProductModal({
   }
 
   const addToShelf = async () => {
-    if (!product) return
-    const category = pickCategory || guessCategory(data?.product.category || '')
+    if (!product || !shelfContext) return
     setBusy(true)
     try {
       const res = await fetch('/api/shelf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ slug: product.slug, cabinet: pickCabinet, category }),
+        body: JSON.stringify({ slug: product.slug, cabinet: shelfContext.cabinet, category: shelfContext.category }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || 'Не удалось добавить')
       }
-      setShowPicker(false)
       onChanged()
       await refreshDetail()
     } catch (e) {
@@ -214,11 +195,10 @@ export function ProductModal({
     onOpenReport(result)
   }
 
-  const meta = CABINET_META.find((c) => c.key === pickCabinet) || CABINET_META[0]
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="no-scrollbar max-h-[92dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-t-2xl bg-white p-4 sm:rounded-2xl"
+        className="no-scrollbar max-h-[92dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4"
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (
@@ -316,26 +296,6 @@ export function ProductModal({
 
             {error && product && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
 
-            {showPicker && (
-              <div className="mt-3 space-y-2 rounded-xl border border-gray-100 p-3">
-                <div>
-                  <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted-foreground/50">Шкаф</label>
-                  <select value={pickCabinet} onChange={(e) => { setPickCabinet(e.target.value); setPickCategory('') }} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs focus:border-primary/40 focus:outline-none">
-                    {CABINET_META.map((c) => <option key={c.key} value={c.key}>{c.title}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-[10px] uppercase tracking-wide text-muted-foreground/50">Категория</label>
-                  <select value={pickCategory} onChange={(e) => setPickCategory(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-xs focus:border-primary/40 focus:outline-none">
-                    <option value="">Выбрать категорию</option>
-                    {meta.categories.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <button onClick={addToShelf} disabled={busy} className="w-full rounded-lg bg-primary py-2 text-xs text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
-                  {busy ? 'Добавляем…' : 'Подтвердить'}
-                </button>
-              </div>
-            )}
             <div className="mt-4 flex flex-col gap-2">
               <button
                 onClick={checkCompatibility}
@@ -363,10 +323,11 @@ export function ProductModal({
                 </>
               ) : (
                 <button
-                  onClick={() => setShowPicker((v) => !v)}
-                  className="w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90"
+                  onClick={addToShelf}
+                  disabled={busy}
+                  className="w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
                 >
-                  Добавить на полку
+                  {busy ? 'Добавляем…' : 'Добавить на полку'}
                 </button>
               )}
             </div>

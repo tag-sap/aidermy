@@ -196,8 +196,8 @@ export function ShelfAddModal({
   const title = `${CABINET_TITLES[cabinet] || cabinet} → ${category}`
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
-      <div className="max-h-[90dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-t-2xl bg-white p-4 sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {mode !== 'menu' && (

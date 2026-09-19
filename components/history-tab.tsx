@@ -85,8 +85,7 @@ export function HistoryTab({
 
   return (
     <div className="flex flex-col gap-5 max-w-md md:max-w-4xl mx-auto w-full">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-light text-foreground">История проверок</h1>
+      <div className="flex items-center justify-end gap-3">
         {history.length > 0 && (
           <div className="flex items-center gap-2">
             {selectedIds.length > 0 && (
