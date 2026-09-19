@@ -1,15 +1,14 @@
 'use client'
 
-import { Search, History, User, Sparkles, Wand2 } from 'lucide-react'
+import { Search, History, User, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type TabId = 'routine' | 'catalog' | 'history' | 'shelf' | 'profile'
+export type TabId = 'catalog' | 'history' | 'shelf' | 'profile'
 
 const TABS: { id: TabId; label: string; icon: typeof Search }[] = [
-  { id: 'routine', label: 'Подбор', icon: Wand2 },
   { id: 'catalog', label: 'Проверить', icon: Search },
-  { id: 'shelf', label: 'Моя полка', icon: Sparkles },
   { id: 'history', label: 'История', icon: History },
+  { id: 'shelf', label: 'Моя полка', icon: Sparkles },
   { id: 'profile', label: 'Профиль', icon: User },
 ]
 

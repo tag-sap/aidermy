@@ -15,7 +15,6 @@ import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
 import { CatalogTab } from '@/components/catalog-tab'
 import { ShelfTab } from '@/components/shelf-tab'
-import { RoutineBuilderTab } from '@/components/routine-builder-tab'
 import { CheckModal } from '@/components/check-modal'
 
 import {
@@ -49,7 +48,7 @@ const normalizeHistoryItem = (item: any): CheckResult => ({
 })
 
 export default function Page() {
-  const [tab, setTab] = useState<TabId>('routine')
+  const [tab, setTab] = useState<TabId>('catalog')
   const [profile, setProfile] = useState<SkinProfile>(emptyProfile)
   const [history, setHistory] = useState<CheckResult[]>([])
   const [hydrated, setHydrated] = useState(false)
@@ -242,7 +241,7 @@ export default function Page() {
     localStorage.removeItem('userName')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
-    setTab('routine')
+    setTab('catalog')
   }
 
   // ===== ПРОФИЛЬ =====
@@ -388,7 +387,7 @@ export default function Page() {
     setProfile(updatedProfile)
     saveProfile(updatedProfile)
     setShowQuiz(false)
-    setTab('routine')
+    setTab('shelf')
   }
 
   // ===== ПРОВЕРКА =====
@@ -624,15 +623,6 @@ export default function Page() {
               </div>
             ) : (
               <div className="h-full overflow-hidden">
-                {tab === 'routine' && (
-                  <RoutineBuilderTab
-                    profile={profile}
-                    isAuthenticated={isAuthenticated}
-                    onGoToProfile={handleGoToProfile}
-                    onStartQuiz={() => setShowQuiz(true)}
-                    onAuth={() => setIsAuthModalOpen(true)}
-                  />
-                )}
                 {tab === 'catalog' && (
                   <CatalogTab
                     key={hydrated ? 'catalog-ready' : 'catalog-loading'}

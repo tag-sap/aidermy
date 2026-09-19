@@ -58,6 +58,66 @@ async def get_products(q: str = ""):
     return {"products": products}
 
 
+@app.get("/api/products/{slug}")
+async def get_product_detail(slug: str, current_user: dict = Depends(get_current_user_optional)):
+    from .database import get_product_by_slug, get_user_shelf, get_user_check_history
+    from .shelf_service import score_product, resolve_shelf_cabinet, cabinet_applies_scoring
+
+    product = get_product_by_slug(slug)
+    if not product:
+        raise HTTPException(status_code=404, detail="Продукт не найден")
+
+    name = (product.get("name") or "").replace("\n", " ").strip()
+
+    score = None
+    analysis = None
+    on_shelf = None
+
+    if current_user:
+        applicable = True
+        # Определяем шкаф по категории/названию, чтобы понять, применим ли скоринг
+        from .shelf_service import infer_cabinet_category
+        cabinet, _ = infer_cabinet_category(product.get("category"), name)
+        applicable = cabinet_applies_scoring(cabinet)
+
+        if applicable:
+            score, analysis = score_product(current_user, product)
+
+        for s in get_user_shelf(current_user["id"]):
+            if s["product_id"] == product["id"]:
+                c_cabinet, c_category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), name)
+                on_shelf = {
+                    "shelf_id": s["id"],
+                    "cabinet": c_cabinet,
+                    "category": c_category,
+                }
+                break
+
+        if analysis is None:
+            cleaned = name.strip().lower()
+            for h in get_user_check_history(current_user["id"], limit=200):
+                h_name = (h.get("product_name") or "").replace("\n", " ").strip().lower()
+                if h_name == cleaned or h_name in cleaned or cleaned in h_name or (h.get("slug") and h.get("slug") == slug):
+                    analysis = h
+                    break
+
+    return {
+        "product": {
+            "id": product.get("id"),
+            "name": name,
+            "brand": product.get("brand") or "",
+            "slug": product.get("slug") or slug,
+            "image_url": product.get("image_url") or "",
+            "category": product.get("category") or "",
+            "ingredients": product.get("ingredients") or "",
+            "url": product.get("url") or "",
+        },
+        "score": score,
+        "analysis": analysis,
+        "on_shelf": on_shelf,
+    }
+
+
 @app.post("/api/products/import-url")
 async def import_product_from_url(request: ImportUrlRequest):
     try:
@@ -438,9 +498,15 @@ async def get_catalog_sections():
 class ShelfAddRequest(BaseModel):
     slug: str
     category: str = ""
+    cabinet: str = "face"
 
 
 class ShelfUpdateRequest(BaseModel):
+    category: str = ""
+
+
+class ShelfRecommendRequest(BaseModel):
+    cabinet: str = "face"
     category: str = ""
 
 
@@ -543,67 +609,55 @@ def _compute_compatibility(products: list) -> dict:
 
 @app.get("/api/shelf")
 async def get_shelf(current_user: dict = Depends(get_current_user)):
-    from .database import get_user_shelf, get_user_routines, get_product_by_id
+    from .database import get_user_shelf
+    from .shelf_service import build_cabinet_payload
+
     shelf = get_user_shelf(current_user["id"])
-
-    items = []
-    for s in shelf:
-        p = get_product_by_id(s["product_id"])
-        if not p:
-            continue
-        items.append({
-            "id": s["id"],
-            "product_id": s["product_id"],
-            "category": s["category"] or "",
-            "routine_id": s["routine_id"],
-            "added_at": s["added_at"],
-            "name": (p.get("name") or "").replace("\n", " "),
-            "brand": p.get("brand") or "",
-            "image_url": p.get("image_url") or "",
-            "slug": p.get("slug") or "",
-            "ingredients": p.get("ingredients") or "",
-            "score": _checked_score_for_product(current_user["id"], p.get("slug") or "", p.get("name") or ""),
-        })
-
-    routine_items: dict = {}
-    individual = []
-    for item in items:
-        if item["routine_id"]:
-            routine_items.setdefault(item["routine_id"], []).append(item)
-        else:
-            individual.append(item)
-
-    routines = []
-    for r in get_user_routines(current_user["id"]):
-        rid = r["id"]
-        if rid not in routine_items:
-            continue
-        ritems = routine_items[rid]
-        compatibility = _compute_compatibility([
-            {"ingredients": i["ingredients"], "category": i["category"]} for i in ritems
-        ])
-        routines.append({
-            "id": rid,
-            "name": r["name"] or "",
-            "created_at": r["created_at"],
-            "compatibility": compatibility,
-            "items": ritems,
-        })
-
-    return {"routines": routines, "individual": individual, "categories": SHELF_CATEGORIES}
+    cabinets = build_cabinet_payload(current_user, shelf)
+    return {"cabinets": cabinets}
 
 
 @app.post("/api/shelf")
 async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(get_current_user)):
     from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf
+    from .shelf_service import canonical_category, CABINET_BY_KEY
+
     product = get_product_by_slug(request.slug)
     if not product:
         raise HTTPException(status_code=404, detail="Продукт не найден")
+
+    cabinet = (request.cabinet or "face").strip().lower()
+    if cabinet not in CABINET_BY_KEY:
+        cabinet = "face"
+    category = canonical_category(cabinet, request.category)
+
     for s in get_user_shelf(current_user["id"]):
         if s["product_id"] == product["id"]:
             return {"status": "ok", "duplicate": True, "item": {"id": s["id"], "product_id": product["id"]}}
-    item = add_product_to_shelf(current_user["id"], product["id"], request.category)
+    item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet)
     return {"status": "ok", "duplicate": False, "item": item}
+
+
+@app.post("/api/shelf/recommend")
+async def recommend_for_shelf(request: ShelfRecommendRequest, current_user: dict = Depends(get_current_user)):
+    from .database import get_user_shelf
+    from .shelf_service import recommend_products, canonical_category, CABINET_BY_KEY
+
+    cabinet = (request.cabinet or "face").strip().lower()
+    if cabinet not in CABINET_BY_KEY:
+        raise HTTPException(status_code=400, detail="Неизвестный шкаф")
+    category = canonical_category(cabinet, request.category)
+
+    existing = {s["product_id"] for s in get_user_shelf(current_user["id"])}
+    from .database import get_product_by_id
+    exclude_slugs = set()
+    for pid in existing:
+        p = get_product_by_id(pid)
+        if p and p.get("slug"):
+            exclude_slugs.add(p["slug"])
+
+    recommendations = recommend_products(current_user, cabinet, category, exclude_slugs)
+    return {"cabinet": cabinet, "category": category, "recommendations": recommendations}
 
 
 @app.patch("/api/shelf/{shelf_id}")
