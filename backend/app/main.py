@@ -375,6 +375,62 @@ async def get_categories():
     return {"categories": list(CATEGORY_KEYWORDS), "brands": sorted(brands)}
 
 
+CATALOG_SECTIONS = [
+    {"key": "popular", "title": "Популярное", "type": "popular"},
+    {"key": "skincare", "title": "Уход за кожей", "type": "categories", "categories": ["Очищение", "Тонер", "Сыворотка", "Крем"]},
+    {"key": "acne", "title": "Против акне", "type": "keywords", "keywords": ["acne", "blemish", "azelaic", "salicylic", "pimple", "purifying", "clearing"]},
+    {"key": "hydration", "title": "Увлажнение", "type": "keywords", "keywords": ["hydra", "moistur", "hyaluronic", "ceramide"]},
+    {"key": "antiage", "title": "Антивозраст", "type": "keywords", "keywords": ["retinol", "anti-age", "wrinkle", "peptide", "collagen"]},
+    {"key": "sun", "title": "Защита от солнца", "type": "categories", "categories": ["Защита"]},
+    {"key": "cleansing", "title": "Очищение", "type": "categories", "categories": ["Очищение"]},
+]
+
+
+@app.get("/api/catalog/sections")
+async def get_catalog_sections():
+    """Секции каталога: горизонтальные подборки по категориям/темам."""
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+
+    def fetch(section):
+        base = "SELECT name, slug, image_url, category, brand, ingredients FROM products WHERE image_url IS NOT NULL AND image_url != ''"
+        if section["type"] == "popular":
+            cursor.execute(base + " ORDER BY id DESC LIMIT 10")
+        elif section["type"] == "categories":
+            cats = section["categories"]
+            ph = ",".join(["?"] * len(cats))
+            cursor.execute(base + f" AND category IN ({ph}) ORDER BY id DESC LIMIT 10", cats)
+        else:
+            kws = section["keywords"]
+            conds = " OR ".join(["LOWER(name) LIKE ? OR LOWER(ingredients) LIKE ?"] * len(kws))
+            params = []
+            for kw in kws:
+                params.append(f"%{kw}%")
+                params.append(f"%{kw}%")
+            cursor.execute(base + f" AND ({conds}) ORDER BY id DESC LIMIT 10", params)
+        return [dict(row) for row in cursor.fetchall()]
+
+    sections = []
+    for section in CATALOG_SECTIONS:
+        products = fetch(section)
+        cleaned = []
+        for p in products:
+            parts = [x.strip() for x in (p.get("name") or "").split("\n") if x.strip()]
+            brand = parts[0] if len(parts) >= 2 else (p.get("brand") or "")
+            title = " ".join(parts[1:]) if len(parts) >= 2 else (parts[0] if parts else (p.get("name") or ""))
+            cleaned.append({
+                "name": title,
+                "brand": brand,
+                "slug": p.get("slug") or "",
+                "image_url": p.get("image_url") or "",
+                "category": p.get("category") or "",
+            })
+        sections.append({"key": section["key"], "title": section["title"], "products": cleaned})
+
+    conn.close()
+    return {"sections": sections}
+
+
 # ============================================================
 # МОЯ ПОЛКА (SHELF)
 # ============================================================

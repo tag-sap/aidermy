@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { AlertTriangle, X } from 'lucide-react'
+import { AlertTriangle, X, ScanSearch } from 'lucide-react'
 import { CyberGrid } from '@/components/cyber-grid'
 import { AppHeader } from '@/components/app-header'
 import { AuthModal } from '@/components/auth-modal'
@@ -16,6 +16,7 @@ import { BrandMarquee } from '@/components/brand-marquee'
 import { CatalogTab } from '@/components/catalog-tab'
 import { ShelfTab } from '@/components/shelf-tab'
 import { RoutineBuilderTab } from '@/components/routine-builder-tab'
+import { CheckModal } from '@/components/check-modal'
 
 import {
   emptyProfile,
@@ -69,6 +70,7 @@ export default function Page() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
   const [showInfo, setShowInfo] = useState(false)
+  const [checkModalOpen, setCheckModalOpen] = useState(false)
 
   // ===== ЗАГРУЗКА С СЕРВЕРА =====
   const loadProfileFromServer = async (token: string) => {
@@ -597,6 +599,14 @@ export default function Page() {
             />
           </div>
 
+          <button
+            onClick={() => setCheckModalOpen(true)}
+            className="fixed right-4 top-16 z-30 flex items-center gap-1.5 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary/30 transition-transform hover:scale-105 active:scale-95"
+          >
+            <ScanSearch className="size-4" />
+            Проверить
+          </button>
+
           <main className="relative z-10 flex-1 min-h-0 overflow-hidden pb-22">
           <div className="h-full w-full max-w-md md:max-w-6xl mx-auto px-4 overflow-hidden">
             {showQuiz ? (
@@ -626,11 +636,7 @@ export default function Page() {
                 {tab === 'catalog' && (
                   <CatalogTab
                     key={hydrated ? 'catalog-ready' : 'catalog-loading'}
-                    profile={profile}
-                    onCheck={handleCheck}
-                    onGoToProfile={handleGoToProfile}
-                    onStartQuiz={() => setShowQuiz(true)}
-                    onInfoClick={() => setShowInfo(true)}
+                    onCheck={(product) => handleCheck(product, profile.skinType || 'Нормальная')}
                   />
                 )}
                 {tab === 'history' && (
@@ -674,6 +680,12 @@ export default function Page() {
               isAuthenticated={isAuthenticated}
             />
           </div>
+
+          <CheckModal
+            isOpen={checkModalOpen}
+            onClose={() => setCheckModalOpen(false)}
+            onCheck={(product, skinType) => handleCheck(product, profile.skinType || skinType)}
+          />
 
           <ResultSheet
             isOpen={isSheetOpen}
