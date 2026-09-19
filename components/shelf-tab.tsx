@@ -1,14 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, X, Trash2, Sparkles, Search } from 'lucide-react'
+import { Plus, X, Trash2, Sparkles, Search, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type ShelfItem = {
   id: number
   product_id: number
   category: string
-  notes?: string
   name: string
   brand: string
   image_url: string
@@ -17,10 +16,25 @@ export type ShelfItem = {
   score: number | null
 }
 
+type ShelfRoutine = {
+  id: number
+  name: string
+  created_at: string
+  compatibility: {
+    overall_score: number
+    conflicts: { a: string[]; b: string[] }[]
+    duplicate_actives: { ingredient: string; count: number }[]
+    repeated_ingredients: { ingredient: string; count: number }[]
+    coverage: { present: string[]; missing: string[] }
+  }
+  items: ShelfItem[]
+}
+
 const CATEGORIES = ['Очищение', 'Тонер', 'Сыворотка', 'Крем', 'SPF', 'Маска']
 
 export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
-  const [items, setItems] = useState<ShelfItem[]>([])
+  const [routines, setRoutines] = useState<ShelfRoutine[]>([])
+  const [individual, setIndividual] = useState<ShelfItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [query, setQuery] = useState('')
@@ -29,8 +43,8 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
   const [selected, setSelected] = useState<any | null>(null)
   const [category, setCategory] = useState('')
   const [feedback, setFeedback] = useState('')
-  const [analysis, setAnalysis] = useState<any | null>(null)
-  const [analyzing, setAnalyzing] = useState(false)
+  const [openRoutine, setOpenRoutine] = useState<number | null>(null)
+  const [showAnalysis, setShowAnalysis] = useState<number | null>(null)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
@@ -40,7 +54,8 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
       const res = await fetch('/api/shelf', { headers: { Authorization: `Bearer ${token}` } })
       if (res.ok) {
         const data = await res.json()
-        setItems(data.items || [])
+        setRoutines(data.routines || [])
+        setIndividual(data.individual || [])
       }
     } catch (e) {
       console.error(e)
@@ -103,29 +118,20 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
   }
 
   const removeItem = async (id: number) => {
-    setItems((prev) => prev.filter((i) => i.id !== id))
+    setRoutines((prev) => prev.map((r) => ({ ...r, items: r.items.filter((i) => i.id !== id) })))
+    setIndividual((prev) => prev.filter((i) => i.id !== id))
     await fetch(`/api/shelf/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    loadShelf()
   }
 
   const changeCategory = async (id: number, cat: string) => {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, category: cat } : i)))
+    setRoutines((prev) => prev.map((r) => ({ ...r, items: r.items.map((i) => (i.id === id ? { ...i, category: cat } : i)) })))
+    setIndividual((prev) => prev.map((i) => (i.id === id ? { ...i, category: cat } : i)))
     await fetch(`/api/shelf/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ category: cat }),
     })
-  }
-
-  const runAnalysis = async () => {
-    setAnalyzing(true)
-    try {
-      const res = await fetch('/api/shelf/analysis', { headers: { Authorization: `Bearer ${token}` } })
-      if (res.ok) setAnalysis(await res.json())
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setAnalyzing(false)
-    }
   }
 
   return (
@@ -148,7 +154,7 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
 
         {loading ? (
           <div className="py-10 text-center text-sm text-muted-foreground/50">Загрузка…</div>
-        ) : items.length === 0 ? (
+        ) : routines.length === 0 && individual.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <div className="mb-3 flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
               <Sparkles className="size-6" strokeWidth={1.5} />
@@ -157,66 +163,104 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
             <button onClick={openAdd} className="mt-3 text-xs text-primary hover:underline">Добавить первый продукт</button>
           </div>
         ) : (
-          <>
-            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-4">
-              {items.map((item) => (
-                <div key={item.id} className="group relative rounded-2xl border border-white/40 bg-white/40 p-3 backdrop-blur-sm transition-all hover:border-primary/20 hover:bg-white/60">
-                  <button onClick={() => removeItem(item.id)} className="absolute right-2 top-2 z-10 rounded-full bg-white/80 p-1 text-muted-foreground/60 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100">
-                    <Trash2 className="size-3" />
-                  </button>
-                  <button onClick={() => onCheck(item.name)} className="block w-full cursor-pointer text-left">
-                    <div className="mb-2 flex aspect-square items-center justify-center overflow-hidden rounded-xl bg-white/60">
-                      {item.image_url ? <img src={item.image_url} alt={item.name} className="h-full w-full object-contain p-2" /> : <Sparkles className="size-6 text-muted-foreground/30" />}
+          <div className="space-y-5">
+            {routines.length > 0 && (
+              <div className="space-y-2.5">
+                {routines.map((r) => {
+                  const open = openRoutine === r.id
+                  const showA = showAnalysis === r.id
+                  return (
+                    <div key={r.id} className="rounded-2xl border border-white/40 bg-white/40 backdrop-blur-sm">
+                      <button onClick={() => setOpenRoutine(open ? null : r.id)} className="flex w-full items-center gap-3 p-3 text-left">
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                          <Sparkles className="size-5" strokeWidth={1.5} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground/90">{r.name}</p>
+                          <p className="text-[10px] text-muted-foreground/50">{r.items.length} продукт(ов)</p>
+                        </div>
+                        <span className="shrink-0 text-xl font-light text-primary">{r.compatibility.overall_score}%</span>
+                        <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-180')} />
+                      </button>
+                      {open && (
+                        <div className="border-t border-gray-100 px-3 pb-3">
+                          <div className="mt-2 space-y-1.5">
+                            {r.items.map((item) => (
+                              <div key={item.id} className="flex items-center gap-2 rounded-xl border border-white/40 bg-white/50 p-2">
+                                <button onClick={() => onCheck(item.name)} className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/70">
+                                  {item.image_url ? <img src={item.image_url} alt="" className="h-full w-full object-contain p-1" /> : <Sparkles className="size-3.5 text-muted-foreground/30" />}
+                                </button>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-[11px] font-medium text-foreground/80">{item.name}</p>
+                                  <p className="truncate text-[9px] text-muted-foreground/50">{item.brand}</p>
+                                </div>
+                                <select value={item.category} onChange={(e) => changeCategory(item.id, e.target.value)} className="max-w-[90px] rounded-lg border border-white/30 bg-white/40 px-1 py-0.5 text-[9px] text-foreground/60 focus:outline-none">
+                                  <option value="">Категория…</option>
+                                  {CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+                                </select>
+                                <button onClick={() => removeItem(item.id)} className="shrink-0 text-muted-foreground/50 hover:text-red-500">
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <button onClick={() => setShowAnalysis(showA ? null : r.id)} className="mt-2 w-full rounded-xl border border-primary/20 bg-primary/5 py-2 text-[11px] text-primary transition-colors hover:bg-primary/10">
+                            {showA ? 'Скрыть анализ' : 'Анализ подбора'}
+                          </button>
+                          {showA && (
+                            <div className="mt-2 space-y-1.5 rounded-xl bg-white/40 p-2.5 text-[10px]">
+                              {r.compatibility.conflicts?.length > 0 && (
+                                <p className="text-red-500/80">⚠ Конфликты: {r.compatibility.conflicts.map((c) => `${c.a.join('/')} + ${c.b.join('/')}`).join('; ')}</p>
+                              )}
+                              {r.compatibility.duplicate_actives?.length > 0 && (
+                                <p className="text-amber-600/80">Дублируются активы: {r.compatibility.duplicate_actives.map((d) => d.ingredient).join(', ')}</p>
+                              )}
+                              {r.compatibility.repeated_ingredients?.length > 0 && (
+                                <p className="text-muted-foreground/60">Повторяются ингредиенты: {r.compatibility.repeated_ingredients.slice(0, 5).map((d) => d.ingredient).join(', ')}</p>
+                              )}
+                              {(r.compatibility.coverage?.missing || []).length > 0 && (
+                                <p className="text-muted-foreground/60">Не хватает шагов: {r.compatibility.coverage.missing.join(', ')}</p>
+                              )}
+                              {r.compatibility.conflicts?.length === 0 && r.compatibility.duplicate_actives?.length === 0 && (
+                                <p className="text-emerald-600/70">Состав сочетается хорошо</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <p className="line-clamp-2 text-[11px] font-medium leading-snug text-foreground/80">{item.name}</p>
-                    <p className="mt-0.5 text-[9px] text-muted-foreground/50">{item.brand}</p>
-                    {item.notes && <span className="mt-1 inline-block max-w-full truncate rounded-full bg-primary/10 px-2 py-0.5 text-[9px] text-primary">{item.notes}</span>}
-                    {item.score != null && item.score > 0 && <span className="mt-1.5 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[9px] text-primary">Проверено: {item.score}%</span>}
-                  </button>
-                  <select value={item.category} onChange={(e) => changeCategory(item.id, e.target.value)} className="mt-2 w-full rounded-lg border border-white/30 bg-white/40 px-1.5 py-1 text-[9px] text-foreground/60 focus:outline-none">
-                    <option value="">Категория…</option>
-                    {CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
-                  </select>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-primary/15 bg-white/30 p-4 backdrop-blur-sm">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-normal text-foreground">Анализ моей полки</h2>
-                <button onClick={runAnalysis} disabled={analyzing} className="rounded-full bg-primary/10 px-3 py-1 text-[10px] text-primary transition-colors hover:bg-primary/20 disabled:opacity-50">
-                  {analyzing ? 'Анализируем…' : 'Анализировать'}
-                </button>
+                  )
+                })}
               </div>
-              {analysis && (
-                <div className="mt-3 space-y-3">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-light text-primary">{analysis.overall_score}%</span>
-                    <span className="text-[10px] text-muted-foreground/60">комплексная совместимость ухода</span>
-                  </div>
-                  {analysis.coverage && (
-                    <div className="flex flex-wrap gap-1">
-                      {(analysis.coverage.present || []).map((c: string) => (
-                        <span key={c} className="rounded-full bg-primary/10 px-2 py-0.5 text-[9px] text-primary">{c}</span>
-                      ))}
-                      {(analysis.coverage.missing || []).map((c: string) => (
-                        <span key={c} className="rounded-full bg-gray-100 px-2 py-0.5 text-[9px] text-muted-foreground/50 line-through">нет {c}</span>
-                      ))}
+            )}
+
+            {individual.length > 0 && (
+              <div>
+                <h2 className="mb-2 text-[11px] font-medium text-muted-foreground/60">Отдельные продукты</h2>
+                <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-4">
+                  {individual.map((item) => (
+                    <div key={item.id} className="group relative rounded-2xl border border-white/40 bg-white/40 p-3 backdrop-blur-sm transition-all hover:border-primary/20 hover:bg-white/60">
+                      <button onClick={() => removeItem(item.id)} className="absolute right-2 top-2 z-10 rounded-full bg-white/80 p-1 text-muted-foreground/60 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100">
+                        <Trash2 className="size-3" />
+                      </button>
+                      <button onClick={() => onCheck(item.name)} className="block w-full cursor-pointer text-left">
+                        <div className="mb-2 flex aspect-square items-center justify-center overflow-hidden rounded-xl bg-white/60">
+                          {item.image_url ? <img src={item.image_url} alt={item.name} className="h-full w-full object-contain p-2" /> : <Sparkles className="size-6 text-muted-foreground/30" />}
+                        </div>
+                        <p className="line-clamp-2 text-[11px] font-medium leading-snug text-foreground/80">{item.name}</p>
+                        <p className="mt-0.5 text-[9px] text-muted-foreground/50">{item.brand}</p>
+                        {item.score != null && item.score > 0 && <span className="mt-1.5 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[9px] text-primary">Проверено: {item.score}%</span>}
+                      </button>
+                      <select value={item.category} onChange={(e) => changeCategory(item.id, e.target.value)} className="mt-2 w-full rounded-lg border border-white/30 bg-white/40 px-1.5 py-1 text-[9px] text-foreground/60 focus:outline-none">
+                        <option value="">Категория…</option>
+                        {CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+                      </select>
                     </div>
-                  )}
-                  {analysis.conflicts?.length > 0 && (
-                    <p className="text-[10px] text-red-500/80">⚠ Возможные конфликты: {analysis.conflicts.map((c: any) => `${c.a.join('/')} + ${c.b.join('/')}`).join('; ')}</p>
-                  )}
-                  {analysis.duplicate_actives?.length > 0 && (
-                    <p className="text-[10px] text-amber-600/80">Дублируются активы: {analysis.duplicate_actives.slice(0, 5).map((d: any) => d.ingredient).join(', ')}</p>
-                  )}
-                  {analysis.repeated_ingredients?.length > 0 && (
-                    <p className="text-[10px] text-muted-foreground/60">Повторяются ингредиенты: {analysis.repeated_ingredients.slice(0, 5).map((d: any) => d.ingredient).join(', ')}</p>
-                  )}
+                  ))}
                 </div>
-              )}
-            </div>
-          </>
+              </div>
+            )}
+          </div>
         )}
         <div className="h-24" />
       </div>

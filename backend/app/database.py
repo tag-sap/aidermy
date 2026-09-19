@@ -93,6 +93,32 @@ def init_db():
         )
     ''')
     
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS routines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            name TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    cursor.execute("PRAGMA table_info(shelf_products)")
+    shelf_columns = [col[1] for col in cursor.fetchall()]
+    if 'routine_id' not in shelf_columns:
+        cursor.execute('ALTER TABLE shelf_products ADD COLUMN routine_id INTEGER')
+    
+    # Миграция: сгруппировать ранее добавленные продукты (с notes) в подборы
+    cursor.execute("SELECT DISTINCT user_id, notes FROM shelf_products WHERE notes IS NOT NULL AND notes != '' AND routine_id IS NULL")
+    for row in cursor.fetchall():
+        cursor.execute("SELECT id FROM routines WHERE user_id = ? AND name = ?", (row['user_id'], row['notes']))
+        existing = cursor.fetchone()
+        if existing:
+            routine_id = existing['id']
+        else:
+            cursor.execute("INSERT INTO routines (user_id, name) VALUES (?, ?)", (row['user_id'], row['notes']))
+            routine_id = cursor.lastrowid
+        cursor.execute("UPDATE shelf_products SET routine_id = ? WHERE user_id = ? AND notes = ? AND routine_id IS NULL", (routine_id, row['user_id'], row['notes']))
+    
     cursor.execute("PRAGMA table_info(check_history)")
     columns = [col[1] for col in cursor.fetchall()]
     if 'ingredients' not in columns:
@@ -435,18 +461,37 @@ def get_product_by_id(product_id: int):
     conn.close()
     return dict(row) if row else None
 
-def add_product_to_shelf(user_id: int, product_id: int, category: str = "", notes: str = ""):
+def add_product_to_shelf(user_id: int, product_id: int, category: str = "", notes: str = "", routine_id: int = None):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR IGNORE INTO shelf_products (user_id, product_id, category, notes)
-        VALUES (?, ?, ?, ?)
-    ''', (user_id, product_id, category, notes))
+        INSERT OR IGNORE INTO shelf_products (user_id, product_id, category, notes, routine_id)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (user_id, product_id, category, notes, routine_id))
     conn.commit()
     cursor.execute("SELECT * FROM shelf_products WHERE user_id = ? AND product_id = ?", (user_id, product_id))
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def create_routine(user_id: int, name: str = "") -> int:
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO routines (user_id, name) VALUES (?, ?)", (user_id, name))
+    conn.commit()
+    routine_id = cursor.lastrowid
+    conn.close()
+    return routine_id
+
+
+def get_user_routines(user_id: int):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM routines WHERE user_id = ? ORDER BY created_at DESC, id DESC", (user_id,))
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return rows
 
 def get_user_shelf(user_id: int):
     conn = get_connection(AIDERMY_DB)

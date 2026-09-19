@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Wand2, Sparkles, ArrowRight, LoaderCircle, CheckCircle2, ListChecks, User, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isProfileComplete, type SkinProfile } from '@/lib/store'
@@ -56,6 +56,7 @@ export function RoutineBuilderTab({
     const [saving, setSaving] = useState(false)
     const [savedMsg, setSavedMsg] = useState('')
     const [selected, setSelected] = useState<Record<string, string>>({})
+    const [compat, setCompat] = useState<any | null>(null)
 
     const profileReady = isProfileComplete(profile)
 
@@ -148,6 +149,22 @@ export function RoutineBuilderTab({
         setSelected((prev) => ({ ...prev, [step]: slug }))
     }
 
+    useEffect(() => {
+        if (!routine) return
+        const slugs = routine.steps.map((s) => selected[s.step]).filter(Boolean) as string[]
+        if (slugs.length === 0) return
+        let cancelled = false
+        fetch('/api/routine/compatibility', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slugs }),
+        })
+            .then((r) => r.json())
+            .then((d) => { if (!cancelled) setCompat(d) })
+            .catch(() => {})
+        return () => { cancelled = true }
+    }, [selected, routine])
+
     return (
         <div className="no-scrollbar h-full overflow-y-auto py-4">
             <div className="mb-4">
@@ -226,6 +243,23 @@ export function RoutineBuilderTab({
 
             {routine && (
                 <div className="mt-4">
+                    {compat && (
+                        <div className="sticky top-0 z-10 mb-3 rounded-2xl border border-primary/20 bg-white/85 px-4 py-3 shadow-sm backdrop-blur-md">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-[10px] text-muted-foreground/60">Совместимость набора</p>
+                                    <span className="text-2xl font-light text-primary">{compat.overall_score}%</span>
+                                </div>
+                                {compat.conflicts?.length > 0 ? (
+                                    <p className="max-w-[55%] text-right text-[9px] leading-tight text-red-500/80">
+                                        Конфликт: {compat.conflicts.map((c: any) => `${c.a.join('/')} + ${c.b.join('/')}`).join('; ')}
+                                    </p>
+                                ) : (
+                                    <p className="text-[9px] text-emerald-600/70">Состав сочетается хорошо</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
                     <div className="rounded-2xl border border-primary/20 bg-white/50 p-4 backdrop-blur-sm">
                         <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">

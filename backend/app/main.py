@@ -416,10 +416,80 @@ def _checked_score_for_product(user_id: int, slug: str, name: str):
     return None
 
 
+def _compute_compatibility(products: list) -> dict:
+    """Комплексная оценка набора продуктов по движку (без ИИ)."""
+    from .ingredient_normalizer import canonicalize_ingredient_name
+
+    def parse_ingredients(raw: str) -> set:
+        out = set()
+        for part in re.split(r'[,;\n]+', raw or ''):
+            c = canonicalize_ingredient_name(part)
+            if c:
+                out.add(c)
+        return out
+
+    ingredient_sets = [parse_ingredients(p.get("ingredients") or "") for p in products]
+    all_ing = set().union(*ingredient_sets) if ingredient_sets else set()
+
+    counts: dict = {}
+    for s in ingredient_sets:
+        for ing in s:
+            counts[ing] = counts.get(ing, 0) + 1
+    repeated_ingredients = sorted(
+        [{"ingredient": k, "count": v} for k, v in counts.items() if v > 1],
+        key=lambda x: -x["count"],
+    )[:15]
+
+    common_actives = {
+        "niacinamide", "hyaluronic acid", "sodium hyaluronate", "salicylic acid",
+        "glycolic acid", "lactic acid", "retinol", "retinal", "retinyl", "bakuchiol",
+        "vitamin c", "ascorbic acid", "azelaic acid", "ceramide", "panthenol",
+        "centella", "madecassoside", "peptide", "collagen", "adenosine",
+        "tranexamic acid", "arbutin", "alpha arbutin", "kojic acid", "zinc", "tea tree",
+    }
+    active_counts: dict = {}
+    for act in common_actives:
+        for s in ingredient_sets:
+            if act in s:
+                active_counts[act] = active_counts.get(act, 0) + 1
+    duplicate_actives = sorted(
+        [{"ingredient": k, "count": v} for k, v in active_counts.items() if v > 1],
+        key=lambda x: -x["count"],
+    )[:15]
+
+    conflict_rules = [
+        ({"retinol", "retinal", "tretinoin", "retinyl", "adapalene"}, {"glycolic acid", "salicylic acid", "lactic acid", "mandelic acid", "aha", "bha"}),
+        ({"niacinamide"}, {"ascorbic acid", "vitamin c", "ascorbyl"}),
+        ({"retinol", "retinal", "retinyl"}, {"benzoyl peroxide"}),
+    ]
+    conflicts = []
+    for a_set, b_set in conflict_rules:
+        a = all_ing & a_set
+        b = all_ing & b_set
+        if a and b:
+            conflicts.append({"a": sorted(a), "b": sorted(b)})
+
+    core_steps = ["Очищение", "Тонер", "Сыворотка", "Крем", "SPF"]
+    present = sorted({p.get("category") for p in products if p.get("category")})
+    missing = [c for c in core_steps if c not in present]
+
+    penalty = min(60, 20 * len(conflicts)) + min(25, 5 * len(duplicate_actives))
+    overall_score = max(0, 100 - penalty)
+
+    return {
+        "overall_score": overall_score,
+        "conflicts": conflicts,
+        "duplicate_actives": duplicate_actives,
+        "repeated_ingredients": repeated_ingredients,
+        "coverage": {"present": present, "missing": missing},
+    }
+
+
 @app.get("/api/shelf")
 async def get_shelf(current_user: dict = Depends(get_current_user)):
-    from .database import get_user_shelf, get_product_by_id
+    from .database import get_user_shelf, get_user_routines, get_product_by_id
     shelf = get_user_shelf(current_user["id"])
+
     items = []
     for s in shelf:
         p = get_product_by_id(s["product_id"])
@@ -429,7 +499,7 @@ async def get_shelf(current_user: dict = Depends(get_current_user)):
             "id": s["id"],
             "product_id": s["product_id"],
             "category": s["category"] or "",
-            "notes": s["notes"] or "",
+            "routine_id": s["routine_id"],
             "added_at": s["added_at"],
             "name": (p.get("name") or "").replace("\n", " "),
             "brand": p.get("brand") or "",
@@ -438,7 +508,33 @@ async def get_shelf(current_user: dict = Depends(get_current_user)):
             "ingredients": p.get("ingredients") or "",
             "score": _checked_score_for_product(current_user["id"], p.get("slug") or "", p.get("name") or ""),
         })
-    return {"items": items, "categories": SHELF_CATEGORIES}
+
+    routine_items: dict = {}
+    individual = []
+    for item in items:
+        if item["routine_id"]:
+            routine_items.setdefault(item["routine_id"], []).append(item)
+        else:
+            individual.append(item)
+
+    routines = []
+    for r in get_user_routines(current_user["id"]):
+        rid = r["id"]
+        if rid not in routine_items:
+            continue
+        ritems = routine_items[rid]
+        compatibility = _compute_compatibility([
+            {"ingredients": i["ingredients"], "category": i["category"]} for i in ritems
+        ])
+        routines.append({
+            "id": rid,
+            "name": r["name"] or "",
+            "created_at": r["created_at"],
+            "compatibility": compatibility,
+            "items": ritems,
+        })
+
+    return {"routines": routines, "individual": individual, "categories": SHELF_CATEGORIES}
 
 
 @app.post("/api/shelf")
@@ -470,102 +566,6 @@ async def delete_shelf_product(shelf_id: int, current_user: dict = Depends(get_c
     return {"status": "ok", "deleted": deleted}
 
 
-@app.get("/api/shelf/analysis")
-async def analyze_shelf(current_user: dict = Depends(get_current_user)):
-    from .database import get_user_shelf, get_product_by_id
-    from .ingredient_normalizer import canonicalize_ingredient_name
-
-    shelf = get_user_shelf(current_user["id"])
-    products = []
-    for s in shelf:
-        p = get_product_by_id(s["product_id"])
-        if p and p.get("ingredients"):
-            products.append({
-                "name": (p.get("name") or "").replace("\n", " "),
-                "category": s.get("category") or "",
-                "ingredients": p.get("ingredients") or "",
-            })
-    if not products:
-        return {
-            "overall_score": 0,
-            "total_products": 0,
-            "coverage": {"present": [], "missing": []},
-            "repeated_ingredients": [],
-            "duplicate_actives": [],
-            "conflicts": [],
-        }
-
-    def parse_ingredients(raw: str) -> set:
-        out = set()
-        for part in re.split(r'[,;\n]+', raw or ''):
-            c = canonicalize_ingredient_name(part)
-            if c:
-                out.add(c)
-        return out
-
-    ingredient_sets = [parse_ingredients(p["ingredients"]) for p in products]
-    all_ing = set().union(*ingredient_sets) if ingredient_sets else set()
-
-    # Повторяющиеся ингредиенты (один и тот же компонент в нескольких продуктах)
-    counts: dict = {}
-    for s in ingredient_sets:
-        for ing in s:
-            counts[ing] = counts.get(ing, 0) + 1
-    repeated_ingredients = sorted(
-        [{"ingredient": k, "count": v} for k, v in counts.items() if v > 1],
-        key=lambda x: -x["count"],
-    )[:15]
-
-    # Дублирующиеся активы (перебор одного и того же актива в разных продуктах)
-    common_actives = {
-        "niacinamide", "hyaluronic acid", "sodium hyaluronate", "salicylic acid",
-        "glycolic acid", "lactic acid", "retinol", "retinal", "retinyl", "bakuchiol",
-        "vitamin c", "ascorbic acid", "azelaic acid", "ceramide", "panthenol",
-        "centella", "madecassoside", "peptide", "collagen", "adenosine",
-        "tranexamic acid", "arbutin", "alpha arbutin", "kojic acid", "zinc", "tea tree",
-    }
-    active_counts: dict = {}
-    for act in common_actives:
-        for s in ingredient_sets:
-            if act in s:
-                active_counts[act] = active_counts.get(act, 0) + 1
-    duplicate_actives = sorted(
-        [{"ingredient": k, "count": v} for k, v in active_counts.items() if v > 1],
-        key=lambda x: -x["count"],
-    )[:15]
-
-    # Конфликты компонентов
-    conflict_rules = [
-        ({"retinol", "retinal", "tretinoin", "retinyl", "adapalene"}, {"glycolic acid", "salicylic acid", "lactic acid", "mandelic acid", "aha", "bha"}),
-        ({"niacinamide"}, {"ascorbic acid", "vitamin c", "ascorbyl"}),
-        ({"retinol", "retinal", "retinyl"}, {"benzoyl peroxide"}),
-    ]
-    conflicts = []
-    for a_set, b_set in conflict_rules:
-        a = all_ing & a_set
-        b = all_ing & b_set
-        if a and b:
-            conflicts.append({"a": sorted(a), "b": sorted(b)})
-
-    # Покрытие шагов ухода
-    core_steps = ["Очищение", "Тонер", "Сыворотка", "Крем", "SPF"]
-    present = sorted({p["category"] for p in products if p["category"]})
-    missing = [c for c in core_steps if c not in present]
-
-    # Комплексная оценка: штрафы за конфликты и дубли активов
-    penalty = min(60, 20 * len(conflicts)) + min(25, 5 * len(duplicate_actives))
-    overall_score = max(0, 100 - penalty)
-
-    return {
-        "overall_score": overall_score,
-        "total_products": len(products),
-        "coverage": {"present": present, "missing": missing},
-        "repeated_ingredients": repeated_ingredients,
-        "duplicate_actives": duplicate_actives,
-        "conflicts": conflicts,
-    }
-
-
 # ============================================================
 # ПОДБОР УХОДА (ROUTINE BUILDER)
 # ============================================================
@@ -578,6 +578,10 @@ class RoutineBuildRequest(BaseModel):
 class RoutineToShelfRequest(BaseModel):
     name: str = ""
     items: List[dict] = []
+
+
+class RoutineCompatibilityRequest(BaseModel):
+    slugs: List[str] = []
 
 
 @app.post("/api/routine/build")
@@ -599,14 +603,28 @@ async def build_routine_endpoint(
     return routine
 
 
+@app.post("/api/routine/compatibility")
+async def routine_compatibility(request: RoutineCompatibilityRequest):
+    from .database import get_product_by_slug
+    products = []
+    for slug in request.slugs:
+        p = get_product_by_slug(slug)
+        if p and p.get("ingredients"):
+            products.append({"ingredients": p.get("ingredients") or "", "category": p.get("category") or ""})
+    if not products:
+        return {"overall_score": 0, "conflicts": [], "duplicate_actives": [], "repeated_ingredients": [], "coverage": {"present": [], "missing": []}}
+    return _compute_compatibility(products)
+
+
 @app.post("/api/routine/to-shelf")
 async def routine_to_shelf(
     request: RoutineToShelfRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf
+    from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf, create_routine
 
     existing = {s["product_id"] for s in get_user_shelf(current_user["id"])}
+    routine_id = create_routine(current_user["id"], request.name)
     added = 0
     skipped = 0
     for item in request.items:
@@ -620,7 +638,7 @@ async def routine_to_shelf(
         if product["id"] in existing:
             skipped += 1
             continue
-        add_product_to_shelf(current_user["id"], product["id"], category, request.name)
+        add_product_to_shelf(current_user["id"], product["id"], category, request.name, routine_id)
         existing.add(product["id"])
         added += 1
-    return {"status": "ok", "added": added, "skipped": skipped}
+    return {"status": "ok", "added": added, "skipped": skipped, "routine_id": routine_id}
