@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, memo } from 'react'
-import { Search, X, Sparkles, ArrowRight, Compass, Zap } from 'lucide-react'
+import { Search, X, Sparkles, ArrowRight, Compass, Zap, Link, LoaderCircle, CheckCircle2, ArrowUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SKIN_TYPES } from '@/lib/products'
 import type { SkinProfile } from '@/lib/store'
@@ -31,6 +31,7 @@ const CatalogTabComponent = ({
     const [products, setProducts] = useState<Product[]>([])
     const [total, setTotal] = useState(0)
     const [loading, setLoading] = useState(true)
+    const [loadingMore, setLoadingMore] = useState(false)
     const [search, setSearch] = useState('')
     const [category, setCategory] = useState('')
     const [brand, setBrand] = useState('')
@@ -39,79 +40,50 @@ const CatalogTabComponent = ({
     const [categories, setCategories] = useState<string[]>([])
     const [brands, setBrands] = useState<string[]>([])
     const [showFilters, setShowFilters] = useState(false)
+    const [showScrollTop, setShowScrollTop] = useState(false)
     const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
     const [isFocused, setIsFocused] = useState(false)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
-    const [isVisible, setIsVisible] = useState(false)
+    const [importUrl, setImportUrl] = useState('')
+    const [importing, setImporting] = useState(false)
+    const [importStatus, setImportStatus] = useState('')
+    const [importedProduct, setImportedProduct] = useState<Product | null>(null)
 
     const isMounted = useRef(false)
     const abortControllerRef = useRef<AbortController | null>(null)
-    const animationTimerRef = useRef<NodeJS.Timeout | null>(null)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
 
-    const limit = 6
-
-    useEffect(() => {
-        if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollTop = 0
-        }
-    }, [offset])
-
-    useEffect(() => {
-        if (animationTimerRef.current) {
-            clearTimeout(animationTimerRef.current)
-            animationTimerRef.current = null
-        }
-
-        if (!loading && products.length > 0 && isMounted.current) {
-            setIsVisible(false)
-            animationTimerRef.current = setTimeout(() => {
-                if (isMounted.current) {
-                    setIsVisible(true)
-                }
-            }, 50)
-        }
-        return () => {
-            if (animationTimerRef.current) {
-                clearTimeout(animationTimerRef.current)
-                animationTimerRef.current = null
-            }
-        }
-    }, [loading, products.length, offset])
+    const limit = 20
 
     const fetchCategories = async () => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort()
-        }
-        abortControllerRef.current = new AbortController()
-
         try {
-            const res = await fetch('/api/categories', {
-                signal: abortControllerRef.current.signal
-            })
+            const res = await fetch('/api/categories')
             const data = await res.json()
             if (isMounted.current) {
                 setCategories(data.categories || [])
                 setBrands(data.brands || [])
             }
         } catch (error) {
-            if ((error as Error).name === 'AbortError') return
             console.error('Ошибка загрузки категорий:', error)
         }
     }
 
-    const fetchProducts = async () => {
+    const fetchProducts = async (targetOffset: number) => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort()
         }
         abortControllerRef.current = new AbortController()
 
-        setLoading(true)
-        setIsVisible(false)
+        const append = targetOffset > 0
+        if (append) {
+            setLoadingMore(true)
+        } else {
+            setLoading(true)
+        }
         try {
             const params = new URLSearchParams({
                 limit: String(limit),
-                offset: String(offset),
+                offset: String(targetOffset),
                 sort
             })
             if (category) params.append('category', category)
@@ -124,7 +96,11 @@ const CatalogTabComponent = ({
             const data = await res.json()
 
             if (isMounted.current) {
-                setProducts(data.products || [])
+                if (append) {
+                    setProducts((prev) => [...prev, ...(data.products || [])])
+                } else {
+                    setProducts(data.products || [])
+                }
                 setTotal(data.total || 0)
             }
         } catch (error) {
@@ -133,6 +109,7 @@ const CatalogTabComponent = ({
         } finally {
             if (isMounted.current) {
                 setLoading(false)
+                setLoadingMore(false)
             }
         }
     }
@@ -140,25 +117,29 @@ const CatalogTabComponent = ({
     useEffect(() => {
         isMounted.current = true
         fetchCategories()
-        fetchProducts()
+        fetchProducts(0)
 
         return () => {
             isMounted.current = false
             if (abortControllerRef.current) {
                 abortControllerRef.current.abort()
             }
-            if (animationTimerRef.current) {
-                clearTimeout(animationTimerRef.current)
-                animationTimerRef.current = null
-            }
         }
     }, [])
 
     useEffect(() => {
-        if (isMounted.current) {
-            fetchProducts()
+        if (!isMounted.current) return
+        setOffset(0)
+        fetchProducts(0)
+        scrollContainerRef.current?.scrollTo({ top: 0 })
+    }, [category, brand, sort, search])
+
+    useEffect(() => {
+        if (!isMounted.current) return
+        if (offset > 0) {
+            fetchProducts(offset)
         }
-    }, [category, brand, sort, offset, search])
+    }, [offset])
 
     useEffect(() => {
         if (searchTimeout) clearTimeout(searchTimeout)
@@ -171,18 +152,53 @@ const CatalogTabComponent = ({
         return () => clearTimeout(timeout)
     }, [search])
 
-    const totalPages = Math.ceil(total / limit)
-    const currentPage = Math.floor(offset / limit) + 1
-
-    const handlePageChange = (page: number) => {
-        if (isMounted.current) {
-            setOffset((page - 1) * limit)
+    const handleScroll = () => {
+        const el = scrollContainerRef.current
+        if (!el) return
+        setShowScrollTop(el.scrollTop > 500)
+        if (loading || loadingMore) return
+        if (products.length >= total) return
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
+            setOffset((prev) => prev + limit)
         }
     }
 
     const triggerCheck = (productName: string) => {
         if (onCheck && profile) {
             onCheck(productName, profile.skinType || 'Нормальная')
+        }
+    }
+
+    const handleImport = async () => {
+        if (!importUrl.trim() || importing) return
+        setImporting(true)
+        setImportedProduct(null)
+        setImportStatus('Загружаем страницу...')
+        try {
+            setImportStatus('Находим данные товара...')
+            const response = await fetch('/api/products/import-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: importUrl.trim() }),
+            })
+            const responseText = await response.text()
+            let data: { detail?: string; product?: Product & { ingredients_raw?: string | null } } = {}
+            try {
+                data = responseText ? JSON.parse(responseText) : {}
+            } catch {
+                throw new Error('Сервер вернул некорректный ответ. Попробуйте ещё раз.')
+            }
+            if (!response.ok) throw new Error(data.detail || 'Не удалось получить товар')
+            setImportStatus('Ищем состав...')
+            const product = data.product as Product & { ingredients_raw?: string | null }
+            setImportedProduct(product)
+            setImportStatus(product.ingredients_raw ? 'Готово' : 'Товар найден, состав не найден')
+            setImportUrl('')
+            fetchProducts(0)
+        } catch (error) {
+            setImportStatus(error instanceof Error ? error.message : 'Не удалось автоматически получить данные товара')
+        } finally {
+            setImporting(false)
         }
     }
 
@@ -287,11 +303,11 @@ const CatalogTabComponent = ({
 
     return (
         <div className="h-full flex flex-col overflow-hidden">
-            {/* Хедер */}
+            {/* Шапка (не скроллится): greeting + поиск */}
             <div className="flex-shrink-0 pt-1 pb-1">
                 <div className="flex items-center justify-between mb-1.5">
                     <div>
-                        <h1 className="text-lg font-light text-foreground/90">
+                        <h1 className="text-xl font-light text-foreground/90">
                             {getGreeting()}
                         </h1>
                         <span className="text-[10px] text-muted-foreground/50 font-light">
@@ -319,7 +335,7 @@ const CatalogTabComponent = ({
 
                 {/* Поиск */}
                 <div className={cn(
-                    'relative rounded-xl transition-all duration-300 mb-1.5',
+                    'rounded-xl py-1 transition-all duration-300 mb-1.5',
                     isFocused ? 'shadow-[0_0_40px_rgba(108,60,225,0.06)]' : ''
                 )}>
                     <div className={cn(
@@ -352,12 +368,58 @@ const CatalogTabComponent = ({
                         )}
                     </div>
                 </div>
+            </div>
+
+            <div
+                ref={scrollContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 min-h-0 overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent"
+            >
+                <div className="rounded-xl border border-primary/15 bg-primary/5 p-3 mb-2">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Link className="size-3.5 text-primary/70" />
+                        <span className="text-[10px] font-medium text-foreground/70">Добавить товар по ссылке</span>
+                    </div>
+                    <div className="flex gap-2">
+                        <input
+                            value={importUrl}
+                            onChange={(event) => setImportUrl(event.target.value)}
+                            onKeyDown={(event) => event.key === 'Enter' && handleImport()}
+                            placeholder="https://..."
+                            disabled={importing}
+                            className="min-w-0 flex-1 rounded-lg border border-white/20 bg-white/30 px-2.5 py-2 text-xs text-foreground/80 placeholder:text-muted-foreground/35 focus:border-primary/30 focus:outline-none"
+                        />
+                        <button
+                            onClick={handleImport}
+                            disabled={importing || !importUrl.trim()}
+                            className="shrink-0 rounded-lg bg-primary/80 px-3 py-2 text-[10px] font-medium text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {importing ? <LoaderCircle className="size-3.5 animate-spin" /> : 'Добавить'}
+                        </button>
+                    </div>
+                    {importStatus && <p className="mt-2 text-[10px] text-muted-foreground/60">{importStatus}</p>}
+                    {importedProduct && (
+                        <div className="mt-2 flex items-center gap-2 border-t border-primary/10 pt-2">
+                            {importedProduct.image_url && <img src={importedProduct.image_url} alt="" className="size-10 rounded-lg object-contain bg-white/30" />}
+                            <div className="min-w-0 flex-1">
+                                <p className="truncate text-[11px] font-medium text-foreground/80">{importedProduct.brand ? `${importedProduct.brand} ` : ''}{importedProduct.name}</p>
+                                <p className="flex items-center gap-1 text-[9px] text-muted-foreground/60">
+                                    <CheckCircle2 className="size-3 text-emerald-500" />
+                                    {(importedProduct as Product & { ingredients_raw?: string | null }).ingredients_raw ? 'Состав найден' : 'Состав автоматически не найден'}
+                                </p>
+                            </div>
+                            <button onClick={() => triggerCheck(importedProduct.name)} className="shrink-0 rounded-lg border border-primary/20 px-2 py-1.5 text-[9px] text-primary hover:bg-primary/10">
+                                Проверить
+                            </button>
+                        </div>
+                    )}
+                </div>
 
                 {/* Кнопка "Заполнить анкету" */}
                 {!profile?.skinType && (
                     <button
                         onClick={onGoToProfile}
-                        className="w-full py-1.5 rounded-xl text-[10px] font-medium bg-primary/10 backdrop-blur-sm border border-primary/20 text-primary hover:bg-primary/20 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 mb-1.5"
+                        className="cta-btn w-full py-1.5 rounded-xl text-[10px] font-medium bg-primary/10 backdrop-blur-sm border border-primary/20 text-primary hover:bg-primary/20 transition-all duration-300 active:scale-[0.98] flex items-center justify-center gap-2 mb-1.5"
                     >
                         <Zap className="size-3" />
                         Заполнить анкету
@@ -365,8 +427,8 @@ const CatalogTabComponent = ({
                     </button>
                 )}
 
-                {/* Фильтры + пагинация */}
-                <div className="flex items-center justify-between">
+                {/* Фильтры */}
+                <div className="flex items-center">
                     <button
                         onClick={() => setShowFilters(true)}
                         className="px-3 py-1 rounded-xl bg-white/20 backdrop-blur-sm border border-white/20 text-[10px] text-muted-foreground/60 hover:text-primary hover:border-primary/30 transition-all duration-300 flex items-center gap-1.5"
@@ -376,51 +438,18 @@ const CatalogTabComponent = ({
                             <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                         )}
                     </button>
-
-                    {totalPages > 1 && !loading && (
-                        <div className="flex items-center gap-1">
-                            <button
-                                onClick={() => handlePageChange(currentPage - 1)}
-                                disabled={currentPage === 1}
-                                className={cn(
-                                    'w-7 h-7 rounded-xl border transition-all duration-300 flex items-center justify-center bg-white/10 backdrop-blur-sm',
-                                    currentPage === 1
-                                        ? 'border-white/10 text-muted-foreground/20 cursor-not-allowed'
-                                        : 'border-white/20 hover:border-primary/30 hover:text-primary text-muted-foreground/60 hover:bg-white/20'
-                                )}
-                            >
-                                <ArrowRight className="size-3 rotate-180" />
-                            </button>
-                            <span className="text-[10px] text-muted-foreground/40 px-1.5 min-w-[32px] text-center font-light">
-                                {currentPage}/{totalPages}
-                            </span>
-                            <button
-                                onClick={() => handlePageChange(currentPage + 1)}
-                                disabled={currentPage === totalPages}
-                                className={cn(
-                                    'w-7 h-7 rounded-xl border transition-all duration-300 flex items-center justify-center bg-white/10 backdrop-blur-sm',
-                                    currentPage === totalPages
-                                        ? 'border-white/10 text-muted-foreground/20 cursor-not-allowed'
-                                        : 'border-white/20 hover:border-primary/30 hover:text-primary text-muted-foreground/60 hover:bg-white/20'
-                                )}
-                            >
-                                <ArrowRight className="size-3" />
-                            </button>
-                        </div>
-                    )}
                 </div>
-            </div>
 
             {/* Галерея */}
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="min-h-0">
                 {loading ? (
-                    <div className="grid grid-cols-2 gap-2.5 pb-2">
+                    <div className="grid grid-cols-2 gap-2.5 pb-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                         {Array.from({ length: 6 }).map((_, i) => (
                             <SkeletonCard key={i} />
                         ))}
                     </div>
                 ) : products.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full">
+                    <div className="flex flex-col items-center justify-center py-16">
                         <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center mb-3">
                             <Compass className="size-6 text-muted-foreground/20" />
                         </div>
@@ -435,16 +464,8 @@ const CatalogTabComponent = ({
                         )}
                     </div>
                 ) : (
-                    <div
-                        ref={scrollContainerRef}
-                        className="h-full overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent"
-                        style={{
-                            height: '100%',
-                            overflowY: 'auto',
-                            paddingRight: '0.25rem',
-                        }}
-                    >
-                        <div className="grid grid-cols-2 gap-2.5">
+                    <>
+                        <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                             {products.map((product, index) => {
                                 const isHovered = hoveredId === product.slug
                                 return (
@@ -453,11 +474,11 @@ const CatalogTabComponent = ({
                                         className={cn(
                                             glassCardStyle,
                                             isHovered && 'border-primary/30 shadow-[0_12px_48px_rgba(108,60,225,0.15)]',
-                                            'card-enter',
-                                            isVisible && `card-enter-${Math.min(index + 1, 6)}`
+                                            index < 6 && 'card-enter',
+                                            index < 6 && `card-enter-${index + 1}`
                                         )}
                                         style={{
-                                            animationDelay: `${index * 0.08}s`,
+                                            animationDelay: index < 6 ? `${index * 0.06}s` : undefined,
                                             borderRadius: '16px',
                                         }}
                                         onMouseEnter={() => setHoveredId(product.slug)}
@@ -506,11 +527,29 @@ const CatalogTabComponent = ({
                                     </div>
                                 )
                             })}
-                            <div className="h-20 col-span-2" />
                         </div>
-                    </div>
+                        {loadingMore && (
+                            <div className="flex items-center justify-center py-4 text-[10px] text-muted-foreground/50 font-light">
+                                <LoaderCircle className="size-4 animate-spin mr-2" />
+                                Загружаем ещё...
+                            </div>
+                        )}
+                        <div className="h-24" />
+                    </>
                 )}
             </div>
+            </div>
+
+            {showScrollTop && (
+                <button
+                    type="button"
+                    onClick={() => scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                    className="fixed bottom-24 right-4 z-40 flex size-10 items-center justify-center rounded-full border border-primary/30 bg-primary/20 text-primary shadow-lg backdrop-blur-md transition-all hover:bg-primary/30"
+                    aria-label="Наверх"
+                >
+                    <ArrowUp className="size-4" />
+                </button>
+            )}
 
             <FilterPopup />
         </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { X, Sparkles, Shield, Zap, Users, Brain } from 'lucide-react'
+import { X, Sparkles, Shield, Zap, Users, Brain, FlaskConical } from 'lucide-react'
 
 interface InfoModalProps {
   isOpen: boolean
@@ -21,7 +21,9 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
         </button>
 
         <div className="text-center mb-6">
-          <div className="text-5xl mb-3">🧴</div>
+          <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <FlaskConical className="size-7" strokeWidth={1.5} />
+          </div>
           <h2 className="text-2xl font-normal text-gray-900">Как работает Aidermy?</h2>
         </div>
 

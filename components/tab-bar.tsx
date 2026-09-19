@@ -1,13 +1,15 @@
 'use client'
 
-import { Search, History, User } from 'lucide-react'
+import { Search, History, User, Sparkles, Wand2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type TabId = 'catalog' | 'history' | 'profile'
+export type TabId = 'routine' | 'catalog' | 'history' | 'shelf' | 'profile'
 
 const TABS: { id: TabId; label: string; icon: typeof Search }[] = [
+  { id: 'routine', label: 'Подбор', icon: Wand2 },
   { id: 'catalog', label: 'Каталог', icon: Search },
   { id: 'history', label: 'История', icon: History },
+  { id: 'shelf', label: 'Моя полка', icon: Sparkles },
   { id: 'profile', label: 'Профиль', icon: User },
 ]
 
@@ -21,7 +23,7 @@ export function TabBar({
   isAuthenticated?: boolean
 }) {
   const visibleTabs = TABS.filter(tab => {
-    if (!isAuthenticated && (tab.id === 'history' || tab.id === 'profile')) {
+    if (!isAuthenticated && (tab.id === 'history' || tab.id === 'profile' || tab.id === 'shelf')) {
       return false
     }
     return true
@@ -32,17 +34,45 @@ export function TabBar({
       className="fixed bottom-0 left-0 right-0 z-30 bg-background/80 backdrop-blur-sm border-t border-gray-200/50"
       aria-label="Основная навигация"
     >
-      <div className="mx-auto max-w-md flex items-center justify-around px-2 py-1.5">
+      <div className="mx-auto max-w-md flex items-end justify-around px-2 pt-1.5 pb-2">
         {visibleTabs.map(({ id, label, icon: Icon }) => {
           const isActive = active === id
+          const isCenter = id === 'shelf'
+
+          if (isCenter) {
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => onChange(id)}
+                className="relative -mt-6 flex flex-col items-center gap-0.5"
+              >
+                <span
+                  className={cn(
+                    'flex size-14 items-center justify-center rounded-full border transition-all duration-300',
+                    isActive
+                      ? 'bg-primary text-primary-foreground border-primary shadow-[0_8px_24px_rgba(78,159,110,0.4)]'
+                      : 'bg-white text-muted-foreground border-gray-200/70 shadow-sm hover:text-primary'
+                  )}
+                >
+                  <Icon className="size-6" strokeWidth={2} />
+                </span>
+                <span className={cn('text-[9px] font-normal leading-none', isActive ? 'text-primary' : 'text-muted-foreground')}>
+                  {label}
+                </span>
+              </button>
+            )
+          }
+
           return (
             <button
               key={id}
               type="button"
               onClick={() => onChange(id)}
               aria-current={isActive ? 'page' : undefined}
+              data-active={isActive ? 'true' : 'false'}
               className={cn(
-                'flex flex-1 flex-col items-center gap-0.5 rounded-md px-2 py-1.5 transition-colors',
+                'nav-link-animated flex flex-1 flex-col items-center gap-0.5 rounded-md px-2 py-1.5 transition-colors',
                 isActive ? 'text-primary' : 'text-muted-foreground'
               )}
             >

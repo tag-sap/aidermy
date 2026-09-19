@@ -421,34 +421,60 @@ async def save_history(
         raise HTTPException(status_code=400, detail="Missing result")
     
     user_id = current_user['id']
-    
+    product_name = result.get('product') or result.get('product_name')
+    skin_type = result.get('skinType') or result.get('skin_type')
+    score = result.get('score', 0)
+    verdict = result.get('verdict') or 'С осторожностью'
+    summary = result.get('summary') or 'Не удалось получить рекомендацию.'
+    slug = result.get('slug') or ''
+    image_url = result.get('image_url') or ''
+    ingredients = result.get('ingredients') or ''
+
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
-    
+
     try:
+        existing = cursor.execute('''
+            SELECT 1 FROM check_history
+            WHERE user_id = ?
+              AND product_name = ?
+              AND score = ?
+              AND verdict = ?
+              AND summary = ?
+              AND deleted_at IS NULL
+            LIMIT 1
+        ''', (user_id, product_name, score, verdict, summary)).fetchone()
+
+        if existing:
+            conn.close()
+            return {"status": "ok", "duplicate": True}
+
         cursor.execute('''
             INSERT INTO check_history (
-                user_id, product_name, skin_type, score, verdict, summary, 
-                ingredients, slug, image_url, active_ingredients, how_to_use, expectations, profile_snapshot, created_at
+                user_id, product_name, skin_type, score, verdict, summary,
+                ingredients, slug, image_url, active_ingredients, how_to_use, expectations,
+                safe_ingredients, caution_ingredients, profile_snapshot, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (
             user_id,
-            result.get('product'),
-            result.get('skinType'),
-            result.get('score'),
-            result.get('verdict'),
-            result.get('summary'),
-            result.get('ingredients'),
-            result.get('slug'),
-            result.get('image_url'),
-            json.dumps(result.get('active_ingredients')),
-            json.dumps(result.get('how_to_use')),
-            json.dumps(result.get('expectations')),
+            product_name,
+            skin_type,
+            score,
+            verdict,
+            summary,
+            ingredients,
+            slug,
+            image_url,
+            json.dumps(result.get('active_ingredients')) if result.get('active_ingredients') is not None else None,
+            json.dumps(result.get('how_to_use')) if result.get('how_to_use') is not None else None,
+            json.dumps(result.get('expectations')) if result.get('expectations') is not None else None,
+            json.dumps(result.get('safe_ingredients') or [], ensure_ascii=False),
+            json.dumps(result.get('caution_ingredients') or [], ensure_ascii=False),
             json.dumps(profile_snapshot or {}, ensure_ascii=False),
         ))
         conn.commit()
-        return {"status": "ok"}
+        return {"status": "ok", "duplicate": False}
     except Exception as e:
         print(f"❌ Ошибка сохранения истории: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -479,6 +505,16 @@ async def get_history(current_user: dict = Depends(get_current_user)):
                 item['expectations'] = json.loads(item['expectations'])
             except:
                 pass
+        if item.get('safe_ingredients'):
+            try:
+                item['safe_ingredients'] = json.loads(item['safe_ingredients'])
+            except:
+                pass
+        if item.get('caution_ingredients'):
+            try:
+                item['caution_ingredients'] = json.loads(item['caution_ingredients'])
+            except:
+                pass
         if item.get('profile_snapshot'):
             try:
                 item['profile_snapshot'] = json.loads(item['profile_snapshot'])
@@ -492,4 +528,35 @@ async def get_history(current_user: dict = Depends(get_current_user)):
 async def clear_history(current_user: dict = Depends(get_current_user)):
     """Полностью очистить историю текущего пользователя"""
     deleted = clear_user_check_history(current_user['id'])
+    return {"status": "ok", "deleted": deleted}
+
+
+@router.delete("/history/items")
+async def delete_history_items(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Удалить конкретные записи истории текущего пользователя"""
+    payload = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    ids = payload.get('ids') or []
+
+    if not ids:
+        raw_ids = request.query_params.get('ids')
+        if raw_ids:
+            try:
+                ids = json.loads(raw_ids)
+            except Exception:
+                ids = [v.strip() for v in raw_ids.split(',') if v.strip()]
+
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="Missing ids")
+
+    from .database import delete_user_history_items
+
+    deleted = delete_user_history_items(current_user['id'], ids)
     return {"status": "ok", "deleted": deleted}

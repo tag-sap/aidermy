@@ -75,9 +75,10 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     )
 
     return (
-      <div className="h-full flex flex-col overflow-y-auto pb-24 space-y-3 pr-1">
+      <div className="h-full w-full flex flex-col overflow-y-auto pb-24 space-y-3 pr-1 md:max-w-2xl md:mx-auto">
+        <h1 className="text-xl font-light text-foreground">Профиль</h1>
         {/* КАРТОЧКА ИМЯ */}
-        <div className={glassCardStyle}>
+        <div className={cn(glassCardStyle, 'card-enter-1')}>
           <div className="flex items-center gap-2 mb-3">
             <User className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -98,7 +99,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* КАРТОЧКА ТИП КОЖИ */}
-        <div className={glassCardStyle}>
+        <div className={cn(glassCardStyle, 'card-enter-2')}>
           <div className="flex items-center gap-2 mb-3">
             <Droplets className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -118,7 +119,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* КАРТОЧКА ВОЗРАСТ */}
-        <div className={glassCardStyle}>
+        <div className={cn(glassCardStyle, 'card-enter-3')}>
           <div className="flex items-center gap-2 mb-3">
             <Calendar className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -138,7 +139,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* КАРТОЧКА ПРОБЛЕМЫ */}
-        <div className={glassCardStyle}>
+        <div className={cn(glassCardStyle, 'card-enter-4')}>
           <div className="flex items-center gap-2 mb-3">
             <AlertCircle className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -158,7 +159,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* КАРТОЧКА АЛЛЕРГИИ */}
-        <div className={glassCardStyle}>
+        <div className={cn(glassCardStyle, 'card-enter-5')}>
           <div className="flex items-center gap-2 mb-3">
             <AlertCircle className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -178,7 +179,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* КАРТОЧКА ОПИСАНИЕ */}
-        <div className={glassCardStyle}>
+        <div className={cn(glassCardStyle, 'card-enter-6')}>
           <div className="flex items-center gap-2 mb-3">
             <Sparkles className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -223,7 +224,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 'flex-1 px-6 py-2.5 rounded-xl text-xs font-medium uppercase tracking-wider transition-all',
                 !hasChanges || saved
                   ? 'bg-white/10 backdrop-blur-sm text-muted-foreground/40 cursor-default border border-white/10'
-                  : 'bg-primary/20 backdrop-blur-sm border border-primary/30 text-primary hover:bg-primary/30 hover:shadow-[0_0_30px_rgba(108,60,225,0.15)] active:scale-[0.97]'
+                  : 'cta-btn bg-primary/20 backdrop-blur-sm border border-primary/30 text-primary hover:bg-primary/30 hover:shadow-[0_0_30px_rgba(108,60,225,0.15)] active:scale-[0.97]'
               )}
             >
               {saved ? (

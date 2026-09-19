@@ -14,6 +14,8 @@ import { SkinQuiz } from '@/components/skin-quiz'
 import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
 import { CatalogTab } from '@/components/catalog-tab'
+import { ShelfTab } from '@/components/shelf-tab'
+import { RoutineBuilderTab } from '@/components/routine-builder-tab'
 
 import {
   emptyProfile,
@@ -46,7 +48,7 @@ const normalizeHistoryItem = (item: any): CheckResult => ({
 })
 
 export default function Page() {
-  const [tab, setTab] = useState<TabId>('catalog')
+  const [tab, setTab] = useState<TabId>('routine')
   const [profile, setProfile] = useState<SkinProfile>(emptyProfile)
   const [history, setHistory] = useState<CheckResult[]>([])
   const [hydrated, setHydrated] = useState(false)
@@ -61,23 +63,12 @@ export default function Page() {
   const [showQuiz, setShowQuiz] = useState(false)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
+  const lastHistoryMutationRef = useRef(0)
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
   const [showInfo, setShowInfo] = useState(false)
-  const [pointerGlow, setPointerGlow] = useState({ x: 50, y: 50 })
-
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const x = (event.clientX / window.innerWidth) * 100
-      const y = (event.clientY / window.innerHeight) * 100
-      setPointerGlow({ x, y })
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    return () => window.removeEventListener('pointermove', handlePointerMove)
-  }, [])
 
   // ===== ЗАГРУЗКА С СЕРВЕРА =====
   const loadProfileFromServer = async (token: string) => {
@@ -99,6 +90,12 @@ export default function Page() {
   }
 
   const loadHistoryFromServer = async (token: string) => {
+    const now = Date.now()
+    if (now - lastHistoryMutationRef.current < 1200) {
+      console.log('⏭️ Пропускаю перезагрузку истории после локального удаления')
+      return
+    }
+
     try {
       const res = await fetch('/api/auth/history', {
         headers: { Authorization: `Bearer ${token}` }
@@ -108,10 +105,10 @@ export default function Page() {
         const nextHistory = Array.isArray(data.history) ? data.history.map(normalizeHistoryItem) : []
         setHistory(nextHistory)
         saveHistory(nextHistory)
-      } else {
-        setHistory([])
-        saveHistory([])
+        return
       }
+      setHistory([])
+      saveHistory([])
     } catch (error) {
       console.error('Ошибка загрузки истории:', error)
       setHistory([])
@@ -164,7 +161,9 @@ export default function Page() {
       saveHistory([])
       localStorage.removeItem('aidermy:history')
     } else {
-      setHistory(loadHistory())
+      setHistory([])
+      saveHistory([])
+      localStorage.removeItem('aidermy:history')
     }
 
     setHydrated(true)
@@ -241,7 +240,7 @@ export default function Page() {
     localStorage.removeItem('userName')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
-    setTab('catalog')
+    setTab('routine')
   }
 
   // ===== ПРОФИЛЬ =====
@@ -290,6 +289,7 @@ export default function Page() {
 
   // ===== ИСТОРИЯ =====
   const handleClearHistory = async () => {
+    lastHistoryMutationRef.current = Date.now()
     setHistory([])
     saveHistory([])
 
@@ -306,6 +306,74 @@ export default function Page() {
     }
   }
 
+  const handleDeleteHistoryItem = async (id: string) => {
+    const originalHistory = [...history]
+    const nextHistory = originalHistory.filter((item) => item.id !== id)
+    lastHistoryMutationRef.current = Date.now()
+    setHistory(nextHistory)
+    saveHistory(nextHistory)
+
+    const token = localStorage.getItem('token')
+    if (!token) return
+
+    try {
+      const res = await fetch('/api/auth/history/items', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ids: [id] }),
+      })
+
+      if (!res.ok) {
+        console.error('Ошибка удаления записи истории:', await res.text())
+        setHistory(originalHistory)
+        saveHistory(originalHistory)
+        await loadHistoryFromServer(token)
+      }
+    } catch (error) {
+      console.error('Ошибка удаления записи истории:', error)
+      setHistory(originalHistory)
+      saveHistory(originalHistory)
+    }
+  }
+
+  const handleDeleteSelectedHistory = async (ids: string[]) => {
+    if (!ids.length) return
+
+    const originalHistory = [...history]
+    const nextHistory = originalHistory.filter((item) => !ids.includes(item.id))
+    lastHistoryMutationRef.current = Date.now()
+    setHistory(nextHistory)
+    saveHistory(nextHistory)
+
+    const token = localStorage.getItem('token')
+    if (!token) return
+
+    try {
+      const res = await fetch('/api/auth/history/items', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ids }),
+      })
+
+      if (!res.ok) {
+        console.error('Ошибка удаления выбранных записей истории:', await res.text())
+        setHistory(originalHistory)
+        saveHistory(originalHistory)
+        await loadHistoryFromServer(token)
+      }
+    } catch (error) {
+      console.error('Ошибка удаления выбранных записей истории:', error)
+      setHistory(originalHistory)
+      saveHistory(originalHistory)
+    }
+  }
+
   // ===== КВИЗ =====
   const handleQuizComplete = (answers: Record<string, string>, skinType: string) => {
     const updatedProfile = {
@@ -318,11 +386,19 @@ export default function Page() {
     setProfile(updatedProfile)
     saveProfile(updatedProfile)
     setShowQuiz(false)
-    setTab('catalog')
+    setTab('routine')
   }
 
   // ===== ПРОВЕРКА =====
   const handleCheck = async (product: string, skinType: string) => {
+    if (loading) return
+
+    const dedupeKey = `${product.trim()}::${skinType}::${profile.skinType || ''}`
+    const lastSavedKey = sessionStorage.getItem('aidermy:lastHistorySave')
+    if (lastSavedKey === dedupeKey) {
+      return
+    }
+
     setIsSheetOpen(true)
     setResult(null)
     setLoading(true)
@@ -363,7 +439,7 @@ export default function Page() {
         const cleanProduct = product.replace(/\n/g, '').replace(/\s+/g, ' ').trim()
         return cleanName === cleanProduct || p.slug === product.toLowerCase().replace(/ /g, '-')
       })
-      const image_url = foundProduct?.image_url || ''
+      const image_url = data.image_url || foundProduct?.image_url || ''
 
       const fullResult: CheckResult = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -385,15 +461,9 @@ export default function Page() {
       }
 
       setResult(fullResult)
+      sessionStorage.setItem('aidermy:lastHistorySave', `${product.trim()}::${skinType}::${profile.skinType || ''}`)
       setLoading(false)
 
-      setHistory((prev) => {
-        const next = [fullResult, ...prev].slice(0, 50)
-        saveHistory(next)
-        return next
-      })
-
-      // Сохраняем историю на сервер
       const token = localStorage.getItem('token')
       if (token && isAuthenticated) {
         try {
@@ -406,7 +476,9 @@ export default function Page() {
             body: JSON.stringify({
               result: {
                 ...fullResult,
-                ingredients: fullResult.safe_ingredients?.join(', ') || '',
+                safe_ingredients: fullResult.safe_ingredients || [],
+                caution_ingredients: fullResult.caution_ingredients || [],
+                image_url: fullResult.image_url || '',
               },
               profile_snapshot: {
                 name: profile.name || '',
@@ -420,8 +492,11 @@ export default function Page() {
               }
             })
           })
+
           if (historyRes.ok) {
-            console.log('✅ История сохранена на сервере')
+            const saved = await historyRes.json().catch(() => ({}))
+            console.log('✅ История сохранена на сервере', saved)
+            await loadHistoryFromServer(token)
           } else {
             const err = await historyRes.text()
             console.error('❌ Ошибка сохранения истории:', err)
@@ -433,6 +508,20 @@ export default function Page() {
 
     } catch (error) {
       console.error('Ошибка проверки:', error)
+      setResult({
+        id: `${Date.now()}-error`,
+        product,
+        skinType: skinType,
+        score: 0,
+        verdict: 'Не удалось проверить',
+        summary: 'Не удалось получить анализ. Проверьте соединение и настройки AI-сервиса.',
+        safe_ingredients: [],
+        caution_ingredients: [],
+        stats: {},
+        slug: '',
+        image_url: '',
+        createdAt: Date.now(),
+      })
       setLoading(false)
     }
   }
@@ -455,7 +544,7 @@ export default function Page() {
   const handleTabChange = (newTab: TabId) => {
     if (newTab === tab) return
 
-    if (newTab === 'profile' && !isAuthenticated) {
+    if ((newTab === 'profile' || newTab === 'shelf') && !isAuthenticated) {
       setIsAuthModalOpen(true)
       return
     }
@@ -492,21 +581,12 @@ export default function Page() {
     <>
       <SplashScreen />
 
-      <div className="relative min-h-screen overflow-hidden bg-background">
-        <div
-          className="pointer-events-none absolute inset-0 z-0"
-          style={{
-            background: `radial-gradient(circle at ${pointerGlow.x}% ${pointerGlow.y}%, rgba(78, 159, 110, 0.2), rgba(111, 191, 141, 0.1) 15%, rgba(255, 255, 255, 0) 33%)`,
-            transition: 'background 220ms ease-out',
-            filter: 'blur(8px)',
-          }}
-        />
-
+      <div className="relative h-dvh overflow-hidden bg-background">
         <BrandMarquee />
         <CyberGrid />
         <div className="grid-shimmer" aria-hidden="true" />
 
-        <div className="relative z-20 flex min-h-screen flex-col">
+        <div className="relative z-20 flex h-dvh flex-col">
           <div className="flex-shrink-0">
             <AppHeader
               onProfile={handleGoToProfile}
@@ -518,7 +598,7 @@ export default function Page() {
           </div>
 
           <main className="relative z-10 flex-1 min-h-0 overflow-hidden pb-22">
-          <div className="h-full max-w-md mx-auto px-4 overflow-hidden">
+          <div className="h-full w-full max-w-md md:max-w-6xl mx-auto px-4 overflow-hidden">
             {showQuiz ? (
               <div className="h-full overflow-y-auto py-4">
                 <SkinQuiz
@@ -534,6 +614,15 @@ export default function Page() {
               </div>
             ) : (
               <div className="h-full overflow-hidden">
+                {tab === 'routine' && (
+                  <RoutineBuilderTab
+                    profile={profile}
+                    isAuthenticated={isAuthenticated}
+                    onGoToProfile={handleGoToProfile}
+                    onStartQuiz={() => setShowQuiz(true)}
+                    onAuth={() => setIsAuthModalOpen(true)}
+                  />
+                )}
                 {tab === 'catalog' && (
                   <CatalogTab
                     key={hydrated ? 'catalog-ready' : 'catalog-loading'}
@@ -545,10 +634,12 @@ export default function Page() {
                   />
                 )}
                 {tab === 'history' && (
-                  <div className="h-full overflow-y-auto py-4">
+                  <div className="no-scrollbar h-full overflow-y-auto py-4">
                     <HistoryTab
                       history={history}
                       onClear={handleClearHistory}
+                      onDeleteItem={handleDeleteHistoryItem}
+                      onDeleteSelected={handleDeleteSelectedHistory}
                       onSelect={(item) => {
                         setIsSheetOpen(true)
                         setResult(item)
@@ -558,7 +649,7 @@ export default function Page() {
                   </div>
                 )}
                 {tab === 'profile' && (
-                  <div className="h-full overflow-y-auto py-4">
+                  <div className="no-scrollbar h-full overflow-y-auto py-4">
                     <ProfileTab
                       ref={profileTabRef}
                       key={hydrated ? 'profile-ready' : 'profile-loading'}
@@ -567,6 +658,9 @@ export default function Page() {
                       onStartQuiz={() => setShowQuiz(true)}
                     />
                   </div>
+                )}
+                {tab === 'shelf' && (
+                  <ShelfTab onCheck={(product) => handleCheck(product, profile.skinType || 'Нормальная')} />
                 )}
               </div>
             )}

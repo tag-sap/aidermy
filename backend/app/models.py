@@ -60,3 +60,7 @@ class CheckWithIngredientsRequest(BaseModel):
     skin_type: str
     profile: Profile
     ingredients: str
+
+
+class ImportUrlRequest(BaseModel):
+    url: str = Field(..., min_length=1, description="URL страницы товара")

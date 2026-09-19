@@ -83,6 +83,7 @@ export function ResultSheet({
   const [productNameInput, setProductNameInput] = useState('')
   const [ingredientsInput, setIngredientsInput] = useState('')
   const [isCheckingIngredients, setIsCheckingIngredients] = useState(false)
+  const [ingredientsModal, setIngredientsModal] = useState<{ title: string; items: string[] } | null>(null)
 
   useEffect(() => {
     if (isOpen) {
@@ -138,8 +139,8 @@ export function ResultSheet({
     return <span dangerouslySetInnerHTML={{ __html: text.replace(/<good>/g, '<span style="color:#4E9F6E;font-weight:500;">').replace(/<bad>/g, '<span style="color:#EF4444;font-weight:500;">').replace(/<\/good>/g, '</span>').replace(/<\/bad>/g, '</span>') }} />
   }
 
-  const Section = ({ icon: Icon, title, children, className }: any) => (
-    <div className={cn('rounded-xl p-2.5 border transition-all duration-300 bg-white/40 backdrop-blur-md border-white/40 hover:bg-white/60 hover:border-primary/20 shadow-[0_4px_16px_rgba(108,60,225,0.04)]', className)}>
+  const Section = ({ icon: Icon, title, children, className, onClick }: any) => (
+    <div onClick={onClick} className={cn('rounded-xl p-2.5 border transition-all duration-300 bg-white/40 backdrop-blur-md border-white/40 hover:bg-white/60 hover:border-primary/20 shadow-[0_4px_16px_rgba(108,60,225,0.04)]', onClick && 'cursor-pointer', className)}>
       <div className="flex items-center gap-1.5 mb-1.5">
         <Icon className="size-3.5 text-primary/60" strokeWidth={1.5} />
         <h4 className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">{title}</h4>
@@ -175,7 +176,7 @@ export function ResultSheet({
             </div>
 
             <div className="flex items-center gap-3">
-              {result.image_url && <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/40 flex items-center justify-center border border-white/30 flex-shrink-0 backdrop-blur-sm"><img src={result.image_url} alt={result.product} className="w-full h-full object-contain p-1" /></div>}
+              {result.image_url && <div className="group relative z-10 w-12 h-12 rounded-xl overflow-visible bg-white/40 flex items-center justify-center border border-white/30 flex-shrink-0 backdrop-blur-sm"><img src={result.image_url} alt={result.product} className="w-full h-full object-contain p-1 rounded-xl transition-transform duration-500 ease-out group-hover:scale-[2.4] group-hover:shadow-2xl" /></div>}
               <div className="flex-1 flex items-center gap-2">
                 <ScoreRing score={result.score} />
                 <div className="flex-1">
@@ -224,7 +225,7 @@ export function ResultSheet({
 
             <div className="grid grid-cols-2 gap-1.5">
               {result.safe_ingredients && result.safe_ingredients.length > 0 && (
-                <Section icon={CheckCircle} title="Безопасные" className="border-green-100/50 col-span-1">
+                <Section icon={CheckCircle} title="Безопасные" className="border-green-100/50 col-span-1" onClick={() => setIngredientsModal({ title: 'Безопасные ингредиенты', items: result.safe_ingredients! })}>
                   <div className="flex flex-wrap gap-0.5">
                     {result.safe_ingredients.slice(0, 3).map((ing) => <span key={ing} className="text-[8px] px-1.5 py-0.5 bg-primary/5 text-primary/70 rounded-full">{ing}</span>)}
                     {result.safe_ingredients.length > 3 && <span className="text-[8px] text-muted-foreground/40">+{result.safe_ingredients.length - 3}</span>}
@@ -232,7 +233,7 @@ export function ResultSheet({
                 </Section>
               )}
               {result.caution_ingredients && result.caution_ingredients.length > 0 && (
-                <Section icon={AlertCircle} title="С осторожностью" className="border-red-100/50 col-span-1">
+                <Section icon={AlertCircle} title="С осторожностью" className="border-red-100/50 col-span-1" onClick={() => setIngredientsModal({ title: 'Ингредиенты с осторожностью', items: result.caution_ingredients! })}>
                   <div className="flex flex-wrap gap-0.5">
                     {result.caution_ingredients.slice(0, 3).map((ing) => <span key={ing} className="text-[8px] px-1.5 py-0.5 bg-red-50 text-red-500 rounded-full">{ing}</span>)}
                     {result.caution_ingredients.length > 3 && <span className="text-[8px] text-muted-foreground/40">+{result.caution_ingredients.length - 3}</span>}
@@ -257,6 +258,20 @@ export function ResultSheet({
           </div>
         ) : null}
       </div>
+
+      {ingredientsModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm" onClick={() => setIngredientsModal(null)}>
+          <div className="w-full max-w-sm max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-foreground">{ingredientsModal.title}</h3>
+              <button type="button" onClick={() => setIngredientsModal(null)} className="text-foreground/40 hover:text-foreground/70"><X className="size-4" /></button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {ingredientsModal.items.map((ing) => <span key={ing} className="rounded-full bg-primary/5 px-2 py-1 text-[10px] text-foreground/70">{ing}</span>)}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

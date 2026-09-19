@@ -5,9 +5,11 @@ import hashlib
 import secrets
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
+from dotenv import load_dotenv
 from .database import get_connection, AIDERMY_DB
 import os
 
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7

@@ -1,21 +1,25 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Header
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
-from .models import CheckRequest, CheckResponse, CheckWithIngredientsRequest
+from .models import CheckRequest, CheckResponse, CheckWithIngredientsRequest, ImportUrlRequest
 from .services import check_product_with_ai, check_product_with_ingredients, search_products
-from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, PRODUCTS_DB
-import os
-from dotenv import load_dotenv
+from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, PRODUCTS_DB, upsert_imported_product
 from .auth_routes import router as auth_router
 from .admin_routes import setup_admin_routes
 from typing import Optional, List
-from .auth import get_current_user_optional  # <-- ДОБАВИТЬ ЭТОТ ИМПОРТ
+from .auth import get_current_user_optional, get_current_user
+from .scraper import ProductImportError, import_product
 
 from .services import search_products
 
-load_dotenv()
 init_db()
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
@@ -52,6 +56,36 @@ async def get_products(q: str = ""):
     products = search_products(q)
     return {"products": products}
 
+
+@app.post("/api/products/import-url")
+async def import_product_from_url(request: ImportUrlRequest):
+    try:
+        imported = await import_product(request.url)
+        if not imported.name:
+            raise ProductImportError("Товар на странице не найден.")
+        saved = upsert_imported_product(imported.to_dict())
+        product = {
+            "name": saved.get("name"),
+            "brand": saved.get("brand"),
+            "image_url": saved.get("image_url"),
+            "price": imported.price,
+            "currency": imported.currency,
+            "volume": imported.volume,
+            "category": saved.get("category"),
+            "description": imported.description,
+            "ingredients_raw": saved.get("ingredients"),
+            "source_url": saved.get("url"),
+            "slug": saved.get("slug"),
+            "id": saved.get("id"),
+        }
+        return {"success": True, "product": product}
+    except ProductImportError as exc:
+        print(f"[SCRAPER] Import failed: {exc.technical}")
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"[SCRAPER] Import failed unexpectedly: {exc!r}")
+        raise HTTPException(status_code=502, detail="Не удалось автоматически получить данные товара. Проверьте ссылку или добавьте состав вручную.") from exc
+
 @app.post("/api/check", response_model=CheckResponse)
 async def check_product(
     request: CheckRequest, 
@@ -78,19 +112,9 @@ async def check_product(
         existing_product = cursor_products.fetchone()
         conn_products.close()
         
-        # Сохраняем в историю ТОЛЬКО для авторизованных пользователей
+        # История сохраняется только через /api/auth/history, чтобы избежать дублей.
+        # Здесь не пишем в БД повторно: это отдельный, единственный путь записи для профиля пользователя.
         user_id = current_user.get('id') if current_user else None
-        if result.get("ingredients") and existing_product and user_id is not None:
-            save_check_result(
-                request.product_name,
-                request.skin_type,
-                result.get("score", 50),
-                result.get("verdict", "Нейтрально"),
-                result.get("summary", "Не удалось получить рекомендацию."),
-                result.get("ingredients", ""),
-                slug,
-                user_id
-            )
         
         return CheckResponse(
             score=result.get("score", 50),
@@ -148,18 +172,8 @@ async def check_with_ingredients(
                 user_id=user_id
             )
         
-        # Сохраняем в историю ТОЛЬКО если продукт уже есть в базе и пользователь авторизован
-        if existing_product and user_id is not None:
-            save_check_result(
-                check_request.product_name,
-                check_request.skin_type,
-                result.get("score", 50),
-                result.get("verdict", "С осторожностью"),
-                result.get("summary", "Не удалось проанализировать состав."),
-                check_request.ingredients,
-                slug,
-                user_id
-            )
+        # История сохраняется только через /api/auth/history, чтобы избежать дублей.
+        # Здесь не пишем в БД повторно: результат уже будет сохранён в пользовательской истории после проверки.
         
         return CheckResponse(
             score=result.get("score", 50),
@@ -273,19 +287,19 @@ async def get_catalog(
     params = []
     
     if category:
-        query += " AND category = ?"
-        params.append(category)
+        query += " AND lower_ru(name) LIKE ?"
+        params.append(f"%{category.lower()}%")
     if brand:
         query += " AND brand = ?"
         params.append(brand)
     if search:
         words = search.strip().lower().split()
         if len(words) == 1:
-            query += " AND LOWER(name) LIKE ?"
+            query += " AND lower_ru(name) LIKE ?"
             params.append(f"%{words[0]}%")
         else:
             for word in words:
-                query += " AND LOWER(name) LIKE ?"
+                query += " AND lower_ru(name) LIKE ?"
                 params.append(f"%{word}%")
     
     query += " ORDER BY name ASC LIMIT ? OFFSET ?"
@@ -300,19 +314,19 @@ async def get_catalog(
     count_params = []
     
     if category:
-        count_query += " AND category = ?"
-        count_params.append(category)
+        count_query += " AND lower_ru(name) LIKE ?"
+        count_params.append(f"%{category.lower()}%")
     if brand:
         count_query += " AND brand = ?"
         count_params.append(brand)
     if search:
         words = search.strip().lower().split()
         if len(words) == 1:
-            count_query += " AND LOWER(name) LIKE ?"
+            count_query += " AND lower_ru(name) LIKE ?"
             count_params.append(f"%{words[0]}%")
         else:
             for word in words:
-                count_query += " AND LOWER(name) LIKE ?"
+                count_query += " AND lower_ru(name) LIKE ?"
                 count_params.append(f"%{word}%")
     
     cursor.execute(count_query, count_params)
@@ -327,17 +341,264 @@ async def get_catalog(
         "offset": offset
     }
 
+CATEGORY_KEYWORDS = [
+    "Крем", "Сыворотка", "Гель", "Масло", "Тоник", "Тонер", "Лосьон",
+    "Молочко", "Маска", "Скраб", "Пилинг", "Шампунь", "Бальзам",
+    "Кондиционер", "Пенка", "Эмульсия", "Спрей", "Мист", "Мыло",
+]
+
+
 @app.get("/api/categories")
 async def get_categories():
     """Список категорий и брендов для фильтров"""
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    cursor.execute("SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category")
-    categories = [row[0] for row in cursor.fetchall()]
-    
     cursor.execute("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand != '' ORDER BY brand")
-    brands = [row[0] for row in cursor.fetchall()]
+    brands = {row[0] for row in cursor.fetchall() if row[0]}
+    
+    # Извлекаем бренды из названий (часть до переноса строки), чтобы не терять бренды
+    cursor.execute("SELECT name FROM products WHERE brand IS NULL OR brand = ''")
+    category_lower = [kw.lower() for kw in CATEGORY_KEYWORDS]
+    for (name,) in cursor.fetchall():
+        if not name:
+            continue
+        first_part = name.split("\n")[0].strip()
+        if not first_part or len(first_part) < 2 or len(first_part) > 40:
+            continue
+        if any(kw in first_part.lower() for kw in category_lower):
+            continue
+        brands.add(first_part)
     
     conn.close()
-    return {"categories": categories, "brands": brands}
+    return {"categories": list(CATEGORY_KEYWORDS), "brands": sorted(brands)}
+
+
+# ============================================================
+# МОЯ ПОЛКА (SHELF)
+# ============================================================
+
+class ShelfAddRequest(BaseModel):
+    slug: str
+    category: str = ""
+
+
+class ShelfUpdateRequest(BaseModel):
+    category: str = ""
+
+
+SHELF_CATEGORIES = ["Очищение", "Тонер", "Сыворотка", "Крем", "SPF", "Маска"]
+
+
+def _profile_from_user(user: dict) -> dict:
+    return {
+        "skin_type": user.get("skin_type") or "",
+        "age": user.get("age") or "",
+        "concerns": [c.strip() for c in (user.get("concerns") or "").split(",") if c.strip()],
+        "allergies": [a.strip() for a in (user.get("allergies") or "").split(",") if a.strip()],
+        "custom_text": user.get("custom_text") or "",
+    }
+
+
+def _score_ingredients(name: str, ingredients: str, profile: dict) -> int:
+    if not ingredients:
+        return 0
+    from .analysis_service import AnalysisService
+    priorities = {"hydration": 0.35, "barrier_support": 0.25, "sensitivity": 0.2, "acne_control": 0.1, "brightening": 0.1}
+    try:
+        result = AnalysisService().analyze(name, ingredients, profile, priorities)
+        return int(result.get("score", 0) or 0)
+    except Exception:
+        return 0
+
+
+@app.get("/api/shelf")
+async def get_shelf(current_user: dict = Depends(get_current_user)):
+    from .database import get_user_shelf, get_product_by_id
+    shelf = get_user_shelf(current_user["id"])
+    profile = _profile_from_user(current_user)
+    items = []
+    for s in shelf:
+        p = get_product_by_id(s["product_id"])
+        if not p:
+            continue
+        items.append({
+            "id": s["id"],
+            "product_id": s["product_id"],
+            "category": s["category"] or "",
+            "notes": s["notes"] or "",
+            "added_at": s["added_at"],
+            "name": (p.get("name") or "").replace("\n", " "),
+            "brand": p.get("brand") or "",
+            "image_url": p.get("image_url") or "",
+            "slug": p.get("slug") or "",
+            "ingredients": p.get("ingredients") or "",
+            "score": _score_ingredients(p.get("name") or "", p.get("ingredients") or "", profile),
+        })
+    return {"items": items, "categories": SHELF_CATEGORIES}
+
+
+@app.post("/api/shelf")
+async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(get_current_user)):
+    from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf
+    product = get_product_by_slug(request.slug)
+    if not product:
+        raise HTTPException(status_code=404, detail="Продукт не найден")
+    for s in get_user_shelf(current_user["id"]):
+        if s["product_id"] == product["id"]:
+            return {"status": "ok", "duplicate": True, "item": {"id": s["id"], "product_id": product["id"]}}
+    item = add_product_to_shelf(current_user["id"], product["id"], request.category)
+    return {"status": "ok", "duplicate": False, "item": item}
+
+
+@app.patch("/api/shelf/{shelf_id}")
+async def update_shelf_product(shelf_id: int, request: ShelfUpdateRequest, current_user: dict = Depends(get_current_user)):
+    from .database import update_shelf_product_category
+    updated = update_shelf_product_category(current_user["id"], shelf_id, request.category)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Не найдено")
+    return {"status": "ok"}
+
+
+@app.delete("/api/shelf/{shelf_id}")
+async def delete_shelf_product(shelf_id: int, current_user: dict = Depends(get_current_user)):
+    from .database import remove_product_from_shelf
+    deleted = remove_product_from_shelf(current_user["id"], shelf_id)
+    return {"status": "ok", "deleted": deleted}
+
+
+@app.get("/api/shelf/analysis")
+async def analyze_shelf(current_user: dict = Depends(get_current_user)):
+    from .database import get_user_shelf, get_product_by_id
+    from .analysis_service import AnalysisService
+
+    shelf = get_user_shelf(current_user["id"])
+    products = []
+    for s in shelf:
+        p = get_product_by_id(s["product_id"])
+        if p and p.get("ingredients"):
+            products.append({
+                "name": (p.get("name") or "").replace("\n", " "),
+                "brand": p.get("brand") or "",
+                "category": s.get("category") or "",
+                "ingredients": p.get("ingredients") or "",
+            })
+    if not products:
+        return {"products": [], "overall_score": 0, "repeated_ingredients": [], "duplicate_actives": [], "conflicts": [], "coverage": {}}
+
+    profile = _profile_from_user(current_user)
+    priorities = {"hydration": 0.35, "barrier_support": 0.25, "sensitivity": 0.2, "acne_control": 0.1, "brightening": 0.1}
+    service = AnalysisService()
+
+    analyzed = []
+    ingredient_sets = []
+    ingredient_counts = {}
+    active_counts = {}
+    positive_property = {}
+    dimensions = {}
+    for p in products:
+        r = service.analyze(p["name"], p["ingredients"], profile, priorities)
+        score = int(r.get("score", 0) or 0)
+        analyzed.append({"name": p["name"], "brand": p["brand"], "category": p["category"], "score": score})
+        norm = set(r.get("normalized_ingredients", []))
+        ingredient_sets.append(norm)
+        for ing in norm:
+            ingredient_counts[ing] = ingredient_counts.get(ing, 0) + 1
+        for f in r.get("positive_factors", []):
+            ing = (f.get("ingredient") or "").lower()
+            if ing:
+                active_counts[ing] = active_counts.get(ing, 0) + 1
+                positive_property[ing] = f.get("property", "")
+        for dim, val in (r.get("dimensions") or {}).items():
+            dimensions[dim] = dimensions.get(dim, 0.0) + float(val or 0)
+
+    overall_score = round(sum(a["score"] for a in analyzed) / len(analyzed))
+    repeated_ingredients = sorted(
+        [{"ingredient": k, "count": v} for k, v in ingredient_counts.items() if v > 1],
+        key=lambda x: -x["count"],
+    )[:15]
+    duplicate_actives = sorted(
+        [{"ingredient": k, "count": v, "property": positive_property.get(k, "")} for k, v in active_counts.items() if v > 1],
+        key=lambda x: -x["count"],
+    )[:15]
+
+    conflict_rules = [
+        ({"retinol", "retinal", "tretinoin", "retinyl"}, {"glycolic acid", "salicylic acid", "lactic acid", "aha", "bha"}),
+        ({"niacinamide"}, {"ascorbic acid", "vitamin c"}),
+    ]
+    conflicts = []
+    all_ing = set().union(*ingredient_sets) if ingredient_sets else set()
+    for a_set, b_set in conflict_rules:
+        a = all_ing & a_set
+        b = all_ing & b_set
+        if a and b:
+            conflicts.append({"a": sorted(a), "b": sorted(b)})
+
+    return {
+        "products": analyzed,
+        "overall_score": overall_score,
+        "repeated_ingredients": repeated_ingredients,
+        "duplicate_actives": duplicate_actives,
+        "conflicts": conflicts,
+        "coverage": {k: round(v, 3) for k, v in dimensions.items()},
+    }
+
+
+# ============================================================
+# ПОДБОР УХОДА (ROUTINE BUILDER)
+# ============================================================
+
+class RoutineBuildRequest(BaseModel):
+    query: str
+    profile: dict = {}
+
+
+class RoutineToShelfRequest(BaseModel):
+    name: str = ""
+    items: List[dict] = []
+
+
+@app.post("/api/routine/build")
+async def build_routine_endpoint(
+    request: RoutineBuildRequest,
+    current_user: dict = Depends(get_current_user_optional),
+):
+    from .routine_service import build_routine, ai_refine_routine
+
+    profile = dict(request.profile or {})
+    if current_user:
+        server_profile = _profile_from_user(current_user)
+        for key, value in server_profile.items():
+            if not profile.get(key):
+                profile[key] = value
+
+    routine = build_routine(request.query, profile)
+    routine = await ai_refine_routine(request.query, routine)
+    return routine
+
+
+@app.post("/api/routine/to-shelf")
+async def routine_to_shelf(
+    request: RoutineToShelfRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf
+
+    existing = {s["product_id"] for s in get_user_shelf(current_user["id"])}
+    added = 0
+    skipped = 0
+    for item in request.items:
+        slug = (item or {}).get("slug")
+        category = (item or {}).get("category") or ""
+        if not slug:
+            continue
+        product = get_product_by_slug(slug)
+        if not product:
+            continue
+        if product["id"] in existing:
+            skipped += 1
+            continue
+        add_product_to_shelf(current_user["id"], product["id"], category, request.name)
+        existing.add(product["id"])
+        added += 1
+    return {"status": "ok", "added": added, "skipped": skipped}

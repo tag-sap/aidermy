@@ -13,6 +13,7 @@ load_dotenv()
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
+DEEPSEEK_MODEL_FALLBACKS = ["deepseek-chat", "deepseek-v4-flash", "deepseek-flash"]
 
 def generate_slug(name: str) -> str:
     slug = re.sub(r'[^a-zA-Z0-9\s-]', '', name)
@@ -29,33 +30,93 @@ def clean_json_response(content: str) -> str:
 
 def extract_json_from_response(content: str) -> dict:
     """Извлекает JSON из ответа AI"""
-    # Пробуем найти JSON в блоке кода
-    code_block_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content, re.DOTALL)
+    if not content or not isinstance(content, str):
+        raise ValueError("Пустой ответ AI")
+
+    cleaned = content.strip()
+
+    code_block_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', cleaned, re.DOTALL)
     if code_block_match:
-        content = code_block_match.group(1).strip()
-    
-    # Пробуем найти JSON в тексте
-    json_match = re.search(r'\{[\s\S]*\}', content, re.DOTALL)
+        cleaned = code_block_match.group(1).strip()
+
+    json_match = re.search(r'\{[\s\S]*\}', cleaned, re.DOTALL)
     if json_match:
-        content = json_match.group()
-    
-    # Очищаем от лишних символов
-    content = content.strip()
-    
-    # Пробуем распарсить
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        # Если не получилось, пробуем починить
-        # Удаляем trailing commas
-        content = re.sub(r',\s*}', '}', content)
-        content = re.sub(r',\s*\]', ']', content)
+        cleaned = json_match.group(0)
+
+    cleaned = cleaned.strip()
+    if not cleaned:
+        raise ValueError("Не найден JSON в ответе AI")
+
+    for candidate in [cleaned, cleaned.strip(','), cleaned.strip('`')]:
         try:
-            return json.loads(content)
-        except:
-            raise Exception("Невалидный JSON")
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+        fixed = re.sub(r',\s*}', '}', candidate)
+        fixed = re.sub(r',\s*\]', ']', fixed)
+        try:
+            parsed = json.loads(fixed)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    start = cleaned.find('{')
+    end = cleaned.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start:end+1]
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError("Невалидный JSON")
+
+
+def is_valid_ai_result(result: dict | None) -> bool:
+    if not isinstance(result, dict):
+        return False
+
+    summary = str(result.get('summary', '') or '').strip()
+    verdict = str(result.get('verdict', '') or '').strip()
+    score = result.get('score')
+
+    if not summary:
+        return False
+    if not verdict:
+        return False
+    if score is None:
+        return False
+    try:
+        score_num = int(score)
+    except (TypeError, ValueError):
+        return False
+
+    if score_num < 0 or score_num > 100:
+        return False
+
+    return True
+
 
 async def check_product_with_ai(product_name: str, skin_type: str, profile: dict) -> dict:
+    def _lookup_image(name: str) -> str | None:
+        conn = get_connection(PRODUCTS_DB)
+        cursor = conn.cursor()
+        clean_query = ''.join(name.split())
+        cursor.execute('''
+            SELECT image_url FROM products
+            WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
+            LIMIT 1
+        ''', (f'%{clean_query}%',))
+        row = cursor.fetchone()
+        conn.close()
+        return row['image_url'] if row and row['image_url'] else None
+
     saved_ingredients = get_ingredients(product_name)
     if saved_ingredients:
         result = await check_product_with_ingredients(
@@ -66,6 +127,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         )
         result['slug'] = generate_slug(product_name)
         result['ingredients'] = saved_ingredients
+        result['image_url'] = _lookup_image(product_name)
         return result
     
     conn = get_connection(PRODUCTS_DB)
@@ -74,7 +136,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
     clean_query = ''.join(product_name.split())
     
     cursor.execute('''
-        SELECT name, ingredients, slug FROM products
+        SELECT name, ingredients, slug, image_url FROM products
         WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
         LIMIT 1
     ''', (f'%{clean_query}%',))
@@ -90,6 +152,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         )
         result['slug'] = row['slug'] or generate_slug(product_name)
         result['ingredients'] = row['ingredients']
+        result['image_url'] = row['image_url']
         return result
     
     return {
@@ -100,6 +163,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         "caution_ingredients": [],
         "slug": generate_slug(product_name),
         "ingredients": "",
+        "image_url": _lookup_image(product_name),
         "active_ingredients": None,
         "how_to_use": None,
         "expectations": None
@@ -108,7 +172,36 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
 async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
     if profile is None:
         profile = {}
-    
+
+    if not DEEPSEEK_API_KEY:
+        from .analysis_service import AnalysisService
+
+        priorities = {
+            'hydration': 0.35,
+            'barrier_support': 0.25,
+            'sensitivity': 0.2,
+            'acne_control': 0.1,
+            'brightening': 0.1,
+        }
+        deterministic = AnalysisService().analyze(product_name, ingredients, profile, priorities)
+        score = int(deterministic.get('score', 0))
+        if score >= 70:
+            verdict = 'Подходит'
+        elif score >= 40:
+            verdict = 'С осторожностью'
+        else:
+            verdict = 'Не рекомендуется'
+        return {
+            'score': score,
+            'verdict': verdict,
+            'summary': 'Автоматическая оценка по базе ингредиентов. AI-анализ сейчас недоступен.',
+            'safe_ingredients': [item['ingredient'] for item in deterministic.get('positive_factors', [])[:8]],
+            'caution_ingredients': [item['ingredient'] for item in deterministic.get('negative_factors', [])[:8]],
+            'active_ingredients': None,
+            'how_to_use': None,
+            'expectations': None,
+        }
+
     prompt = f"""
 Ты — дерматолог. Оцени продукт для пользователя.
 
@@ -168,48 +261,84 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 }}
 """
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            DEEPSEEK_API_URL,
-            headers={
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "deepseek-v4-flash",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "max_tokens": 3000
-            },
-            timeout=30
-        )
+    fallback = {
+        "score": 50,
+        "verdict": "С осторожностью",
+        "summary": "Не удалось получить корректный разбор состава. Попробуйте проверить продукт ещё раз.",
+        "safe_ingredients": [],
+        "caution_ingredients": [],
+        "active_ingredients": None,
+        "how_to_use": None,
+        "expectations": None,
+    }
 
-    if response.status_code != 200:
-        raise Exception(f"DeepSeek API error: {response.status_code} - {response.text}")
+    for attempt in range(len(DEEPSEEK_MODEL_FALLBACKS)):
+        model_name = DEEPSEEK_MODEL_FALLBACKS[attempt]
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    DEEPSEEK_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": model_name,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                        "max_tokens": 3000
+                    },
+                    timeout=30
+                )
 
-    data = response.json()
-    content = data["choices"][0]["message"]["content"]
-    print("📥 ОТВЕТ AI:")
-    print(content)
-    print("---")
-    
-    # Пробуем извлечь JSON
-    try:
-        result = extract_json_from_response(content)
-        return result
-    except Exception as e:
-        print(f"❌ Ошибка парсинга JSON: {e}")
-        # Возвращаем дефолтный результат
-        return {
-            "score": 50,
-            "verdict": "Нейтрально",
-            "summary": "Не удалось получить рекомендацию.",
-            "safe_ingredients": [],
-            "caution_ingredients": [],
-            "active_ingredients": None,
-            "how_to_use": None,
-            "expectations": None
-        }
+            if response.status_code != 200:
+                print(f"⚠️ DeepSeek model {model_name} failed with status {response.status_code}")
+                if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
+                    raise Exception(f"DeepSeek API error: {response.status_code} - {response.text}")
+                continue
+
+            try:
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+            except Exception:
+                if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
+                    return fallback
+                continue
+
+            if not content or not str(content).strip():
+                print(f"⚠️ DeepSeek model {model_name} returned empty content; trying next model.")
+                if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
+                    return fallback
+                continue
+
+            print(f"📥 ОТВЕТ AI [{model_name}]:")
+            print(content)
+            print("---")
+
+            try:
+                result = extract_json_from_response(content)
+                if is_valid_ai_result(result):
+                    return result
+            except Exception as e:
+                print(f"❌ Ошибка парсинга JSON: {e}")
+
+            if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
+                break
+            continue
+        except Exception as e:
+            print(f"❌ Ошибка модели {model_name}: {e}")
+            if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
+                raise
+            continue
+
+    return {
+        **fallback,
+        "summary": fallback.get("summary") or "Состав проверен, но итоговый ответ был пустым. Попробуйте повторить проверку.",
+        "verdict": fallback.get("verdict") or "С осторожностью",
+        "score": int(fallback.get("score") or 50),
+        "safe_ingredients": fallback.get("safe_ingredients") or [],
+        "caution_ingredients": fallback.get("caution_ingredients") or [],
+    }
 
 def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB

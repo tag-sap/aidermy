@@ -6,17 +6,17 @@ interface AidermyLogoProps {
 
 export function AidermyLogo({ isCompact = false }: AidermyLogoProps) {
   return (
-    <div className={`logo-enter flex flex-col items-center transition-all duration-300 ${isCompact ? 'scale-75 origin-top-left' : ''
+    <div className={`logo-enter group flex flex-col items-center md:items-start transition-all duration-300 ${isCompact ? 'scale-75 origin-top-left' : ''
       }`}>
-      <span className="logo-shell">
-        <span className={`logo-metallic font-black tracking-[0.12em] select-none ${isCompact ? 'text-3xl' : 'text-5xl'
+      <span>
+        <span className={`font-[family-name:var(--font-playfair)] font-normal tracking-[0.04em] select-none ${isCompact ? 'text-2xl' : 'text-4xl'
           }`}>
-          AIDERMY
+          Aidermy
         </span>
       </span>
       {!isCompact && (
-        <span className="mt-1.5 text-[10px] font-normal uppercase tracking-[0.42em] text-primary/70">
-          Помощник в уходе за твоей кожей
+        <span className="mt-1.5 text-[10px] font-normal tracking-[0.14em] text-primary/70 transition-all duration-300 md:opacity-0 md:group-hover:opacity-100">
+          помощник в уходе за твоей кожей
         </span>
       )}
     </div>

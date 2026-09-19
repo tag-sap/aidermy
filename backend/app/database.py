@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 from datetime import datetime
 
 # === ДВЕ БАЗЫ ===
@@ -11,6 +12,7 @@ def get_connection(db_path=None):
         db_path = AIDERMY_DB
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+    conn.create_function("lower_ru", 1, lambda s: (s or "").lower())
     return conn
 
 def init_db():
@@ -39,8 +41,30 @@ def init_db():
             slug TEXT,
             user_id INTEGER,
             profile_snapshot TEXT DEFAULT '{}',
+            deleted_at TIMESTAMP NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    ''')
+
+    cursor.execute('''
+        DELETE FROM check_history
+        WHERE id IN (
+            SELECT id
+            FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY user_id, product_name, score, verdict, summary
+                           ORDER BY created_at DESC
+                       ) AS rn
+                FROM check_history
+            )
+            WHERE rn > 1
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_check_history_unique_user_product
+        ON check_history (user_id, product_name, score, verdict, summary)
     ''')
     
     cursor.execute('''
@@ -57,6 +81,18 @@ def init_db():
         )
     ''')
     
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS shelf_products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            product_id INTEGER NOT NULL,
+            category TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, product_id)
+        )
+    ''')
+    
     cursor.execute("PRAGMA table_info(check_history)")
     columns = [col[1] for col in cursor.fetchall()]
     if 'ingredients' not in columns:
@@ -67,6 +103,20 @@ def init_db():
         cursor.execute('ALTER TABLE check_history ADD COLUMN user_id INTEGER')
     if 'profile_snapshot' not in columns:
         cursor.execute('ALTER TABLE check_history ADD COLUMN profile_snapshot TEXT DEFAULT "{}"')
+    if 'deleted_at' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN deleted_at TIMESTAMP NULL')
+    if 'image_url' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN image_url TEXT')
+    if 'active_ingredients' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN active_ingredients TEXT')
+    if 'how_to_use' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN how_to_use TEXT')
+    if 'expectations' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN expectations TEXT')
+    if 'safe_ingredients' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN safe_ingredients TEXT')
+    if 'caution_ingredients' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN caution_ingredients TEXT')
     
     conn.commit()
     conn.close()
@@ -85,10 +135,73 @@ def init_db():
             saved_at TEXT
         )
     ''')
+    product_columns = [col[1] for col in cursor.execute("PRAGMA table_info(products)").fetchall()]
+    for column in ("image_url", "category", "brand"):
+        if column not in product_columns:
+            cursor.execute(f"ALTER TABLE products ADD COLUMN {column} TEXT")
     conn.commit()
     conn.close()
     
     print("✅ Базы данных инициализированы")
+
+
+def upsert_imported_product(product: dict) -> dict:
+    """Save an imported product while preserving existing non-empty fields."""
+    name = (product.get("name") or "").strip()
+    if not name:
+        raise ValueError("Imported product has no name")
+
+    source_url = product.get("source_url")
+    brand = (product.get("brand") or "").strip() or None
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    existing = cursor.execute(
+        "SELECT * FROM products WHERE (? IS NOT NULL AND url = ?) OR (LOWER(name) = LOWER(?) AND COALESCE(LOWER(brand), '') = COALESCE(LOWER(?), '')) LIMIT 1",
+        (source_url, source_url, name, brand),
+    ).fetchone()
+
+    values = {
+        "name": name,
+        "brand": brand,
+        "ingredients": product.get("ingredients_raw"),
+        "url": source_url,
+        "image_url": product.get("image_url"),
+        "category": product.get("category"),
+    }
+    if existing:
+        cursor.execute(
+            """UPDATE products SET
+                name = COALESCE(NULLIF(name, ''), ?),
+                brand = COALESCE(NULLIF(brand, ''), ?),
+                ingredients = COALESCE(NULLIF(ingredients, ''), ?),
+                url = COALESCE(NULLIF(url, ''), ?),
+                image_url = COALESCE(NULLIF(image_url, ''), ?),
+                category = COALESCE(NULLIF(category, ''), ?)
+            WHERE id = ?""",
+            (*values.values(), existing["id"]),
+        )
+        product_id = existing["id"]
+        logger_message = "Existing product found"
+    else:
+        import re
+        slug = re.sub(r"[^a-zA-Z0-9\s-]", "", name)
+        slug = re.sub(r"[-\s]+", "-", slug).lower().strip("-") or "product"
+        cursor.execute("SELECT 1 FROM products WHERE slug = ?", (slug,))
+        if cursor.fetchone():
+            slug = f"{slug}-{abs(hash(source_url or name)) % 100000}"
+        cursor.execute(
+            """INSERT INTO products (name, slug, brand, ingredients, url, image_url, category, saved_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            (name, slug, values["brand"], values["ingredients"], values["url"], values["image_url"], values["category"]),
+        )
+        product_id = cursor.lastrowid
+        logger_message = "Product normalized"
+
+    conn.commit()
+    row = cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+    conn.close()
+    print(f"[SCRAPER] {logger_message}: {name}")
+    return dict(row)
 
 # === РАБОТА С ИСТОРИЕЙ ===
 # database.py
@@ -103,13 +216,36 @@ def save_check_result(
     slug: str = None,
     user_id: int = None,
     profile_snapshot: str = "{}",
+    image_url: str = None,
+    active_ingredients: str = None,
+    how_to_use: str = None,
+    expectations: str = None,
 ):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO check_history (product_name, skin_type, score, verdict, summary, ingredients, slug, user_id, profile_snapshot, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ''', (product_name, skin_type, score, verdict, summary, ingredients, slug, user_id, profile_snapshot or "{}"))
+        INSERT OR IGNORE INTO check_history (
+            product_name, skin_type, score, verdict, summary,
+            ingredients, slug, user_id, profile_snapshot,
+            image_url, active_ingredients, how_to_use, expectations,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ''', (
+        product_name,
+        skin_type,
+        score,
+        verdict,
+        summary,
+        ingredients,
+        slug,
+        user_id,
+        profile_snapshot or "{}",
+        image_url,
+        json.dumps(active_ingredients) if active_ingredients is not None else None,
+        json.dumps(how_to_use) if how_to_use is not None else None,
+        json.dumps(expectations) if expectations is not None else None,
+    ))
     conn.commit()
     conn.close()
     print(f"📊 Проверка сохранена: {product_name} — {score}% (user_id: {user_id})")
@@ -120,9 +256,9 @@ def get_user_check_history(user_id: int, limit: int = 100):
     cursor.execute('''
         SELECT id, user_id, product_name, skin_type, score, verdict, summary, 
                ingredients, slug, image_url, active_ingredients, how_to_use, 
-               expectations, profile_snapshot, created_at
+               expectations, safe_ingredients, caution_ingredients, profile_snapshot, created_at
         FROM check_history 
-        WHERE user_id = ?
+        WHERE user_id = ? AND deleted_at IS NULL
         ORDER BY created_at DESC 
         LIMIT ?
     ''', (user_id, limit))
@@ -134,7 +270,37 @@ def get_user_check_history(user_id: int, limit: int = 100):
 def clear_user_check_history(user_id: int):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM check_history WHERE user_id = ?', (user_id,))
+    cursor.execute(
+        'UPDATE check_history SET deleted_at = CURRENT_TIMESTAMP WHERE user_id = ? AND deleted_at IS NULL',
+        (user_id,)
+    )
+    conn.commit()
+    deleted = cursor.rowcount
+    conn.close()
+    return deleted
+
+
+def delete_user_history_items(user_id: int, item_ids: list[str | int]):
+    if not item_ids:
+        return 0
+
+    cleaned = []
+    for item_id in item_ids:
+        try:
+            cleaned.append(int(item_id))
+        except (TypeError, ValueError):
+            continue
+
+    if not cleaned:
+        return 0
+
+    placeholders = ', '.join('?' for _ in cleaned)
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        f'UPDATE check_history SET deleted_at = CURRENT_TIMESTAMP WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders})',
+        (user_id, *cleaned),
+    )
     conn.commit()
     deleted = cursor.rowcount
     conn.close()
@@ -259,3 +425,52 @@ def product_exists_in_products_db(product_name: str) -> bool:
     exists = cursor.fetchone() is not None
     conn.close()
     return exists
+
+# === ПОЛКА (SHELF) ===
+def get_product_by_id(product_id: int):
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def add_product_to_shelf(user_id: int, product_id: int, category: str = "", notes: str = ""):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT OR IGNORE INTO shelf_products (user_id, product_id, category, notes)
+        VALUES (?, ?, ?, ?)
+    ''', (user_id, product_id, category, notes))
+    conn.commit()
+    cursor.execute("SELECT * FROM shelf_products WHERE user_id = ? AND product_id = ?", (user_id, product_id))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_user_shelf(user_id: int):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM shelf_products WHERE user_id = ? ORDER BY added_at DESC, id DESC", (user_id,))
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return rows
+
+def remove_product_from_shelf(user_id: int, shelf_id: int) -> int:
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM shelf_products WHERE id = ? AND user_id = ?", (shelf_id, user_id))
+    conn.commit()
+    deleted = cursor.rowcount
+    conn.close()
+    return deleted
+
+def update_shelf_product_category(user_id: int, shelf_id: int, category: str):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE shelf_products SET category = ? WHERE id = ? AND user_id = ?", (category, shelf_id, user_id))
+    conn.commit()
+    cursor.execute("SELECT * FROM shelf_products WHERE id = ? AND user_id = ?", (shelf_id, user_id))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None

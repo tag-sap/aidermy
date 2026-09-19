@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { User, X, LogOut, Settings, Heart, History, LogIn } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
 
@@ -21,16 +21,6 @@ export function AppHeader({
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
-  const [isCentered, setIsCentered] = useState(false)
-
-  useEffect(() => {
-    const checkWidth = () => {
-      setIsCentered(window.innerWidth < 1024)
-    }
-    checkWidth()
-    window.addEventListener('resize', checkWidth)
-    return () => window.removeEventListener('resize', checkWidth)
-  }, [])
 
   const handleProfileClick = () => {
     if (isAuthenticated) {
@@ -42,8 +32,8 @@ export function AppHeader({
 
   return (
     <>
-      <header className="relative z-20 flex w-full flex-col items-center pt-6 pb-1 md:pt-0">
-        <div className={`w-full flex ${isCentered ? 'justify-center' : 'justify-start pl-6'} transition-all duration-300`}>
+      <header className="relative z-20 flex w-full flex-col items-center pt-8 pb-1 md:pt-8">
+        <div className="w-full flex justify-center md:justify-start md:pl-6 transition-all duration-300">
           <AidermyLogo />
         </div>
 
