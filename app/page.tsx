@@ -656,7 +656,7 @@ export default function Page() {
                   </div>
                 )}
                 {tab === 'shelf' && (
-                  <ShelfTab onCheck={(product) => handleCheck(product, profile.skinType || 'Нормальная')} />
+                  <ShelfTab />
                 )}
               </div>
             )}

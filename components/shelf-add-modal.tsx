@@ -34,11 +34,13 @@ export function ShelfAddModal({
   category,
   onClose,
   onAdded,
+  onOpenProduct,
 }: {
   cabinet: string
   category: string
   onClose: () => void
   onAdded: () => void
+  onOpenProduct?: (slug: string) => void
 }) {
   const [mode, setMode] = useState<Mode>('menu')
   const [query, setQuery] = useState('')
@@ -49,8 +51,10 @@ export function ShelfAddModal({
   const [status, setStatus] = useState('')
   const [recs, setRecs] = useState<Recommendation[]>([])
   const [recLoading, setRecLoading] = useState(false)
+  const [analyzing, setAnalyzing] = useState<Set<string>>(new Set())
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  const isScoring = CABINET_META.find((c) => c.key === cabinet)?.hasScoring ?? false
 
   const search = async (q: string) => {
     setQuery(q)
@@ -91,7 +95,12 @@ export function ShelfAddModal({
         body: JSON.stringify({ slug, cabinet, category }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.detail || 'Не удалось добавить')
+      if (!res.ok) {
+        if (res.status === 422) {
+          throw new Error(`Этот продукт не подходит для выбранной категории. ${data.detail || ''}`)
+        }
+        throw new Error(data.detail || 'Не удалось добавить')
+      }
       if (data.duplicate) setStatus('Этот продукт уже на полке')
       onAdded()
       onClose()
@@ -124,6 +133,37 @@ export function ShelfAddModal({
     }
   }
 
+  const analyzeRecommendation = async (slug: string) => {
+    setAnalyzing((prev) => new Set(prev).add(slug))
+    try {
+      const res = await fetch('/api/shelf/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setRecs((prev) =>
+        prev.map((r) =>
+          r.slug === slug
+            ? {
+                ...r,
+                score: res.ok && data.score != null ? data.score : r.score,
+                reason: res.ok && data.analysis?.summary ? data.analysis.summary : r.reason,
+              }
+            : r,
+        ),
+      )
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setAnalyzing((prev) => {
+        const next = new Set(prev)
+        next.delete(slug)
+        return next
+      })
+    }
+  }
+
   const loadRecommendations = async () => {
     setRecLoading(true)
     setStatus('')
@@ -135,7 +175,12 @@ export function ShelfAddModal({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.detail || 'Не удалось подобрать')
-      setRecs(data.recommendations || [])
+      const recommendations = data.recommendations || []
+      setRecs(recommendations)
+      // Автоматически анализируем все три продукта (для скоринговых шкафов)
+      if (isScoring) {
+        recommendations.forEach((r) => analyzeRecommendation(r.slug))
+      }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Не удалось подобрать')
     } finally {
@@ -148,7 +193,6 @@ export function ShelfAddModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
   const title = `${CABINET_TITLES[cabinet] || cabinet} → ${category}`
-  const isScoring = CABINET_META.find((c) => c.key === cabinet)?.hasScoring ?? false
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
@@ -243,14 +287,28 @@ export function ShelfAddModal({
                         {r.score != null ? (
                           <p className="text-sm font-light text-primary">{r.score}%</p>
                         ) : isScoring ? (
-                          <p className="text-[10px] text-muted-foreground/50">Анализ ещё не выполнен</p>
+                          analyzing.has(r.slug) ? (
+                            <p className="text-[10px] text-muted-foreground/50">Анализ выполняется…</p>
+                          ) : (
+                            <p className="text-[10px] text-muted-foreground/50">Анализ ещё не выполнен</p>
+                          )
                         ) : null}
                       </div>
                     </div>
                     {r.reason && <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/60">{r.reason}</p>}
-                    <button onClick={() => addBySlug(r.slug)} disabled={busy} className="mt-2 w-full rounded-lg bg-primary py-1.5 text-xs text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
-                      Выбрать
-                    </button>
+                    <div className="mt-2 flex gap-1.5">
+                      {onOpenProduct && (
+                        <button
+                          onClick={() => onOpenProduct(r.slug)}
+                          className="flex-1 rounded-lg border border-gray-200 py-1.5 text-xs text-foreground/70 transition-colors hover:bg-gray-50"
+                        >
+                          Подробнее
+                        </button>
+                      )}
+                      <button onClick={() => addBySlug(r.slug)} disabled={busy} className="flex-1 rounded-lg bg-primary py-1.5 text-xs text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
+                        Выбрать
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

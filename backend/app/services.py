@@ -228,9 +228,16 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 2. Активный ингредиент — по позиции в составе (1–3 = высокая, 4–6 = средняя, 7+ = низкая).
 3. Как применять, чего ожидать, когда бить тревогу.
 
-### Теги:
-<good> — позитивные слова
-<bad> — негативные слова
+### Теги для цветовой маркировки (только в полях summary, note, normal, danger):
+<good> — позитивный момент
+<warning> — предупреждение, на что обратить внимание
+<bad> — негативный момент
+
+### Summary (резюме):
+Напиши 1–2 коротких предложения простым человеческим языком, отвечая на вопрос «что это значит лично для пользователя?».
+НЕ перечисляй ингредиенты и INCI-названия — они будут показаны отдельно в подробном разборе.
+НЕ используй медицинские утверждения.
+Используй теги <good>, <warning>, <bad> вокруг коротких фраз.
 
 ### ВАЖНО:
 Верни ТОЛЬКО JSON без лишнего текста. Все поля обязательны.
@@ -239,7 +246,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 {{
   "score": число,
   "verdict": "Подходит" | "С осторожностью" | "Не рекомендуется",
-  "summary": "текст с <good> и <bad>",
+  "summary": "1–2 предложения простым языком с тегами <good>/<warning>/<bad>",
   "active_ingredients": {{
     "name": "название",
     "position": число,
@@ -249,12 +256,12 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
   "how_to_use": {{
     "application": "Тонкий слой" | "Точечно" | "Можно много",
     "time": "Утром" | "Вечером" | "2 раза в день",
-    "note": "с <good> и <bad>"
+    "note": "с <good>, <warning> или <bad>"
   }},
   "expectations": {{
     "when": "через 1-2 недели" | "через месяц",
-    "normal": "с <good> и <bad>",
-    "danger": "с <good> и <bad>"
+    "normal": "с <good>, <warning> или <bad>",
+    "danger": "с <good>, <warning> или <bad>"
   }},
   "safe_ingredients": ["инг1"],
   "caution_ingredients": ["инг1"]

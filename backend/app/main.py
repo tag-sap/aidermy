@@ -522,6 +522,10 @@ class ShelfClearRequest(BaseModel):
     category: str = ""
 
 
+class ShelfAnalyzeRequest(BaseModel):
+    slug: str = ""
+
+
 SHELF_CATEGORIES = ["Очищение", "Тонер", "Сыворотка", "Крем", "SPF", "Маска"]
 
 
@@ -632,7 +636,7 @@ async def get_shelf(current_user: dict = Depends(get_current_user)):
 @app.post("/api/shelf")
 async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(get_current_user)):
     from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf
-    from .shelf_service import canonical_category, CABINET_BY_KEY
+    from .shelf_service import canonical_category, CABINET_BY_KEY, is_product_compatible
 
     product = get_product_by_slug(request.slug)
     if not product:
@@ -642,6 +646,10 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
     if cabinet not in CABINET_BY_KEY:
         cabinet = "face"
     category = canonical_category(cabinet, request.category)
+
+    ok, reason = is_product_compatible(product, cabinet, category)
+    if not ok:
+        raise HTTPException(status_code=422, detail=reason)
 
     for s in get_user_shelf(current_user["id"]):
         if s["product_id"] == product["id"]:
@@ -670,6 +678,77 @@ async def recommend_for_shelf(request: ShelfRecommendRequest, current_user: dict
 
     recommendations = recommend_products(current_user, cabinet, category, exclude_slugs)
     return {"cabinet": cabinet, "category": category, "recommendations": recommendations}
+
+
+@app.post("/api/shelf/analyze")
+async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict = Depends(get_current_user)):
+    """Запускает анализ продукта (существующий pipeline) и сохраняет результат в историю.
+    Если анализ уже есть — возвращает готовый результат без повторного запуска."""
+    import json
+    from .database import get_product_by_slug, get_connection, AIDERMY_DB
+    from .shelf_service import score_product
+    from .services import check_product_with_ai
+
+    product = get_product_by_slug(request.slug)
+    if not product:
+        raise HTTPException(status_code=404, detail="Продукт не найден")
+
+    name = (product.get("name") or "").replace("\n", " ").strip()
+
+    existing_score, existing_analysis = score_product(current_user, product)
+    if existing_score is not None:
+        return {"status": "ok", "cached": True, "score": existing_score, "analysis": existing_analysis}
+
+    profile = _profile_from_user(current_user)
+    skin_type = profile.get("skin_type") or "Нормальная"
+
+    try:
+        result = await check_product_with_ai(name, skin_type, profile)
+    except Exception as exc:
+        print(f"[ANALYZE] failed: {exc!r}")
+        raise HTTPException(status_code=502, detail="Не удалось выполнить анализ") from exc
+
+    if not result or not result.get("score"):
+        return {"status": "error", "cached": False, "score": None, "analysis": None, "detail": "Состав продукта неизвестен"}
+
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    try:
+        existing = cursor.execute(
+            "SELECT 1 FROM check_history WHERE user_id = ? AND product_name = ? AND score = ? AND verdict = ? AND summary = ? AND deleted_at IS NULL LIMIT 1",
+            (current_user["id"], name, result.get("score"), result.get("verdict"), result.get("summary")),
+        ).fetchone()
+        if not existing:
+            cursor.execute('''
+                INSERT INTO check_history (
+                    user_id, product_name, skin_type, score, verdict, summary,
+                    ingredients, slug, image_url, active_ingredients, how_to_use, expectations,
+                    safe_ingredients, caution_ingredients, profile_snapshot, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                current_user["id"], name, skin_type, int(result.get("score") or 0), result.get("verdict"), result.get("summary"),
+                result.get("ingredients") or (product.get("ingredients") or ""),
+                result.get("slug") or (product.get("slug") or ""),
+                result.get("image_url") or (product.get("image_url") or ""),
+                json.dumps(result.get("active_ingredients")) if result.get("active_ingredients") is not None else None,
+                json.dumps(result.get("how_to_use")) if result.get("how_to_use") is not None else None,
+                json.dumps(result.get("expectations")) if result.get("expectations") is not None else None,
+                json.dumps(result.get("safe_ingredients") or [], ensure_ascii=False),
+                json.dumps(result.get("caution_ingredients") or [], ensure_ascii=False),
+                json.dumps(profile, ensure_ascii=False),
+            ))
+            conn.commit()
+    finally:
+        conn.close()
+
+    analysis = {
+        "verdict": result.get("verdict") or "",
+        "summary": result.get("summary") or "",
+        "score": int(result.get("score") or 0),
+        "safe_ingredients": result.get("safe_ingredients") or [],
+        "caution_ingredients": result.get("caution_ingredients") or [],
+    }
+    return {"status": "ok", "cached": False, "score": int(result.get("score") or 0), "analysis": analysis}
 
 
 @app.patch("/api/shelf/{shelf_id}")

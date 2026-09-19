@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { X, Sparkles, Clock, AlertCircle, CheckCircle, Info } from 'lucide-react'
 import { ScrambleText } from '@/components/scramble-text'
+import { MarkupText } from '@/components/markup-text'
 import type { CheckResult, SkinProfile } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
@@ -134,10 +135,6 @@ export function ResultSheet({
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
 
-  const renderWithColors = (text: string) => {
-    if (!text) return null
-    return <span dangerouslySetInnerHTML={{ __html: text.replace(/<good>/g, '<span style="color:#4E9F6E;font-weight:500;">').replace(/<bad>/g, '<span style="color:#EF4444;font-weight:500;">').replace(/<\/good>/g, '</span>').replace(/<\/bad>/g, '</span>') }} />
-  }
 
   const Section = ({ icon: Icon, title, children, className, onClick }: any) => (
     <div onClick={onClick} className={cn('rounded-xl p-2.5 border transition-all duration-300 bg-white/40 backdrop-blur-md border-white/40 hover:bg-white/60 hover:border-primary/20 shadow-[0_4px_16px_rgba(108,60,225,0.04)]', onClick && 'cursor-pointer', className)}>
@@ -188,7 +185,7 @@ export function ResultSheet({
 
             {result.summary && (
               <Section icon={Info} title="Резюме" className="border-primary/10">
-                <p className="text-[11px] text-foreground/70 leading-relaxed font-light">{renderWithColors(result.summary)}</p>
+                <p className="text-[11px] text-foreground/70 leading-relaxed font-light"><MarkupText text={result.summary} /></p>
               </Section>
             )}
 
@@ -208,7 +205,7 @@ export function ResultSheet({
                 <div className="space-y-0.5 text-[11px] text-foreground/70 font-light">
                   <p><span className="font-medium text-foreground/80">Нанесение:</span> {result.how_to_use.application}</p>
                   <p><span className="font-medium text-foreground/80">Время:</span> {result.how_to_use.time}</p>
-                  {result.how_to_use.note && <p className="text-[10px] text-muted-foreground/60 mt-0.5">{renderWithColors(result.how_to_use.note)}</p>}
+                  {result.how_to_use.note && <p className="text-[10px] text-muted-foreground/60 mt-0.5"><MarkupText text={result.how_to_use.note} /></p>}
                 </div>
               </Section>
             )}
@@ -217,8 +214,8 @@ export function ResultSheet({
               <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50">
                 <div className="space-y-0.5 text-[11px] text-foreground/70 font-light">
                   <p><span className="font-medium text-foreground/80">Когда:</span> {result.expectations.when}</p>
-                  <p className="text-[10px] flex items-start gap-1"><CheckCircle className="size-3 text-primary/60 mt-0.5 flex-shrink-0" /><span>{renderWithColors(result.expectations.normal)}</span></p>
-                  <p className="text-[10px] flex items-start gap-1"><AlertCircle className="size-3 text-red-400/60 mt-0.5 flex-shrink-0" /><span>{renderWithColors(result.expectations.danger)}</span></p>
+                  <p className="text-[10px] flex items-start gap-1"><CheckCircle className="size-3 text-primary/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.normal} /></span></p>
+                  <p className="text-[10px] flex items-start gap-1"><AlertCircle className="size-3 text-red-400/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.danger} /></span></p>
                 </div>
               </Section>
             )}

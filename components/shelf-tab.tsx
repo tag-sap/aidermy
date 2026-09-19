@@ -26,7 +26,7 @@ function scoreBadge(s: number | null) {
   return 'bg-[#B7A7F0]/15 text-[#8B7CF6]'
 }
 
-export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
+export function ShelfTab() {
   const [cabinets, setCabinets] = useState<Cabinet[]>([])
   const [loading, setLoading] = useState(true)
   const [activeCabinet, setActiveCabinet] = useState('face')
@@ -39,8 +39,8 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
-  const loadShelf = useCallback(async () => {
-    setLoading(true)
+  const fetchShelf = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const res = await fetch('/api/shelf', { headers: { Authorization: `Bearer ${token}` } })
       if (res.ok) {
@@ -50,9 +50,12 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
     } catch (e) {
       console.error(e)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [token])
+
+  const loadShelf = useCallback(() => fetchShelf(false), [fetchShelf])
+  const refreshShelf = useCallback(() => fetchShelf(true), [fetchShelf])
 
   useEffect(() => {
     loadShelf()
@@ -85,7 +88,7 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
       })
       if (!res.ok) throw new Error('Не удалось удалить')
       setSelected(new Set())
-      await loadShelf()
+      await refreshShelf()
     } catch (e) {
       console.error(e)
     } finally {
@@ -103,7 +106,7 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
       })
       if (!res.ok) throw new Error('Не удалось очистить')
       setSelected(new Set())
-      await loadShelf()
+      await refreshShelf()
     } catch (e) {
       console.error(e)
     } finally {
@@ -210,16 +213,22 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
           </div>
 
           {currentItems.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-gray-200/70 py-12 text-center">
+            <div className="rounded-3xl border border-dashed border-gray-200/70 px-4 py-10 text-center">
               <Sparkles className="mx-auto mb-3 size-7 text-muted-foreground/30" />
               <p className="text-sm text-foreground/70">Ваш шкаф пока пуст</p>
               <p className="mt-1 text-xs text-muted-foreground/50">Соберите здесь свой уход.</p>
-              <button
-                onClick={() => setAddContext({ cabinet: currentCabinet.key, category: currentCabinet.categories[0]?.key || 'Увлажнение' })}
-                className="mt-4 rounded-full bg-primary px-4 py-2 text-xs text-white transition-colors hover:bg-primary/90"
-              >
-                Добавить первый продукт
-              </button>
+              <p className="mt-6 mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground/50">С чего начнём?</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {currentCabinet.categories.map((cat) => (
+                  <button
+                    key={cat.key}
+                    onClick={() => setAddContext({ cabinet: currentCabinet.key, category: cat.key })}
+                    className="rounded-full border border-gray-200 px-3.5 py-1.5 text-xs text-foreground/70 transition-colors hover:border-primary/40 hover:text-primary"
+                  >
+                    {cat.title}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
@@ -336,7 +345,11 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
           cabinet={addContext.cabinet}
           category={addContext.category}
           onClose={() => setAddContext(null)}
-          onAdded={loadShelf}
+          onAdded={refreshShelf}
+          onOpenProduct={(slug) => {
+            setAddContext(null)
+            setDetailSlug(slug)
+          }}
         />
       )}
 
@@ -344,8 +357,7 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
         <ProductModal
           slug={detailSlug}
           onClose={() => setDetailSlug(null)}
-          onCheck={onCheck}
-          onChanged={loadShelf}
+          onChanged={refreshShelf}
         />
       )}
 

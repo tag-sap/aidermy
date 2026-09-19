@@ -74,10 +74,10 @@ LEGACY_CATEGORY_MAP: Dict[str, Tuple[str, str]] = {
 }
 # Ключевые слова для определения шкафа по названию продукта.
 _INFER_RULES: List[Tuple[str, List[str]]] = [
-    ("hair", ["шампунь", "shampoo", "кондиционер", "conditioner", "бальзам", "стайлинг", "styling", "мусс", "mousse", "лак для волос", "hairspray", "несмываем", "leave-in", "масло для волос", "hair oil", "hair serum"]),
-    ("body", ["гель для душа", "shower gel", "body wash", "дезодорант", "deodorant", "скраб для тела", "body scrub", "крем для тела", "body cream", "body lotion", "лосьон", "молочко для тела", "мыло", "soap"]),
-    ("makeup", ["тональн", "foundation", "консилер", "concealer", "пудр", "powder", "румян", "blush", "тушь", "mascara", "помад", "lipstick", "блеск для губ", "lip gloss", "хайлайтер", "highlighter", "тени"]),
-    ("fragrance", ["парфюм", "parfum", "туалетная вода", "eau de toilette", "парфюмерная вода", "eau de parfum", "одеколон", "духи", "cologne"]),
+    ("hair", ["шампунь", "shampoo", "кондиционер", "conditioner", "бальзам для волос", "hair balm", "стайлинг", "styling", "мусс", "mousse", "лак для волос", "hairspray", "несмываем", "leave-in", "масло для волос", "hair oil", "hair serum", "маска для волос", "hair mask"]),
+    ("body", ["гель для душа", "shower gel", "body wash", "дезодорант", "deodorant", "антиперспирант", "antiperspirant", "скраб для тела", "body scrub", "крем для тела", "body cream", "body lotion", "лосьон", "молочко для тела", "крем для рук", "hand cream", "бальзам для тела", "body balm", "мыло", "soap"]),
+    ("makeup", ["тональн", "foundation", "консилер", "concealer", "пудр", "powder", "румян", "blush", "тушь", "mascara", "помад", "lipstick", "блеск для губ", "lip gloss", "бальзам для губ", "lip balm", "карандаш для губ", "lipliner", "хайлайтер", "highlighter", "тени", "eyeshadow", "подводка", "eyeliner", "бров", "brow", "лак для ногтей", "nail polish", "bb крем", "cc крем"]),
+    ("fragrance", ["парфюм", "parfum", "туалетная вода", "eau de toilette", "парфюмерная вода", "eau de parfum", "одеколон", "духи", "cologne", "perfume"]),
 ]
 
 # Правила подбора продуктов для категории шкафа.
@@ -173,6 +173,30 @@ def resolve_shelf_cabinet(category: str, cabinet: str, name: str) -> Tuple[str, 
     if cab in CABINET_BY_KEY:
         return cab, canonical_category(cab, category)
     return infer_cabinet_category(category, name)
+
+
+def is_product_compatible(product: Dict[str, Any], cabinet: str, category: str) -> Tuple[bool, str]:
+    """Проверяет, можно ли добавить продукт в выбранный шкаф/категорию.
+
+    Не блокирует продукт глобально — только неподходящую связь User→Shelf.
+    Возвращает (ok, reason).
+    """
+    name = (product.get("name") or "").replace("\n", " ").strip()
+    prod_category = product.get("category") or ""
+    natural_cabinet, natural_category = infer_cabinet_category(prod_category, name)
+
+    if natural_cabinet != cabinet:
+        target_title = CABINET_BY_KEY.get(cabinet, {}).get("title", cabinet)
+        natural_title = CABINET_BY_KEY.get(natural_cabinet, {}).get("title", natural_cabinet)
+        return False, f"Этот продукт относится к шкафу «{natural_title}», а не «{target_title}»."
+
+    # Внутри шкафа «Лицо» сверяем категорию по маппингу старой категории каталога
+    if cabinet == "face" and category and category != "Другое":
+        mapped = canonical_category("face", prod_category)
+        if mapped != "Другое" and mapped != category:
+            return False, f"Этот продукт относится к категории «{mapped}», а не «{category}»."
+
+    return True, ""
 # ---------------------------------------------------------------------------
 # СКОРИНГ
 # ---------------------------------------------------------------------------
@@ -361,6 +385,11 @@ def recommend_products(
             continue
         seen_ids.add(pid)
         seen_names.add(norm_name)
+
+        # Пропускаем продукты, не соответствующие шкафу/категории
+        compatible, _compat_reason = is_product_compatible(product, cabinet, category)
+        if not compatible:
+            continue
 
         rec: Dict[str, Any] = {
             "id": pid,

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { X, Sparkles, LoaderCircle, Check, Trash2, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { MarkupText } from '@/components/markup-text'
 import { CABINET_META, CABINET_TITLES } from '@/lib/shelf'
 
 type ProductDetail = {
@@ -64,18 +65,17 @@ function asList(v: unknown): string[] {
 export function ProductModal({
   slug,
   onClose,
-  onCheck,
   onChanged,
 }: {
   slug: string | null
   onClose: () => void
-  onCheck: (productName: string) => void
   onChanged: () => void
 }) {
   const [data, setData] = useState<ProductDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
   const [pickCabinet, setPickCabinet] = useState('face')
   const [pickCategory, setPickCategory] = useState('')
@@ -157,6 +157,35 @@ export function ProductModal({
     }
   }
 
+  const checkCompatibility = async () => {
+    if (!product || checking) return
+    setChecking(true)
+    setError('')
+    try {
+      const res = await fetch('/api/shelf/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug: product.slug }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.detail || 'Не удалось выполнить анализ')
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              score: d.score ?? prev.score,
+              analysis: d.analysis ?? prev.analysis,
+            }
+          : prev,
+      )
+      onChanged()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось выполнить анализ')
+    } finally {
+      setChecking(false)
+    }
+  }
+
   const meta = CABINET_META.find((c) => c.key === pickCabinet) || CABINET_META[0]
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
@@ -229,7 +258,7 @@ export function ProductModal({
                   <span className="text-xs font-medium text-foreground/80">{data.analysis.verdict || 'Проверено'}</span>
                 </div>
                 {data.analysis.summary && (
-                  <p className="mt-1 text-[11px] leading-relaxed text-foreground/60">{data.analysis.summary}</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-foreground/60"><MarkupText text={data.analysis.summary} /></p>
                 )}
                 {(asList(data.analysis.safe_ingredients).length > 0 || asList(data.analysis.caution_ingredients).length > 0) && (
                   <div className="mt-2 flex flex-wrap gap-1">
@@ -272,11 +301,12 @@ export function ProductModal({
             )}
             <div className="mt-4 flex flex-col gap-2">
               <button
-                onClick={() => { onCheck(product.name); onClose() }}
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10"
+                onClick={checkCompatibility}
+                disabled={checking}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
               >
-                <ShieldCheck className="size-4" />
-                Проверить совместимость
+                {checking ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                {checking ? 'Анализ выполняется…' : 'Проверить совместимость'}
               </button>
 
               {data?.on_shelf ? (
