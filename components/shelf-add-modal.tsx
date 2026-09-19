@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { X, Search, Link2, Wand2, LoaderCircle, Sparkles, ChevronLeft } from 'lucide-react'
-import { CABINET_TITLES } from '@/lib/shelf'
+import { CABINET_TITLES, CABINET_META } from '@/lib/shelf'
 
 type Mode = 'menu' | 'base' | 'url' | 'recommend'
 
@@ -148,6 +148,7 @@ export function ShelfAddModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
   const title = `${CABINET_TITLES[cabinet] || cabinet} → ${category}`
+  const isScoring = CABINET_META.find((c) => c.key === cabinet)?.hasScoring ?? false
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
@@ -239,7 +240,11 @@ export function ShelfAddModal({
                       <div className="min-w-0 flex-1">
                         {r.brand && <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50">{r.brand}</p>}
                         <p className="truncate text-xs font-medium text-foreground/90">{r.name}</p>
-                        {r.score != null && <p className="text-sm font-light text-primary">{r.score}%</p>}
+                        {r.score != null ? (
+                          <p className="text-sm font-light text-primary">{r.score}%</p>
+                        ) : isScoring ? (
+                          <p className="text-[10px] text-muted-foreground/50">Анализ ещё не выполнен</p>
+                        ) : null}
                       </div>
                     </div>
                     {r.reason && <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground/60">{r.reason}</p>}

@@ -187,8 +187,45 @@ def _deterministic_analysis(profile: Dict[str, Any], ingredients: str) -> Option
         return None
 
 
-def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
-    """Оценка продукта: сперва история проверок, затем deterministic-движок."""
+def _meaningful_score(analysis: Optional[Dict[str, Any]]) -> Optional[int]:
+    """Реальный скор только при ненулевой уверенности движка (есть знание об ингредиентах).
+    Не возвращает нейтральный floor (например 40) для полностью неизвестных составов."""
+    if not analysis:
+        return None
+    if float(analysis.get("confidence") or 0) <= 0:
+        return None
+    return int(analysis.get("score") or 0)
+
+
+def _as_str_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    if isinstance(value, str):
+        import json
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(x) for x in parsed]
+        except Exception:
+            pass
+        return [value] if value.strip() else []
+    return [str(value)]
+
+
+def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
+    """Приводит запись истории проверки к единому виду (списки вместо JSON-строк)."""
+    return {
+        "verdict": h.get("verdict") or "",
+        "summary": h.get("summary") or "",
+        "score": int(h.get("score") or 0) if h.get("score") is not None else None,
+        "safe_ingredients": _as_str_list(h.get("safe_ingredients")),
+        "caution_ingredients": _as_str_list(h.get("caution_ingredients")),
+    }
+
+
+def _find_history_score(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
     from .database import get_user_check_history
     cleaned_name = (product.get("name") or "").replace("\n", " ").strip().lower()
     slug = (product.get("slug") or "").strip()
@@ -196,43 +233,42 @@ def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Option
         h_slug = (h.get("slug") or "").strip()
         h_name = (h.get("product_name") or "").replace("\n", " ").strip().lower()
         if slug and h_slug and h_slug == slug:
-            return int(h.get("score") or 0), h
+            return int(h.get("score") or 0), normalize_history_analysis(h)
         if cleaned_name and h_name and (h_name == cleaned_name or h_name in cleaned_name or cleaned_name in h_name):
-            return int(h.get("score") or 0), h
+            return int(h.get("score") or 0), normalize_history_analysis(h)
+    return None, None
 
-    profile = {
-        "skin_type": user.get("skin_type") or "",
-        "age": user.get("age") or "",
-        "concerns": [c.strip() for c in (user.get("concerns") or "").split(",") if c.strip()],
-        "allergies": [a.strip() for a in (user.get("allergies") or "").split(",") if a.strip()],
-        "custom_text": user.get("custom_text") or "",
-    }
-    analysis = _deterministic_analysis(profile, product.get("ingredients") or "")
-    if analysis is None:
-        return None, None
-    return int(analysis.get("score") or 0), analysis
+
+def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+    """Скор продукта ТОЛЬКО из реальной проверки пользователя (история). Без fake-фолбэков."""
+    return _find_history_score(user, product)
 
 
 def _reason_from_analysis(analysis: Optional[Dict[str, Any]]) -> str:
     if not analysis:
         return ""
-    parts: List[str] = []
-    hard = analysis.get("hard_flags") or []
-    pos = [f.get("ingredient") for f in analysis.get("positive_factors", []) if f.get("ingredient")]
-    neg = [f.get("ingredient") for f in analysis.get("negative_factors", []) if f.get("ingredient")]
-    if hard:
-        parts.append("Содержит аллерген: " + str(hard[0].get("ingredient", "")))
-    if pos:
-        parts.append("Подходит: " + ", ".join(list(dict.fromkeys(pos))[:3]))
-    if neg:
-        parts.append("Осторожно: " + ", ".join(list(dict.fromkeys(neg))[:2]))
-    if not parts:
-        parts.append("Состав не противоречит профилю.")
-    return " • ".join(parts)
+    # deterministic-анализ: positive/negative/hard factors
+    if analysis.get("positive_factors") or analysis.get("negative_factors") or analysis.get("hard_flags"):
+        parts: List[str] = []
+        hard = analysis.get("hard_flags") or []
+        pos = [f.get("ingredient") for f in analysis.get("positive_factors", []) if f.get("ingredient")]
+        neg = [f.get("ingredient") for f in analysis.get("negative_factors", []) if f.get("ingredient")]
+        if hard:
+            parts.append("Содержит аллерген: " + str(hard[0].get("ingredient", "")))
+        if pos:
+            parts.append("Подходит: " + ", ".join(list(dict.fromkeys(pos))[:3]))
+        if neg:
+            parts.append("Осторожно: " + ", ".join(list(dict.fromkeys(neg))[:2]))
+        if not parts:
+            parts.append("Состав не противоречит профилю.")
+        return " • ".join(parts)
+    # история проверки: используем summary AI
+    summary = (analysis.get("summary") or "").strip()
+    return summary[:200] if summary else ""
 
 
 def compute_cabinet_compatibility(user: Dict[str, Any], items: List[Dict[str, Any]]) -> Optional[int]:
-    """Агрегированная совместимость шкафа = среднее индивидуальных оценок."""
+    """Агрегированная совместимость шкафа = среднее реальных оценок проверенных продуктов."""
     scores = [it.get("score") for it in items if isinstance(it.get("score"), int)]
     if not scores:
         return None
@@ -309,13 +345,25 @@ def recommend_products(
     keywords = rule.get("keywords") or []
 
     rated: List[Dict[str, Any]] = []
+    seen_ids: set = set()
+    seen_names: set = set()
     for product in candidates:
+        pid = product.get("id")
         slug = (product.get("slug") or "").strip()
         if not slug or slug in exclude_slugs:
             continue
+        # Дедупликация по стабильному Product ID и по нормализованному имени.
+        if pid is not None and pid in seen_ids:
+            continue
         brand, title = _split_name(product.get("name") or "")
+        norm_name = f"{brand}|{title}".strip().lower()
+        if norm_name in seen_names:
+            continue
+        seen_ids.add(pid)
+        seen_names.add(norm_name)
+
         rec: Dict[str, Any] = {
-            "id": product.get("id"),
+            "id": pid,
             "slug": slug,
             "name": title or (product.get("name") or "").replace("\n", " "),
             "brand": brand or (product.get("brand") or ""),
@@ -324,11 +372,21 @@ def recommend_products(
             "reason": "",
         }
         if scored:
-            analysis = _deterministic_analysis(profile, product.get("ingredients") or "")
-            if analysis is None:
-                continue
-            rec["score"] = int(analysis.get("score") or 0)
-            rec["reason"] = _reason_from_analysis(analysis)
+            # 1) уже рассчитанный скор из истории проверок пользователя
+            history_score, history_analysis = _find_history_score(user, product)
+            if history_score is not None:
+                rec["score"] = history_score
+                rec["reason"] = _reason_from_analysis(history_analysis)
+            else:
+                # 2) deterministic-движок, только если есть реальное знание об ингредиентах
+                analysis = _deterministic_analysis(profile, product.get("ingredients") or "")
+                meaningful = _meaningful_score(analysis)
+                if meaningful is not None:
+                    rec["score"] = meaningful
+                    rec["reason"] = _reason_from_analysis(analysis)
+                else:
+                    rec["score"] = None
+                    rec["reason"] = "Анализ ещё не выполнен"
         else:
             rec["reason"] = f"Подходит для категории «{category}»."
             haystack = f"{product.get('name') or ''} {product.get('ingredients') or ''}".lower()

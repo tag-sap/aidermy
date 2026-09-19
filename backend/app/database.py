@@ -512,6 +512,31 @@ def remove_product_from_shelf(user_id: int, shelf_id: int) -> int:
     conn.close()
     return deleted
 
+
+def remove_products_from_shelf(user_id: int, shelf_ids: list) -> int:
+    """Удаляет связи пользователя с полкой (User→Shelf→Product), НЕ трогая глобальную Product DB."""
+    if not shelf_ids:
+        return 0
+    ids = []
+    for i in shelf_ids:
+        try:
+            ids.append(int(i))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return 0
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    placeholders = ",".join(["?"] * len(ids))
+    cursor.execute(
+        f"DELETE FROM shelf_products WHERE user_id = ? AND id IN ({placeholders})",
+        (user_id, *ids),
+    )
+    conn.commit()
+    deleted = cursor.rowcount
+    conn.close()
+    return deleted
+
 def update_shelf_product_category(user_id: int, shelf_id: int, category: str):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()

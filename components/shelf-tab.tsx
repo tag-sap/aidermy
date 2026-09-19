@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { Plus, LoaderCircle, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Plus, LoaderCircle, Sparkles, X, Check, ListChecks } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ShelfItem } from '@/lib/shelf'
 import { ShelfAddModal } from '@/components/shelf-add-modal'
@@ -16,6 +16,8 @@ type Cabinet = {
   categories: Category[]
 }
 
+type ConfirmState = { title: string; message: string; confirmLabel?: string; onConfirm: () => void }
+
 function scoreBadge(s: number | null) {
   if (s == null) return ''
   if (s >= 80) return 'bg-[#4E9F6E]/10 text-[#4E9F6E]'
@@ -27,8 +29,13 @@ function scoreBadge(s: number | null) {
 export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
   const [cabinets, setCabinets] = useState<Cabinet[]>([])
   const [loading, setLoading] = useState(true)
+  const [activeCabinet, setActiveCabinet] = useState('face')
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const [addContext, setAddContext] = useState<{ cabinet: string; category: string } | null>(null)
   const [detailSlug, setDetailSlug] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null)
+  const [busy, setBusy] = useState(false)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
@@ -51,6 +58,68 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
     loadShelf()
   }, [loadShelf])
 
+  const currentCabinet = cabinets.find((c) => c.key === activeCabinet) || null
+
+  const currentItems = useMemo(() => {
+    if (!currentCabinet) return []
+    return currentCabinet.categories.flatMap((c) => c.items)
+  }, [currentCabinet])
+
+  const exitSelection = () => {
+    setSelectionMode(false)
+    setSelected(new Set())
+  }
+
+  const switchCabinet = (key: string) => {
+    setActiveCabinet(key)
+    exitSelection()
+  }
+
+  const deleteIds = async (ids: number[]) => {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/shelf/delete-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ids }),
+      })
+      if (!res.ok) throw new Error('Не удалось удалить')
+      setSelected(new Set())
+      await loadShelf()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const clearShelf = async (cabinet: string, category: string) => {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/shelf/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ cabinet, category }),
+      })
+      if (!res.ok) throw new Error('Не удалось очистить')
+      setSelected(new Set())
+      await loadShelf()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleSelect = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -61,82 +130,206 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
 
   return (
     <div className="no-scrollbar h-full overflow-y-auto px-1 py-5 pb-28">
-      <header className="mb-6">
-        <h1 className="text-3xl font-light text-foreground">Моя полка</h1>
-        <p className="mt-1 text-sm text-muted-foreground/60">Твоя персональная система косметики</p>
+      <header className="mb-4 flex items-end justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-light text-foreground">Моя полка</h1>
+          <p className="mt-1 text-sm text-muted-foreground/60">Твоя персональная система косметики</p>
+        </div>
+        <button
+          onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors',
+            selectionMode ? 'border-primary bg-primary text-white' : 'border-gray-200 text-muted-foreground/70 hover:border-primary/40 hover:text-primary',
+          )}
+        >
+          <ListChecks className="size-3.5" />
+          {selectionMode ? 'Готово' : 'Управление'}
+        </button>
       </header>
 
-      <div className="space-y-8">
+      <div className="no-scrollbar -mx-1 mb-4 flex gap-1.5 overflow-x-auto border-b border-gray-200/60 px-1">
         {cabinets.map((cab) => (
-          <section key={cab.key}>
-            <div className="mb-3 flex items-end justify-between gap-3">
-              <h2 className="text-xl font-light text-foreground/90">{cab.title}</h2>
-              {cab.has_scoring && (
+          <button
+            key={cab.key}
+            onClick={() => switchCabinet(cab.key)}
+            className={cn(
+              'shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors',
+              activeCabinet === cab.key
+                ? 'border-primary font-medium text-primary'
+                : 'border-transparent text-muted-foreground/60 hover:text-foreground',
+            )}
+          >
+            {cab.title}
+          </button>
+        ))}
+      </div>
+
+      {selectionMode && (
+        <div className="sticky top-0 z-10 mb-4 flex items-center justify-between gap-2 rounded-2xl border border-primary/20 bg-white/90 p-3 shadow-sm backdrop-blur">
+          <span className="text-sm text-foreground/80">Выбрано: {selected.size}</span>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => setSelected(new Set(currentItems.map((i) => i.id)))} className="rounded-full px-2.5 py-1 text-xs text-primary hover:bg-primary/5">
+              Выбрать всё
+            </button>
+            <button onClick={() => setSelected(new Set())} className="rounded-full px-2.5 py-1 text-xs text-muted-foreground/70 hover:bg-gray-50">
+              Снять
+            </button>
+            <button
+              onClick={() => setConfirm({ title: 'Удалить выбранные продукты?', message: `Выбрано продуктов: ${selected.size}. Они будут убраны с полки.`, onConfirm: () => deleteIds(Array.from(selected)) })}
+              disabled={selected.size === 0 || busy}
+              className="rounded-full bg-red-500 px-3 py-1 text-xs text-white transition-colors hover:bg-red-600 disabled:opacity-40"
+            >
+              Удалить
+            </button>
+          </div>
+        </div>
+      )}
+
+      {currentCabinet && (
+        <section>
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <h2 className="text-xl font-light text-foreground/90">{currentCabinet.title}</h2>
+            <div className="flex items-center gap-3">
+              {currentItems.length > 0 && (
+                <button
+                  onClick={() => setConfirm({ title: `Очистить шкаф «${currentCabinet.title}»?`, message: 'Удалить все продукты из этого шкафа?', confirmLabel: 'Очистить', onConfirm: () => clearShelf(currentCabinet.key, '') })}
+                  className="text-[11px] text-muted-foreground/50 transition-colors hover:text-red-500"
+                >
+                  Очистить шкаф
+                </button>
+              )}
+              {currentCabinet.has_scoring && (
                 <div className="text-right">
                   <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50">Совместимость ухода</p>
-                  <p className={cn('text-lg font-light', cab.compatibility != null ? 'text-primary' : 'text-muted-foreground/40')}>
-                    {cab.compatibility != null ? `${cab.compatibility}%` : '—'}
+                  <p className={cn('text-lg font-light', currentCabinet.compatibility != null ? 'text-primary' : 'text-muted-foreground/40')}>
+                    {currentCabinet.compatibility != null ? `${currentCabinet.compatibility}%` : '—'}
                   </p>
                 </div>
               )}
             </div>
+          </div>
 
+          {currentItems.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-gray-200/70 py-12 text-center">
+              <Sparkles className="mx-auto mb-3 size-7 text-muted-foreground/30" />
+              <p className="text-sm text-foreground/70">Ваш шкаф пока пуст</p>
+              <p className="mt-1 text-xs text-muted-foreground/50">Соберите здесь свой уход.</p>
+              <button
+                onClick={() => setAddContext({ cabinet: currentCabinet.key, category: currentCabinet.categories[0]?.key || 'Увлажнение' })}
+                className="mt-4 rounded-full bg-primary px-4 py-2 text-xs text-white transition-colors hover:bg-primary/90"
+              >
+                Добавить первый продукт
+              </button>
+            </div>
+          ) : (
             <div className="space-y-4">
-              {cab.categories.map((cat) => (
+              {currentCabinet.categories.map((cat) => (
                 <div key={cat.key}>
                   <div className="mb-2 flex items-center justify-between">
                     <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground/60">{cat.title}</h3>
-                    <button
-                      onClick={() => setAddContext({ cabinet: cab.key, category: cat.key })}
-                      className="flex size-6 items-center justify-center rounded-full border border-gray-200 text-muted-foreground/60 transition-colors hover:border-primary/40 hover:text-primary"
-                      aria-label={`Добавить в ${cat.title}`}
-                    >
-                      <Plus className="size-3.5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {cat.items.length > 0 && (
+                        <button
+                          onClick={() => setConfirm({ title: `Очистить «${cat.title}»?`, message: 'Удалить все продукты из этой категории?', confirmLabel: 'Очистить', onConfirm: () => clearShelf(currentCabinet.key, cat.key) })}
+                          className="text-[10px] text-muted-foreground/40 transition-colors hover:text-red-500"
+                        >
+                          Очистить
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setAddContext({ cabinet: currentCabinet.key, category: cat.key })}
+                        className="flex size-6 items-center justify-center rounded-full border border-gray-200 text-muted-foreground/60 transition-colors hover:border-primary/40 hover:text-primary"
+                        aria-label={`Добавить в ${cat.title}`}
+                      >
+                        <Plus className="size-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   {cat.items.length === 0 ? (
                     <button
-                      onClick={() => setAddContext({ cabinet: cab.key, category: cat.key })}
-                      className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-200/70 py-4 text-xs text-muted-foreground/40 transition-colors hover:border-primary/30 hover:text-primary/60"
+                      onClick={() => setAddContext({ cabinet: currentCabinet.key, category: cat.key })}
+                      className="flex w-full flex-col items-center gap-1.5 rounded-2xl border border-dashed border-gray-200/70 py-6 text-center transition-colors hover:border-primary/30"
                     >
-                      <Plus className="size-3.5" />
-                      Добавить продукт
+                      <span className="text-xs text-foreground/60">Здесь пока ничего нет</span>
+                      <span className="text-[10px] text-muted-foreground/40">Добавьте продукт из базы, по ссылке или подберите автоматически</span>
+                      <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-[11px] text-primary">
+                        <Plus className="size-3" /> Добавить продукт
+                      </span>
                     </button>
                   ) : (
                     <div className="no-scrollbar flex gap-2.5 overflow-x-auto pb-1">
-                      {cat.items.map((item) => (
-                        <button
-                          key={item.id}
-                          onClick={() => setDetailSlug(item.slug)}
-                          className="w-[130px] shrink-0 overflow-hidden rounded-2xl border border-white/40 bg-white/60 text-left transition-transform hover:-translate-y-0.5"
-                        >
-                          <div className="flex h-[110px] items-center justify-center bg-gray-50/60 p-2">
-                            {item.image_url ? (
-                              <img src={item.image_url} alt="" className="h-full w-full object-contain" />
-                            ) : (
-                              <Sparkles className="size-5 text-muted-foreground/30" />
-                            )}
-                          </div>
-                          <div className="p-2">
-                            {item.brand && <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground/40">{item.brand}</p>}
-                            <p className="line-clamp-2 text-[11px] font-medium leading-tight text-foreground/80">{item.name}</p>
-                            {item.score != null && (
-                              <span className={cn('mt-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', scoreBadge(item.score))}>
-                                {item.score}%
+                      {cat.items.map((item) => {
+                        const isSelected = selected.has(item.id)
+                        return (
+                          <div key={item.id} className="group relative w-[130px] shrink-0">
+                            <button
+                              onClick={() => (selectionMode ? toggleSelect(item.id) : setDetailSlug(item.slug))}
+                              className={cn(
+                                'w-full overflow-hidden rounded-2xl border text-left transition-all',
+                                selectionMode && isSelected
+                                  ? 'border-primary/70 bg-primary/5 ring-2 ring-primary/20'
+                                  : 'border-white/40 bg-white/60',
+                                !selectionMode && 'hover:-translate-y-0.5',
+                              )}
+                            >
+                              <div className="flex h-[110px] items-center justify-center bg-gray-50/60 p-2">
+                                {item.image_url ? (
+                                  <img src={item.image_url} alt="" className="h-full w-full object-contain" />
+                                ) : (
+                                  <Sparkles className="size-5 text-muted-foreground/30" />
+                                )}
+                              </div>
+                              <div className="p-2">
+                                {item.brand && <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground/40">{item.brand}</p>}
+                                <p className="line-clamp-2 text-[11px] font-medium leading-tight text-foreground/80">{item.name}</p>
+                                {currentCabinet.has_scoring &&
+                                  (item.score != null ? (
+                                    <span className={cn('mt-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', scoreBadge(item.score))}>
+                                      {item.score}%
+                                    </span>
+                                  ) : (
+                                    <span className="mt-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] text-muted-foreground/50">
+                                      Не проверен
+                                    </span>
+                                  ))}
+                              </div>
+                            </button>
+
+                            {selectionMode && (
+                              <span
+                                className={cn(
+                                  'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border bg-white/95 transition-colors',
+                                  isSelected ? 'border-primary bg-primary text-white' : 'border-gray-300 text-transparent',
+                                )}
+                              >
+                                <Check className="size-3" strokeWidth={3} />
                               </span>
                             )}
+
+                            {!selectionMode && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setConfirm({ title: 'Удалить продукт?', message: `«${item.name}» будет убран с полки.`, confirmLabel: 'Удалить', onConfirm: () => deleteIds([item.id]) })
+                                }}
+                                className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-500"
+                                aria-label="Удалить продукт"
+                              >
+                                <X className="size-3.5" />
+                              </button>
+                            )}
                           </div>
-                        </button>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
               ))}
             </div>
-          </section>
-        ))}
-      </div>
+          )}
+        </section>
+      )}
 
       {addContext && (
         <ShelfAddModal
@@ -154,6 +347,30 @@ export function ShelfTab({ onCheck }: { onCheck: (product: string) => void }) {
           onCheck={onCheck}
           onChanged={loadShelf}
         />
+      )}
+
+      {confirm && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/30 backdrop-blur-sm sm:items-center sm:p-4" onClick={() => setConfirm(null)}>
+          <div className="w-full max-w-sm rounded-t-2xl bg-white p-4 sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-normal text-foreground">{confirm.title}</h2>
+              <button onClick={() => setConfirm(null)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
+            </div>
+            <p className="mb-4 text-sm text-muted-foreground/70">{confirm.message}</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirm(null)} className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-foreground/70 transition-colors hover:bg-gray-50">
+                Отмена
+              </button>
+              <button
+                onClick={() => { const fn = confirm.onConfirm; setConfirm(null); fn() }}
+                disabled={busy}
+                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm text-white transition-colors hover:bg-red-600 disabled:opacity-40"
+              >
+                {confirm.confirmLabel || 'Удалить'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

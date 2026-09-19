@@ -61,7 +61,13 @@ async def get_products(q: str = ""):
 @app.get("/api/products/{slug}")
 async def get_product_detail(slug: str, current_user: dict = Depends(get_current_user_optional)):
     from .database import get_product_by_slug, get_user_shelf, get_user_check_history
-    from .shelf_service import score_product, resolve_shelf_cabinet, cabinet_applies_scoring
+    from .shelf_service import (
+        score_product,
+        resolve_shelf_cabinet,
+        cabinet_applies_scoring,
+        infer_cabinet_category,
+        normalize_history_analysis,
+    )
 
     product = get_product_by_slug(slug)
     if not product:
@@ -74,13 +80,9 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
     on_shelf = None
 
     if current_user:
-        applicable = True
         # Определяем шкаф по категории/названию, чтобы понять, применим ли скоринг
-        from .shelf_service import infer_cabinet_category
         cabinet, _ = infer_cabinet_category(product.get("category"), name)
-        applicable = cabinet_applies_scoring(cabinet)
-
-        if applicable:
+        if cabinet_applies_scoring(cabinet):
             score, analysis = score_product(current_user, product)
 
         for s in get_user_shelf(current_user["id"]):
@@ -98,7 +100,8 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
             for h in get_user_check_history(current_user["id"], limit=200):
                 h_name = (h.get("product_name") or "").replace("\n", " ").strip().lower()
                 if h_name == cleaned or h_name in cleaned or cleaned in h_name or (h.get("slug") and h.get("slug") == slug):
-                    analysis = h
+                    analysis = normalize_history_analysis(h)
+                    score = int(h.get("score") or 0)
                     break
 
     return {
@@ -510,6 +513,15 @@ class ShelfRecommendRequest(BaseModel):
     category: str = ""
 
 
+class ShelfBatchDeleteRequest(BaseModel):
+    ids: List[int] = []
+
+
+class ShelfClearRequest(BaseModel):
+    cabinet: str = "face"
+    category: str = ""
+
+
 SHELF_CATEGORIES = ["Очищение", "Тонер", "Сыворотка", "Крем", "SPF", "Маска"]
 
 
@@ -673,6 +685,39 @@ async def update_shelf_product(shelf_id: int, request: ShelfUpdateRequest, curre
 async def delete_shelf_product(shelf_id: int, current_user: dict = Depends(get_current_user)):
     from .database import remove_product_from_shelf
     deleted = remove_product_from_shelf(current_user["id"], shelf_id)
+    return {"status": "ok", "deleted": deleted}
+
+
+@app.post("/api/shelf/delete-batch")
+async def delete_shelf_batch(request: ShelfBatchDeleteRequest, current_user: dict = Depends(get_current_user)):
+    from .database import remove_products_from_shelf
+    deleted = remove_products_from_shelf(current_user["id"], request.ids)
+    return {"status": "ok", "deleted": deleted}
+
+
+@app.post("/api/shelf/clear")
+async def clear_shelf(request: ShelfClearRequest, current_user: dict = Depends(get_current_user)):
+    from .database import get_user_shelf, get_product_by_id, remove_products_from_shelf
+    from .shelf_service import resolve_shelf_cabinet, canonical_category, CABINET_BY_KEY
+
+    cabinet = (request.cabinet or "face").strip().lower()
+    if cabinet not in CABINET_BY_KEY:
+        cabinet = "face"
+    category = canonical_category(cabinet, request.category) if request.category.strip() else ""
+
+    ids = []
+    for s in get_user_shelf(current_user["id"]):
+        p = get_product_by_id(s["product_id"])
+        if not p:
+            continue
+        c_cabinet, c_category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
+        if c_cabinet != cabinet:
+            continue
+        if category and c_category != category:
+            continue
+        ids.append(s["id"])
+
+    deleted = remove_products_from_shelf(current_user["id"], ids)
     return {"status": "ok", "deleted": deleted}
 
 

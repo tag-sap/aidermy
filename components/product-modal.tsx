@@ -47,6 +47,20 @@ function guessCategory(legacyCategory: string): string {
   }
   return map[legacyCategory] || ''
 }
+
+function asList(v: unknown): string[] {
+  if (Array.isArray(v)) return v as string[]
+  if (typeof v === 'string') {
+    try {
+      const p = JSON.parse(v)
+      if (Array.isArray(p)) return p.map(String)
+    } catch {
+      /* ignore */
+    }
+    return v.trim() ? [v] : []
+  }
+  return []
+}
 export function ProductModal({
   slug,
   onClose,
@@ -166,19 +180,26 @@ export function ProductModal({
             </div>
 
             <div className="flex gap-3">
-              <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-50">
+              <div className="flex size-20 shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-gray-50">
                 {product.image_url ? (
                   <img src={product.image_url} alt="" className="h-full w-full object-contain p-1" />
                 ) : (
-                  <Sparkles className="size-6 text-muted-foreground/30" />
+                  <>
+                    <Sparkles className="size-6 text-muted-foreground/30" />
+                    <span className="mt-1 text-[8px] text-muted-foreground/40">Изображение недоступно</span>
+                  </>
                 )}
               </div>
               <div className="min-w-0 flex-1">
                 {product.brand && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{product.brand}</p>}
                 <p className="text-sm font-medium leading-snug text-foreground/90">{product.name}</p>
-                {data?.score != null && (
+                {data?.score != null ? (
                   <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', scoreColor(data.score))}>
                     {data.score}% совместимость
+                  </span>
+                ) : (
+                  <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-muted-foreground/60">
+                    Не проверен
                   </span>
                 )}
               </div>
@@ -188,15 +209,20 @@ export function ProductModal({
               <p className="mt-3 text-xs text-muted-foreground/60">Категория: {product.category}</p>
             )}
 
-            {product.ingredients && (
-              <div className="mt-3">
-                <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground/50">Состав (INCI)</p>
+            <div className="mt-3">
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground/50">Состав (INCI)</p>
+              {product.ingredients ? (
                 <div className="max-h-32 overflow-y-auto rounded-xl border border-gray-100 bg-gray-50/60 p-2.5 text-[11px] leading-relaxed text-foreground/60">
                   {product.ingredients}
                 </div>
-              </div>
-            )}
-            {data?.analysis && (
+              ) : (
+                <div className="rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">
+                  Состав пока не найден
+                </div>
+              )}
+            </div>
+
+            {data?.analysis ? (
               <div className="mt-3 rounded-xl border border-primary/15 bg-primary/5 p-3">
                 <div className="flex items-center gap-1.5">
                   <ShieldCheck className="size-3.5 text-primary" />
@@ -205,16 +231,20 @@ export function ProductModal({
                 {data.analysis.summary && (
                   <p className="mt-1 text-[11px] leading-relaxed text-foreground/60">{data.analysis.summary}</p>
                 )}
-                {(data.analysis.safe_ingredients?.length || data.analysis.caution_ingredients?.length) && (
+                {(asList(data.analysis.safe_ingredients).length > 0 || asList(data.analysis.caution_ingredients).length > 0) && (
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {data.analysis.safe_ingredients?.slice(0, 4).map((i) => (
+                    {asList(data.analysis.safe_ingredients).slice(0, 4).map((i) => (
                       <span key={i} className="rounded-full bg-white/70 px-1.5 py-0.5 text-[9px] text-foreground/60">{i}</span>
                     ))}
-                    {data.analysis.caution_ingredients?.slice(0, 4).map((i) => (
+                    {asList(data.analysis.caution_ingredients).slice(0, 4).map((i) => (
                       <span key={i} className="rounded-full bg-red-50 px-1.5 py-0.5 text-[9px] text-red-500">{i}</span>
                     ))}
                   </div>
                 )}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">
+                Анализ ещё не выполнен
               </div>
             )}
 
