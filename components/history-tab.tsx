@@ -134,7 +134,7 @@ export function HistoryTab({
           <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
           <div className="relative text-center py-8">
             <p className="text-sm text-muted-foreground">
-              Пока нет проверок. Проверь первое средство на вкладке «Чекер».
+              Пока нет проверок. Здесь появятся результаты анализа ваших средств.
             </p>
           </div>
         </div>

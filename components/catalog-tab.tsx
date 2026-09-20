@@ -119,10 +119,9 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
   )
 
   return (
-    <div className="no-scrollbar h-full overflow-y-auto py-4">
+    <div className="py-4">
       <div className="mb-3">
-        <h1 className="text-xl font-light text-foreground">Проверить продукт</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground/70">Выберите средство — покажем, подходит ли оно вашей коже</p>
+        <p className="text-xs text-muted-foreground/70">Выберите средство — покажем, подходит ли оно вашей коже</p>
       </div>
 
       <div className="mb-4 flex items-center gap-2">

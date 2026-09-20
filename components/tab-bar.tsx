@@ -1,15 +1,16 @@
 'use client'
 
-import { Search, History, User, Sparkles } from 'lucide-react'
+import { Search, History, User, Sparkles, LayoutGrid } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type TabId = 'history' | 'shelf' | 'profile'
+export type TabId = 'catalog' | 'history' | 'shelf' | 'profile'
 
 const TABS: { id: TabId | 'check'; label: string; icon: typeof Search; circle?: boolean }[] = [
-  { id: 'history', label: 'История', icon: History },
+  { id: 'catalog', label: 'Каталог', icon: LayoutGrid, circle: true },
   { id: 'check', label: 'Проверить', icon: Search, circle: true },
   { id: 'shelf', label: 'Моя полка', icon: Sparkles, circle: true },
-  { id: 'profile', label: 'Профиль', icon: User },
+  { id: 'profile', label: 'Профиль', icon: User, circle: true },
+  { id: 'history', label: 'История', icon: History },
 ]
 
 export function TabBar({
@@ -47,7 +48,7 @@ export function TabBar({
                 onClick={() => (id === 'check' ? onCheck() : onChange(id as TabId))}
                 aria-current={isActive ? 'page' : undefined}
                 data-active={isActive ? 'true' : 'false'}
-                className="nav-link-animated relative -mt-6 flex flex-1 flex-col items-center gap-0.5"
+                className="relative -mt-6 flex flex-1 flex-col items-center gap-0.5"
               >
                 <span
                   className={cn(

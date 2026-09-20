@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { User, X, LogOut, Settings, Heart, History, LogIn } from 'lucide-react'
+import { X, LogOut, Settings, History, LogIn } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
 interface AppHeaderProps {
   onProfile: () => void
+  onHistory: () => void
   onAuth: () => void
   isAuthenticated?: boolean
   userName?: string
@@ -15,6 +16,7 @@ interface AppHeaderProps {
 
 export function AppHeader({
   onProfile,
+  onHistory,
   onAuth,
   isAuthenticated = false,
   userName = '',
@@ -97,22 +99,12 @@ export function AppHeader({
               <button
                 onClick={() => {
                   setShowUserMenu(false)
-                  onProfile()
+                  onHistory()
                 }}
                 className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 transition-colors"
               >
                 <History className="size-4 text-muted-foreground" />
                 История проверок
-              </button>
-
-              <button
-                onClick={() => {
-                  setShowUserMenu(false)
-                }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 transition-colors"
-              >
-                <Heart className="size-4 text-muted-foreground" />
-                Избранное
               </button>
             </div>
 

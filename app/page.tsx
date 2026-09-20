@@ -14,6 +14,7 @@ import { SkinQuiz } from '@/components/skin-quiz'
 import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
 import { ShelfTab } from '@/components/shelf-tab'
+import { CatalogTab } from '@/components/catalog-tab'
 import { CheckModal } from '@/components/check-modal'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
@@ -48,7 +49,7 @@ const normalizeHistoryItem = (item: any): CheckResult => ({
 })
 
 export default function Page() {
-  const [tab, setTab] = useState<TabId>('shelf')
+  const [tab, setTab] = useState<TabId>('catalog')
   const [profile, setProfile] = useState<SkinProfile>(emptyProfile)
   const [history, setHistory] = useState<CheckResult[]>([])
   const [hydrated, setHydrated] = useState(false)
@@ -242,7 +243,7 @@ export default function Page() {
     localStorage.removeItem('userName')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
-    setTab('shelf')
+    setTab('catalog')
   }
 
   // ===== ПРОФИЛЬ =====
@@ -549,6 +550,14 @@ export default function Page() {
     setTab('profile')
   }
 
+  const handleGoToHistory = () => {
+    if (!isAuthenticated) {
+      setIsAuthModalOpen(true)
+      return
+    }
+    setTab('history')
+  }
+
   const handleTabChange = (newTab: TabId) => {
     if (newTab === tab) return
 
@@ -608,6 +617,7 @@ export default function Page() {
             <div className="mx-auto w-full max-w-md px-4">
               <AppHeader
                 onProfile={handleGoToProfile}
+                onHistory={handleGoToHistory}
                 onAuth={() => setIsAuthModalOpen(true)}
                 isAuthenticated={isAuthenticated}
                 userName={userName}
@@ -616,7 +626,7 @@ export default function Page() {
 
               <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-gray-200/50 bg-background/85 px-4 py-2.5 backdrop-blur-sm">
                 <h1 className="text-xl font-light text-foreground">
-                  {tab === 'history' ? 'История' : tab === 'profile' ? 'Профиль' : 'Моя полка'}
+                  {tab === 'history' ? 'История' : tab === 'profile' ? 'Профиль' : tab === 'catalog' ? 'Каталог' : 'Моя полка'}
                 </h1>
               </div>
 
@@ -635,6 +645,11 @@ export default function Page() {
                 </div>
               ) : (
                 <div key={tab} className="tab-content">
+                  {tab === 'catalog' && (
+                    <CatalogTab
+                      onCheck={(product) => handleCheck(product, profile.skinType || 'Нормальная')}
+                    />
+                  )}
                   {tab === 'history' && (
                     <HistoryTab
                       history={history}
