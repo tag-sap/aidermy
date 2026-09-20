@@ -92,19 +92,22 @@ export function AdHero() {
     if (!host) return
     const lock = host.querySelector('.ad-lock') as HTMLElement | null
     if (!lock) return
+    // Узкие ненулевые ссылки для вложенных функций (TS не сужает типы в замыканиях).
+    const root: HTMLDivElement = host
+    const lockRoot: HTMLElement = lock
 
     const RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     function measure() {
-      const d = host.querySelector('.ad-dermy') as HTMLElement | null
-      const n = host.querySelector('.ad-nib') as HTMLElement | null
+      const d = root.querySelector('.ad-dermy') as HTMLElement | null
+      const n = root.querySelector('.ad-nib') as HTMLElement | null
       if (d && n) n.style.setProperty('--dw', d.getBoundingClientRect().width + 'px')
     }
 
     function play() {
-      lock.classList.remove('ad-play')
-      void lock.offsetWidth
-      lock.classList.add('ad-play')
+      lockRoot.classList.remove('ad-play')
+      void lockRoot.offsetWidth
+      lockRoot.classList.add('ad-play')
     }
 
     if (document.fonts && document.fonts.ready) {
