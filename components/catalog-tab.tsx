@@ -212,12 +212,12 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
           {grouped.map((group) => (
             <div key={group.letter}>
               <div className="px-2 py-1 text-xs font-semibold text-primary">{group.letter}</div>
-              <div className="grid gap-2 pb-3 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 pb-3 md:grid-cols-2 lg:grid-cols-3">
                 {group.items.map((p) => (
                   <button
                     key={p.slug}
                     onClick={() => onCheck(p.name)}
-                    className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-white p-2.5 text-left transition-colors hover:border-primary/30 hover:bg-primary/5"
+                    className="flex w-full min-w-0 items-center gap-3 rounded-2xl border border-gray-100 bg-white p-2.5 text-left transition-colors hover:border-primary/30 hover:bg-primary/5"
                   >
                     <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-50">
                       {p.image_url ? (
@@ -227,9 +227,9 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      {p.brand && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{p.brand}</p>}
+                      {p.brand && <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground/50">{p.brand}</p>}
                       <p className="truncate text-sm font-normal text-foreground">{p.name}</p>
-                      {p.category && <p className="text-xs text-muted-foreground/50">{p.category}</p>}
+                      {p.category && <p className="truncate text-xs text-muted-foreground/50">{p.category}</p>}
                     </div>
                   </button>
                 ))}

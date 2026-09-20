@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from .database import get_connection, PRODUCTS_DB
@@ -51,15 +52,6 @@ CABINETS: List[Dict[str, Any]] = [
 ]
 
 CABINET_BY_KEY = {c["key"]: c for c in CABINETS}
-
-# Приоритеты для deterministic-движка (совпадают с фолбэком в services.py)
-DEFAULT_PRIORITIES: Dict[str, float] = {
-    "hydration": 0.35,
-    "barrier_support": 0.25,
-    "sensitivity": 0.2,
-    "acne_control": 0.1,
-    "brightening": 0.1,
-}
 
 # Маппинг старых категорий полки/каталога на (cabinet, категория шкафа).
 LEGACY_CATEGORY_MAP: Dict[str, Tuple[str, str]] = {
@@ -126,6 +118,23 @@ def _split_name(name: str) -> Tuple[str, str]:
     if parts:
         return "", parts[0]
     return "", (name or "").strip()
+
+
+def _formula_signature(ingredients: str) -> str:
+    """Сигнатура формулы по первым ингредиентам (для diversity в подборе).
+
+    Два продукта с одинаковым набором ключевых первых ингредиентов считаются
+    почти дубликатами — чтобы не показывать пользователю одинаковые варианты.
+    """
+    if not ingredients or not str(ingredients).strip():
+        return ""
+    try:
+        from .ingredient_normalizer import canonicalize_ingredient_name
+    except Exception:
+        return ""
+    parts = [canonicalize_ingredient_name(p) for p in re.split(r"[,;\n]+", str(ingredients))]
+    keys = [p for p in parts if p and p not in {"water", "aqua"}][:5]
+    return "|".join(keys)
 
 
 def cabinet_applies_scoring(cabinet: str) -> bool:
@@ -205,8 +214,13 @@ def _deterministic_analysis(profile: Dict[str, Any], ingredients: str) -> Option
     if not ingredients or not str(ingredients).strip():
         return None
     try:
-        from .analysis_service import AnalysisService
-        return AnalysisService().analyze("", ingredients, profile, DEFAULT_PRIORITIES)
+        from .decision_engine import DecisionEngine
+        return DecisionEngine().analyze(
+            "",
+            ingredients,
+            profile,
+            (profile or {}).get("skin_type") or "",
+        )
     except Exception:
         return None
 
@@ -346,7 +360,7 @@ def _reason_from_analysis(analysis: Optional[Dict[str, Any]]) -> str:
         if pos:
             parts.append("Подходит: " + ", ".join(list(dict.fromkeys(pos))[:3]))
         if neg:
-            parts.append("Осторожно: " + ", ".join(list(dict.fromkeys(neg))[:2]))
+            parts.append("Требует внимания: " + ", ".join(list(dict.fromkeys(neg))[:2]))
         if not parts:
             parts.append("Состав не противоречит профилю.")
         return " • ".join(parts)
@@ -355,12 +369,26 @@ def _reason_from_analysis(analysis: Optional[Dict[str, Any]]) -> str:
     return summary[:200] if summary else ""
 
 
-def compute_cabinet_compatibility(user: Dict[str, Any], items: List[Dict[str, Any]]) -> Optional[int]:
-    """Агрегированная совместимость шкафа = среднее реальных оценок проверенных продуктов."""
+def _aggregate_scores(items: List[Dict[str, Any]]) -> Optional[int]:
+    """Среднее по ВАЛИДНЫМ compatibility score.
+
+    Продукты без валидного score (None) исключаются и НЕ считаются ни нулём,
+    ни идеальными. Если валидных оценок нет — возвращает None.
+    """
     scores = [it.get("score") for it in items if isinstance(it.get("score"), int)]
     if not scores:
         return None
     return int(round(sum(scores) / len(scores)))
+
+
+def compute_cabinet_compatibility(user: Dict[str, Any], items: List[Dict[str, Any]]) -> Optional[int]:
+    """Агрегированная оценка шкафа в совокупности.
+
+    Использует существующие compatibility scores продуктов (см. score_product):
+    это реальные оценки из проверок пользователя, а не независимый движок.
+    Не подставляет случайное значение при отсутствии анализа.
+    """
+    return _aggregate_scores(items)
 # ---------------------------------------------------------------------------
 # ПОДБОР (рекомендации)
 # ---------------------------------------------------------------------------
@@ -463,6 +491,7 @@ def recommend_products(
             "image_url": product.get("image_url") or "",
             "score": None,
             "reason": "",
+            "_signature": _formula_signature(product.get("ingredients") or ""),
         }
         if scored:
             # 1) уже рассчитанный скор из истории проверок пользователя
@@ -489,13 +518,27 @@ def recommend_products(
     # Стабильная сортировка: при равных скорax сохраняется порядок
     # «сначала точная категория, затем ключевые слова».
     if scored:
-        rated.sort(key=lambda r: -int(r["score"] or 0))
+        # Продукты с валидным score идут первыми, без скорa — в конец.
+        rated.sort(key=lambda r: (r["score"] is None, -int(r["score"] or 0)))
     else:
         rated.sort(key=lambda r: -int(r.get("_relevance", 0)))
 
-    result = rated[:3]
+    # Топ-3 с учётом разнообразия: не выдаём несколько почти одинаковых формул.
+    result: List[Dict[str, Any]] = []
+    used_signatures: set = set()
+    for r in rated:
+        sig = r.get("_signature") or ""
+        if sig and sig in used_signatures:
+            continue
+        if sig:
+            used_signatures.add(sig)
+        result.append(r)
+        if len(result) >= 3:
+            break
+
     for r in result:
         r.pop("_relevance", None)
+        r.pop("_signature", None)
         r.pop("id", None)
     return result
 
@@ -538,10 +581,20 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         categories: List[Dict[str, Any]] = []
         for cat in cab["categories"]:
             cat_items = [it for it in cab_items if it["category"] == cat]
-            categories.append({"key": cat, "title": cat, "items": cat_items})
+            categories.append({
+                "key": cat,
+                "title": cat,
+                "items": cat_items,
+                "compatibility": _aggregate_scores(cat_items) if cab["compatibility"] else None,
+            })
         other_items = [it for it in cab_items if it["category"] == "Другое"]
         if other_items:
-            categories.append({"key": "Другое", "title": "Другое", "items": other_items})
+            categories.append({
+                "key": "Другое",
+                "title": "Другое",
+                "items": other_items,
+                "compatibility": _aggregate_scores(other_items) if cab["compatibility"] else None,
+            })
 
         compatibility = compute_cabinet_compatibility(user, cab_items) if cab["compatibility"] else None
         cabinets.append({

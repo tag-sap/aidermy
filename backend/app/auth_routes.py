@@ -476,7 +476,7 @@ async def save_history(
     product_name = result.get('product') or result.get('product_name')
     skin_type = result.get('skinType') or result.get('skin_type')
     score = result.get('score', 0)
-    verdict = result.get('verdict') or 'С осторожностью'
+    verdict = result.get('verdict') or 'Требует внимания'
     summary = result.get('summary') or 'Не удалось получить рекомендацию.'
     slug = result.get('slug') or ''
     image_url = result.get('image_url') or ''

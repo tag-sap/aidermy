@@ -685,27 +685,22 @@ div {
   border-radius: 4px;
 }
 
+/* Корневой layout приложения: один полноэкранный контейнер с внутренним
+   скроллом (main). Здесь НЕ задаём min-height/height для main — это ломало
+   flex-1 scroll-контейнер и приводило к лишней вертикальной прокрутке. */
 html {
-  min-height: 100dvh;
-  height: auto;
+  height: 100%;
   background: #FAF9F6;
 }
 
 body {
-  min-height: 100dvh;
-  height: auto;
+  height: 100%;
+  overflow: hidden;
   background: #FAF9F6;
 }
 
 #__next {
-  min-height: 100dvh;
-  height: auto;
-  background: #FAF9F6;
-}
-
-main {
-  min-height: 100dvh;
-  height: auto;
+  height: 100%;
   background: #FAF9F6;
 }
 
@@ -715,6 +710,7 @@ main {
   left: 0;
   right: 0;
   z-index: 30;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: #FAF9F6;
   border-top: 1px solid rgba(0, 0, 0, 0.05);
 }

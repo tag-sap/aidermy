@@ -235,7 +235,7 @@ export function ResultSheet({
                 </Section>
               )}
               {result.caution_ingredients && result.caution_ingredients.length > 0 && (
-                <Section icon={AlertCircle} title="С осторожностью" className="border-red-100/50 col-span-1" onClick={() => setIngredientsModal({ title: 'Ингредиенты с осторожностью', items: result.caution_ingredients! })}>
+                <Section icon={AlertCircle} title="Требует внимания" className="border-red-100/50 col-span-1" onClick={() => setIngredientsModal({ title: 'Ингредиенты, требующие внимания', items: result.caution_ingredients! })}>
                   <div className="flex flex-wrap gap-0.5">
                     {result.caution_ingredients.slice(0, 3).map((ing) => <span key={ing} className="text-[8px] px-1.5 py-0.5 bg-red-50 text-red-500 rounded-full">{ing}</span>)}
                     {result.caution_ingredients.length > 3 && <span className="text-[8px] text-muted-foreground/40">+{result.caution_ingredients.length - 3}</span>}

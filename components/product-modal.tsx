@@ -76,6 +76,7 @@ export function ProductModal({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [showComposition, setShowComposition] = useState(false)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
@@ -85,6 +86,7 @@ export function ProductModal({
     if (!slug) return
     setLoading(true)
     setError('')
+    setShowComposition(false)
     fetch(`/api/products/${encodeURIComponent(slug)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
@@ -255,11 +257,23 @@ export function ProductModal({
             )}
 
             <div className="mt-3">
-              <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground/50">Состав (INCI)</p>
+              <button
+                type="button"
+                onClick={() => setShowComposition((prev) => !prev)}
+                className="flex w-full items-center justify-between gap-2 py-1 text-left"
+                aria-expanded={showComposition}
+              >
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground/50">Состав</span>
+                <span className="shrink-0 text-[11px] text-primary">
+                  {showComposition ? 'Скрыть состав ↑' : 'Показать состав ↓'}
+                </span>
+              </button>
               {product.ingredients ? (
-                <div className="max-h-32 overflow-y-auto break-words rounded-xl border border-gray-100 bg-gray-50/60 p-2.5 text-[11px] leading-relaxed text-foreground/60">
-                  {product.ingredients}
-                </div>
+                showComposition ? (
+                  <div className="max-h-40 overflow-y-auto break-words rounded-xl border border-gray-100 bg-gray-50/60 p-2.5 text-[11px] leading-relaxed text-foreground/60">
+                    {product.ingredients}
+                  </div>
+                ) : null
               ) : (
                 <div className="rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">
                   Состав пока не найден

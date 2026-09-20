@@ -35,7 +35,7 @@ const normalizeHistoryItem = (item: any): CheckResult => ({
   product: item?.product_name ?? item?.product ?? 'Неизвестный продукт',
   skinType: item?.skin_type ?? item?.skinType ?? 'Нормальная',
   score: Number(item?.score ?? 50),
-  verdict: item?.verdict ?? 'С осторожностью',
+  verdict: item?.verdict ?? 'Требует внимания',
   summary: item?.summary ?? 'Не удалось получить рекомендацию.',
   safe_ingredients: Array.isArray(item?.safe_ingredients) ? item.safe_ingredients : [],
   caution_ingredients: Array.isArray(item?.caution_ingredients) ? item.caution_ingredients : [],
@@ -663,7 +663,7 @@ export default function Page() {
         <div className="grid-shimmer" aria-hidden="true" />
 
         <div className="relative z-20 flex h-dvh flex-col">
-          <main ref={mainRef} className="relative flex-1 min-h-0 overflow-y-auto pb-24">
+          <main ref={mainRef} className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-[calc(6rem+env(safe-area-inset-bottom,0px))]">
             <div className="mx-auto w-full max-w-md px-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
               <AppHeader
                 onOpenAccount={() => setAccountModalOpen(true)}

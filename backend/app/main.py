@@ -757,9 +757,8 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     finally:
         conn.close()
 
-    # AI-обогащение базы знаний ингредиентов (постепенное наполнение)
-    from .shelf_service import enrich_ingredient_knowledge
-    enrich_ingredient_knowledge(result.get("ingredient_claims") or [])
+    # Обогащение базы знаний ингредиентов уже выполнено внутри
+    # check_product_with_ai -> check_product_with_ingredients (не дублируем).
 
     analysis = {
         "verdict": result.get("verdict") or "",

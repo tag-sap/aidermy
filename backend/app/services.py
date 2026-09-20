@@ -173,80 +173,69 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     if profile is None:
         profile = {}
 
-    if not DEEPSEEK_API_KEY:
-        from .analysis_service import AnalysisService
+    from .decision_engine import DecisionEngine
 
-        priorities = {
-            'hydration': 0.35,
-            'barrier_support': 0.25,
-            'sensitivity': 0.2,
-            'acne_control': 0.1,
-            'brightening': 0.1,
-        }
-        deterministic = AnalysisService().analyze(product_name, ingredients, profile, priorities)
-        score = int(deterministic.get('score', 0))
-        if score >= 70:
-            verdict = 'Подходит'
-        elif score >= 40:
-            verdict = 'С осторожностью'
-        else:
-            verdict = 'Не рекомендуется'
-        return {
-            'score': score,
-            'verdict': verdict,
-            'summary': 'Автоматическая оценка по базе ингредиентов. AI-анализ сейчас недоступен.',
-            'safe_ingredients': [item['ingredient'] for item in deterministic.get('positive_factors', [])[:8]],
-            'caution_ingredients': [item['ingredient'] for item in deterministic.get('negative_factors', [])[:8]],
-            'active_ingredients': None,
-            'how_to_use': None,
-            'expectations': None,
-        }
+    engine = DecisionEngine()
+    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
 
+    # AI используется ТОЛЬКО для обогащения (active_ingredients / how_to_use /
+    # expectations / ingredient_claims). Финальный score/verdict/summary всегда
+    # берётся из deterministic scoring engine.
+    enrichment = await _enrich_with_ai(product_name, ingredients, skin_type, profile) if DEEPSEEK_API_KEY else None
+
+    if enrichment:
+        from .shelf_service import enrich_ingredient_knowledge
+        added = enrich_ingredient_knowledge(enrichment.get("ingredient_claims") or [])
+        # Если движок ещё ничего не знал о составе, а AI пополнил базу знаний —
+        # пересчитываем детерминированный скор на обогащённых данных.
+        if float(deterministic.get("confidence") or 0.0) <= 0 and added > 0:
+            deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+
+    return {
+        'score': int(deterministic.get('score') or 0),
+        'verdict': deterministic.get('verdict') or 'Требует внимания',
+        'summary': deterministic.get('summary') or 'Не удалось получить рекомендацию.',
+        'safe_ingredients': deterministic.get('safe_ingredients') or [],
+        'caution_ingredients': deterministic.get('caution_ingredients') or [],
+        'active_ingredients': (enrichment or {}).get('active_ingredients'),
+        'how_to_use': (enrichment or {}).get('how_to_use'),
+        'expectations': (enrichment or {}).get('expectations'),
+        'ingredient_claims': (enrichment or {}).get('ingredient_claims') or [],
+    }
+async def _enrich_with_ai(product_name: str, ingredients: str, skin_type: str, profile: dict) -> dict | None:
+    """AI-обогащение данных о составе.
+
+    Возвращает ТОЛЬКО вспомогательные поля (active_ingredients, how_to_use,
+    expectations, ingredient_claims). НЕ возвращает score/verdict/summary —
+    их всегда считает deterministic scoring engine.
+    """
     prompt = f"""
-Ты — дерматолог. Оцени продукт для пользователя.
+Ты — косметолог-технолог. Обогати данные о составе продукта для базы знаний Aidermy.
 
-### Данные:
+### Контекст пользователя (только для понимания, НЕ для оценки):
 - Кожа: {skin_type}
-- Возраст: {profile.get('age', 'не указан')}
 - Проблемы: {', '.join(profile.get('concerns', [])) or 'не указаны'}
 - Аллергии: {', '.join(profile.get('allergies', [])) or 'не указаны'}
-- Жалоба: {profile.get('custom_text', 'не указана')}
 
 ### Продукт:
 - {product_name}
 - Состав (по убыванию концентрации): {ingredients}
 
-### Шкала оценки (0–100):
-- 0–20: продукт вреден или противопоказан
-- 21–40: не подходит, может усугубить проблему
-- 41–60: нейтрально, не решает проблему, но и не вредит
-- 61–80: помогает, хороший выбор
-- 81–100: идеально решает проблему пользователя
+### Задачи:
+1. Определи один ключевой активный ингредиент: его позицию в составе, концентрацию и эффективность.
+2. Опиши, как применять, чего ожидать и когда стоит насторожиться.
+3. Перечисли 3–6 ингредиентов с их свойством для базы знаний.
 
-### Инструкция:
-1. Оцени, решает ли состав проблему пользователя.
-2. Активный ингредиент — по позиции в составе (1–3 = высокая, 4–6 = средняя, 7+ = низкая).
-3. Как применять, чего ожидать, когда бить тревогу.
-
-### Теги для цветовой маркировки (только в полях summary, note, normal, danger):
+### Теги для цветовой маркировки (только в полях note, normal, danger):
 <good> — позитивный момент
-<warning> — предупреждение, на что обратить внимание
+<warning> — предупреждение
 <bad> — негативный момент
 
-### Summary (резюме):
-Напиши 1–2 коротких предложения простым человеческим языком, отвечая на вопрос «что это значит лично для пользователя?».
-НЕ перечисляй ингредиенты и INCI-названия — они будут показаны отдельно в подробном разборе.
-НЕ используй медицинские утверждения.
-Используй теги <good>, <warning>, <bad> вокруг коротких фраз.
-
 ### ВАЖНО:
-Верни ТОЛЬКО JSON без лишнего текста. Все поля обязательны.
+Верни ТОЛЬКО JSON без лишнего текста. Поля score, verdict, summary НЕ нужны.
 
 ### Формат:
 {{
-  "score": число,
-  "verdict": "Подходит" | "С осторожностью" | "Не рекомендуется",
-  "summary": "1–2 предложения простым языком с тегами <good>/<warning>/<bad>",
   "active_ingredients": {{
     "name": "название",
     "position": число,
@@ -263,31 +252,11 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     "normal": "с <good>, <warning> или <bad>",
     "danger": "с <good>, <warning> или <bad>"
   }},
-  "safe_ingredients": ["инг1"],
-  "caution_ingredients": ["инг1"],
   "ingredient_claims": [
     {{"ingredient": "ингредиент", "property": "hydration|barrier_support|sensitivity|acne_control|brightening", "direction": "positive|negative", "strength": 0.8, "confidence": 0.9}}
   ]
 }}
 """
-
-    enrichment_note = (
-        "\n\nДополнительно: в поле ingredient_claims перечисли 3–6 ключевых ингредиентов состава "
-        "и для каждого укажи его основное свойство (property), направление влияния (direction), "
-        "силу (strength 0–1) и уверенность (confidence 0–1). Эти данные пополняют базу знаний Aidermy."
-    )
-    prompt = prompt + enrichment_note
-
-    fallback = {
-        "score": 50,
-        "verdict": "С осторожностью",
-        "summary": "Не удалось получить корректный разбор состава. Попробуйте проверить продукт ещё раз.",
-        "safe_ingredients": [],
-        "caution_ingredients": [],
-        "active_ingredients": None,
-        "how_to_use": None,
-        "expectations": None,
-    }
 
     for attempt in range(len(DEEPSEEK_MODEL_FALLBACKS)):
         model_name = DEEPSEEK_MODEL_FALLBACKS[attempt]
@@ -297,65 +266,44 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
                     DEEPSEEK_API_URL,
                     headers={
                         "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
                     },
                     json={
                         "model": model_name,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.3,
-                        "max_tokens": 3000
+                        "max_tokens": 3000,
                     },
-                    timeout=30
+                    timeout=30,
                 )
 
             if response.status_code != 200:
-                print(f"⚠️ DeepSeek model {model_name} failed with status {response.status_code}")
                 if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
-                    raise Exception(f"DeepSeek API error: {response.status_code} - {response.text}")
+                    return None
                 continue
 
             try:
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
             except Exception:
-                if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
-                    return fallback
                 continue
 
             if not content or not str(content).strip():
-                print(f"⚠️ DeepSeek model {model_name} returned empty content; trying next model.")
-                if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
-                    return fallback
                 continue
-
-            print(f"📥 ОТВЕТ AI [{model_name}]:")
-            print(content)
-            print("---")
 
             try:
                 result = extract_json_from_response(content)
-                if is_valid_ai_result(result):
+                if isinstance(result, dict) and (
+                    result.get("active_ingredients") or result.get("ingredient_claims")
+                ):
                     return result
-            except Exception as e:
-                print(f"❌ Ошибка парсинга JSON: {e}")
+            except Exception:
+                continue
 
-            if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
-                break
-            continue
-        except Exception as e:
-            print(f"❌ Ошибка модели {model_name}: {e}")
-            if attempt == len(DEEPSEEK_MODEL_FALLBACKS) - 1:
-                raise
+        except Exception:
             continue
 
-    return {
-        **fallback,
-        "summary": fallback.get("summary") or "Состав проверен, но итоговый ответ был пустым. Попробуйте повторить проверку.",
-        "verdict": fallback.get("verdict") or "С осторожностью",
-        "score": int(fallback.get("score") or 50),
-        "safe_ingredients": fallback.get("safe_ingredients") or [],
-        "caution_ingredients": fallback.get("caution_ingredients") or [],
-    }
+    return None
 
 def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB

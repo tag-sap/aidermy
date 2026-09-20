@@ -9,7 +9,7 @@ import { ShelfAddModal } from '@/components/shelf-add-modal'
 import { ProductModal } from '@/components/product-modal'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
-type Category = { key: string; title: string; items: ShelfItem[] }
+type Category = { key: string; title: string; items: ShelfItem[]; compatibility?: number | null }
 type Cabinet = {
   key: string
   title: string
@@ -241,7 +241,12 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
               {currentCabinet.categories.map((cat) => (
                 <div key={cat.key}>
                   <div className="mb-2 flex items-center justify-between">
-                    <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground/60">{cat.title}</h3>
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground/60">{cat.title}</h3>
+                      {currentCabinet.has_scoring && cat.compatibility != null && (
+                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">{cat.compatibility}%</span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       {cat.items.length > 0 && (
                         <button
