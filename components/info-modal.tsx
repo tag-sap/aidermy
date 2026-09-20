@@ -15,7 +15,7 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-modal-backdrop">
-      <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 relative animate-modal-panel">
+      <div className="bg-white rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto p-6 relative animate-modal-panel">
         <button
           onClick={onClose}
           className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 transition-colors"

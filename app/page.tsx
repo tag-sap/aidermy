@@ -613,7 +613,7 @@ export default function Page() {
         <div className="grid-shimmer" aria-hidden="true" />
 
         <div className="relative z-20 flex h-dvh flex-col">
-          <main ref={mainRef} className="relative z-10 flex-1 min-h-0 overflow-y-auto pb-24">
+          <main ref={mainRef} className="relative flex-1 min-h-0 overflow-y-auto pb-24">
             <div className="mx-auto w-full max-w-md px-4">
               <AppHeader
                 onProfile={handleGoToProfile}

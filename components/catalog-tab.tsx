@@ -22,7 +22,9 @@ function normalize(p: any): Product {
 export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) {
   const [products, setProducts] = useState<Product[]>([])
   const [letters, setLetters] = useState<string[]>([])
+  const [categories, setCategories] = useState<string[]>([])
   const [activeLetter, setActiveLetter] = useState('')
+  const [category, setCategory] = useState('')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -40,10 +42,15 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
       .then((r) => r.json())
       .then((d) => setLetters(d.letters || []))
       .catch(() => {})
+    fetch('/api/categories')
+      .then((r) => r.json())
+      .then((d) => setCategories(d.categories || []))
+      .catch(() => {})
   }, [])
 
   const buildParams = (offset: number) => {
     const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset), sort: 'alpha' })
+    if (category) params.append('category', category)
     if (activeLetter) params.append('letter', activeLetter)
     if (search.trim()) params.append('search', search.trim())
     return params
@@ -73,7 +80,7 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
         }
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLetter, search])
+  }, [activeLetter, category, search])
 
   const loadMore = useCallback(() => {
     if (loadingRef.current || !hasMore) return
@@ -94,7 +101,7 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
         setLoadingMore(false)
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLetter, search, hasMore])
+  }, [activeLetter, category, search, hasMore])
 
   useEffect(() => {
     const el = sentinelRef.current
@@ -156,6 +163,32 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
           )}
         </div>
 
+        {categories.length > 0 && (
+          <div className="no-scrollbar mb-2 flex gap-1 overflow-x-auto">
+            <button
+              onClick={() => setCategory('')}
+              className={cn(
+                'shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                category === '' ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+              )}
+            >
+              Все
+            </button>
+            {categories.map((c) => (
+              <button
+                key={c}
+                onClick={() => setCategory((prev) => (prev === c ? '' : c))}
+                className={cn(
+                  'shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                  category === c ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                )}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
+
         {letters.length > 0 && (
           <div className="no-scrollbar flex gap-1 overflow-x-auto pb-0.5">
             <button
@@ -191,7 +224,7 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
         </div>
       ) : products.length === 0 ? (
         <div className="py-16 text-center text-sm text-muted-foreground/50">
-          {search || activeLetter ? 'Ничего не найдено' : 'В каталоге пока нет продуктов'}
+          {search || activeLetter || category ? 'Ничего не найдено' : 'В каталоге пока нет продуктов'}
         </div>
       ) : (
         <div className="pt-3">

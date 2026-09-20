@@ -153,7 +153,7 @@ export function ResultSheet({
   return (
     <div className={cn('fixed inset-0 z-50 flex items-center justify-center p-3 transition-opacity duration-300', isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none')} style={{ backgroundColor: 'rgba(0,0,0,0.15)', transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
       <button type="button" onClick={handleClose} className="absolute inset-0" />
-      <div className={cn('relative w-full max-w-sm p-4 transition-all duration-300 max-h-[95vh] overflow-y-auto', isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0')} style={{
+      <div className={cn('relative w-full max-w-sm p-4 transition-all duration-300 max-h-[85vh] overflow-y-auto', isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0')} style={{
         transform: isVisible ? 'scale(1) translateY(0)' : 'scale(0.96) translateY(14px)',
         transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
         opacity: isVisible ? 1 : 0,

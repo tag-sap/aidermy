@@ -151,6 +151,38 @@ def init_db():
     if 'caution_ingredients' not in columns:
         cursor.execute('ALTER TABLE check_history ADD COLUMN caution_ingredients TEXT')
     
+    # === COMMUNITY INTELLIGENCE ===
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            product_id INTEGER NOT NULL,
+            slug TEXT DEFAULT '',
+            rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+            text TEXT DEFAULT '',
+            usage_duration TEXT DEFAULT '',
+            tags TEXT DEFAULT '[]',
+            visibility TEXT DEFAULT 'ANONYMOUS',
+            profile_snapshot TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, product_id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews (product_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews (user_id)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS review_helpful_votes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_id INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(review_id, user_id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_review_votes_review ON review_helpful_votes (review_id)')
+
     conn.commit()
     conn.close()
     

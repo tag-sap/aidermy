@@ -14,6 +14,7 @@ from .models import CheckRequest, CheckResponse, CheckWithIngredientsRequest, Im
 from .services import check_product_with_ai, check_product_with_ingredients, search_products
 from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, PRODUCTS_DB, upsert_imported_product
 from .auth_routes import router as auth_router
+from .community_routes import router as community_router
 from .admin_routes import setup_admin_routes
 from typing import Optional, List
 from .auth import get_current_user_optional, get_current_user
@@ -44,6 +45,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(community_router)
 
 # Регистрируем админ-роуты
 setup_admin_routes(app)
@@ -104,6 +106,18 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
                     score = int(h.get("score") or 0)
                     break
 
+    from .community_service import CommunityIntelligenceService
+    from .community_routes import _get_profile_for_user
+    community_service = CommunityIntelligenceService()
+    community = {
+        "overall": community_service.get_product_community_rating(product["id"]),
+        "personalized": {"available": False, "count": 0, "average": None},
+    }
+    if current_user:
+        community["personalized"] = community_service.get_personalized_community_rating(
+            product["id"], _get_profile_for_user(current_user["id"])
+        )
+
     return {
         "product": {
             "id": product.get("id"),
@@ -118,6 +132,7 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
         "score": score,
         "analysis": analysis,
         "on_shelf": on_shelf,
+        "community": community,
     }
 
 

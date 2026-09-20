@@ -92,7 +92,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-primary/10 bg-white p-6 shadow-2xl animate-modal-panel"
+        className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-primary/10 bg-white p-6 shadow-2xl animate-modal-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="auth-modal-title"

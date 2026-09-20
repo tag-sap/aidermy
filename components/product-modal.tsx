@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { MarkupText } from '@/components/markup-text'
 import { CABINET_TITLES } from '@/lib/shelf'
 import { useScrollLock } from '@/lib/use-scroll-lock'
+import { CommunitySection } from '@/components/community-section'
 import type { CheckResult } from '@/lib/store'
 
 type ProductDetail = {
@@ -31,6 +32,10 @@ type ProductDetail = {
     expectations?: { when: string; normal: string; danger: string } | null
   } | null
   on_shelf: { shelf_id: number; cabinet: string; category: string } | null
+  community: {
+    overall: { average: number | null; count: number }
+    personalized: { available: boolean; count: number; average: number | null }
+  }
 }
 
 function scoreColor(s: number) {
@@ -201,7 +206,7 @@ export function ProductModal({
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
       <div
-        className="no-scrollbar max-h-[92dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 animate-modal-panel"
+        className="no-scrollbar max-h-[85dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 animate-modal-panel"
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (
@@ -334,6 +339,12 @@ export function ProductModal({
                 </button>
               )}
             </div>
+
+            <CommunitySection
+              slug={product.slug}
+              isAuthenticated={!!token}
+              community={data?.community || { overall: { average: null, count: 0 }, personalized: { available: false, count: 0, average: null } }}
+            />
           </>
         ) : null}
       </div>

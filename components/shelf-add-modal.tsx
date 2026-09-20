@@ -200,7 +200,7 @@ export function ShelfAddModal({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
-      <div className="flex max-h-[85dvh] w-full max-w-md max-w-[100vw] flex-col overflow-hidden rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[80dvh] w-full max-w-md max-w-[100vw] flex-col overflow-hidden rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex shrink-0 items-center justify-between">
           <div className="flex items-center gap-2">
             {mode !== 'menu' && (

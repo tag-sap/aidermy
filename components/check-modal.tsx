@@ -1,9 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Link2, Search, Camera, LoaderCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useScrollLock } from '@/lib/use-scroll-lock'
+
+type Suggestion = { name: string; brand: string; title: string; image_url: string }
+
+function splitName(raw: string): { brand: string; title: string } {
+  const parts = (raw || '').split('\n').filter((x) => x.trim())
+  if (parts.length >= 2) return { brand: parts[0], title: parts.slice(1).join(' ') }
+  return { brand: '', title: (raw || '').trim() }
+}
 
 export function CheckModal({ isOpen, onClose, onCheck }: {
   isOpen: boolean
@@ -15,14 +23,51 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
   const [link, setLink] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useScrollLock(isOpen)
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (name.trim().length < 2) {
+      setSuggestions([])
+      setShowSuggestions(false)
+      return
+    }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/products?q=${encodeURIComponent(name.trim())}`)
+        const data = await res.json()
+        const items = (data.products || []).slice(0, 6).map((p: any) => {
+          const { brand, title } = splitName(p.name || '')
+          return { name: p.name || '', brand, title, image_url: p.image_url || '' }
+        })
+        setSuggestions(items)
+        setShowSuggestions(items.length > 0)
+      } catch {
+        setSuggestions([])
+      }
+    }, 300)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [name, isOpen])
 
   if (!isOpen) return null
 
   const handleName = () => {
     if (!name.trim() || loading) return
     onCheck(name.trim(), 'Нормальная')
+    setName('')
+    onClose()
+  }
+
+  const selectSuggestion = (s: Suggestion) => {
+    setShowSuggestions(false)
+    onCheck(s.title || s.brand, 'Нормальная')
     setName('')
     onClose()
   }
@@ -60,7 +105,7 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-normal text-foreground">Проверить продукт</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
@@ -85,17 +130,44 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
         </div>
 
         {mode === 'name' && (
-          <div className="flex gap-2">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleName()}
-              placeholder="Название продукта…"
-              className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-primary/40 focus:outline-none"
-            />
-            <button onClick={handleName} disabled={!name.trim() || loading} className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
-              Проверить
-            </button>
+          <div className="relative">
+            <div className="flex gap-2">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleName()}
+                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                placeholder="Название продукта…"
+                className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-primary/40 focus:outline-none"
+              />
+              <button onClick={handleName} disabled={!name.trim() || loading} className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
+                Проверить
+              </button>
+            </div>
+
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={`${s.name}-${i}`}
+                    onClick={() => selectSuggestion(s)}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-primary/5"
+                  >
+                    <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-50">
+                      {s.image_url ? (
+                        <img src={s.image_url} alt="" className="h-full w-full object-contain p-1" />
+                      ) : (
+                        <Search className="size-4 text-muted-foreground/30" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {s.brand && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{s.brand}</p>}
+                      <p className="truncate text-sm text-foreground">{s.title || s.brand}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
