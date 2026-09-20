@@ -26,12 +26,10 @@ export function TabBar({
   isAuthenticated?: boolean
 }) {
   const visibleTabs = TABS.filter(tab => {
-    // «Главная» — только для гостей; для авторизованных стартовая вкладка — «Профиль».
-    if (tab.id === 'home') return !isAuthenticated
-    if (!isAuthenticated && (tab.id === 'history' || tab.id === 'profile' || tab.id === 'shelf')) {
-      return false
-    }
-    return true
+    // Гостям доступна только «Главная» (лендинг) — каталог, проверка и полка скрыты.
+    if (!isAuthenticated) return tab.id === 'home'
+    // Авторизованным «Главная» не нужна — стартовая вкладка «Моя полка».
+    return tab.id !== 'home'
   })
 
   return (
@@ -39,7 +37,7 @@ export function TabBar({
       className="fixed bottom-0 left-0 right-0 z-30 bg-background/80 backdrop-blur-sm border-t border-gray-200/50 pb-[env(safe-area-inset-bottom,0px)]"
       aria-label="Основная навигация"
     >
-      <div className="mx-auto flex w-full max-w-md items-end justify-around px-2 pt-1.5 pb-2 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
+      <div className="mx-auto flex w-full max-w-md items-end justify-around px-2 pt-2 pb-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
         {visibleTabs.map(({ id, label, icon: Icon, circle }) => {
           const isActive = active === id
 

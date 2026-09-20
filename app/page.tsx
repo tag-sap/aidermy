@@ -151,7 +151,7 @@ export default function Page() {
     const token = localStorage.getItem('token')
     if (token) {
       setIsAuthenticated(true)
-      setTab('profile')
+      setTab('shelf')
       const savedName = localStorage.getItem('userName')
       if (savedName) setUserName(savedName)
       const savedEmail = localStorage.getItem('userEmail')
@@ -238,7 +238,7 @@ export default function Page() {
       setUserName(data.user?.name || email.split('@')[0])
       setUserEmail(data.user?.email || '')
       setAvatarUrl(data.user?.avatar_url || '')
-      setTab('profile')
+      setTab('shelf')
 
       await loadProfileFromServer(token)
       await loadHistoryFromServer(token)
@@ -703,9 +703,7 @@ export default function Page() {
                 <div key={tab} className="tab-content">
                   {tab === 'home' && (
                     <WelcomeTab
-                      onCheck={() => setCheckModalOpen(true)}
                       onAuth={() => setIsAuthModalOpen(true)}
-                      onCatalog={() => setTab('catalog')}
                     />
                   )}
                   {tab === 'catalog' && (
