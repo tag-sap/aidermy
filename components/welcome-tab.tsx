@@ -1,7 +1,6 @@
 'use client'
 
 import { ShieldCheck, Sparkles, User, LayoutGrid, Droplets, ArrowRight, CheckCircle2, FlaskConical } from 'lucide-react'
-import { AdHero } from './ad-hero'
 
 interface WelcomeTabProps {
   onAuth: () => void
@@ -39,8 +38,22 @@ const STEPS = [
 export function WelcomeTab({ onAuth }: WelcomeTabProps) {
   return (
     <div className="flex flex-col gap-6 pb-4">
-      {/* HERO — фирменный дизайн AIdermy */}
-      <AdHero />
+      {/* HERO */}
+      <section className="relative overflow-hidden rounded-3xl border border-primary/20 bg-gradient-to-br from-primary/10 via-white to-accent/10 p-6 text-center">
+        <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-primary/15 blur-2xl" />
+        <div className="pointer-events-none absolute -bottom-10 -left-6 size-28 rounded-full bg-accent/20 blur-2xl" />
+        <div className="relative">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-white/70 px-3 py-1 text-[11px] font-medium text-primary">
+            <Sparkles className="size-3.5" />
+            AI-проверка косметики
+          </span>
+          <h2 className="mt-4 text-[28px] font-light leading-tight text-foreground">
+            Проверяй косметику <span className="text-primary">по составу</span>,
+            <br />
+            а не по обещаниям
+          </h2>
+        </div>
+      </section>
 
       {/* ИНТРО + CTA */}
       <section className="px-1 text-center">
