@@ -13,7 +13,6 @@ import { SplashScreen } from '@/components/splash-screen'
 import { SkinQuiz } from '@/components/skin-quiz'
 import { ShelfOnboarding } from '@/components/shelf-onboarding'
 import { InfoModal } from '@/components/info-modal'
-import { BrandMarquee } from '@/components/brand-marquee'
 import { ShelfTab } from '@/components/shelf-tab'
 import { CatalogTab } from '@/components/catalog-tab'
 import { WelcomeTab } from '@/components/welcome-tab'
@@ -68,8 +67,6 @@ export default function Page() {
   const [showQuiz, setShowQuiz] = useState(false)
   const [showShelfOnboarding, setShowShelfOnboarding] = useState(false)
   const [catalogSlug, setCatalogSlug] = useState<string | null>(null)
-
-  const quizAttemptedRef = useRef(false)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
   const lastHistoryMutationRef = useRef(0)
@@ -199,14 +196,15 @@ export default function Page() {
     }
   }, [isAuthenticated, tab])
 
-  // Новому пользователю без профиля показываем квиз определения типа кожи (один раз за сессию).
+  // Квиз определения типа кожи показываем ТОЛЬКО новому пользователю:
+  // нет типа кожи, нет ответов квиза и квиз ещё ни разу не предлагался (persistent-флаг).
   useEffect(() => {
     if (!isAuthenticated || !hydrated) return
-    if (quizAttemptedRef.current) return
+    if (localStorage.getItem('aidermy:quizAttempted')) return
     const hasSkinType = Boolean(profile.skinType)
     const hasQuiz = Boolean(profile.quizAnswers && Object.keys(profile.quizAnswers).length > 0)
     if (!hasSkinType && !hasQuiz) {
-      quizAttemptedRef.current = true
+      localStorage.setItem('aidermy:quizAttempted', '1')
       setShowQuiz(true)
     }
   }, [isAuthenticated, hydrated, profile])
@@ -309,7 +307,6 @@ export default function Page() {
     localStorage.removeItem('avatarUrl')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
-    quizAttemptedRef.current = false
     setShowShelfOnboarding(false)
     setTab('home')
     setAccountModalOpen(false)
@@ -471,6 +468,28 @@ export default function Page() {
     saveProfile(updatedProfile)
     setShowQuiz(false)
     setTab('shelf')
+
+    // Сохраняем результат квиза на сервер, чтобы тип кожи не потерялся при следующем входе.
+    const token = localStorage.getItem('token')
+    if (token) {
+      fetch('/api/auth/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          profile: {
+            name: updatedProfile.name || '',
+            skinType: skinType,
+            age: updatedProfile.age || '',
+            concerns: updatedProfile.concerns || [],
+            allergies: updatedProfile.allergies || [],
+            customText: updatedProfile.customText || '',
+            quizAnswers: answers,
+            skinTypeDetermined: skinType,
+          },
+        }),
+      }).catch(() => {})
+    }
+
     // Первый раз после квиза показываем онбординг «Моя полка».
     if (!localStorage.getItem('aidermy:shelfOnboarded')) {
       setShowShelfOnboarding(true)
@@ -693,7 +712,6 @@ export default function Page() {
       <SplashScreen />
 
       <div className="relative h-dvh overflow-hidden bg-background">
-        <BrandMarquee />
         <CyberGrid />
         <div className="grid-shimmer" aria-hidden="true" />
 
