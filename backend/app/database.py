@@ -13,6 +13,11 @@ def get_connection(db_path=None):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.create_function("lower_ru", 1, lambda s: (s or "").lower())
+    conn.create_collation("NOCASE_RU", lambda a, b: (
+        -1 if (a or "").lower() < (b or "").lower()
+        else 1 if (a or "").lower() > (b or "").lower()
+        else 0
+    ))
     return conn
 
 def init_db():

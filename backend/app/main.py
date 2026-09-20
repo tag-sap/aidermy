@@ -334,11 +334,16 @@ async def get_popular_products():
             } for row in rows]
         }
 
+# Выражение для извлечения названия продукта без бренда (бренд хранится до переноса строки)
+TITLE_SQL = "REPLACE(TRIM(SUBSTR(name, INSTR(name, CHAR(10)) + 1), CHAR(10) || ' '), CHAR(10), ' ')"
+
+
 @app.get("/api/catalog")
 async def get_catalog(
     category: Optional[str] = None,
     brand: Optional[str] = None,
     search: Optional[str] = None,
+    letter: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
     sort: str = "popular"
@@ -346,54 +351,33 @@ async def get_catalog(
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    # Основной запрос
-    query = "SELECT name, slug, image_url, ingredients, category, brand FROM products WHERE 1=1"
+    where = ["1=1"]
     params = []
-    
+
     if category:
-        query += " AND lower_ru(name) LIKE ?"
+        where.append("lower_ru(name) LIKE ?")
         params.append(f"%{category.lower()}%")
     if brand:
-        query += " AND brand = ?"
+        where.append("brand = ?")
         params.append(brand)
     if search:
-        words = search.strip().lower().split()
-        if len(words) == 1:
-            query += " AND lower_ru(name) LIKE ?"
-            params.append(f"%{words[0]}%")
-        else:
-            for word in words:
-                query += " AND lower_ru(name) LIKE ?"
-                params.append(f"%{word}%")
-    
-    query += " ORDER BY name ASC LIMIT ? OFFSET ?"
-    params.append(limit)
-    params.append(offset)
-    
-    cursor.execute(query, params)
+        for word in search.strip().lower().split():
+            where.append("lower_ru(name) LIKE ?")
+            params.append(f"%{word}%")
+    if letter:
+        where.append(f"lower_ru(SUBSTR({TITLE_SQL}, 1, 1)) = ?")
+        params.append(letter.lower())
+
+    where_sql = " AND ".join(where)
+    order_sql = f"{TITLE_SQL} COLLATE NOCASE_RU ASC" if sort == "alpha" else "name ASC"
+
+    cursor.execute(
+        f"SELECT name, slug, image_url, ingredients, category, brand FROM products WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
+        params + [limit, offset],
+    )
     rows = cursor.fetchall()
     
-    # Подсчёт
-    count_query = "SELECT COUNT(*) FROM products WHERE 1=1"
-    count_params = []
-    
-    if category:
-        count_query += " AND lower_ru(name) LIKE ?"
-        count_params.append(f"%{category.lower()}%")
-    if brand:
-        count_query += " AND brand = ?"
-        count_params.append(brand)
-    if search:
-        words = search.strip().lower().split()
-        if len(words) == 1:
-            count_query += " AND lower_ru(name) LIKE ?"
-            count_params.append(f"%{words[0]}%")
-        else:
-            for word in words:
-                count_query += " AND lower_ru(name) LIKE ?"
-                count_params.append(f"%{word}%")
-    
-    cursor.execute(count_query, count_params)
+    cursor.execute(f"SELECT COUNT(*) FROM products WHERE {where_sql}", params)
     total = cursor.fetchone()[0]
     
     conn.close()
@@ -404,6 +388,23 @@ async def get_catalog(
         "limit": limit,
         "offset": offset
     }
+
+@app.get("/api/catalog/letters")
+async def get_catalog_letters():
+    """Первые буквы названий продуктов для алфавитной навигации."""
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    cursor.execute(f"""
+        SELECT DISTINCT lower_ru(SUBSTR({TITLE_SQL}, 1, 1)) AS letter
+        FROM products
+        WHERE name IS NOT NULL AND name != ''
+        ORDER BY letter
+    """)
+    letters = [row[0] for row in cursor.fetchall() if row[0] and row[0].isalnum()]
+    conn.close()
+    return {"letters": letters}
+
+
 
 CATEGORY_KEYWORDS = [
     "Крем", "Сыворотка", "Гель", "Масло", "Тоник", "Тонер", "Лосьон",

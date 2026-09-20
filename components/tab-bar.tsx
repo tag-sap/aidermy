@@ -10,7 +10,7 @@ const TABS: { id: TabId | 'check'; label: string; icon: typeof Search; circle?: 
   { id: 'check', label: 'Проверить', icon: Search, circle: true },
   { id: 'shelf', label: 'Моя полка', icon: Sparkles, circle: true },
   { id: 'profile', label: 'Профиль', icon: User, circle: true },
-  { id: 'history', label: 'История', icon: History },
+  { id: 'history', label: 'История', icon: History, circle: true },
 ]
 
 export function TabBar({
