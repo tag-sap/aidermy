@@ -15,6 +15,7 @@ import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
 import { ShelfTab } from '@/components/shelf-tab'
 import { CatalogTab } from '@/components/catalog-tab'
+import { WelcomeTab } from '@/components/welcome-tab'
 import { ProductModal } from '@/components/product-modal'
 import { CheckModal } from '@/components/check-modal'
 import { AccountModal } from '@/components/account-modal'
@@ -51,7 +52,7 @@ const normalizeHistoryItem = (item: any): CheckResult => ({
 })
 
 export default function Page() {
-  const [tab, setTab] = useState<TabId>('catalog')
+  const [tab, setTab] = useState<TabId>('home')
   const [profile, setProfile] = useState<SkinProfile>(emptyProfile)
   const [history, setHistory] = useState<CheckResult[]>([])
   const [hydrated, setHydrated] = useState(false)
@@ -150,6 +151,7 @@ export default function Page() {
     const token = localStorage.getItem('token')
     if (token) {
       setIsAuthenticated(true)
+      setTab('profile')
       const savedName = localStorage.getItem('userName')
       if (savedName) setUserName(savedName)
       const savedEmail = localStorage.getItem('userEmail')
@@ -236,6 +238,7 @@ export default function Page() {
       setUserName(data.user?.name || email.split('@')[0])
       setUserEmail(data.user?.email || '')
       setAvatarUrl(data.user?.avatar_url || '')
+      setTab('profile')
 
       await loadProfileFromServer(token)
       await loadHistoryFromServer(token)
@@ -282,7 +285,7 @@ export default function Page() {
     localStorage.removeItem('avatarUrl')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
-    setTab('catalog')
+    setTab('home')
     setAccountModalOpen(false)
   }
 
@@ -675,11 +678,13 @@ export default function Page() {
                 avatarUrl={avatarUrl}
               />
 
-              <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-gray-200/50 bg-background/85 px-4 py-2.5 backdrop-blur-sm">
-                <h1 className="text-xl font-light text-foreground">
-                  {tab === 'history' ? 'История' : tab === 'profile' ? 'Профиль' : tab === 'catalog' ? 'Каталог' : 'Моя полка'}
-                </h1>
-              </div>
+              {tab !== 'home' && (
+                <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-gray-200/50 bg-background/85 px-4 py-2.5 backdrop-blur-sm">
+                  <h1 className="text-xl font-light text-foreground">
+                    {tab === 'history' ? 'История' : tab === 'profile' ? 'Профиль' : tab === 'catalog' ? 'Каталог' : 'Моя полка'}
+                  </h1>
+                </div>
+              )}
 
               {showQuiz ? (
                 <div className="py-4">
@@ -696,6 +701,13 @@ export default function Page() {
                 </div>
               ) : (
                 <div key={tab} className="tab-content">
+                  {tab === 'home' && (
+                    <WelcomeTab
+                      onCheck={() => setCheckModalOpen(true)}
+                      onAuth={() => setIsAuthModalOpen(true)}
+                      onCatalog={() => setTab('catalog')}
+                    />
+                  )}
                   {tab === 'catalog' && (
                     <CatalogTab
                       onOpenProduct={(slug) => setCatalogSlug(slug)}

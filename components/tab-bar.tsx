@@ -1,11 +1,12 @@
 'use client'
 
-import { Search, History, User, Sparkles, LayoutGrid } from 'lucide-react'
+import { Search, History, User, Sparkles, LayoutGrid, Home } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type TabId = 'catalog' | 'history' | 'shelf' | 'profile'
+export type TabId = 'home' | 'catalog' | 'history' | 'shelf' | 'profile'
 
 const TABS: { id: TabId | 'check'; label: string; icon: typeof Search; circle?: boolean }[] = [
+  { id: 'home', label: 'Главная', icon: Home, circle: true },
   { id: 'catalog', label: 'Каталог', icon: LayoutGrid, circle: true },
   { id: 'check', label: 'Проверить', icon: Search, circle: true },
   { id: 'shelf', label: 'Моя полка', icon: Sparkles, circle: true },
@@ -25,6 +26,8 @@ export function TabBar({
   isAuthenticated?: boolean
 }) {
   const visibleTabs = TABS.filter(tab => {
+    // «Главная» — только для гостей; для авторизованных стартовая вкладка — «Профиль».
+    if (tab.id === 'home') return !isAuthenticated
     if (!isAuthenticated && (tab.id === 'history' || tab.id === 'profile' || tab.id === 'shelf')) {
       return false
     }
