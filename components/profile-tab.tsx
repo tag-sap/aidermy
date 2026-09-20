@@ -6,6 +6,7 @@ import { Chip } from '@/components/chip'
 import { AGE_GROUPS, ALLERGIES, SKIN_CONCERNS, SKIN_TYPES } from '@/lib/products'
 import type { SkinProfile } from '@/lib/store'
 import { cn } from '@/lib/utils'
+import { useScrollLock } from '@/lib/use-scroll-lock'
 
 interface ProfileTabProps {
   profile: SkinProfile
@@ -23,6 +24,8 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     const [customText, setCustomText] = useState(profile.customText || '')
     const [saved, setSaved] = useState(true)
     const [showReset, setShowReset] = useState(false)
+
+    useScrollLock(showReset)
 
     useImperativeHandle(ref, () => ({
       getDraft: () => ({ name, skinType, age, concerns, allergies, customText }),
@@ -240,9 +243,8 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
 
         {/* ПОПАП СБРОСА */}
         {showReset && (
-          <>
-            <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={() => setShowReset(false)} />
-            <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white/90 backdrop-blur-xl border border-white/30 p-6 shadow-2xl">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setShowReset(false)}>
+            <div className="w-80 max-w-full rounded-2xl bg-white/90 backdrop-blur-xl border border-white/30 p-6 shadow-2xl animate-modal-panel" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-light text-foreground">Сбросить анкету?</h3>
                 <button onClick={() => setShowReset(false)} className="text-muted-foreground/60 hover:text-foreground">
@@ -267,7 +269,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 </button>
               </div>
             </div>
-          </>
+          </div>
         )}
       </div>
     )

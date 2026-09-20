@@ -5,10 +5,10 @@ import { cn } from '@/lib/utils'
 
 export type TabId = 'history' | 'shelf' | 'profile'
 
-const TABS: { id: TabId | 'check'; label: string; icon: typeof Search }[] = [
+const TABS: { id: TabId | 'check'; label: string; icon: typeof Search; circle?: boolean }[] = [
   { id: 'history', label: 'История', icon: History },
-  { id: 'check', label: 'Проверить', icon: Search },
-  { id: 'shelf', label: 'Моя полка', icon: Sparkles },
+  { id: 'check', label: 'Проверить', icon: Search, circle: true },
+  { id: 'shelf', label: 'Моя полка', icon: Sparkles, circle: true },
   { id: 'profile', label: 'Профиль', icon: User },
 ]
 
@@ -36,27 +36,28 @@ export function TabBar({
       aria-label="Основная навигация"
     >
       <div className="mx-auto max-w-md flex items-end justify-around px-2 pt-1.5 pb-2">
-        {visibleTabs.map(({ id, label, icon: Icon }) => {
+        {visibleTabs.map(({ id, label, icon: Icon, circle }) => {
           const isActive = active === id
-          const isCenter = id === 'shelf'
 
-          if (isCenter) {
+          if (circle) {
             return (
               <button
                 key={id}
                 type="button"
-                onClick={() => onChange(id)}
-                className="relative -mt-6 flex flex-1 flex-col items-center gap-0.5"
+                onClick={() => (id === 'check' ? onCheck() : onChange(id as TabId))}
+                aria-current={isActive ? 'page' : undefined}
+                data-active={isActive ? 'true' : 'false'}
+                className="nav-link-animated relative -mt-6 flex flex-1 flex-col items-center gap-0.5"
               >
                 <span
                   className={cn(
-                    'flex size-14 items-center justify-center rounded-full border transition-all duration-300',
+                    'tab-circle flex size-14 items-center justify-center rounded-full border',
                     isActive
                       ? 'bg-primary text-primary-foreground border-primary shadow-[0_8px_24px_rgba(78,159,110,0.4)]'
-                      : 'bg-white text-muted-foreground border-gray-200/70 shadow-sm hover:text-primary'
+                      : 'bg-white text-muted-foreground border-gray-200/70 shadow-sm hover:border-primary/40 hover:text-primary'
                   )}
                 >
-                  <Icon className="size-6" strokeWidth={2} />
+                  <Icon className="tab-circle-icon size-6" strokeWidth={2} />
                 </span>
                 <span className={cn('text-[9px] font-normal leading-none', isActive ? 'text-primary' : 'text-muted-foreground')}>
                   {label}
@@ -69,7 +70,7 @@ export function TabBar({
             <button
               key={id}
               type="button"
-              onClick={() => (id === 'check' ? onCheck() : onChange(id as TabId))}
+              onClick={() => onChange(id as TabId)}
               aria-current={isActive ? 'page' : undefined}
               data-active={isActive ? 'true' : 'false'}
               className={cn(

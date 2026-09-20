@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { X, Search, Link2, Wand2, LoaderCircle, Sparkles, ChevronLeft } from 'lucide-react'
 import { CABINET_TITLES, CABINET_META } from '@/lib/shelf'
 import { MarkupText } from '@/components/markup-text'
+import { useScrollLock } from '@/lib/use-scroll-lock'
 
 type Mode = 'menu' | 'base' | 'url' | 'recommend'
 
@@ -53,6 +54,8 @@ export function ShelfAddModal({
   const [recs, setRecs] = useState<Recommendation[]>([])
   const [recLoading, setRecLoading] = useState(false)
   const [analyzing, setAnalyzing] = useState<Set<string>>(new Set())
+
+  useScrollLock(true)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
   const isScoring = CABINET_META.find((c) => c.key === cabinet)?.hasScoring ?? false
@@ -196,9 +199,9 @@ export function ShelfAddModal({
   const title = `${CABINET_TITLES[cabinet] || cabinet} → ${category}`
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[90dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-3 flex items-center justify-between">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
+      <div className="flex max-h-[85dvh] w-full max-w-md max-w-[100vw] flex-col overflow-hidden rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex shrink-0 items-center justify-between">
           <div className="flex items-center gap-2">
             {mode !== 'menu' && (
               <button onClick={() => { setMode('menu'); setStatus('') }} className="text-muted-foreground hover:text-foreground">
@@ -212,8 +215,9 @@ export function ShelfAddModal({
           <button type="button" onClick={onClose} className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
         </div>
 
-        {mode !== 'menu' && <p className="mb-3 text-[11px] text-muted-foreground/60">В полку: {title}</p>}
+        {mode !== 'menu' && <p className="mb-3 shrink-0 text-[11px] text-muted-foreground/60">В полку: {title}</p>}
 
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         {mode === 'menu' && (
           <div className="space-y-2">
             <button onClick={() => setMode('base')} className="flex w-full items-center gap-3 rounded-xl border border-gray-200 px-3 py-3 text-left transition-colors hover:bg-gray-50">
@@ -317,7 +321,9 @@ export function ShelfAddModal({
           </div>
         )}
 
-        {status && <p className="mt-2 text-[11px] text-muted-foreground/60">{status}</p>}
+        </div>
+
+        {status && <p className="mt-2 shrink-0 text-[11px] text-muted-foreground/60">{status}</p>}
       </div>
     </div>
   )

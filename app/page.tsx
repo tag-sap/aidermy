@@ -15,6 +15,7 @@ import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
 import { ShelfTab } from '@/components/shelf-tab'
 import { CheckModal } from '@/components/check-modal'
+import { useScrollLock } from '@/lib/use-scroll-lock'
 
 import {
   emptyProfile,
@@ -63,6 +64,7 @@ export default function Page() {
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
   const lastHistoryMutationRef = useRef(0)
+  const mainRef = useRef<HTMLElement | null>(null)
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -582,6 +584,15 @@ export default function Page() {
     setPendingTab(null)
   }
 
+  useScrollLock(!!pendingTab)
+
+  // Возвращаем скролл контента наверх при смене вкладки (кроме «Истории»)
+  useEffect(() => {
+    if (tab !== 'history') {
+      mainRef.current?.scrollTo({ top: 0 })
+    }
+  }, [tab])
+
   // ===== RENDER =====
   return (
     <>
@@ -593,7 +604,7 @@ export default function Page() {
         <div className="grid-shimmer" aria-hidden="true" />
 
         <div className="relative z-20 flex h-dvh flex-col">
-          <main className="relative z-10 flex-1 min-h-0 overflow-y-auto pb-24">
+          <main ref={mainRef} className="relative z-10 flex-1 min-h-0 overflow-y-auto pb-24">
             <div className="mx-auto w-full max-w-md px-4">
               <AppHeader
                 onProfile={handleGoToProfile}
@@ -623,7 +634,7 @@ export default function Page() {
                   />
                 </div>
               ) : (
-                <div>
+                <div key={tab} className="tab-content">
                   {tab === 'history' && (
                     <HistoryTab
                       history={history}
@@ -699,12 +710,8 @@ export default function Page() {
       />
 
       {pendingTab && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
-            onClick={handleLeaveCancel}
-          />
-          <div className="fixed left-1/2 top-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-white p-6 shadow-xl border border-primary/20">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={handleLeaveCancel}>
+          <div className="w-80 max-w-full rounded-lg bg-white p-6 shadow-xl border border-primary/20 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="size-5 text-orange-500" />
@@ -741,7 +748,7 @@ export default function Page() {
               </button>
             </div>
           </div>
-        </>
+        </div>
       )}
     </>
   )

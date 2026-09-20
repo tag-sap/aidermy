@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { X, Mail, Lock, User, Eye, EyeOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useScrollLock } from '@/lib/use-scroll-lock'
 
 interface AuthModalProps {
   isOpen: boolean
@@ -81,21 +82,21 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
     }
   }
 
+  useScrollLock(isOpen)
+
   if (!isOpen) return null
 
   return (
-    <>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop"
+      onClick={onClose}
+    >
       <div
-        className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      <div
-        className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-primary/10 bg-white p-6 shadow-2xl"
+        className="w-full max-w-md rounded-2xl border border-primary/10 bg-white p-6 shadow-2xl animate-modal-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="auth-modal-title"
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-6 flex items-center justify-between">
           <h2 id="auth-modal-title" className="text-xl font-normal text-foreground">
@@ -259,7 +260,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
           </>
         )}
       </div>
-    </>
+    </div>
   )
 }
 

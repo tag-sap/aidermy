@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { X, Link2, Search, Camera, LoaderCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useScrollLock } from '@/lib/use-scroll-lock'
 
 export function CheckModal({ isOpen, onClose, onCheck }: {
   isOpen: boolean
@@ -14,6 +15,8 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
   const [link, setLink] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
+
+  useScrollLock(isOpen)
 
   if (!isOpen) return null
 
@@ -56,8 +59,8 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
   ]
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-normal text-foreground">Проверить продукт</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>

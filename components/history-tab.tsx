@@ -5,6 +5,7 @@ import { ScrambleText } from '@/components/scramble-text'
 import type { CheckResult } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
+import { useScrollLock } from '@/lib/use-scroll-lock'
 
 function formatDate(ts: number) {
   if (!ts || ts === 0 || isNaN(ts)) {
@@ -43,6 +44,8 @@ export function HistoryTab({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [removingIds, setRemovingIds] = useState<string[]>([])
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([])
+
+  useScrollLock(pendingDeleteIds.length > 0)
 
   useEffect(() => {
     const timer = setTimeout(() => setIsVisible(true), 50)
@@ -230,8 +233,8 @@ export function HistoryTab({
       )}
 
       {pendingDeleteIds.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 backdrop-blur-sm px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-primary/20 bg-white p-5 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 backdrop-blur-sm px-4 animate-modal-backdrop">
+          <div className="w-full max-w-sm rounded-2xl border border-primary/20 bg-white p-5 shadow-xl animate-modal-panel">
             <div className="mb-3 flex items-center gap-2">
               <div className="flex size-9 items-center justify-center rounded-full bg-red-500/10 text-red-500">
                 <Trash2 className="size-4" />

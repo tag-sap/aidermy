@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { User, X, LogOut, Settings, Heart, History, LogIn } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
+import { useScrollLock } from '@/lib/use-scroll-lock'
 
 interface AppHeaderProps {
   onProfile: () => void
@@ -21,6 +22,8 @@ export function AppHeader({
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+
+  useScrollLock(showHelp)
 
   const handleProfileClick = () => {
     if (isAuthenticated) {
@@ -133,10 +136,10 @@ export function AppHeader({
       {showHelp && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm animate-modal-backdrop"
             onClick={() => setShowHelp(false)}
           />
-          <div className="fixed right-4 top-20 z-50 w-64 rounded-lg bg-white p-4 shadow-xl border border-primary/10 md:right-6">
+          <div className="fixed right-4 top-20 z-50 w-64 rounded-lg bg-white p-4 shadow-xl border border-primary/10 md:right-6 animate-modal-panel">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-normal text-foreground">Помощь</h3>
               <button

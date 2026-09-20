@@ -5,6 +5,7 @@ import { X, Sparkles, LoaderCircle, Check, Trash2, ShieldCheck } from 'lucide-re
 import { cn } from '@/lib/utils'
 import { MarkupText } from '@/components/markup-text'
 import { CABINET_TITLES } from '@/lib/shelf'
+import { useScrollLock } from '@/lib/use-scroll-lock'
 import type { CheckResult } from '@/lib/store'
 
 type ProductDetail = {
@@ -72,6 +73,8 @@ export function ProductModal({
   const [checking, setChecking] = useState(false)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+
+  useScrollLock(!!slug)
 
   useEffect(() => {
     if (!slug) return
@@ -196,9 +199,9 @@ export function ProductModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
       <div
-        className="no-scrollbar max-h-[92dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4"
+        className="no-scrollbar max-h-[92dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 animate-modal-panel"
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (

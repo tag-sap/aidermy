@@ -7,6 +7,7 @@ import type { ShelfItem } from '@/lib/shelf'
 import type { CheckResult } from '@/lib/store'
 import { ShelfAddModal } from '@/components/shelf-add-modal'
 import { ProductModal } from '@/components/product-modal'
+import { useScrollLock } from '@/lib/use-scroll-lock'
 
 type Category = { key: string; title: string; items: ShelfItem[] }
 type Cabinet = {
@@ -40,6 +41,8 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
   const [busy, setBusy] = useState(false)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+
+  useScrollLock(!!confirm)
 
   const fetchShelf = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -192,7 +195,7 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
       )}
 
       {currentCabinet && (
-        <section>
+        <section key={activeCabinet} className="tab-content">
           <div className="mb-3 flex items-end justify-between gap-3">
             <h2 className="text-xl font-light text-foreground/90">{currentCabinet.title}</h2>
             <div className="flex items-center gap-3">
@@ -368,8 +371,8 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
       )}
 
       {confirm && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" onClick={() => setConfirm(null)}>
-          <div className="w-full max-w-sm rounded-2xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setConfirm(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-normal text-foreground">{confirm.title}</h2>
               <button onClick={() => setConfirm(null)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>

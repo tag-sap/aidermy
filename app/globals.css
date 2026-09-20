@@ -850,3 +850,72 @@ main {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* ============ MODAL SCROLL LOCK ============ */
+
+body.modal-open {
+  overflow: hidden;
+}
+
+body.modal-open main {
+  overflow: hidden;
+}
+
+/* ============ MODAL APPEARANCE ANIMATIONS ============ */
+
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-modal-backdrop {
+  animation: modal-backdrop-in 0.25s ease-out both;
+}
+
+.animate-modal-panel {
+  animation: modal-panel-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ============ TAB CIRCLE ICON HOVER ============ */
+
+.tab-circle {
+  transition:
+    transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.3s ease,
+    border-color 0.3s ease,
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
+.tab-circle:hover {
+  transform: translateY(-3px) scale(1.06);
+}
+
+.tab-circle:active {
+  transform: translateY(-1px) scale(0.97);
+}
+
+.tab-circle-icon {
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tab-circle:hover .tab-circle-icon {
+  transform: scale(1.12) rotate(-8deg);
+}
