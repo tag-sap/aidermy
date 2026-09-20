@@ -327,11 +327,27 @@ def enrich_ingredient_knowledge(claims: List[Dict[str, Any]]) -> int:
     return added
 
 
+def _current_skin_type(user: Dict[str, Any]) -> str:
+    """Актуальный тип кожи пользователя (из user_profiles, затем users)."""
+    try:
+        from .database import get_user_profile
+        profile = get_user_profile(user["id"])
+        return (profile.get("skin_type") or "").strip().lower()
+    except Exception:
+        return (user.get("skin_type") or "").strip().lower()
+
+
 def _find_history_score(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
     from .database import get_user_check_history
     cleaned_name = (product.get("name") or "").replace("\n", " ").strip().lower()
     slug = (product.get("slug") or "").strip()
+    current_skin = _current_skin_type(user)
     for h in get_user_check_history(user["id"], limit=200):
+        # Пропускаем устаревшие записи, сделанные под другой тип кожи —
+        # чтобы не показывать «нормальной кожи», если сейчас «чувствительная».
+        h_skin = (h.get("skin_type") or "").strip().lower()
+        if current_skin and h_skin and h_skin != current_skin:
+            continue
         h_slug = (h.get("slug") or "").strip()
         h_name = (h.get("product_name") or "").replace("\n", " ").strip().lower()
         if slug and h_slug and h_slug == slug:
@@ -448,12 +464,27 @@ def recommend_products(
     exclude_slugs = exclude_slugs or set()
     scored = cabinet_applies_scoring(cabinet)
 
+    try:
+        from .database import get_user_profile
+        _p = get_user_profile(user["id"])
+        _skin = _p.get("skin_type") or user.get("skin_type") or ""
+        _age = _p.get("age") or user.get("age") or ""
+        _concerns = _p.get("concerns") or user.get("concerns") or ""
+        _allergies = _p.get("allergies") or user.get("allergies") or ""
+        _custom = _p.get("custom_text") or user.get("custom_text") or ""
+    except Exception:
+        _skin = user.get("skin_type") or ""
+        _age = user.get("age") or ""
+        _concerns = user.get("concerns") or ""
+        _allergies = user.get("allergies") or ""
+        _custom = user.get("custom_text") or ""
+
     profile = {
-        "skin_type": user.get("skin_type") or "",
-        "age": user.get("age") or "",
-        "concerns": [c.strip() for c in (user.get("concerns") or "").split(",") if c.strip()],
-        "allergies": [a.strip() for a in (user.get("allergies") or "").split(",") if a.strip()],
-        "custom_text": user.get("custom_text") or "",
+        "skin_type": _skin,
+        "age": _age,
+        "concerns": [c.strip() for c in (_concerns or "").split(",") if c.strip()],
+        "allergies": [a.strip() for a in (_allergies or "").split(",") if a.strip()],
+        "custom_text": _custom,
     }
 
     candidates = _query_candidates(cabinet, category)

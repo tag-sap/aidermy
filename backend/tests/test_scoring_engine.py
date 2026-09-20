@@ -39,7 +39,8 @@ class ScoringEngineTests(unittest.TestCase):
             priority_weights=self.priority_weights,
         )
 
-        self.assertGreater(result['score'], 60)
+        self.assertGreater(result['score'], 45)
+        self.assertLess(result['score'], 90)  # скор не должен насыщаться до 100%
         self.assertIn('hydration', result['dimensions'])
         self.assertIn('positive_factors', result)
         self.assertIn('negative_factors', result)

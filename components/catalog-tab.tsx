@@ -19,7 +19,7 @@ function normalize(p: any): Product {
   }
 }
 
-export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) {
+export function CatalogTab({ onOpenProduct }: { onOpenProduct: (slug: string) => void }) {
   const [products, setProducts] = useState<Product[]>([])
   const [letters, setLetters] = useState<string[]>([])
   const [categories, setCategories] = useState<string[]>([])
@@ -216,7 +216,7 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
                 {group.items.map((p) => (
                   <button
                     key={p.slug}
-                    onClick={() => onCheck(p.name)}
+                    onClick={() => onOpenProduct(p.slug)}
                     className="flex w-full min-w-0 items-center gap-3 rounded-2xl border border-gray-100 bg-white p-2.5 text-left transition-colors hover:border-primary/30 hover:bg-primary/5"
                   >
                     <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-50">

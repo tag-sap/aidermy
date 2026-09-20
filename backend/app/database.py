@@ -322,6 +322,76 @@ def save_check_result(
     conn.close()
     print(f"📊 Проверка сохранена: {product_name} — {score}% (user_id: {user_id})")
 
+def get_user_profile(user_id: int):
+    """Возвращает актуальный Skin Profile пользователя.
+
+    Канонический источник — таблица user_profiles (её заполняет фронтенд через
+    /api/auth/profile). Если записи нет — фолбэк на колонки users (skin_type,
+    age, concerns, allergies, custom_text). Возвращает dict с полями профиля.
+    """
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'"
+    )
+    has_profiles = cursor.fetchone() is not None
+
+    if has_profiles:
+        cursor.execute(
+            """
+            SELECT name, skin_type, age, concerns, allergies, custom_text,
+                   quiz_answers, skin_type_determined
+            FROM user_profiles
+            WHERE user_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            conn.close()
+            return {
+                "name": row["name"] or "",
+                "skin_type": row["skin_type"] or "",
+                "age": row["age"] or "",
+                "concerns": row["concerns"] or "",
+                "allergies": row["allergies"] or "",
+                "custom_text": row["custom_text"] or "",
+                "quiz_answers": row["quiz_answers"] or "",
+                "skin_type_determined": row["skin_type_determined"] or "",
+            }
+
+    cursor.execute(
+        "SELECT name, skin_type, age, concerns, allergies, custom_text FROM users WHERE id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return {
+            "name": "",
+            "skin_type": "",
+            "age": "",
+            "concerns": "",
+            "allergies": "",
+            "custom_text": "",
+            "quiz_answers": "",
+            "skin_type_determined": "",
+        }
+    return {
+        "name": row["name"] or "",
+        "skin_type": row["skin_type"] or "",
+        "age": row["age"] or "",
+        "concerns": row["concerns"] or "",
+        "allergies": row["allergies"] or "",
+        "custom_text": row["custom_text"] or "",
+        "quiz_answers": "",
+        "skin_type_determined": "",
+    }
+
+
 def get_user_check_history(user_id: int, limit: int = 100):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()

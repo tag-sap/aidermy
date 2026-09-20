@@ -108,7 +108,12 @@ def score_product_against_profile(
     for property_name, weight in priority_weights.items():
         if property_name not in dimensions:
             dimensions[property_name] = 0.0
-        weighted_total += max(0.0, dimensions[property_name]) * float(weight)
+        # Каждое измерение насыщается на уровне 1.0 (diminishing returns):
+        # иначе сумма вкладов по ингредиентам растёт неограниченно и любой
+        # насыщенный состав показывает «100%». Это НЕ меняет направление
+        # оценки, а лишь ограничивает верхнюю границу.
+        contribution = max(0.0, min(dimensions[property_name], 1.0))
+        weighted_total += contribution * float(weight)
 
     safe_score = clamp(weighted_total / max(sum(priority_weights.values()), 1e-9), 0.0, 1.0)
     final_score = int(round(safe_score * 100))
@@ -119,9 +124,8 @@ def score_product_against_profile(
     if hard_flags:
         final_score = min(final_score, 35)
 
-    inherited_score = 100 if final_score > 85 else final_score
     return {
-        'score': int(inherited_score),
+        'score': int(final_score),
         'dimensions': {key: round(value, 3) for key, value in dimensions.items()},
         'positive_factors': positive_factors,
         'negative_factors': negative_factors,

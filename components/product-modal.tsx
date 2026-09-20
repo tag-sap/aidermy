@@ -64,12 +64,14 @@ export function ProductModal({
   onClose,
   onChanged,
   onOpenReport,
+  onCheck,
 }: {
   slug: string | null
   shelfContext?: { cabinet: string; category: string } | null
   onClose: () => void
   onChanged: () => void
   onOpenReport?: (result: CheckResult) => void
+  onCheck?: (productName: string) => void
 }) {
   const [data, setData] = useState<ProductDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -156,6 +158,11 @@ export function ProductModal({
 
   const checkCompatibility = async () => {
     if (!product || checking) return
+    // Если передан внешний обработчик (например, из каталога) — делегируем ему.
+    if (onCheck) {
+      onCheck(product.name)
+      return
+    }
     setChecking(true)
     setError('')
     try {
@@ -328,29 +335,31 @@ export function ProductModal({
                 {checking ? 'Анализ выполняется…' : 'Проверить совместимость'}
               </button>
 
-              {data?.on_shelf ? (
-                <>
-                  <div className="flex items-center gap-1.5 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2 text-xs text-foreground/70">
-                    <Check className="size-3.5 text-primary" />
-                    На полке: {CABINET_TITLES[data.on_shelf.cabinet] || data.on_shelf.cabinet} → {data.on_shelf.category}
-                  </div>
+              {shelfContext && (
+                data?.on_shelf ? (
+                  <>
+                    <div className="flex items-center gap-1.5 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2 text-xs text-foreground/70">
+                      <Check className="size-3.5 text-primary" />
+                      На полке: {CABINET_TITLES[data.on_shelf.cabinet] || data.on_shelf.cabinet} → {data.on_shelf.category}
+                    </div>
+                    <button
+                      onClick={removeFromShelf}
+                      disabled={busy}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-100 py-2.5 text-sm text-red-500 transition-colors hover:bg-red-50 disabled:opacity-40"
+                    >
+                      <Trash2 className="size-4" />
+                      Убрать с полки
+                    </button>
+                  </>
+                ) : (
                   <button
-                    onClick={removeFromShelf}
+                    onClick={addToShelf}
                     disabled={busy}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-100 py-2.5 text-sm text-red-500 transition-colors hover:bg-red-50 disabled:opacity-40"
+                    className="w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
                   >
-                    <Trash2 className="size-4" />
-                    Убрать с полки
+                    {busy ? 'Добавляем…' : 'Добавить на полку'}
                   </button>
-                </>
-              ) : (
-                <button
-                  onClick={addToShelf}
-                  disabled={busy}
-                  className="w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
-                >
-                  {busy ? 'Добавляем…' : 'Добавить на полку'}
-                </button>
+                )
               )}
             </div>
 

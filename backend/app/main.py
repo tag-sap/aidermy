@@ -98,8 +98,15 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
                 break
 
         if analysis is None:
+            from .database import get_user_profile
+            _profile = get_user_profile(current_user["id"])
+            current_skin = (_profile.get("skin_type") or "").strip().lower()
             cleaned = name.strip().lower()
             for h in get_user_check_history(current_user["id"], limit=200):
+                h_skin = (h.get("skin_type") or "").strip().lower()
+                # Не показываем устаревшие проверки под другой тип кожи.
+                if current_skin and h_skin and h_skin != current_skin:
+                    continue
                 h_name = (h.get("product_name") or "").replace("\n", " ").strip().lower()
                 if h_name == cleaned or h_name in cleaned or cleaned in h_name or (h.get("slug") and h.get("slug") == slug):
                     analysis = normalize_history_analysis(h)
@@ -546,12 +553,16 @@ SHELF_CATEGORIES = ["Очищение", "Тонер", "Сыворотка", "К�
 
 
 def _profile_from_user(user: dict) -> dict:
+    """Skin Profile из канонического источника (user_profiles, затем users)."""
+    from .database import get_user_profile
+
+    profile = get_user_profile(user["id"])
     return {
-        "skin_type": user.get("skin_type") or "",
-        "age": user.get("age") or "",
-        "concerns": [c.strip() for c in (user.get("concerns") or "").split(",") if c.strip()],
-        "allergies": [a.strip() for a in (user.get("allergies") or "").split(",") if a.strip()],
-        "custom_text": user.get("custom_text") or "",
+        "skin_type": profile.get("skin_type") or "",
+        "age": profile.get("age") or "",
+        "concerns": [c.strip() for c in (profile.get("concerns") or "").split(",") if c.strip()],
+        "allergies": [a.strip() for a in (profile.get("allergies") or "").split(",") if a.strip()],
+        "custom_text": profile.get("custom_text") or "",
     }
 
 

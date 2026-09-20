@@ -15,6 +15,7 @@ import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
 import { ShelfTab } from '@/components/shelf-tab'
 import { CatalogTab } from '@/components/catalog-tab'
+import { ProductModal } from '@/components/product-modal'
 import { CheckModal } from '@/components/check-modal'
 import { AccountModal } from '@/components/account-modal'
 import { useScrollLock } from '@/lib/use-scroll-lock'
@@ -63,6 +64,7 @@ export default function Page() {
   const [pendingTab, setPendingTab] = useState<TabId | null>(null)
 
   const [showQuiz, setShowQuiz] = useState(false)
+  const [catalogSlug, setCatalogSlug] = useState<string | null>(null)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
   const lastHistoryMutationRef = useRef(0)
@@ -696,7 +698,7 @@ export default function Page() {
                 <div key={tab} className="tab-content">
                   {tab === 'catalog' && (
                     <CatalogTab
-                      onCheck={(product) => handleCheck(product, profile.skinType || 'Нормальная')}
+                      onOpenProduct={(slug) => setCatalogSlug(slug)}
                     />
                   )}
                   {tab === 'history' && (
@@ -759,6 +761,18 @@ export default function Page() {
               })
             }}
           />
+
+          {catalogSlug && (
+            <ProductModal
+              slug={catalogSlug}
+              onClose={() => setCatalogSlug(null)}
+              onChanged={() => {}}
+              onCheck={(productName) => {
+                setCatalogSlug(null)
+                handleCheck(productName, profile.skinType || 'Нормальная')
+              }}
+            />
+          )}
         </div>
       </div>
 
