@@ -44,6 +44,12 @@ export default function RootLayout({
     <html lang="ru" className={`dark bg-background ${inter.variable} ${playfair.variable}`}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600&family=Sacramento&display=swap"
+          rel="stylesheet"
+        />
       </head>
       <body className="font-sans antialiased">
         <div id="__next" className="min-h-dvh bg-background w-full">

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { X, LogIn } from 'lucide-react'
-import { AidermyLogo } from '@/components/aidermy-logo'
+import { AIdermyWordmark } from '@/components/aidermy-wordmark'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
 interface AppHeaderProps {
@@ -36,7 +36,7 @@ export function AppHeader({
     <>
       <header className="relative z-20 flex w-full flex-col items-center pt-8 pb-1 md:pt-8">
         <div className="w-full flex justify-center md:justify-start md:pl-6 transition-all duration-300">
-          <AidermyLogo />
+          <AIdermyWordmark compact />
         </div>
 
         <div className="absolute right-4 top-3 flex items-center gap-2 md:right-6 md:top-4">

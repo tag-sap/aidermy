@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
-import { CyberGrid } from '@/components/cyber-grid'
+import { ParticleField } from '@/components/particle-field'
 import { AppHeader } from '@/components/app-header'
 import { AuthModal } from '@/components/auth-modal'
 import { TabBar, type TabId } from '@/components/tab-bar'
@@ -11,6 +11,7 @@ import { ProfileTab } from '@/components/profile-tab'
 import { ResultSheet } from '@/components/result-sheet'
 import { SplashScreen } from '@/components/splash-screen'
 import { SkinQuiz } from '@/components/skin-quiz'
+import { ShelfOnboarding } from '@/components/shelf-onboarding'
 import { InfoModal } from '@/components/info-modal'
 import { BrandMarquee } from '@/components/brand-marquee'
 import { ShelfTab } from '@/components/shelf-tab'
@@ -65,7 +66,10 @@ export default function Page() {
   const [pendingTab, setPendingTab] = useState<TabId | null>(null)
 
   const [showQuiz, setShowQuiz] = useState(false)
+  const [showShelfOnboarding, setShowShelfOnboarding] = useState(false)
   const [catalogSlug, setCatalogSlug] = useState<string | null>(null)
+
+  const quizAttemptedRef = useRef(false)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
   const lastHistoryMutationRef = useRef(0)
@@ -187,6 +191,26 @@ export default function Page() {
     }
   }, [])
 
+  // Когда пользователь авторизован — «Главная» ему недоступна; уводим на «Мою полку».
+  // Покрывает все пути входа: email/пароль, Google OAuth, токен из URL.
+  useEffect(() => {
+    if (isAuthenticated && tab === 'home') {
+      setTab('shelf')
+    }
+  }, [isAuthenticated, tab])
+
+  // Новому пользователю без профиля показываем квиз определения типа кожи (один раз за сессию).
+  useEffect(() => {
+    if (!isAuthenticated || !hydrated) return
+    if (quizAttemptedRef.current) return
+    const hasSkinType = Boolean(profile.skinType)
+    const hasQuiz = Boolean(profile.quizAnswers && Object.keys(profile.quizAnswers).length > 0)
+    if (!hasSkinType && !hasQuiz) {
+      quizAttemptedRef.current = true
+      setShowQuiz(true)
+    }
+  }, [isAuthenticated, hydrated, profile])
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     const savedProfile = { ...emptyProfile, ...loadProfile() }
@@ -285,6 +309,8 @@ export default function Page() {
     localStorage.removeItem('avatarUrl')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
+    quizAttemptedRef.current = false
+    setShowShelfOnboarding(false)
     setTab('home')
     setAccountModalOpen(false)
   }
@@ -445,6 +471,10 @@ export default function Page() {
     saveProfile(updatedProfile)
     setShowQuiz(false)
     setTab('shelf')
+    // Первый раз после квиза показываем онбординг «Моя полка».
+    if (!localStorage.getItem('aidermy:shelfOnboarded')) {
+      setShowShelfOnboarding(true)
+    }
   }
 
   // ===== ПРОВЕРКА =====
@@ -664,7 +694,7 @@ export default function Page() {
 
       <div className="relative h-dvh overflow-hidden bg-background">
         <BrandMarquee />
-        <CyberGrid />
+        <ParticleField />
         <div className="grid-shimmer" aria-hidden="true" />
 
         <div className="relative z-20 flex h-dvh flex-col">
@@ -807,6 +837,20 @@ export default function Page() {
         onLogout={handleLogout}
         onSwitchUser={handleSwitchUser}
       />
+
+      {showShelfOnboarding && (
+        <ShelfOnboarding
+          onClose={() => {
+            setShowShelfOnboarding(false)
+            localStorage.setItem('aidermy:shelfOnboarded', '1')
+          }}
+          onGoToProfile={() => {
+            setShowShelfOnboarding(false)
+            localStorage.setItem('aidermy:shelfOnboarded', '1')
+            setTab('profile')
+          }}
+        />
+      )}
 
       {pendingTab && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={handleLeaveCancel}>

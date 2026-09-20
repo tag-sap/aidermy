@@ -1,6 +1,6 @@
 'use client'
 
-import { ShieldCheck, Sparkles, User, LayoutGrid, Droplets, ArrowRight, CheckCircle2, FlaskConical, AlertCircle } from 'lucide-react'
+import { ShieldCheck, Sparkles, User, LayoutGrid, Droplets, ArrowRight, CheckCircle2, FlaskConical } from 'lucide-react'
 import { AdHero } from './ad-hero'
 
 interface WelcomeTabProps {
@@ -35,46 +35,6 @@ const STEPS = [
   { icon: FlaskConical, title: 'Проверь состав', text: 'Вставь ссылку или название — AI разберёт ингредиенты.' },
   { icon: Droplets, title: 'Получи персональный итог', text: 'Оценка совместимости и понятное объяснение.' },
 ]
-
-const SAMPLE_REPORT = {
-  brand: 'CeraVe',
-  name: 'Увлажняющий крем с церамидами',
-  score: 87,
-  verdict: 'Подходит',
-  summary: 'Формула в целом соответствует вашему профилю чувствительной кожи и поддерживает увлажнение.',
-  safe: ['Глицерин', 'Церамиды', 'Пантенол', 'Гиалуроновая кислота'],
-  caution: ['Отдушка'],
-}
-
-function MiniScoreRing({ score }: { score: number }) {
-  const size = 64
-  const stroke = 5
-  const radius = (size - stroke) / 2
-  const circumference = 2 * Math.PI * radius
-  const offset = circumference - (score / 100) * circumference
-
-  return (
-    <div className="relative flex size-16 shrink-0 items-center justify-center">
-      <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#4E9F6E" strokeOpacity={0.12} strokeWidth={stroke} />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="#4E9F6E"
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-        />
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-sm font-semibold text-[#4E9F6E]">{score}%</span>
-      </div>
-    </div>
-  )
-}
 
 export function WelcomeTab({ onAuth }: WelcomeTabProps) {
   return (
@@ -115,50 +75,20 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
         </div>
       </section>
 
-      {/* ПРИМЕР ОТЧЁТА */}
+      {/* КАРТИНКА-ПРЕВЬЮ (вставьте сюда сгенерированную картинку телефона с отчётом) */}
       <section>
         <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground/60">
-          Пример отчёта
+          Как выглядит отчёт
         </h3>
-        <div className="rounded-3xl border border-gray-100 bg-white p-4 shadow-[0_8px_32px_rgba(78,159,110,0.08)]">
-          <div className="flex items-center gap-3">
-            <MiniScoreRing score={SAMPLE_REPORT.score} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground/50">{SAMPLE_REPORT.brand}</p>
-              <p className="text-sm font-medium leading-snug text-foreground">{SAMPLE_REPORT.name}</p>
-              <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                {SAMPLE_REPORT.verdict}
-              </span>
-            </div>
-          </div>
-
-          <p className="mt-3 break-words text-xs leading-relaxed text-foreground/70">{SAMPLE_REPORT.summary}</p>
-
-          <div className="mt-3 space-y-2">
-            <div>
-              <p className="mb-1 text-[10px] font-medium text-[#4E9F6E]">Подходящие ингредиенты</p>
-              <div className="flex flex-wrap gap-1">
-                {SAMPLE_REPORT.safe.map((i) => (
-                  <span key={i} className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-[#4E9F6E]">{i}</span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="mb-1 text-[10px] font-medium text-orange-600">Требует внимания</p>
-              <div className="flex flex-wrap gap-1">
-                {SAMPLE_REPORT.caution.map((i) => (
-                  <span key={i} className="flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] text-red-500">
-                    <AlertCircle className="size-2.5" />
-                    {i}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
+        {/* ЗАМЕНИТЕ содержимое ниже на: <img src="/report-phone.png" alt="Отчёт Aidermy" className="aspect-[9/16] w-full object-cover rounded-3xl" /> */}
+        <div className="mx-auto flex aspect-[9/16] w-full max-w-[300px] flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-gray-200 bg-gray-50 p-6 text-center">
+          <span className="text-4xl">📱</span>
+          <p className="text-xs leading-relaxed text-muted-foreground/50">
+            Здесь будет картинка телефона
+            <br />
+            с примером отчёта
+          </p>
         </div>
-        <p className="mt-2 text-center text-[10px] text-muted-foreground/40">
-          Такой персональный отчёт вы получите по каждому продукту
-        </p>
       </section>
 
       {/* КАК ЭТО РАБОТАЕТ */}
