@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
-import { CyberGrid } from '@/components/cyber-grid'
+import { ParticleField } from '@/components/particle-field'
 import { AppHeader } from '@/components/app-header'
 import { AuthModal } from '@/components/auth-modal'
 import { TabBar, type TabId } from '@/components/tab-bar'
@@ -712,7 +712,7 @@ export default function Page() {
       <SplashScreen />
 
       <div className="relative h-dvh overflow-hidden bg-background">
-        <CyberGrid />
+        <ParticleField />
         <div className="grid-shimmer" aria-hidden="true" />
 
         <div className="relative z-20 flex h-dvh flex-col">

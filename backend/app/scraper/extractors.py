@@ -28,10 +28,22 @@ def _text(value: Any) -> str | None:
     return value or None
 
 
+# Типичные заголовки UI входа/регистрации, которые иногда попадают в название товара.
+_ACCOUNT_NOISE = re.compile(
+    r"(?:войдите или создайте учетную запись|создание учетной записи|зарегистрировать учетную запись|ваша учетная запись создана!?|вход|выход)",
+    re.IGNORECASE,
+)
+
+
 def _clean_product_name(value: str | None) -> str | None:
     if not value:
         return None
-    return _text(re.sub(r"^в наличии:\s*", "", value, flags=re.IGNORECASE))
+    value = _text(re.sub(r"^в наличии:\s*", "", value, flags=re.IGNORECASE))
+    # Отрезаем «шум» из шапки аккаунта, если он слипся с названием.
+    value = _text(_ACCOUNT_NOISE.sub(" ", value))
+    # Убираем оставшиеся после чистки лишние разделители/знаки в начале.
+    value = re.sub(r"^[\s.!,\-:]+", "", value).strip()
+    return value or None
 
 
 def _clean_brand(value: str | None) -> str | None:
@@ -135,7 +147,22 @@ def extract_product(page: Any, source_url: str) -> ProductImportResult:
     image = urljoin(source_url, image) if image else None
     body_text = _text(" ".join(page.xpath("//body//text()").getall())) or ""
 
-    name = _text(record.get("name")) or _meta(page, "og:title") or _dom_text(page, ["h1", '[itemprop="name"]', '[class*="title"]'])
+    name = (
+        _text(record.get("name"))
+        or _meta(page, "og:title")
+        or _dom_text(
+            page,
+            [
+                '[class*="product-name"]',
+                '[class*="product_name"]',
+                'h1[itemprop="name"]',
+                '[itemprop="name"]',
+                '[class*="product"][class*="title"]',
+                '[class*="product"][class*="name"]',
+                "h1",
+            ],
+        )
+    )
     description = _text(record.get("description")) or _meta(page, "og:description") or _dom_text(page, ['[itemprop="description"]', '[class*="description"]'])
     image = image or _meta(page, "og:image")
     if image:
