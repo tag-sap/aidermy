@@ -63,7 +63,13 @@ class UserResponse(BaseModel):
     concerns: List[str] = []
     allergies: List[str] = []
     custom_text: Optional[str] = None
+    avatar_url: Optional[str] = None
     created_at: str
+
+
+class UserAccountUpdate(BaseModel):
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -207,6 +213,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             concerns=user.get("concerns", "").split(",") if user.get("concerns") else [],
             allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
             custom_text=user.get("custom_text"),
+            avatar_url=user.get("avatar_url"),
             created_at=user["created_at"]
         )
     }
@@ -223,8 +230,53 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         concerns=current_user.get("concerns", "").split(",") if current_user.get("concerns") else [],
         allergies=current_user.get("allergies", "").split(",") if current_user.get("allergies") else [],
         custom_text=current_user.get("custom_text"),
+        avatar_url=current_user.get("avatar_url"),
         created_at=current_user["created_at"]
     )
+
+
+# === ЛИЧНЫЙ КАБИНЕТ (имя + аватар) ===
+@router.put("/account", response_model=UserResponse)
+async def update_account(payload: UserAccountUpdate, current_user: dict = Depends(get_current_user)):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+
+    fields = []
+    values = []
+    if payload.name is not None:
+        name = payload.name.strip()[:40]
+        fields.append("name = ?")
+        values.append(name)
+    if payload.avatar_url is not None:
+        avatar = (payload.avatar_url or "").strip()
+        if len(avatar) > 500000:
+            raise HTTPException(status_code=422, detail="Аватар слишком большой")
+        fields.append("avatar_url = ?")
+        values.append(avatar)
+
+    if fields:
+        fields.append("updated_at = CURRENT_TIMESTAMP")
+        values.append(current_user["id"])
+        cursor.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", values)
+        conn.commit()
+
+    cursor.execute("SELECT * FROM users WHERE id = ?", (current_user["id"],))
+    user = dict(cursor.fetchone())
+    conn.close()
+
+    return UserResponse(
+        id=user["id"],
+        email=user["email"],
+        name=user["name"] or "",
+        skin_type=user.get("skin_type"),
+        age=user.get("age"),
+        concerns=user.get("concerns", "").split(",") if user.get("concerns") else [],
+        allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
+        custom_text=user.get("custom_text"),
+        avatar_url=user.get("avatar_url"),
+        created_at=user["created_at"],
+    )
+
 
 # === ФУНКЦИЯ ДЛЯ PENDING ===
 def save_pending_product(product_name: str, ingredients: str, user_id: int = None):

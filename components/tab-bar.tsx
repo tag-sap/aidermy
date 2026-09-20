@@ -36,7 +36,7 @@ export function TabBar({
       className="fixed bottom-0 left-0 right-0 z-30 bg-background/80 backdrop-blur-sm border-t border-gray-200/50"
       aria-label="Основная навигация"
     >
-      <div className="mx-auto max-w-md flex items-end justify-around px-2 pt-1.5 pb-2">
+      <div className="mx-auto flex w-full max-w-md items-end justify-around px-2 pt-1.5 pb-2 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
         {visibleTabs.map(({ id, label, icon: Icon, circle }) => {
           const isActive = active === id
 

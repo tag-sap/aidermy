@@ -150,6 +150,13 @@ def init_db():
         cursor.execute('ALTER TABLE check_history ADD COLUMN safe_ingredients TEXT')
     if 'caution_ingredients' not in columns:
         cursor.execute('ALTER TABLE check_history ADD COLUMN caution_ingredients TEXT')
+
+    # Аватар и имя пользователя (личный кабинет)
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    if cursor.fetchone():
+        user_columns = [col[1] for col in cursor.execute("PRAGMA table_info(users)").fetchall()]
+        if 'avatar_url' not in user_columns:
+            cursor.execute('ALTER TABLE users ADD COLUMN avatar_url TEXT')
     
     # === COMMUNITY INTELLIGENCE ===
     cursor.execute('''

@@ -151,7 +151,7 @@ export function ResultSheet({
   )
 
   return (
-    <div className={cn('fixed inset-0 z-50 flex items-center justify-center p-3 transition-opacity duration-300', isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none')} style={{ backgroundColor: 'rgba(0,0,0,0.15)', transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
+    <div className={cn('fixed inset-0 z-[90] flex items-center justify-center p-3 transition-opacity duration-300', isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none')} style={{ backgroundColor: 'rgba(0,0,0,0.15)', transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
       <button type="button" onClick={handleClose} className="absolute inset-0" />
       <div className={cn('relative w-full max-w-sm p-4 transition-all duration-300 max-h-[85vh] overflow-y-auto', isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0')} style={{
         transform: isVisible ? 'scale(1) translateY(0)' : 'scale(0.96) translateY(14px)',
@@ -262,7 +262,7 @@ export function ResultSheet({
       </div>
 
       {ingredientsModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setIngredientsModal(null)}>
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setIngredientsModal(null)}>
           <div className="w-full max-w-sm max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl animate-modal-panel" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-medium text-foreground">{ingredientsModal.title}</h3>

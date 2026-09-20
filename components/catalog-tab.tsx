@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Search, X, LoaderCircle, Sparkles, ArrowUp } from 'lucide-react'
+import { Search, X, LoaderCircle, Sparkles, ArrowUp, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type Product = { name: string; brand: string; slug: string; image_url: string; category: string }
@@ -30,6 +30,7 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(true)
   const [showScrollTop, setShowScrollTop] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
@@ -148,72 +149,52 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
     <div ref={rootRef} className="relative">
       {/* Поиск + алфавит — фиксированы под заголовком «Каталог» */}
       <div className="sticky top-[48px] z-10 -mx-4 border-b border-gray-200/50 bg-background px-4 pb-2 backdrop-blur-sm">
-        <div className="mb-2 flex items-center gap-2 rounded-xl border border-gray-200/60 bg-white/60 px-3 py-2">
-          <Search className="size-4 shrink-0 text-muted-foreground/40" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по названию…"
-            className="w-full bg-transparent text-sm focus:outline-none"
-          />
-          {search && (
-            <button onClick={() => setSearch('')} className="text-muted-foreground/40 hover:text-foreground">
-              <X className="size-3.5" />
-            </button>
-          )}
+        <div className="flex items-center gap-2">
+          <div className="flex flex-1 items-center gap-2 rounded-xl border border-gray-200/60 bg-white/60 px-3 py-2">
+            <Search className="size-4 shrink-0 text-muted-foreground/40" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск по названию…"
+              className="w-full bg-transparent text-sm focus:outline-none"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="text-muted-foreground/40 hover:text-foreground">
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => setShowFilters(true)}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
+              category || activeLetter
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-gray-200/60 bg-white/60 text-muted-foreground/70 hover:text-primary',
+            )}
+          >
+            <SlidersHorizontal className="size-4" />
+            Фильтр
+            {(category || activeLetter) && (
+              <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                1
+              </span>
+            )}
+          </button>
         </div>
 
-        {categories.length > 0 && (
-          <div className="no-scrollbar mb-2 flex gap-1 overflow-x-auto">
-            <button
-              onClick={() => setCategory('')}
-              className={cn(
-                'shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                category === '' ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
-              )}
-            >
-              Все
-            </button>
-            {categories.map((c) => (
-              <button
-                key={c}
-                onClick={() => setCategory((prev) => (prev === c ? '' : c))}
-                className={cn(
-                  'shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                  category === c ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
-                )}
-              >
-                {c}
+        {(category || activeLetter) && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {category && (
+              <button onClick={() => setCategory('')} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                {category} <X className="size-3" />
               </button>
-            ))}
-          </div>
-        )}
-
-        {letters.length > 0 && (
-          <div className="no-scrollbar flex gap-1 overflow-x-auto pb-0.5">
-            <button
-              onClick={() => setActiveLetter('')}
-              className={cn(
-                'shrink-0 rounded-lg px-2 py-1 text-xs font-medium transition-colors',
-                activeLetter === '' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-primary/5',
-              )}
-            >
-              Все
-            </button>
-            {letters.map((letter) => (
-              <button
-                key={letter}
-                onClick={() => toggleLetter(letter)}
-                className={cn(
-                  'shrink-0 rounded-lg px-2 py-1 text-xs font-medium transition-colors',
-                  activeLetter === letter
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-primary/5',
-                )}
-              >
-                {letter.toUpperCase()}
+            )}
+            {activeLetter && (
+              <button onClick={() => setActiveLetter('')} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                Буква: {activeLetter.toUpperCase()} <X className="size-3" />
               </button>
-            ))}
+            )}
           </div>
         )}
       </div>
@@ -231,7 +212,7 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
           {grouped.map((group) => (
             <div key={group.letter}>
               <div className="px-2 py-1 text-xs font-semibold text-primary">{group.letter}</div>
-              <div className="space-y-2 pb-3">
+              <div className="grid gap-2 pb-3 md:grid-cols-2 lg:grid-cols-3">
                 {group.items.map((p) => (
                   <button
                     key={p.slug}
@@ -273,6 +254,85 @@ export function CatalogTab({ onCheck }: { onCheck: (product: string) => void }) 
         >
           <ArrowUp className="size-5" />
         </button>
+      )}
+
+      {showFilters && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setShowFilters(false)}>
+          <div className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-normal text-foreground">Фильтр</h3>
+              <button onClick={() => setShowFilters(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground/70">Категория</p>
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setCategory('')}
+                className={cn(
+                  'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                  category === '' ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                )}
+              >
+                Все
+              </button>
+              {categories.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setCategory(c)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                    category === c ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                  )}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground/70">Буква</p>
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setActiveLetter('')}
+                className={cn(
+                  'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                  activeLetter === '' ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                )}
+              >
+                Все
+              </button>
+              {letters.map((letter) => (
+                <button
+                  key={letter}
+                  onClick={() => setActiveLetter(letter)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                    activeLetter === letter ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                  )}
+                >
+                  {letter.toUpperCase()}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setCategory('')
+                  setActiveLetter('')
+                  setShowFilters(false)
+                }}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-foreground/70 transition-colors hover:bg-gray-50"
+              >
+                Сбросить
+              </button>
+              <button onClick={() => setShowFilters(false)} className="flex-1 rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90">
+                Применить
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

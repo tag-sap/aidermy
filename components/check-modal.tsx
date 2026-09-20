@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Link2, Search, Camera, LoaderCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useScrollLock } from '@/lib/use-scroll-lock'
@@ -25,9 +26,20 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
   const [status, setStatus] = useState('')
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputWrapRef = useRef<HTMLDivElement | null>(null)
 
   useScrollLock(isOpen)
+
+  useEffect(() => {
+    if (!showSuggestions || !inputWrapRef.current) {
+      setDropdownPos(null)
+      return
+    }
+    const rect = inputWrapRef.current.getBoundingClientRect()
+    setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
+  }, [showSuggestions, suggestions])
 
   useEffect(() => {
     if (!isOpen) return
@@ -104,6 +116,7 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
   ]
 
   return (
+    <>
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
       <div className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
@@ -130,7 +143,7 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
         </div>
 
         {mode === 'name' && (
-          <div className="relative">
+          <div className="relative" ref={inputWrapRef}>
             <div className="flex gap-2">
               <input
                 value={name}
@@ -144,30 +157,6 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
                 Проверить
               </button>
             </div>
-
-            {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
-                {suggestions.map((s, i) => (
-                  <button
-                    key={`${s.name}-${i}`}
-                    onClick={() => selectSuggestion(s)}
-                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-primary/5"
-                  >
-                    <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-50">
-                      {s.image_url ? (
-                        <img src={s.image_url} alt="" className="h-full w-full object-contain p-1" />
-                      ) : (
-                        <Search className="size-4 text-muted-foreground/30" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      {s.brand && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{s.brand}</p>}
-                      <p className="truncate text-sm text-foreground">{s.title || s.brand}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
@@ -197,5 +186,35 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
         )}
       </div>
     </div>
+
+    {showSuggestions && suggestions.length > 0 && dropdownPos && typeof document !== 'undefined' &&
+      createPortal(
+        <div
+          className="fixed z-[100] max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg"
+          style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
+        >
+          {suggestions.map((s, i) => (
+            <button
+              key={`${s.name}-${i}`}
+              onClick={() => selectSuggestion(s)}
+              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-primary/5"
+            >
+              <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-50">
+                {s.image_url ? (
+                  <img src={s.image_url} alt="" className="h-full w-full object-contain p-1" />
+                ) : (
+                  <Search className="size-4 text-muted-foreground/30" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                {s.brand && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{s.brand}</p>}
+                <p className="truncate text-sm text-foreground">{s.title || s.brand}</p>
+              </div>
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
   )
 }

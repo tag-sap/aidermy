@@ -16,6 +16,7 @@ import { BrandMarquee } from '@/components/brand-marquee'
 import { ShelfTab } from '@/components/shelf-tab'
 import { CatalogTab } from '@/components/catalog-tab'
 import { CheckModal } from '@/components/check-modal'
+import { AccountModal } from '@/components/account-modal'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
 import {
@@ -70,6 +71,9 @@ export default function Page() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userName, setUserName] = useState('')
+  const [userEmail, setUserEmail] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState('')
+  const [accountModalOpen, setAccountModalOpen] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [checkModalOpen, setCheckModalOpen] = useState(false)
 
@@ -119,6 +123,26 @@ export default function Page() {
     }
   }
 
+  const loadUserFromServer = async (token: string) => {
+    try {
+      const res = await fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const name = data.name || 'Пользователь'
+        setUserName(name)
+        setUserEmail(data.email || '')
+        setAvatarUrl(data.avatar_url || '')
+        localStorage.setItem('userName', name)
+        localStorage.setItem('userEmail', data.email || '')
+        localStorage.setItem('avatarUrl', data.avatar_url || '')
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки пользователя:', error)
+    }
+  }
+
   // ===== ЭФФЕКТЫ =====
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -126,8 +150,13 @@ export default function Page() {
       setIsAuthenticated(true)
       const savedName = localStorage.getItem('userName')
       if (savedName) setUserName(savedName)
+      const savedEmail = localStorage.getItem('userEmail')
+      if (savedEmail) setUserEmail(savedEmail)
+      const savedAvatar = localStorage.getItem('avatarUrl')
+      if (savedAvatar) setAvatarUrl(savedAvatar)
       loadProfileFromServer(token)
       loadHistoryFromServer(token)
+      loadUserFromServer(token)
     }
 
     const urlParams = new URLSearchParams(window.location.search)
@@ -198,9 +227,13 @@ export default function Page() {
 
       localStorage.setItem('token', token)
       localStorage.setItem('userName', data.user?.name || email.split('@')[0])
+      localStorage.setItem('userEmail', data.user?.email || '')
+      localStorage.setItem('avatarUrl', data.user?.avatar_url || '')
 
       setIsAuthenticated(true)
       setUserName(data.user?.name || email.split('@')[0])
+      setUserEmail(data.user?.email || '')
+      setAvatarUrl(data.user?.avatar_url || '')
 
       await loadProfileFromServer(token)
       await loadHistoryFromServer(token)
@@ -236,14 +269,31 @@ export default function Page() {
   const handleLogout = () => {
     setIsAuthenticated(false)
     setUserName('')
+    setUserEmail('')
+    setAvatarUrl('')
     setProfile(emptyProfile)
     setHistory([])
     saveHistory([])
     localStorage.removeItem('token')
     localStorage.removeItem('userName')
+    localStorage.removeItem('userEmail')
+    localStorage.removeItem('avatarUrl')
     localStorage.removeItem('aidermy:profile')
     localStorage.removeItem('aidermy:history')
     setTab('catalog')
+    setAccountModalOpen(false)
+  }
+
+  const handleAccountSaved = (user: { name: string; avatar_url: string | null }) => {
+    setUserName(user.name || '')
+    setAvatarUrl(user.avatar_url || '')
+    localStorage.setItem('userName', user.name || '')
+    localStorage.setItem('avatarUrl', user.avatar_url || '')
+  }
+
+  const handleSwitchUser = () => {
+    handleLogout()
+    setIsAuthModalOpen(true)
   }
 
   // ===== ПРОФИЛЬ =====
@@ -614,14 +664,13 @@ export default function Page() {
 
         <div className="relative z-20 flex h-dvh flex-col">
           <main ref={mainRef} className="relative flex-1 min-h-0 overflow-y-auto pb-24">
-            <div className="mx-auto w-full max-w-md px-4">
+            <div className="mx-auto w-full max-w-md px-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
               <AppHeader
-                onProfile={handleGoToProfile}
-                onHistory={handleGoToHistory}
+                onOpenAccount={() => setAccountModalOpen(true)}
                 onAuth={() => setIsAuthModalOpen(true)}
                 isAuthenticated={isAuthenticated}
                 userName={userName}
-                onLogout={handleLogout}
+                avatarUrl={avatarUrl}
               />
 
               <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-gray-200/50 bg-background/85 px-4 py-2.5 backdrop-blur-sm">
@@ -722,6 +771,17 @@ export default function Page() {
       <InfoModal
         isOpen={showInfo}
         onClose={() => setShowInfo(false)}
+      />
+
+      <AccountModal
+        isOpen={accountModalOpen}
+        onClose={() => setAccountModalOpen(false)}
+        userName={userName}
+        userEmail={userEmail}
+        avatarUrl={avatarUrl}
+        onSaved={handleAccountSaved}
+        onLogout={handleLogout}
+        onSwitchUser={handleSwitchUser}
       />
 
       {pendingTab && (

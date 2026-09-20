@@ -1,7 +1,7 @@
 'use client'
 
 import { forwardRef, useState, useImperativeHandle } from 'react'
-import { Check, X, User, Droplets, Calendar, AlertCircle, Sparkles, Trash2 } from 'lucide-react'
+import { Check, X, Droplets, Calendar, AlertCircle, Sparkles, Trash2 } from 'lucide-react'
 import { Chip } from '@/components/chip'
 import { AGE_GROUPS, ALLERGIES, SKIN_CONCERNS, SKIN_TYPES } from '@/lib/products'
 import type { SkinProfile } from '@/lib/store'
@@ -79,27 +79,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
 
     return (
       <div className="w-full flex flex-col pb-24 space-y-3 pr-1 md:max-w-2xl md:mx-auto">
-        {/* КАРТОЧКА ИМЯ */}
-        <div className={cn(glassCardStyle, 'card-enter-1')}>
-          <div className="flex items-center gap-2 mb-3">
-            <User className="size-4 text-primary/60" strokeWidth={1.5} />
-            <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-              Как к вам обращаться?
-            </h2>
-          </div>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => { setName(e.target.value); setSaved(false) }}
-            placeholder="Например: Райан Гослинг..."
-            className="w-full bg-transparent text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:outline-none"
-            maxLength={30}
-          />
-          <div className="mt-1 text-right text-[10px] text-muted-foreground/40">
-            {name.length}/30
-          </div>
-        </div>
-
         {/* КАРТОЧКА ТИП КОЖИ */}
         <div className={cn(glassCardStyle, 'card-enter-2')}>
           <div className="flex items-center gap-2 mb-3">

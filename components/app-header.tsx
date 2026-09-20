@@ -1,35 +1,32 @@
 'use client'
 
 import { useState } from 'react'
-import { X, LogOut, Settings, History, LogIn } from 'lucide-react'
+import { X, LogIn } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
 interface AppHeaderProps {
-  onProfile: () => void
-  onHistory: () => void
+  onOpenAccount: () => void
   onAuth: () => void
   isAuthenticated?: boolean
   userName?: string
-  onLogout?: () => void
+  avatarUrl?: string
 }
 
 export function AppHeader({
-  onProfile,
-  onHistory,
+  onOpenAccount,
   onAuth,
   isAuthenticated = false,
   userName = '',
-  onLogout
+  avatarUrl = ''
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
-  const [showUserMenu, setShowUserMenu] = useState(false)
 
   useScrollLock(showHelp)
 
   const handleProfileClick = () => {
     if (isAuthenticated) {
-      setShowUserMenu(!showUserMenu)
+      onOpenAccount()
     } else {
       onAuth()
     }
@@ -56,9 +53,13 @@ export function AppHeader({
             <button
               type="button"
               onClick={handleProfileClick}
-              className="flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10 relative"
+              className="relative flex size-9 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
             >
-              <span className="text-sm font-normal uppercase">{userName?.[0] || 'U'}</span>
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-sm font-normal uppercase">{userName?.[0] || 'U'}</span>
+              )}
               <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 border-2 border-white" />
             </button>
           ) : (
@@ -73,56 +74,6 @@ export function AppHeader({
           )}
         </div>
       </header>
-
-      {/* === ВЫПАДАЮЩЕЕ МЕНЮ ПОЛЬЗОВАТЕЛЯ === */}
-      {isAuthenticated && showUserMenu && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-          <div className="fixed right-4 top-16 z-50 w-56 rounded-lg bg-white shadow-xl border border-primary/10 overflow-hidden md:right-6 md:top-14">
-            <div className="px-4 py-3 border-b border-gray-100">
-              <p className="font-normal text-sm text-foreground">{userName}</p>
-              <p className="text-xs text-muted-foreground">Личный кабинет</p>
-            </div>
-
-            <div className="py-1">
-              <button
-                onClick={() => {
-                  setShowUserMenu(false)
-                  onProfile()
-                }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 transition-colors"
-              >
-                <Settings className="size-4 text-muted-foreground" />
-                Анкета и настройки
-              </button>
-
-              <button
-                onClick={() => {
-                  setShowUserMenu(false)
-                  onHistory()
-                }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-primary/5 transition-colors"
-              >
-                <History className="size-4 text-muted-foreground" />
-                История проверок
-              </button>
-            </div>
-
-            <div className="border-t border-gray-100 py-1">
-              <button
-                onClick={() => {
-                  setShowUserMenu(false)
-                  onLogout?.()
-                }}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
-              >
-                <LogOut className="size-4" />
-                Выйти
-              </button>
-            </div>
-          </div>
-        </>
-      )}
 
       {/* === ПОПАП ПОМОЩИ === */}
       {showHelp && (
