@@ -19,12 +19,24 @@ function normalize(p: any): Product {
   }
 }
 
-export function CatalogTab({ onOpenProduct }: { onOpenProduct: (slug: string) => void }) {
+export function CatalogTab({
+  onOpenProduct,
+  initialBrand,
+  initialCat,
+  filterKey,
+}: {
+  onOpenProduct: (slug: string) => void
+  initialBrand?: string
+  initialCat?: string
+  filterKey?: number
+}) {
   const [products, setProducts] = useState<Product[]>([])
   const [letters, setLetters] = useState<string[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [activeLetter, setActiveLetter] = useState('')
   const [category, setCategory] = useState('')
+  const [brand, setBrand] = useState('')
+  const [cat, setCat] = useState('')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -52,10 +64,22 @@ export function CatalogTab({ onOpenProduct }: { onOpenProduct: (slug: string) =>
   const buildParams = (offset: number) => {
     const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset), sort: 'alpha' })
     if (category) params.append('category', category)
+    if (brand) params.append('brand', brand)
+    if (cat) params.append('cat', cat)
     if (activeLetter) params.append('letter', activeLetter)
     if (search.trim()) params.append('search', search.trim())
     return params
   }
+
+  // Внешний фильтр (переход по бренду/категории из карточки товара).
+  useEffect(() => {
+    setBrand(initialBrand || '')
+    setCat(initialCat || '')
+    setCategory('')
+    setActiveLetter('')
+    setSearch('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey])
 
   useEffect(() => {
     const requestId = ++requestIdRef.current
@@ -81,7 +105,7 @@ export function CatalogTab({ onOpenProduct }: { onOpenProduct: (slug: string) =>
         }
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLetter, category, search])
+  }, [activeLetter, category, search, brand, cat])
 
   const loadMore = useCallback(() => {
     if (loadingRef.current || !hasMore) return
@@ -102,7 +126,7 @@ export function CatalogTab({ onOpenProduct }: { onOpenProduct: (slug: string) =>
         setLoadingMore(false)
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLetter, category, search, hasMore])
+  }, [activeLetter, category, search, hasMore, brand, cat])
 
   useEffect(() => {
     const el = sentinelRef.current
@@ -168,14 +192,14 @@ export function CatalogTab({ onOpenProduct }: { onOpenProduct: (slug: string) =>
             onClick={() => setShowFilters(true)}
             className={cn(
               'flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
-              category || activeLetter
+              category || activeLetter || brand || cat
                 ? 'border-primary bg-primary/10 text-primary'
                 : 'border-gray-200/60 bg-white/60 text-muted-foreground/70 hover:text-primary',
             )}
           >
             <SlidersHorizontal className="size-4" />
             Фильтр
-            {(category || activeLetter) && (
+            {(category || activeLetter || brand || cat) && (
               <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
                 1
               </span>
@@ -183,8 +207,18 @@ export function CatalogTab({ onOpenProduct }: { onOpenProduct: (slug: string) =>
           </button>
         </div>
 
-        {(category || activeLetter) && (
+        {(category || activeLetter || brand || cat) && (
           <div className="mt-2 flex flex-wrap gap-1.5">
+            {brand && (
+              <button onClick={() => setBrand('')} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                Бренд: {brand} <X className="size-3" />
+              </button>
+            )}
+            {cat && (
+              <button onClick={() => setCat('')} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                {cat} <X className="size-3" />
+              </button>
+            )}
             {category && (
               <button onClick={() => setCategory('')} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
                 {category} <X className="size-3" />
@@ -205,7 +239,7 @@ export function CatalogTab({ onOpenProduct }: { onOpenProduct: (slug: string) =>
         </div>
       ) : products.length === 0 ? (
         <div className="py-16 text-center text-sm text-muted-foreground/50">
-          {search || activeLetter || category ? 'Ничего не найдено' : 'В каталоге пока нет продуктов'}
+          {search || activeLetter || category || brand || cat ? 'Ничего не найдено' : 'В каталоге пока нет продуктов'}
         </div>
       ) : (
         <div className="pt-3">

@@ -65,6 +65,8 @@ export function ProductModal({
   onChanged,
   onOpenReport,
   onCheck,
+  onOpenBrand,
+  onOpenCategory,
 }: {
   slug: string | null
   shelfContext?: { cabinet: string; category: string } | null
@@ -72,6 +74,8 @@ export function ProductModal({
   onChanged: () => void
   onOpenReport?: (result: CheckResult) => void
   onCheck?: (productName: string) => void
+  onOpenBrand?: (brand: string) => void
+  onOpenCategory?: (category: string) => void
 }) {
   const [data, setData] = useState<ProductDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -245,7 +249,18 @@ export function ProductModal({
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                {product.brand && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{product.brand}</p>}
+                {product.brand &&
+                  (onOpenBrand ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenBrand(product.brand)}
+                      className="text-left text-[10px] uppercase tracking-wide text-muted-foreground/50 underline-offset-2 transition-colors hover:text-primary hover:underline"
+                    >
+                      {product.brand}
+                    </button>
+                  ) : (
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{product.brand}</p>
+                  ))}
                 <p className="text-sm font-medium leading-snug text-foreground/90">{product.name}</p>
                 {data?.score != null ? (
                   <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', scoreColor(data.score))}>
@@ -259,9 +274,18 @@ export function ProductModal({
               </div>
             </div>
 
-            {product.category && (
-              <p className="mt-3 text-xs text-muted-foreground/60">Категория: {product.category}</p>
-            )}
+            {product.category &&
+              (onOpenCategory ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenCategory(product.category)}
+                  className="mt-3 block text-left text-xs text-muted-foreground/60 underline-offset-2 transition-colors hover:text-primary hover:underline"
+                >
+                  Категория: {product.category}
+                </button>
+              ) : (
+                <p className="mt-3 text-xs text-muted-foreground/60">Категория: {product.category}</p>
+              ))}
 
             <div className="mt-3">
               <button

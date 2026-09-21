@@ -364,6 +364,7 @@ TITLE_SQL = "REPLACE(TRIM(SUBSTR(name, INSTR(name, CHAR(10)) + 1), CHAR(10) || '
 async def get_catalog(
     category: Optional[str] = None,
     brand: Optional[str] = None,
+    cat: Optional[str] = None,
     search: Optional[str] = None,
     letter: Optional[str] = None,
     limit: int = 20,
@@ -379,9 +380,13 @@ async def get_catalog(
     if category:
         where.append("lower_ru(name) LIKE ?")
         params.append(f"%{category.lower()}%")
+    if cat:
+        where.append("category = ?")
+        params.append(cat)
     if brand:
-        where.append("brand = ?")
-        params.append(brand)
+        # бренд хранится первой строкой в name (до переноса строки)
+        where.append("lower_ru(name) LIKE ?")
+        params.append(f"{brand.lower()}%")
     if search:
         for word in search.strip().lower().split():
             where.append("lower_ru(name) LIKE ?")

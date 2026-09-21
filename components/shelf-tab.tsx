@@ -28,7 +28,15 @@ function scoreBadge(s: number | null) {
   return 'bg-[#B7A7F0]/15 text-[#8B7CF6]'
 }
 
-export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult) => void }) {
+export function ShelfTab({
+  onOpenReport,
+  onOpenBrand,
+  onOpenCategory,
+}: {
+  onOpenReport?: (result: CheckResult) => void
+  onOpenBrand?: (brand: string) => void
+  onOpenCategory?: (category: string) => void
+}) {
   const [cabinets, setCabinets] = useState<Cabinet[]>([])
   const [loading, setLoading] = useState(true)
   const [activeCabinet, setActiveCabinet] = useState('face')
@@ -372,6 +380,14 @@ export function ShelfTab({ onOpenReport }: { onOpenReport?: (result: CheckResult
           onClose={() => setDetailSlug(null)}
           onChanged={refreshShelf}
           onOpenReport={onOpenReport}
+          onOpenBrand={(brand) => {
+            setDetailSlug(null)
+            onOpenBrand?.(brand)
+          }}
+          onOpenCategory={(cat) => {
+            setDetailSlug(null)
+            onOpenCategory?.(cat)
+          }}
         />
       )}
 

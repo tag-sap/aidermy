@@ -67,6 +67,8 @@ export default function Page() {
   const [showQuiz, setShowQuiz] = useState(false)
   const [showShelfOnboarding, setShowShelfOnboarding] = useState(false)
   const [catalogSlug, setCatalogSlug] = useState<string | null>(null)
+  const [catalogFilter, setCatalogFilter] = useState<{ brand?: string; cat?: string }>({})
+  const [catalogFilterKey, setCatalogFilterKey] = useState(0)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
   const lastHistoryMutationRef = useRef(0)
@@ -645,6 +647,19 @@ export default function Page() {
     setIsSheetOpen(true)
   }
 
+  // Переход в каталог с фильтром по бренду / категории (из карточки товара).
+  const openCatalogWithBrand = (brand: string) => {
+    setCatalogFilter({ brand })
+    setCatalogFilterKey((k) => k + 1)
+    setTab('catalog')
+  }
+
+  const openCatalogWithCategory = (cat: string) => {
+    setCatalogFilter({ cat })
+    setCatalogFilterKey((k) => k + 1)
+    setTab('catalog')
+  }
+
   // ===== НАВИГАЦИЯ =====
   const handleGoToProfile = () => {
     if (!isAuthenticated) {
@@ -757,6 +772,9 @@ export default function Page() {
                   {tab === 'catalog' && (
                     <CatalogTab
                       onOpenProduct={(slug) => setCatalogSlug(slug)}
+                      initialBrand={catalogFilter.brand}
+                      initialCat={catalogFilter.cat}
+                      filterKey={catalogFilterKey}
                     />
                   )}
                   {tab === 'history' && (
@@ -782,7 +800,11 @@ export default function Page() {
                     />
                   )}
                   {tab === 'shelf' && (
-                    <ShelfTab onOpenReport={handleOpenReport} />
+                    <ShelfTab
+                      onOpenReport={handleOpenReport}
+                      onOpenBrand={openCatalogWithBrand}
+                      onOpenCategory={openCatalogWithCategory}
+                    />
                   )}
                 </div>
               )}
@@ -828,6 +850,14 @@ export default function Page() {
               onCheck={(productName) => {
                 setCatalogSlug(null)
                 handleCheck(productName, profile.skinType || 'Нормальная')
+              }}
+              onOpenBrand={(brand) => {
+                setCatalogSlug(null)
+                openCatalogWithBrand(brand)
+              }}
+              onOpenCategory={(cat) => {
+                setCatalogSlug(null)
+                openCatalogWithCategory(cat)
               }}
             />
           )}
