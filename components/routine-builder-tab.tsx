@@ -339,7 +339,7 @@ export function RoutineBuilderTab({
                                                         ))}
                                                     </div>
                                                 )}
-                                                <span className={cn('flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors', isSelected ? 'border-primary bg-primary text-white' : 'border-gray-300')}>
+                                                <span className={cn('flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors', isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-300')}>
                                                     {isSelected && <Check className="size-2.5" strokeWidth={3} />}
                                                 </span>
                                             </button>

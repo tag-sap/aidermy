@@ -314,7 +314,7 @@ export function ShelfAddModal({
         {mode === 'url' && (
           <div>
             <input value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addByUrl()} placeholder="Вставьте ссылку на товар…" className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-primary/40 focus:outline-none" />
-            <button onClick={addByUrl} disabled={!url.trim() || busy} className="mt-2 w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
+            <button onClick={addByUrl} disabled={!url.trim() || busy} className="mt-2 w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
               {busy ? <LoaderCircle className="mx-auto size-4 animate-spin" /> : 'Импортировать'}
             </button>
           </div>
@@ -361,7 +361,7 @@ export function ShelfAddModal({
                           Подробнее
                         </button>
                       )}
-                      <button onClick={() => addBySlug(r.slug)} disabled={busy} className="flex-1 rounded-lg bg-primary py-1.5 text-xs text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
+                      <button onClick={() => addBySlug(r.slug)} disabled={busy} className="flex-1 rounded-lg bg-primary py-1.5 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
                         Выбрать
                       </button>
                       <button
@@ -417,7 +417,7 @@ export function ShelfAddModal({
             <button
               onClick={submitDislike}
               disabled={!dislikeReason || submittingDislike}
-              className="mt-3 w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+              className="mt-3 w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
             >
               {submittingDislike ? 'Сохраняем…' : 'Отправить'}
             </button>

@@ -431,7 +431,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
                 placeholder="Название продукта…"
                 className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-primary/40 focus:outline-none"
               />
-              <button onClick={handleName} disabled={!name.trim() || loading} className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
+              <button onClick={handleName} disabled={!name.trim() || loading} className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
                 Проверить
               </button>
             </div>
@@ -448,7 +448,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
                 placeholder="Вставьте ссылку на товар…"
                 className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:border-primary/40 focus:outline-none"
               />
-              <button onClick={handleLink} disabled={!link.trim() || loading} className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
+              <button onClick={handleLink} disabled={!link.trim() || loading} className="shrink-0 rounded-xl bg-primary px-4 py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
                 {loading ? <LoaderCircle className="size-4 animate-spin" /> : 'Проверить'}
               </button>
             </div>
@@ -511,7 +511,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
                 <button
                   onClick={handleRecognize}
                   disabled={!photos.length || photoBusy}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                 >
                   {photoBusy ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
                   {photoBusy ? 'Распознаём состав…' : 'Распознать'}
@@ -546,7 +546,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
                 <button
                   onClick={handleCreateProduct}
                   disabled={!nameInput.trim() || creatingProduct || analyzing}
-                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                  className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                 >
                   {creatingProduct || analyzing ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
                   {creatingProduct ? 'Сохраняем…' : analyzing ? 'Анализируем…' : 'Сохранить и проанализировать'}
@@ -594,7 +594,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
                         <button
                           onClick={() => handleConfirmMatch(m)}
                           disabled={analyzing}
-                          className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                          className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                         >
                           {analyzing ? <LoaderCircle className="size-3.5 animate-spin" /> : 'Это он'}
                         </button>
@@ -607,7 +607,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
                 ) : (
                   <div className="space-y-2">
                     <p className="text-center text-xs text-muted-foreground/60">Подходящий продукт не найден в базе.</p>
-                    <button onClick={() => setShowManualForm(true)} className="w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90">
+                    <button onClick={() => setShowManualForm(true)} className="w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90">
                       Указать бренд и название
                     </button>
                   </div>

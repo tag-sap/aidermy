@@ -22,8 +22,8 @@ type ConfirmState = { title: string; message: string; confirmLabel?: string; onC
 
 function scoreBadge(s: number | null) {
   if (s == null) return ''
-  if (s >= 80) return 'bg-[#4E9F6E]/10 text-[#4E9F6E]'
-  if (s >= 60) return 'bg-[#6FBF8D]/15 text-[#4E9F6E]'
+  if (s >= 80) return 'bg-[#F5B301]/15 text-[#9A6B00]'
+  if (s >= 60) return 'bg-[#FFC94D]/25 text-[#9A6B00]'
   if (s >= 40) return 'bg-[#8B7CF6]/10 text-[#6B5CD6]'
   return 'bg-[#B7A7F0]/15 text-[#8B7CF6]'
 }
@@ -179,7 +179,7 @@ export function ShelfTab({
           onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
           className={cn(
             'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors',
-            selectionMode ? 'border-primary bg-primary text-white' : 'border-gray-200 text-muted-foreground/70 hover:border-primary/40 hover:text-primary',
+            selectionMode ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground/70 hover:border-primary/40 hover:text-primary',
           )}
         >
           <ListChecks className="size-3.5" />
@@ -351,7 +351,7 @@ export function ShelfTab({
                               <span
                                 className={cn(
                                   'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border bg-white/95 transition-colors',
-                                  isSelected ? 'border-primary bg-primary text-white' : 'border-gray-300 text-transparent',
+                                  isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-300 text-transparent',
                                 )}
                               >
                                 <Check className="size-3" strokeWidth={3} />
@@ -477,7 +477,7 @@ export function ShelfTab({
             <button
               onClick={submitRemoval}
               disabled={!removalReason || removing}
-              className="mt-3 w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+              className="mt-3 w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
             >
               {removing ? 'Удаляем…' : 'Удалить с полки'}
             </button>

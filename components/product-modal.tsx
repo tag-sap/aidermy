@@ -39,8 +39,8 @@ type ProductDetail = {
 }
 
 function scoreColor(s: number) {
-  if (s >= 80) return 'text-[#4E9F6E] bg-[#4E9F6E]/10 border-[#4E9F6E]/30'
-  if (s >= 60) return 'text-[#6FBF8D] bg-[#6FBF8D]/10 border-[#6FBF8D]/30'
+  if (s >= 80) return 'text-[#9A6B00] bg-[#F5B301]/15 border-[#F5B301]/30'
+  if (s >= 60) return 'text-[#9A6B00] bg-[#FFC94D]/20 border-[#FFC94D]/30'
   if (s >= 40) return 'text-[#8B7CF6] bg-[#8B7CF6]/10 border-[#8B7CF6]/30'
   return 'text-[#B7A7F0] bg-[#B7A7F0]/10 border-[#B7A7F0]/30'
 }
@@ -385,7 +385,7 @@ export function ProductModal({
                   <button
                     onClick={() => addToShelf()}
                     disabled={busy}
-                    className="w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                    className="w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                   >
                     {busy ? 'Добавляем…' : 'Добавить на полку'}
                   </button>
@@ -399,7 +399,7 @@ export function ProductModal({
                           onClick={() => { setPickCabinet(c.key); setPickCategory('') }}
                           className={cn(
                             'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                            pickCabinet === c.key ? 'border-primary bg-primary text-white' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                            pickCabinet === c.key ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
                           )}
                         >
                           {c.title}
@@ -423,7 +423,7 @@ export function ProductModal({
                     <button
                       onClick={() => addToShelf(pickCabinet, pickCategory)}
                       disabled={busy || !pickCategory}
-                      className="w-full rounded-lg bg-primary py-2 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                      className="w-full rounded-lg bg-primary py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                     >
                       {busy ? 'Добавляем…' : 'Добавить'}
                     </button>
@@ -432,7 +432,7 @@ export function ProductModal({
                   <button
                     onClick={() => setShowShelfPicker(true)}
                     disabled={busy}
-                    className="w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+                    className="w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                   >
                     Добавить на полку
                   </button>

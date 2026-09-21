@@ -23,8 +23,8 @@ function ScoreRing({ score }: { score: number }) {
   const offset = circumference - (progress / 100) * circumference
 
   const getColors = (s: number) => {
-    if (s >= 80) return { ring: '#4E9F6E', glow: 'rgba(78,159,110,0.3)', text: '#4E9F6E' }
-    if (s >= 60) return { ring: '#6FBF8D', glow: 'rgba(111,191,141,0.3)', text: '#6FBF8D' }
+    if (s >= 80) return { ring: '#F5B301', glow: 'rgba(245,179,1,0.3)', text: '#9A6B00' }
+    if (s >= 60) return { ring: '#FFC94D', glow: 'rgba(255,201,77,0.3)', text: '#9A6B00' }
     if (s >= 40) return { ring: '#A78BFA', glow: 'rgba(167,139,250,0.3)', text: '#A78BFA' }
     return { ring: '#C4B5FD', glow: 'rgba(196,181,253,0.3)', text: '#C4B5FD' }
   }
@@ -227,7 +227,7 @@ export function ResultSheet({
 
             <div className="grid grid-cols-2 gap-1.5">
               {result.safe_ingredients && result.safe_ingredients.length > 0 && (
-                <Section icon={CheckCircle} title="Безопасные" className="border-green-100/50 col-span-1" onClick={() => setIngredientsModal({ title: 'Безопасные ингредиенты', items: result.safe_ingredients! })}>
+                <Section icon={CheckCircle} title="Безопасные" className="border-primary/30 col-span-1" onClick={() => setIngredientsModal({ title: 'Безопасные ингредиенты', items: result.safe_ingredients! })}>
                   <div className="flex flex-wrap gap-0.5">
                     {result.safe_ingredients.slice(0, 3).map((ing) => <span key={ing} className="text-[8px] px-1.5 py-0.5 bg-primary/5 text-primary/70 rounded-full">{ing}</span>)}
                     {result.safe_ingredients.length > 3 && <span className="text-[8px] text-muted-foreground/40">+{result.safe_ingredients.length - 3}</span>}

@@ -959,7 +959,7 @@ export default function Page() {
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => handleLeaveConfirm('save')}
-                className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+                className="w-full rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
               >
                 Сохранить и выйти
               </button>

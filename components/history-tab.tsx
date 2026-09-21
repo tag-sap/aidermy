@@ -236,7 +236,7 @@ export function HistoryTab({
                     className={cn(
                       'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border transition-colors',
                       isSelected
-                        ? 'border-primary bg-primary text-white'
+                        ? 'border-primary bg-primary text-primary-foreground'
                         : 'border-primary/40 bg-white/50 text-transparent hover:border-primary/80'
                     )}
                   >

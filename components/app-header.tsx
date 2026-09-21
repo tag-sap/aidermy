@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, LogIn } from 'lucide-react'
+import { X, LogIn, Compass, ClipboardList, Send, Mail } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
@@ -64,7 +64,7 @@ export function AppHeader({
               ) : (
                 <span className="text-sm font-normal uppercase">{userName?.[0] || 'U'}</span>
               )}
-              <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 border-2 border-white" />
+              <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-primary border-2 border-white" />
             </button>
           ) : (
             <button
@@ -86,8 +86,8 @@ export function AppHeader({
             className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm animate-modal-backdrop"
             onClick={() => setShowHelp(false)}
           />
-          <div className="fixed right-4 top-20 z-50 w-64 rounded-lg bg-white p-4 shadow-xl border border-primary/10 md:right-6 animate-modal-panel">
-            <div className="flex items-center justify-between mb-3">
+          <div className="fixed right-4 top-20 z-50 w-64 origin-top-right rounded-xl bg-white p-4 shadow-xl border border-primary/15 md:right-6 animate-help-popover">
+            <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-normal text-foreground">Помощь</h3>
               <button
                 onClick={() => setShowHelp(false)}
@@ -96,25 +96,22 @@ export function AppHeader({
                 <X className="size-4" />
               </button>
             </div>
-            <p className="mb-3 text-xs text-muted-foreground">
-              Есть вопросы? Напишите нам!
-            </p>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
               {onReplayGuide && (
                 <button
                   onClick={() => { setShowHelp(false); onReplayGuide() }}
-                  className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
+                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
                 >
-                  <span className="text-base">🧭</span>
+                  <Compass className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
                   Пройти обучение
                 </button>
               )}
               {onReplayQuiz && (
                 <button
                   onClick={() => { setShowHelp(false); onReplayQuiz() }}
-                  className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
+                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
                 >
-                  <span className="text-base">📝</span>
+                  <ClipboardList className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
                   Пройти опросник
                 </button>
               )}
@@ -122,16 +119,16 @@ export function AppHeader({
                 href="https://t.me/aidermy_news"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
+                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
               >
-                <span className="text-base">📱</span>
+                <Send className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
                 Telegram
               </a>
               <a
                 href="mailto:lyr.ami.tag@gmail.com"
-                className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
+                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
               >
-                <span className="text-base">✉️</span>
+                <Mail className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
                 Email
               </a>
             </div>

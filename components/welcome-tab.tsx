@@ -1,7 +1,7 @@
 'use client'
 
 import { ShieldCheck, Sparkles, User, LayoutGrid, Droplets, ArrowRight, CheckCircle2, FlaskConical } from 'lucide-react'
-import { ScrollVideo } from '@/components/scroll-video'
+import { PingPongVideo } from '@/components/ping-pong-video'
 
 interface WelcomeTabProps {
   onAuth: () => void
@@ -39,9 +39,9 @@ const STEPS = [
 export function WelcomeTab({ onAuth }: WelcomeTabProps) {
   return (
     <div className="flex flex-col gap-6 pb-4">
-      {/* HERO — scroll-driven video, во всю ширину экрана */}
+      {/* HERO — video пинг-понг, во всю ширину экрана */}
       <section className="relative overflow-hidden" style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}>
-        <ScrollVideo
+        <PingPongVideo
           src="/header_video.mp4"
           className="h-[68vh] min-h-[380px] w-full object-cover"
         />
@@ -69,7 +69,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
         </p>
         <button
           onClick={onAuth}
-          className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_8px_24px_rgba(78,159,110,0.35)] transition-all hover:bg-primary/90 active:scale-[0.98]"
+          className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-[0_8px_24px_rgba(245,179,1,0.35)] transition-all hover:bg-primary/90 active:scale-[0.98]"
         >
           Создать профиль и начать
           <ArrowRight className="size-4" />
@@ -148,7 +148,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
       {/* FINAL CTA */}
       <button
         onClick={onAuth}
-        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-sm font-medium text-white shadow-[0_8px_24px_rgba(78,159,110,0.3)] transition-all hover:bg-primary/90 active:scale-[0.98]"
+        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-sm font-medium text-primary-foreground shadow-[0_8px_24px_rgba(245,179,1,0.3)] transition-all hover:bg-primary/90 active:scale-[0.98]"
       >
         <Sparkles className="size-4" />
         Начать бесплатно

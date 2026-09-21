@@ -361,7 +361,7 @@ export function CatalogTab({
               >
                 Сбросить
               </button>
-              <button onClick={() => setShowFilters(false)} className="flex-1 rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90">
+              <button onClick={() => setShowFilters(false)} className="flex-1 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90">
                 Применить
               </button>
             </div>

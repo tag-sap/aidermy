@@ -146,7 +146,7 @@ export function ShelfOnboarding({
             </button>
             <button
               onClick={handleCta}
-              className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-primary py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+              className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               {current.cta}
               <ChevronRight className="size-4" />

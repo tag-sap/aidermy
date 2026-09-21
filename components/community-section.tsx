@@ -315,7 +315,7 @@ export function CommunitySection({
               <button
                 onClick={submitReview}
                 disabled={submitting}
-                className="mt-3 w-full rounded-xl bg-primary py-2 text-xs text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+                className="mt-3 w-full rounded-xl bg-primary py-2 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 {submitting ? 'Сохраняем…' : 'Опубликовать'}
               </button>

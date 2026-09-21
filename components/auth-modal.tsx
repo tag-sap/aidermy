@@ -122,7 +122,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
             <button
               type="button"
               onClick={onClose}
-              className="mt-4 w-full rounded-md bg-primary py-2.5 text-sm font-normal text-white transition-colors hover:bg-primary/90"
+              className="mt-4 w-full rounded-md bg-primary py-2.5 text-sm font-normal text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Закрыть
             </button>
@@ -196,7 +196,7 @@ export function AuthModal({ isOpen, onClose, onLogin, onRegister }: AuthModalPro
               type="submit"
               disabled={isLoading}
               className={cn(
-                'w-full rounded-md bg-primary py-2.5 text-sm font-normal text-white transition-colors',
+                'w-full rounded-md bg-primary py-2.5 text-sm font-normal text-primary-foreground transition-colors',
                 isLoading ? 'cursor-not-allowed opacity-50' : 'hover:bg-primary/90'
               )}
             >

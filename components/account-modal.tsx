@@ -134,7 +134,7 @@ export function AccountModal({
           onClick={save}
           disabled={saving || !name.trim()}
           className={cn(
-            'mt-4 w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors',
+            'mt-4 w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors',
             saving || !name.trim() ? 'cursor-not-allowed opacity-50' : 'hover:bg-primary/90',
           )}
         >

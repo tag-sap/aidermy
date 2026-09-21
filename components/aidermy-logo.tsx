@@ -11,7 +11,7 @@ export function AidermyLogo({ isCompact = false }: AidermyLogoProps) {
       <span>
         <span className={`font-[family-name:var(--font-playfair)] font-normal tracking-[0.04em] select-none ${isCompact ? 'text-2xl' : 'text-4xl'
           }`}>
-          Aidermy
+          aidermy
         </span>
       </span>
       {!isCompact && (

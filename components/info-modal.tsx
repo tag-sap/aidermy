@@ -74,7 +74,7 @@ export function InfoModal({ isOpen, onClose }: InfoModalProps) {
 
         <button
           onClick={onClose}
-          className="w-full mt-6 py-3 bg-primary text-white font-normal rounded-xl hover:bg-primary/90 transition-colors"
+          className="w-full mt-6 py-3 bg-primary text-primary-foreground font-normal rounded-xl hover:bg-primary/90 transition-colors"
         >
           Понятно, спасибо!
         </button>
