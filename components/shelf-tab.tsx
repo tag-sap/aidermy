@@ -22,8 +22,8 @@ type ConfirmState = { title: string; message: string; confirmLabel?: string; onC
 
 function scoreBadge(s: number | null) {
   if (s == null) return ''
-  if (s >= 80) return 'bg-[#276749]/15 text-[#2E7D4F]'
-  if (s >= 60) return 'bg-[#4E9F6E]/25 text-[#2E7D4F]'
+  if (s >= 80) return 'bg-[#F5C900]/25 text-[#7A5E00]'
+  if (s >= 60) return 'bg-[#F5C900]/15 text-[#7A5E00]'
   if (s >= 40) return 'bg-[#8B7CF6]/10 text-[#6B5CD6]'
   return 'bg-[#B7A7F0]/15 text-[#8B7CF6]'
 }

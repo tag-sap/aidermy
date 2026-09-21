@@ -56,7 +56,7 @@ export function TabBar({
                   className={cn(
                     'tab-circle flex size-14 items-center justify-center rounded-full border',
                     isActive
-                      ? 'bg-primary text-primary-foreground border-primary shadow-[0_8px_24px_rgba(39,103,73,0.4)]'
+                      ? 'bg-primary text-primary-foreground border-primary shadow-[0_8px_24px_rgba(18,53,45,0.4)]'
                       : 'bg-white text-muted-foreground border-gray-200/70 shadow-sm hover:border-primary/40 hover:text-primary'
                   )}
                 >

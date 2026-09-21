@@ -2,10 +2,10 @@
 
 import { Fragment, type ReactNode } from 'react'
 
-// Цвета совпадают с палитрой Aidermy (жёлтый / янтарный / красный).
+// Цвета совпадают с палитрой Aidermy (тёмно-зелёный / янтарный / красный).
 const TAG_COLORS: Record<string, string> = {
-  good: '#2E7D4F',
-  warning: '#D97706',
+  good: '#12352D',
+  warning: '#B45309',
   bad: '#EF4444',
 }
 
