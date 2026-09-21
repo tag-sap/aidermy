@@ -10,9 +10,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
-from .models import CheckRequest, CheckResponse, CheckWithIngredientsRequest, ImportUrlRequest
+from .models import (
+    CheckRequest,
+    CheckResponse,
+    CheckWithIngredientsRequest,
+    ImportUrlRequest,
+    RecognizeCompositionRequest,
+    AnalyzeCompositionRequest,
+    CreateProductRequest,
+)
 from .services import check_product_with_ai, check_product_with_ingredients, search_products
-from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, PRODUCTS_DB, upsert_imported_product
+from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, PRODUCTS_DB, upsert_imported_product, save_ingredients
 from .auth_routes import router as auth_router
 from .community_routes import router as community_router
 from .admin_routes import setup_admin_routes
@@ -21,6 +29,13 @@ from .auth import get_current_user_optional, get_current_user
 from .scraper import ProductImportError, import_product
 
 from .services import search_products
+from .vision_service import (
+    recognize_composition,
+    recognized_normalized_list,
+    find_product_matches,
+    register_ingredients,
+    MATCH_CONFIDENT_THRESHOLD,
+)
 
 init_db()
 
@@ -176,6 +191,154 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
     except Exception as exc:
         print(f"[SCRAPER] Import failed unexpectedly: {exc!r}")
         raise HTTPException(status_code=502, detail="Не удалось автоматически получить данные товара. Проверьте ссылку или добавьте состав вручную.") from exc
+
+@app.post("/api/composition/recognize")
+async def recognize_composition_endpoint(request: RecognizeCompositionRequest):
+    try:
+        recognition = await recognize_composition(request.images)
+        normalized = recognized_normalized_list(recognition)
+        matches = find_product_matches(normalized, limit=5)
+        return {
+            "recognition": recognition,
+            "normalized_ingredients": normalized,
+            "matches": matches,
+            "confident_threshold": int(MATCH_CONFIDENT_THRESHOLD * 100),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"❌ Ошибка распознавания состава: {exc!r}")
+        raise HTTPException(status_code=500, detail="Не удалось распознать состав") from exc
+
+
+@app.post("/api/composition/analyze")
+async def analyze_composition_endpoint(
+    request: AnalyzeCompositionRequest,
+    current_user: dict = Depends(get_current_user_optional),
+):
+    try:
+        from .services import generate_slug, check_product_with_ingredients
+        from .auth_routes import save_pending_product
+
+        ingredient_items = [
+            {"raw": name, "normalized": name, "confidence": None}
+            for name in request.ingredients
+        ]
+        registered = register_ingredients(ingredient_items)
+        normalized = [r["normalized"] for r in registered]
+        ingredients_str = ", ".join(normalized)
+
+        result = await check_product_with_ingredients(
+            request.product_name,
+            request.skin_type,
+            request.profile.dict(),
+            ingredients_str,
+        )
+
+        slug = (request.slug or generate_slug(request.product_name)).strip() or generate_slug(request.product_name)
+
+        # Сохраняем состав, чтобы повторный поиск по имени/составу находил продукт.
+        if ingredients_str:
+            save_ingredients(request.product_name, ingredients_str, slug)
+
+        user_id = current_user.get("id") if current_user else None
+        if ingredients_str and result.get("score", 0) > 0:
+            save_pending_product(
+                product_name=request.product_name,
+                ingredients=ingredients_str,
+                user_id=user_id,
+            )
+
+        return {
+            "score": result.get("score", 50),
+            "verdict": result.get("verdict", "Нейтрально"),
+            "summary": result.get("summary", "Не удалось получить рекомендацию."),
+            "safe_ingredients": result.get("safe_ingredients", []),
+            "caution_ingredients": result.get("caution_ingredients", []),
+            "active_ingredients": result.get("active_ingredients"),
+            "how_to_use": result.get("how_to_use"),
+            "expectations": result.get("expectations"),
+            "slug": slug,
+            "image_url": result.get("image_url") or "",
+            "ingredients": ingredients_str,
+            "normalized_ingredients": normalized,
+            "ingredient_ids": [r["id"] for r in registered],
+        }
+    except Exception as exc:
+        print(f"❌ Ошибка анализа состава: {exc!r}")
+        raise HTTPException(status_code=500, detail=f"Ошибка анализа: {str(exc)}") from exc
+
+
+@app.post("/api/products/create")
+async def create_product_endpoint(
+    request: CreateProductRequest,
+    current_user: dict = Depends(get_current_user_optional),
+):
+    try:
+        from .services import generate_slug
+        from .ingredient_normalizer import canonicalize_ingredient_name
+        from .shelf_service import normalize_imported_category
+
+        brand = (request.brand or "").strip()
+        name = (request.name or "").strip()
+
+        normalized: list = []
+        for ing in request.ingredients:
+            canonical = canonicalize_ingredient_name(ing)
+            if canonical and canonical not in normalized:
+                normalized.append(canonical)
+        ingredients_str = ", ".join(normalized)
+
+        # Регистрируем ингредиенты в Ingredient DB (идемпотентно, без дублей).
+        if normalized:
+            register_ingredients([{"raw": n, "normalized": n} for n in normalized])
+
+        slug = (request.slug or generate_slug(name)).strip() or generate_slug(name)
+        full_name = f"{brand}\n\n\n{name}" if brand else name
+
+        conn = get_connection(PRODUCTS_DB)
+        cursor = conn.cursor()
+
+        existing = cursor.execute(
+            "SELECT id, name, slug, brand, image_url, category, ingredients FROM products WHERE slug = ?",
+            (slug,),
+        ).fetchone()
+        if existing:
+            conn.close()
+            return {"success": True, "product": dict(existing), "duplicate": True}
+
+        category = normalize_imported_category("", name)
+        cursor.execute(
+            "INSERT INTO products (name, slug, ingredients, brand, category, saved_at) "
+            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            (full_name, slug, ingredients_str, brand, category),
+        )
+        conn.commit()
+        product_id = cursor.lastrowid
+        saved = cursor.execute(
+            "SELECT id, name, slug, brand, image_url, category, ingredients FROM products WHERE id = ?",
+            (product_id,),
+        ).fetchone()
+        conn.close()
+
+        return {"success": True, "product": dict(saved), "duplicate": False}
+    except Exception as exc:
+        print(f"❌ Ошибка создания продукта: {exc!r}")
+        raise HTTPException(status_code=500, detail=f"Ошибка создания продукта: {str(exc)}") from exc
+
+
+@app.get("/api/brands")
+async def get_brands(q: str = ""):
+    data = await get_categories()
+    brands = list(data.get("brands") or [])
+    query = (q or "").strip().lower()
+    if query:
+        brands = [b for b in brands if query in str(b).lower()]
+    return {"brands": brands[:30]}
+
+
 
 @app.post("/api/check", response_model=CheckResponse)
 async def check_product(

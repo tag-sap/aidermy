@@ -64,3 +64,23 @@ class CheckWithIngredientsRequest(BaseModel):
 
 class ImportUrlRequest(BaseModel):
     url: str = Field(..., min_length=1, description="URL страницы товара")
+
+
+class RecognizeCompositionRequest(BaseModel):
+    images: List[str] = Field(..., description="Base64 data URL фотографий одной серии")
+
+
+class AnalyzeCompositionRequest(BaseModel):
+    product_name: str = Field(..., min_length=1, description="Название продукта")
+    brand: str = Field(default="", description="Бренд продукта")
+    slug: str = Field(default="", description="Slug продукта (опционально)")
+    ingredients: List[str] = Field(default=[], description="Распознанный список INCI")
+    skin_type: str = Field(default="Нормальная", description="Тип кожи")
+    profile: Profile = Field(..., description="Анкета пользователя")
+
+
+class CreateProductRequest(BaseModel):
+    brand: str = Field(default="", description="Бренд продукта")
+    name: str = Field(..., min_length=1, description="Название продукта")
+    ingredients: List[str] = Field(default=[], description="Распознанный список INCI")
+    slug: str = Field(default="", description="Slug продукта (опционально)")

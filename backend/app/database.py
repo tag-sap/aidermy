@@ -33,6 +33,10 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # Миграция: в старых БД таблица ingredients могла существовать без колонки slug.
+    ingredients_cols = [r[1] for r in cursor.execute("PRAGMA table_info(ingredients)").fetchall()]
+    if "slug" not in ingredients_cols:
+        cursor.execute("ALTER TABLE ingredients ADD COLUMN slug TEXT")
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS check_history (

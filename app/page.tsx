@@ -573,47 +573,7 @@ export default function Page() {
       sessionStorage.setItem('aidermy:lastHistorySave', `${product.trim()}::${skinType}::${profile.skinType || ''}`)
       setLoading(false)
 
-      const token = localStorage.getItem('token')
-      if (token && isAuthenticated) {
-        try {
-          const historyRes = await fetch('/api/auth/history', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              result: {
-                ...fullResult,
-                safe_ingredients: fullResult.safe_ingredients || [],
-                caution_ingredients: fullResult.caution_ingredients || [],
-                image_url: fullResult.image_url || '',
-              },
-              profile_snapshot: {
-                name: profile.name || '',
-                age: profile.age || '',
-                concerns: profile.concerns || [],
-                allergies: profile.allergies || [],
-                customText: profile.customText || '',
-                quizAnswers: profile.quizAnswers || {},
-                skinType: profile.skinType || skinType,
-                skinTypeDetermined: profile.skinTypeDetermined || skinType,
-              }
-            })
-          })
-
-          if (historyRes.ok) {
-            const saved = await historyRes.json().catch(() => ({}))
-            console.log('✅ История сохранена на сервере', saved)
-            await loadHistoryFromServer(token)
-          } else {
-            const err = await historyRes.text()
-            console.error('❌ Ошибка сохранения истории:', err)
-          }
-        } catch (error) {
-          console.error('❌ Ошибка сохранения истории:', error)
-        }
-      }
+      await persistHistory(fullResult, skinType)
 
     } catch (error) {
       console.error('Ошибка проверки:', error)
@@ -633,6 +593,54 @@ export default function Page() {
       })
       setLoading(false)
     }
+  }
+
+  const persistHistory = async (fullResult: CheckResult, skinType: string) => {
+    const token = localStorage.getItem('token')
+    if (!token || !isAuthenticated) return
+    try {
+      const historyRes = await fetch('/api/auth/history', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          result: {
+            ...fullResult,
+            safe_ingredients: fullResult.safe_ingredients || [],
+            caution_ingredients: fullResult.caution_ingredients || [],
+            image_url: fullResult.image_url || '',
+          },
+          profile_snapshot: {
+            name: profile.name || '',
+            age: profile.age || '',
+            concerns: profile.concerns || [],
+            allergies: profile.allergies || [],
+            customText: profile.customText || '',
+            quizAnswers: profile.quizAnswers || {},
+            skinType: profile.skinType || skinType,
+            skinTypeDetermined: profile.skinTypeDetermined || skinType,
+          }
+        })
+      })
+
+      if (historyRes.ok) {
+        await loadHistoryFromServer(token)
+      } else {
+        console.error('❌ Ошибка сохранения истории:', await historyRes.text())
+      }
+    } catch (error) {
+      console.error('❌ Ошибка сохранения истории:', error)
+    }
+  }
+
+  // Результат, пришедший из флоу распознавания по фото (CheckModal).
+  const handleRecognized = (data: CheckResult) => {
+    setResult(data)
+    setLoading(false)
+    setIsSheetOpen(true)
+    persistHistory(data, data.skinType)
   }
 
   const closeSheet = () => {
@@ -825,6 +833,8 @@ export default function Page() {
             isOpen={checkModalOpen}
             onClose={() => setCheckModalOpen(false)}
             onCheck={(product, skinType) => handleCheck(product, profile.skinType || skinType)}
+            profile={profile}
+            onRecognized={handleRecognized}
           />
 
           <ResultSheet
