@@ -35,14 +35,28 @@ _ACCOUNT_NOISE = re.compile(
 )
 
 
+def _strip_leading_symbols(value: str) -> str:
+    """Убирает знаки/скобки/кавычки/невидимые символы в начале названия."""
+    t = (value or "").strip()
+    # невидимые и служебные символы (object replacement, BOM, zero-width space)
+    t = re.sub(r"^[\s\uFFFC\uFEFF\u200B]+", "", t)
+    # скобочный префикс целиком: (Renewal), [BR], {X}
+    t = re.sub(r"^[\[\(\{][^\]\)\}]{0,60}[\]\)\}]\s*", "", t)
+    # кавычки/решётка/дефисы/тире/маркеры в начале
+    t = re.sub(r"^[\"'\u2018\u2019\u201C\u201D\u201E\u00AB\u00BB#\-\u2014\u2013\u00B7\u2022]+", "", t)
+    # любые оставшиеся не-буквенно-цифровые символы в начале
+    t = re.sub(r"^[^\w]+", "", t, flags=re.UNICODE)
+    return t.strip()
+
+
 def _clean_product_name(value: str | None) -> str | None:
     if not value:
         return None
     value = _text(re.sub(r"^в наличии:\s*", "", value, flags=re.IGNORECASE))
     # Отрезаем «шум» из шапки аккаунта, если он слипся с названием.
     value = _text(_ACCOUNT_NOISE.sub(" ", value))
-    # Убираем оставшиеся после чистки лишние разделители/знаки в начале.
-    value = re.sub(r"^[\s.!,\-:]+", "", value).strip()
+    # Убираем знаки/скобки/кавычки/невидимые символы в начале названия.
+    value = _strip_leading_symbols(value)
     return value or None
 
 

@@ -1,8 +1,0 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600&amp;family=Sacramento&amp;display=swap');
-  </style>
-  <rect width="512" height="512" rx="102" fill="#f5f1e9"/>
-  <text x="35" y="292" font-family="Montserrat, sans-serif" font-weight="600" font-size="158" letter-spacing="-10" fill="#171a18">AI</text>
-  <text x="183" y="292" font-family="Sacramento, cursive" font-size="153" fill="#40584d">dermy</text>
-</svg>
