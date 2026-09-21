@@ -20,6 +20,23 @@ def generate_slug(name: str) -> str:
     slug = re.sub(r'[-\s]+', '-', slug)
     return slug.lower().strip('-')
 
+
+def capitalize_name(name: str) -> str:
+    """Делает первую букву заглавной, если название начинается с буквы.
+
+    Не меняет регистр остальной части строки (например, «cosrx Advanced Snail»
+    -> «Cosrx Advanced Snail», «pH формула» остаётся как есть, т.к. первый символ не буква).
+    """
+    if not name:
+        return name
+    for i, ch in enumerate(name):
+        if ch.isalpha():
+            return name[:i] + ch.upper() + name[i + 1:]
+        if not ch.isspace():
+            # Первый не-пробельный символ не буква (цифра, символ) — не трогаем.
+            return name
+    return name
+
 def clean_json_response(content: str) -> str:
     """Очищает ответ от лишнего текста, оставляя только JSON"""
     # Ищем JSON в ответе

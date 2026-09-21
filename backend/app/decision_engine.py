@@ -142,9 +142,9 @@ def build_verdict(score: int) -> str:
     return "Не рекомендуется"
 
 
-def _top_property(factors: List[Dict[str, Any]], direction: str) -> Optional[str]:
-    """Возвращает свойство с наибольшим вкладом (strength*confidence)."""
-    best: Optional[str] = None
+def _top_factor(factors: List[Dict[str, Any]], direction: str) -> Optional[Dict[str, Any]]:
+    """Возвращает фактор (ингредиент + свойство) с наибольшим вкладом."""
+    best: Optional[Dict[str, Any]] = None
     best_weight = -1.0
     for f in factors:
         if str(f.get("direction", "")).lower() != direction:
@@ -152,8 +152,29 @@ def _top_property(factors: List[Dict[str, Any]], direction: str) -> Optional[str
         w = float(f.get("strength", 0.0) or 0.0) * float(f.get("confidence", 0.0) or 0.0)
         if w > best_weight:
             best_weight = w
-            best = str(f.get("property", "") or "")
+            best = f
     return best
+
+
+# Человекочитаемое описание эффекта ингредиента (без внутренних имён факторов).
+_POSITIVE_EFFECT: Dict[str, str] = {
+    "hydration": "увлажнение кожи",
+    "barrier_support": "укрепление защитного барьера",
+    "sensitivity": "успокоение и снижение раздражения",
+    "acne_control": "контроль высыпаний",
+    "brightening": "выравнивание тона",
+}
+_NEGATIVE_EFFECT: Dict[str, str] = {
+    "hydration": "может подсушивать кожу",
+    "barrier_support": "может ослаблять защитный барьер",
+    "sensitivity": "может раздражать чувствительную кожу",
+    "acne_control": "может провоцировать высыпания",
+    "brightening": "может не способствовать выравниванию тона",
+}
+
+
+def _factor_ingredient(factor: Optional[Dict[str, Any]]) -> str:
+    return str((factor or {}).get("ingredient") or "").strip()
 
 
 def build_summary(
@@ -192,31 +213,36 @@ def build_summary(
             "Попробуйте проверить состав повторно."
         )
 
-    top_pos = _top_property(positive, "positive")
-    top_neg = _top_property(negative, "negative")
+    pos_factor = _top_factor(positive, "positive")
+    neg_factor = _top_factor(negative, "negative")
+    pos_ing = _factor_ingredient(pos_factor)
+    neg_ing = _factor_ingredient(neg_factor)
+
+    def _pos_effect(f: Optional[Dict[str, Any]]) -> str:
+        return _POSITIVE_EFFECT.get(str((f or {}).get("property") or ""), "") if f else ""
+
+    def _neg_effect(f: Optional[Dict[str, Any]]) -> str:
+        return _NEGATIVE_EFFECT.get(str((f or {}).get("property") or ""), "") if f else ""
 
     if score >= VERDICT_GOOD:
-        core = f"Формула в целом соответствует {phrase}"
-        if top_pos:
-            core += f" и поддерживает {DIMENSION_LABELS.get(top_pos, top_pos)}"
-        core += "."
-        if top_neg:
-            core += f" <warning>Обратите внимание на фактор «{DIMENSION_LABELS.get(top_neg, top_neg)}».</warning>"
+        core = f"Формула в целом подходит {phrase}."
+        if pos_ing and _pos_effect(pos_factor):
+            core += f" {pos_ing} поддерживает {_pos_effect(pos_factor)}."
+        if neg_ing:
+            core += f" <warning>Учтите: {neg_ing} {_neg_effect(neg_factor) or 'может не подойти чувствительной коже'}.</warning>"
         return core
 
     if score >= VERDICT_CAUTION:
-        core = f"Формула требует внимания применительно к {phrase}"
-        if top_neg:
-            core += f" из-за фактора «{DIMENSION_LABELS.get(top_neg, top_neg)}»"
-        core += "."
-        if top_pos:
-            core += f" <good>При этом она поддерживает {DIMENSION_LABELS.get(top_pos, top_pos)}.</good>"
+        core = f"Формула требует внимания применительно к {phrase}."
+        if neg_ing:
+            core += f" {neg_ing} {_neg_effect(neg_factor) or 'может не подойти вашей коже'}."
+        if pos_ing and _pos_effect(pos_factor):
+            core += f" <good>При этом {pos_ing} поддерживает {_pos_effect(pos_factor)}.</good>"
         return core
 
-    core = f"Формула, скорее всего, не подходит {phrase}"
-    if top_neg:
-        core += f" из-за значимого конфликта по фактору «{DIMENSION_LABELS.get(top_neg, top_neg)}»"
-    core += "."
+    core = f"Формула, скорее всего, не подходит {phrase}."
+    if neg_ing:
+        core += f" {neg_ing} {_neg_effect(neg_factor) or 'может конфликтовать с потребностями вашей кожи'}."
     return core
 
 

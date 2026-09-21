@@ -49,6 +49,7 @@ export function TabBar({
                 onClick={() => (id === 'check' ? onCheck() : onChange(id as TabId))}
                 aria-current={isActive ? 'page' : undefined}
                 data-active={isActive ? 'true' : 'false'}
+                data-tour={id}
                 className="relative -mt-6 flex flex-1 flex-col items-center gap-0.5"
               >
                 <span
@@ -75,6 +76,7 @@ export function TabBar({
               onClick={() => onChange(id as TabId)}
               aria-current={isActive ? 'page' : undefined}
               data-active={isActive ? 'true' : 'false'}
+              data-tour={id}
               className={cn(
                 'nav-link-animated flex flex-1 flex-col items-center gap-0.5 rounded-md px-2 py-1.5 transition-colors',
                 isActive ? 'text-primary' : 'text-muted-foreground'

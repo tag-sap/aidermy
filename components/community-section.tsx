@@ -10,6 +10,7 @@ type PersonalizedRating = { available: boolean; count: number; average: number |
 type Review = {
   id: number
   displayName: string
+  avatarUrl: string
   rating: number
   text: string
   usageDuration: string
@@ -336,6 +337,9 @@ export function CommunitySection({
             <div key={r.id} className="rounded-xl border border-gray-100 p-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
+                  {r.avatarUrl ? (
+                    <img src={r.avatarUrl} alt="" className="size-5 shrink-0 rounded-full object-cover" />
+                  ) : null}
                   <span className="text-xs font-medium text-foreground">{r.displayName}</span>
                   {r.isSimilarProfile && (
                     <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">Похожий профиль</span>

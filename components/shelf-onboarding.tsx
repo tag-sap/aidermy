@@ -1,123 +1,159 @@
 'use client'
 
-import { useState } from 'react'
-import { X, ChevronLeft, ChevronRight, UserRound, PackagePlus, Wand2, Sparkles } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { useScrollLock } from '@/lib/use-scroll-lock'
+import { useEffect, useRef, useState } from 'react'
+import { X, ChevronRight } from 'lucide-react'
 
-interface ShelfOnboardingProps {
-  onClose: () => void
-  onGoToProfile: () => void
+export type OnboardingStepId = 'profile' | 'quiz' | 'shelf' | 'shelves'
+
+type TourStep = {
+  id: OnboardingStepId
+  target: string
+  title: string
+  text: string
+  cta: string
 }
 
-const STEPS = [
+const STEPS: TourStep[] = [
   {
-    icon: UserRound,
-    title: 'Уточните информацию о коже',
-    text: 'Дополните данные о типе кожи, проблемах и аллергиях — так персональный анализ будет точнее.',
-    cta: 'Заполнить профиль',
-    action: 'profile' as const,
+    id: 'profile',
+    target: '[data-tour="profile"]',
+    title: 'Сначала заполним ваш профиль',
+    text: 'Откройте вкладку «Профиль» — там вы расскажете о своей коже и предпочтениях.',
+    cta: 'Перейти в профиль',
   },
   {
-    icon: PackagePlus,
-    title: 'Наполняйте полку',
-    text: 'Добавляйте любимую косметику и смотрите, насколько каждое средство подходит вашей коже.',
-    cta: 'Далее',
-    action: 'next' as const,
+    id: 'quiz',
+    target: '[data-tour="quiz"]',
+    title: 'Опишите вашу кожу',
+    text: 'Заполните анкету: тип кожи, проблемы и предпочтения. Это сделает рекомендации персональными.',
+    cta: 'Сохранить и продолжить',
   },
   {
-    icon: Wand2,
-    title: 'Не знаете, что поставить?',
-    text: 'Воспользуйтесь автоподбором — система подберёт средства, подходящие именно вам.',
+    id: 'shelf',
+    target: '[data-tour="shelf"]',
+    title: 'Теперь — «Моя полка»',
+    text: 'Здесь будет ваша постоянная коллекция ухода.',
+    cta: 'Перейти к полке',
+  },
+  {
+    id: 'shelves',
+    target: '[data-tour="shelves"]',
+    title: 'Ваши полки',
+    text: 'Каждая полка соответствует категории. Добавляйте продукты, чтобы видеть их анализ и соответствие вашему профилю.',
     cta: 'Начать',
-    action: 'done' as const,
   },
 ]
 
-export function ShelfOnboarding({ onClose, onGoToProfile }: ShelfOnboardingProps) {
-  const [step, setStep] = useState(0)
-  const current = STEPS[step]
-  const Icon = current.icon
+export function ShelfOnboarding({
+  step,
+  onNext,
+  onSkip,
+  onGoToProfile,
+  onGoToShelf,
+  onProfileSaved,
+}: {
+  step: OnboardingStepId
+  onNext: (next: OnboardingStepId) => void
+  onSkip: () => void
+  onGoToProfile: () => void
+  onGoToShelf: () => void
+  onProfileSaved: () => void
+}) {
+  const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
+  const [position, setPosition] = useState<'below' | 'above'>('below')
+  const frameRef = useRef<number>(0)
 
-  useScrollLock(true)
+  const current = STEPS.find((s) => s.id === step) || STEPS[0]
+  const stepIndex = STEPS.findIndex((s) => s.id === step)
+
+  useEffect(() => {
+    const measure = () => {
+      const el = document.querySelector(current.target)
+      if (!el) {
+        setRect(null)
+        return
+      }
+      const r = el.getBoundingClientRect()
+      setRect({ top: r.top, left: r.left, width: r.width, height: r.height })
+      setPosition(r.top < 240 ? 'below' : 'above')
+    }
+    measure()
+    const onResize = () => {
+      cancelAnimationFrame(frameRef.current)
+      frameRef.current = requestAnimationFrame(measure)
+    }
+    const onScroll = () => {
+      cancelAnimationFrame(frameRef.current)
+      frameRef.current = requestAnimationFrame(measure)
+    }
+    window.addEventListener('resize', onResize)
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    return () => {
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('scroll', onScroll, { capture: true } as EventListenerOptions)
+      cancelAnimationFrame(frameRef.current)
+    }
+  }, [step, current.target])
 
   const handleCta = () => {
-    if (current.action === 'profile') {
+    if (step === 'profile') {
       onGoToProfile()
-    } else if (current.action === 'next') {
-      setStep((s) => s + 1)
+      onNext('quiz')
+    } else if (step === 'quiz') {
+      onProfileSaved()
+      onNext('shelf')
+    } else if (step === 'shelf') {
+      onGoToShelf()
+      onNext('shelves')
     } else {
-      onClose()
+      onSkip()
     }
   }
 
-  const handleNext = () => setStep((s) => Math.min(s + 1, STEPS.length - 1))
-  const handleBack = () => setStep((s) => Math.max(s - 1, 0))
-
   return (
-    <div className="fixed inset-0 z-[85] flex items-end justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop sm:items-center" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl animate-modal-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-3 flex items-center justify-between">
-          <span className="inline-flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-primary">
-            <Sparkles className="size-3.5" />
-            Знакомство с полкой
-          </span>
-          <button onClick={onClose} className="text-muted-foreground/60 hover:text-foreground" aria-label="Закрыть">
-            <X className="size-4" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-[90]">
+      <div className="absolute inset-0 bg-black/50" onClick={onSkip} />
 
-        {/* прогресс */}
-        <div className="mb-4 flex gap-1">
-          {STEPS.map((_, i) => (
-            <div key={i} className={cn('h-1 flex-1 rounded-full transition-colors', i <= step ? 'bg-primary' : 'bg-gray-200')} />
-          ))}
-        </div>
+      {rect && (
+        <div
+          className="absolute rounded-2xl ring-4 ring-white shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
+          style={{ top: rect.top - 4, left: rect.left - 4, width: rect.width + 8, height: rect.height + 8 }}
+        />
+      )}
 
-        {/* контент шага */}
-        <div className="flex flex-col items-center text-center">
-          <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-            <Icon className="size-7" strokeWidth={1.75} />
-          </div>
-          <h3 className="mt-3 text-lg font-normal text-foreground">{current.title}</h3>
-          <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground/80">{current.text}</p>
-        </div>
-
-        {/* кнопки */}
-        <div className="mt-5 flex items-center gap-2">
-          {step > 0 ? (
-            <button
-              onClick={handleBack}
-              className="flex items-center justify-center gap-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm text-foreground/70 transition-colors hover:bg-gray-50"
-            >
-              <ChevronLeft className="size-4" />
-              Назад
+      {rect && (
+        <div
+          className="absolute left-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-white p-4 shadow-2xl animate-modal-panel"
+          style={
+            position === 'below'
+              ? { top: rect.top + rect.height + 12 }
+              : { bottom: window.innerHeight - rect.top + 12 }
+          }
+        >
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-primary">
+              Шаг {stepIndex + 1} из {STEPS.length}
+            </span>
+            <button onClick={onSkip} className="text-muted-foreground/60 hover:text-foreground" aria-label="Пропустить гид">
+              <X className="size-4" />
             </button>
-          ) : (
-            <button
-              onClick={onClose}
-              className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm text-foreground/70 transition-colors hover:bg-gray-50"
-            >
+          </div>
+          <h3 className="text-base font-normal text-foreground">{current.title}</h3>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground/80">{current.text}</p>
+          <div className="mt-3 flex items-center gap-2">
+            <button onClick={onSkip} className="rounded-xl px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-gray-50">
               Пропустить
             </button>
-          )}
-
-          <button
-            onClick={handleCta}
-            className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
-          >
-            {current.cta}
-            {current.action === 'next' && <ChevronRight className="size-4" />}
-          </button>
+            <button
+              onClick={handleCta}
+              className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-primary py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+            >
+              {current.cta}
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
         </div>
-
-        {/* подсказка по шагам */}
-        {step < STEPS.length - 1 && current.action !== 'profile' && (
-          <button onClick={handleNext} className="mt-3 w-full text-center text-xs text-muted-foreground/50 hover:text-primary">
-            Пропустить шаг
-          </button>
-        )}
-      </div>
+      )}
     </div>
   )
 }

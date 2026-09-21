@@ -10,6 +10,8 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from .database import get_connection, PRODUCTS_DB
+from .ingredient_normalizer import canonicalize_ingredient_name
+from .services import capitalize_name
 
 # ---------------------------------------------------------------------------
 # СТРУКТУРА ШКАФОВ
@@ -114,10 +116,10 @@ RECOMMEND_RULES: Dict[str, Dict[str, Dict[str, List[str]]]] = {
 def _split_name(name: str) -> Tuple[str, str]:
     parts = [p.strip() for p in (name or "").split("\n") if p.strip()]
     if len(parts) >= 2:
-        return parts[0], " ".join(parts[1:])
+        return capitalize_name(parts[0]), capitalize_name(" ".join(parts[1:]))
     if parts:
-        return "", parts[0]
-    return "", (name or "").strip()
+        return "", capitalize_name(parts[0])
+    return "", capitalize_name((name or "").strip())
 
 
 def _formula_signature(ingredients: str) -> str:
@@ -188,15 +190,24 @@ def normalize_imported_category(raw_category: Optional[str], name: str) -> str:
 
 
 def infer_cabinet_category(category: str, name: str) -> Tuple[str, str]:
-    """Определяет (cabinet, категория) для продукта без явного указания шкафа."""
+    """Определяет (cabinet, категория) для продукта без явного указания шкафа.
+
+    Название продукта — самый надёжный сигнал о шкафе («Body Lotion» = тело,
+    «Hair Mask» = волосы). Поэтому сначала смотрим на название и только потом —
+    на сохранённую категорию каталога (которая при импорте бывает ошибочной).
+    """
+    name_lower = (name or "").lower()
     cat_key = (category or "").strip().lower()
+
+    # 1. Название определяет шкаф (hair/body/makeup/fragrance) надёжнее категории.
+    for cabinet, keywords in _INFER_RULES:
+        if any(k in name_lower for k in keywords):
+            cat = _infer_category_within_cabinet(name, cabinet) or canonical_category(cabinet, category or "Другое")
+            return cabinet, cat
+
+    # 2. Категория каталога (legacy map) — только для лица.
     if cat_key in LEGACY_CATEGORY_MAP:
         return LEGACY_CATEGORY_MAP[cat_key]
-
-    haystack = f"{(name or '')} {(category or '')}".lower()
-    for cabinet, keywords in _INFER_RULES:
-        if any(k in haystack for k in keywords):
-            return cabinet, canonical_category(cabinet, category or "Другое")
 
     return "face", canonical_category("face", category or "Другое")
 
@@ -508,6 +519,44 @@ def _query_candidates(cabinet: str, category: str) -> List[Dict[str, Any]]:
     return rows[:60]
 
 
+# Синонимы категорий непереносимости (пользовательские формулировки -> INCI-термины).
+_ALLERGEN_SYNONYMS: Dict[str, List[str]] = {
+    "отдушки": ["fragrance", "parfum", "perfume", "отдушка", "аромат"],
+    "спирт": ["alcohol", "ethanol", "спирт"],
+    "эфирные масла": ["essential oil", "эфирн"],
+    "ретиноиды": ["retinol", "retinal", "retinoid", "ретинол"],
+    "кислоты": ["acid", "aha", "bha", "salicylic", "glycolic"],
+}
+
+
+def _allergy_conflict(ingredients: str, allergies: List[str]) -> bool:
+    """Жёсткая проверка непереносимости: есть ли в составе запрещённый ингредиент.
+
+    Непереносимость — жёсткое ограничение (не мягкий фактор скорa): продукт
+    с конфликтом исключается из рекомендаций целиком.
+    """
+    if not allergies or not ingredients or not str(ingredients).strip():
+        return False
+    ing_lower = str(ingredients).lower()
+    ing_tokens = {canonicalize_ingredient_name(p) for p in re.split(r"[,;\n]+", ing_lower)}
+    ing_tokens.discard("")
+
+    for a in allergies:
+        key = str(a or "").strip().lower()
+        key = key.replace("непереносимость", " ").replace("аллергия", " ").strip()
+        if not key:
+            continue
+        canon = canonicalize_ingredient_name(key)
+        if canon and canon in ing_tokens:
+            return True
+        if key in ing_lower:
+            return True
+        for syn in _ALLERGEN_SYNONYMS.get(key, []):
+            if syn in ing_lower or canonicalize_ingredient_name(syn) in ing_tokens:
+                return True
+    return False
+
+
 def recommend_products(
     user: Dict[str, Any],
     cabinet: str,
@@ -515,7 +564,13 @@ def recommend_products(
     exclude_slugs: Optional[set] = None,
 ) -> List[Dict[str, Any]]:
     """Возвращает до 3 рекомендаций для конкретной полки шкафа."""
-    exclude_slugs = exclude_slugs or set()
+    exclude_slugs = set(exclude_slugs or set())
+    # Продукты, которые пользователь явно отклонил (дизлайк), не предлагаем снова.
+    try:
+        from .database import get_user_disliked_slugs
+        exclude_slugs |= get_user_disliked_slugs(user["id"])
+    except Exception:
+        pass
     scored = cabinet_applies_scoring(cabinet)
 
     try:
@@ -566,6 +621,10 @@ def recommend_products(
         # Пропускаем продукты, не соответствующие шкафу/категории
         compatible, _compat_reason = is_product_compatible(product, cabinet, category)
         if not compatible:
+            continue
+
+        # Жёсткое ограничение: непереносимость ингредиента из профиля.
+        if _allergy_conflict(product.get("ingredients") or "", profile["allergies"]):
             continue
 
         rec: Dict[str, Any] = {

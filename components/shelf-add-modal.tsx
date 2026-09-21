@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Search, Link2, Wand2, LoaderCircle, Sparkles, ChevronLeft } from 'lucide-react'
+import { X, Search, Link2, Wand2, LoaderCircle, Sparkles, ChevronLeft, ThumbsDown } from 'lucide-react'
 import { CABINET_TITLES, CABINET_META } from '@/lib/shelf'
 import { MarkupText } from '@/components/markup-text'
 import { useScrollLock } from '@/lib/use-scroll-lock'
+import { cn, capitalizeFirst } from '@/lib/utils'
 
 type Mode = 'menu' | 'base' | 'url' | 'recommend'
 
@@ -27,9 +28,17 @@ type Recommendation = {
 
 function splitName(name: string): { brand: string; title: string } {
   const parts = (name || '').split('\n').filter((x) => x.trim())
-  if (parts.length >= 2) return { brand: parts[0], title: parts.slice(1).join(' ') }
-  return { brand: '', title: (name || '').trim() }
+  if (parts.length >= 2) return { brand: capitalizeFirst(parts[0]), title: capitalizeFirst(parts.slice(1).join(' ')) }
+  return { brand: '', title: capitalizeFirst((name || '').trim()) }
 }
+
+const DISLIKE_REASONS = [
+  { key: 'wrong_category', label: 'Не та категория' },
+  { key: 'low_score', label: 'Слишком низкий процент соответствия' },
+  { key: 'composition', label: 'Не подходит по составу' },
+  { key: 'tried', label: 'Уже пробовал / не понравился' },
+  { key: 'other', label: 'Другое' },
+]
 
 export function ShelfAddModal({
   cabinet,
@@ -54,6 +63,10 @@ export function ShelfAddModal({
   const [recs, setRecs] = useState<Recommendation[]>([])
   const [recLoading, setRecLoading] = useState(false)
   const [analyzing, setAnalyzing] = useState<Set<string>>(new Set())
+  const [dislikeTarget, setDislikeTarget] = useState<Recommendation | null>(null)
+  const [dislikeReason, setDislikeReason] = useState('')
+  const [dislikeNote, setDislikeNote] = useState('')
+  const [submittingDislike, setSubmittingDislike] = useState(false)
 
   useScrollLock(true)
 
@@ -116,6 +129,37 @@ export function ShelfAddModal({
       setStatus(e instanceof Error ? e.message : 'Не удалось добавить')
     } finally {
       setBusy(false)
+    }
+  }
+
+  const submitDislike = async () => {
+    if (!dislikeTarget || !dislikeReason || submittingDislike) return
+    setSubmittingDislike(true)
+    setStatus('')
+    try {
+      const res = await fetch('/api/recommendations/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug: dislikeTarget.slug, cabinet, category, reason: dislikeReason, note: dislikeNote }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || 'Не удалось сохранить')
+      const replacement = data.replacement || []
+      setRecs((prev) => {
+        const without = prev.filter((r) => r.slug !== dislikeTarget.slug)
+        const merged = [...without]
+        for (const r of replacement) {
+          if (!merged.some((m) => m.slug === r.slug)) merged.push(r)
+        }
+        return merged
+      })
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : 'Не удалось сохранить')
+    } finally {
+      setSubmittingDislike(false)
+      setDislikeTarget(null)
+      setDislikeReason('')
+      setDislikeNote('')
     }
   }
 
@@ -320,6 +364,13 @@ export function ShelfAddModal({
                       <button onClick={() => addBySlug(r.slug)} disabled={busy} className="flex-1 rounded-lg bg-primary py-1.5 text-xs text-white transition-colors hover:bg-primary/90 disabled:opacity-40">
                         Выбрать
                       </button>
+                      <button
+                        onClick={() => { setDislikeTarget(r); setDislikeReason(''); setDislikeNote('') }}
+                        aria-label="Не подходит"
+                        className="shrink-0 rounded-lg border border-gray-200 px-2 py-1.5 text-muted-foreground/60 transition-colors hover:border-red-200 hover:text-red-500"
+                      >
+                        <ThumbsDown className="size-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -332,6 +383,47 @@ export function ShelfAddModal({
 
         {status && <p className="mt-2 shrink-0 text-[11px] text-muted-foreground/60">{status}</p>}
       </div>
+
+      {dislikeTarget && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4" onClick={() => setDislikeTarget(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-normal text-foreground">Почему этот продукт вам не подошёл?</h3>
+              <button onClick={() => setDislikeTarget(null)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
+            </div>
+            <div className="space-y-1.5">
+              {DISLIKE_REASONS.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setDislikeReason(r.key)}
+                  className={cn(
+                    'w-full rounded-xl border px-3 py-2.5 text-left text-sm transition-colors',
+                    dislikeReason === r.key ? 'border-primary bg-primary/5 text-primary' : 'border-gray-200 text-foreground/80 hover:border-primary/30',
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            {dislikeReason === 'other' && (
+              <textarea
+                value={dislikeNote}
+                onChange={(e) => setDislikeNote(e.target.value)}
+                placeholder="Уточните причину…"
+                className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:border-primary/40 focus:outline-none resize-none"
+                rows={2}
+              />
+            )}
+            <button
+              onClick={submitDislike}
+              disabled={!dislikeReason || submittingDislike}
+              className="mt-3 w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+            >
+              {submittingDislike ? 'Сохраняем…' : 'Отправить'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

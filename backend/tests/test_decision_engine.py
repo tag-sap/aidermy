@@ -61,7 +61,7 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertIn("не подходит", low)
 
         high = build_summary(analysis, profile, "Чувствительная", 85)
-        self.assertIn("соответствует", high)
+        self.assertIn("подходит", high)
 
     def test_verdict_thresholds(self):
         self.assertEqual(build_verdict(80), "Подходит")

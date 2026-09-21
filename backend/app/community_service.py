@@ -118,7 +118,7 @@ class CommunityIntelligenceService:
             """
             SELECT r.id, r.user_id, r.rating, r.text, r.usage_duration, r.tags,
                    r.visibility, r.profile_snapshot, r.created_at,
-                   u.name AS user_name,
+                   u.name AS user_name, u.avatar_url AS user_avatar,
                    (SELECT COUNT(*) FROM review_helpful_votes v WHERE v.review_id = r.id) AS helpful_count,
                    (SELECT COUNT(*) FROM review_helpful_votes v WHERE v.review_id = r.id AND v.user_id = ?) AS is_helpful
             FROM reviews r
@@ -138,10 +138,14 @@ class CommunityIntelligenceService:
         for r in rows:
             snap = _parse_snapshot(r.get("profile_snapshot"))
             sim = _similarity.similarity(profile, snap) if profile else None
+            visibility = r.get("visibility") or "ANONYMOUS"
+            # Аватар показываем только для полностью открытых отзывов (PUBLIC_PROFILE).
+            avatar = (r.get("user_avatar") or "") if visibility == "PUBLIC_PROFILE" else ""
             reviews.append(
                 {
                     "id": r["id"],
-                    "displayName": _display_name(r.get("user_name") or "", r.get("visibility") or "ANONYMOUS"),
+                    "displayName": _display_name(r.get("user_name") or "", visibility),
+                    "avatarUrl": avatar,
                     "rating": int(r["rating"]),
                     "text": r["text"] or "",
                     "usageDuration": r["usage_duration"] or "",

@@ -19,7 +19,7 @@ from .models import (
     AnalyzeCompositionRequest,
     CreateProductRequest,
 )
-from .services import check_product_with_ai, check_product_with_ingredients, search_products
+from .services import check_product_with_ai, check_product_with_ingredients, search_products, capitalize_name
 from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, PRODUCTS_DB, upsert_imported_product, save_ingredients
 from .auth_routes import router as auth_router
 from .community_routes import router as community_router
@@ -140,11 +140,20 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
             product["id"], _get_profile_for_user(current_user["id"])
         )
 
+    raw_name = product.get("name") or ""
+    _parts = [p.strip() for p in raw_name.split("\n") if p.strip()]
+    if len(_parts) >= 2:
+        display_brand = product.get("brand") or _parts[0]
+        display_name = " ".join(_parts[1:])
+    else:
+        display_brand = product.get("brand") or ""
+        display_name = _parts[0] if _parts else raw_name.strip()
+
     return {
         "product": {
             "id": product.get("id"),
-            "name": name,
-            "brand": product.get("brand") or "",
+            "name": capitalize_name(display_name),
+            "brand": capitalize_name(display_brand),
             "slug": product.get("slug") or slug,
             "image_url": product.get("image_url") or "",
             "category": product.get("category") or "",
@@ -754,6 +763,78 @@ def _checked_score_for_product(user_id: int, slug: str, name: str):
     return None
 
 
+async def _ensure_product_checked(current_user: dict, product: dict):
+    """Возвращает (score, analysis) проверенного продукта.
+
+    Если продукт ещё не проверен — запускает существующий pipeline (check_product_with_ai)
+    и сохраняет результат в историю, чтобы на полке не было состояния «не проверен».
+    """
+    import json
+    from .database import get_connection, AIDERMY_DB
+    from .shelf_service import score_product
+    from .services import check_product_with_ai
+
+    score, analysis = score_product(current_user, product)
+    if score is not None:
+        return score, analysis
+
+    name = (product.get("name") or "").replace("\n", " ").strip()
+    profile = _profile_from_user(current_user)
+    skin_type = profile.get("skin_type") or "Нормальная"
+
+    try:
+        result = await check_product_with_ai(name, skin_type, profile)
+    except Exception as exc:
+        print(f"[ENSURE CHECK] failed: {exc!r}")
+        return None, None
+
+    if not result or not result.get("score"):
+        return None, None
+
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    try:
+        existing = cursor.execute(
+            "SELECT 1 FROM check_history WHERE user_id = ? AND product_name = ? AND score = ? AND verdict = ? AND summary = ? AND deleted_at IS NULL LIMIT 1",
+            (current_user["id"], name, result.get("score"), result.get("verdict"), result.get("summary")),
+        ).fetchone()
+        if not existing:
+            cursor.execute(
+                "INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, "
+                "ingredients, slug, image_url, active_ingredients, how_to_use, expectations, "
+                "safe_ingredients, caution_ingredients, profile_snapshot, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                (
+                    current_user["id"], name, skin_type, int(result.get("score") or 0),
+                    result.get("verdict"), result.get("summary"),
+                    result.get("ingredients") or (product.get("ingredients") or ""),
+                    result.get("slug") or (product.get("slug") or ""),
+                    result.get("image_url") or (product.get("image_url") or ""),
+                    json.dumps(result.get("active_ingredients")) if result.get("active_ingredients") is not None else None,
+                    json.dumps(result.get("how_to_use")) if result.get("how_to_use") is not None else None,
+                    json.dumps(result.get("expectations")) if result.get("expectations") is not None else None,
+                    json.dumps(result.get("safe_ingredients") or [], ensure_ascii=False),
+                    json.dumps(result.get("caution_ingredients") or [], ensure_ascii=False),
+                    json.dumps(profile, ensure_ascii=False),
+                ),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+
+    analysis = {
+        "verdict": result.get("verdict") or "",
+        "summary": result.get("summary") or "",
+        "score": int(result.get("score") or 0),
+        "safe_ingredients": result.get("safe_ingredients") or [],
+        "caution_ingredients": result.get("caution_ingredients") or [],
+        "active_ingredients": result.get("active_ingredients"),
+        "how_to_use": result.get("how_to_use"),
+        "expectations": result.get("expectations"),
+    }
+    return int(result.get("score") or 0), analysis
+
+
 def _compute_compatibility(products: list) -> dict:
     """Комплексная оценка набора продуктов по движку (без ИИ)."""
     from .ingredient_normalizer import canonicalize_ingredient_name
@@ -854,6 +935,13 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
     for s in get_user_shelf(current_user["id"]):
         if s["product_id"] == product["id"]:
             return {"status": "ok", "duplicate": True, "item": {"id": s["id"], "product_id": product["id"]}}
+
+    # Товар на полке должен быть проверен: запускаем проверку до добавления.
+    if (CABINET_BY_KEY.get(cabinet) or {}).get("compatibility"):
+        score, _analysis = await _ensure_product_checked(current_user, product)
+        if score is None:
+            raise HTTPException(status_code=422, detail="Не удалось проверить состав продукта — проверьте его вручную перед добавлением.")
+
     item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet)
     return {"status": "ok", "duplicate": False, "item": item}
 
@@ -971,6 +1059,55 @@ async def delete_shelf_product(shelf_id: int, current_user: dict = Depends(get_c
     from .database import remove_product_from_shelf
     deleted = remove_product_from_shelf(current_user["id"], shelf_id)
     return {"status": "ok", "deleted": deleted}
+
+
+class RecommendationFeedbackRequest(BaseModel):
+    slug: str = ""
+    cabinet: str = "face"
+    category: str = ""
+    reason: str = ""
+    note: str = ""
+
+
+class ShelfRemovalFeedbackRequest(BaseModel):
+    slug: str = ""
+    reason: str = ""
+    note: str = ""
+
+
+@app.post("/api/recommendations/feedback")
+async def save_recommendation_feedback(request: RecommendationFeedbackRequest, current_user: dict = Depends(get_current_user)):
+    """Сохраняет дизлайк рекомендации и предлагает другой подходящий продукт."""
+    from .database import get_product_by_slug, save_recommendation_feedback
+    from .shelf_service import recommend_products, canonical_category, CABINET_BY_KEY
+
+    product = get_product_by_slug(request.slug) if request.slug else None
+    product_id = product["id"] if product else None
+
+    save_recommendation_feedback(
+        current_user["id"], product_id, request.slug,
+        request.cabinet, request.category, request.reason, request.note,
+    )
+
+    replacement = []
+    cabinet = (request.cabinet or "face").strip().lower()
+    if cabinet in CABINET_BY_KEY and request.category:
+        category = canonical_category(cabinet, request.category)
+        replacement = recommend_products(current_user, cabinet, category, {request.slug})
+
+    return {"status": "ok", "replacement": replacement}
+
+
+@app.post("/api/shelf/removal-feedback")
+async def save_shelf_removal_feedback(request: ShelfRemovalFeedbackRequest, current_user: dict = Depends(get_current_user)):
+    """Сохраняет причину удаления продукта с полки."""
+    from .database import get_product_by_slug, save_shelf_removal_feedback
+
+    product = get_product_by_slug(request.slug) if request.slug else None
+    product_id = product["id"] if product else None
+
+    save_shelf_removal_feedback(current_user["id"], product_id, request.slug, request.reason, request.note)
+    return {"status": "ok"}
 
 
 @app.post("/api/shelf/delete-batch")

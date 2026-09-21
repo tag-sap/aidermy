@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Link2, Search, Camera, LoaderCircle, Trash2, Check, ChevronLeft, Sparkles, AlertCircle } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, capitalizeFirst } from '@/lib/utils'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import type { CheckResult, SkinProfile } from '@/lib/store'
 
@@ -30,8 +30,8 @@ type ProductMatch = {
 
 function splitName(raw: string): { brand: string; title: string } {
   const parts = (raw || '').split('\n').filter((x) => x.trim())
-  if (parts.length >= 2) return { brand: parts[0], title: parts.slice(1).join(' ') }
-  return { brand: '', title: (raw || '').trim() }
+  if (parts.length >= 2) return { brand: capitalizeFirst(parts[0]), title: capitalizeFirst(parts.slice(1).join(' ')) }
+  return { brand: '', title: capitalizeFirst((raw || '').trim()) }
 }
 
 // Уменьшает фото до разумного размера (для лимитов тела запроса и экономии токенов).
@@ -83,12 +83,13 @@ function buildProfileBody(profile: SkinProfile) {
   }
 }
 
-export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized }: {
+export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, onOpenCatalog }: {
   isOpen: boolean
   onClose: () => void
   onCheck: (product: string, skinType: string) => void
   profile: SkinProfile
   onRecognized: (result: CheckResult) => void
+  onOpenCatalog?: (query: string) => void
 }) {
   const [mode, setMode] = useState<'name' | 'link' | 'photo'>('name')
   const [name, setName] = useState('')
@@ -645,6 +646,21 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized }: 
               </div>
             </button>
           ))}
+
+          {onOpenCatalog && (
+            <button
+              onClick={() => {
+                onOpenCatalog(name.trim())
+                setShowSuggestions(false)
+                setName('')
+                onClose()
+              }}
+              className="flex w-full items-center justify-between gap-2 border-t border-gray-100 px-3 py-2.5 text-left text-xs text-primary transition-colors hover:bg-primary/5"
+            >
+              <span className="truncate">Посмотреть больше в каталоге → {name.trim()}</span>
+              <Search className="size-3.5 shrink-0" />
+            </button>
+          )}
         </div>,
         document.body,
       )}

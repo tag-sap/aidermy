@@ -54,6 +54,20 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # Миграция: старые БД могли не иметь колонок, которые читает/пишет текущий код.
+    _history_cols = {r[1] for r in cursor.execute("PRAGMA table_info(check_history)").fetchall()}
+    for _col, _ddl in [
+        ("profile_snapshot", "TEXT DEFAULT '{}'"),
+        ("deleted_at", "TIMESTAMP NULL"),
+        ("image_url", "TEXT"),
+        ("active_ingredients", "TEXT"),
+        ("how_to_use", "TEXT"),
+        ("expectations", "TEXT"),
+        ("safe_ingredients", "TEXT"),
+        ("caution_ingredients", "TEXT"),
+    ]:
+        if _col not in _history_cols:
+            cursor.execute(f"ALTER TABLE check_history ADD COLUMN {_col} {_ddl}")
 
     cursor.execute('''
         DELETE FROM check_history
@@ -193,6 +207,37 @@ def init_db():
         )
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_review_votes_review ON review_helpful_votes (review_id)')
+
+    # === FEEDBACK ПЕРСОНАЛИЗАЦИИ ===
+    # Дизлайк рекомендации (причина важна: категория / процент / состав / пробовал / другое).
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS recommendation_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            product_id INTEGER,
+            slug TEXT DEFAULT '',
+            cabinet TEXT DEFAULT '',
+            category TEXT DEFAULT '',
+            reason TEXT DEFAULT '',
+            note TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_rec_feedback_user ON recommendation_feedback (user_id)')
+
+    # Причина удаления продукта с полки.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS shelf_removal_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            product_id INTEGER,
+            slug TEXT DEFAULT '',
+            reason TEXT DEFAULT '',
+            note TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_removal_feedback_user ON shelf_removal_feedback (user_id)')
 
     conn.commit()
     conn.close()
@@ -668,3 +713,44 @@ def update_shelf_product_category(user_id: int, shelf_id: int, category: str):
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+# === FEEDBACK ПЕРСОНАЛИЗАЦИИ ===
+def save_recommendation_feedback(user_id: int, product_id: int | None, slug: str, cabinet: str, category: str, reason: str, note: str = ""):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO recommendation_feedback (user_id, product_id, slug, cabinet, category, reason, note) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_id, product_id, slug, cabinet, category, reason, note),
+    )
+    conn.commit()
+    feedback_id = cursor.lastrowid
+    conn.close()
+    return feedback_id
+
+
+def save_shelf_removal_feedback(user_id: int, product_id: int | None, slug: str, reason: str, note: str = ""):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO shelf_removal_feedback (user_id, product_id, slug, reason, note) VALUES (?, ?, ?, ?, ?)",
+        (user_id, product_id, slug, reason, note),
+    )
+    conn.commit()
+    feedback_id = cursor.lastrowid
+    conn.close()
+    return feedback_id
+
+
+def get_user_disliked_slugs(user_id: int) -> set:
+    """Slugs продуктов, которые пользователь явно не хочет видеть в подборе."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT DISTINCT slug FROM recommendation_feedback WHERE user_id = ? AND slug IS NOT NULL AND slug != ''",
+        (user_id,),
+    )
+    result = {row["slug"] for row in cursor.fetchall()}
+    conn.close()
+    return result

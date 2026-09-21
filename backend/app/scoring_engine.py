@@ -45,6 +45,17 @@ def score_product_against_profile(
 
     for index, ingredient in enumerate(valid_ingredients, start=1):
         ingredient_key = str(ingredient).strip().lower()
+
+        # Непереносимость/аллергия — жёсткий сигнал, проверяется ДО знания базы:
+        # ингредиент с аллергией должен флагироваться, даже если движок о нём ещё не знает.
+        if ingredient_key in allergies:
+            hard_flags.append({
+                'type': 'allergy',
+                'ingredient': ingredient,
+                'severity': 'high',
+                'message': f'Ingredient {ingredient} matches a reported allergy.',
+            })
+
         ingredient_claims = knowledge.get(ingredient_key, {})
         if not ingredient_claims:
             unknown_factors.append({'ingredient': ingredient, 'position': index, 'reason': 'unknown_ingredient'})
@@ -79,14 +90,6 @@ def score_product_against_profile(
                     'confidence': confidence,
                     'position_weight': round(position_weight, 3),
                 })
-
-        if ingredient_key in allergies:
-            hard_flags.append({
-                'type': 'allergy',
-                'ingredient': ingredient,
-                'severity': 'high',
-                'message': f'Ingredient {ingredient} matches a reported allergy.',
-            })
 
     if interaction_knowledge:
         for key, interaction in interaction_knowledge.items():

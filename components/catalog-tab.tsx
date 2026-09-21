@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Search, X, LoaderCircle, Sparkles, ArrowUp, SlidersHorizontal } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, capitalizeFirst } from '@/lib/utils'
 
 type Product = { name: string; brand: string; slug: string; image_url: string; category: string }
 
@@ -11,8 +11,8 @@ const PAGE = 40
 function normalize(p: any): Product {
   const parts = (p.name || '').split('\n').filter((x: string) => x.trim())
   return {
-    name: parts.length > 1 ? parts.slice(1).join(' ') : (p.name || '').trim(),
-    brand: parts.length > 1 ? parts[0] : (p.brand || ''),
+    name: capitalizeFirst(parts.length > 1 ? parts.slice(1).join(' ') : (p.name || '').trim()),
+    brand: capitalizeFirst(parts.length > 1 ? parts[0] : (p.brand || '')),
     slug: p.slug || '',
     image_url: p.image_url || '',
     category: p.category || '',

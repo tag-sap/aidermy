@@ -1,6 +1,7 @@
 'use client'
 
 import { ShieldCheck, Sparkles, User, LayoutGrid, Droplets, ArrowRight, CheckCircle2, FlaskConical } from 'lucide-react'
+import { ScrollVideo } from '@/components/scroll-video'
 
 interface WelcomeTabProps {
   onAuth: () => void
@@ -38,20 +39,23 @@ const STEPS = [
 export function WelcomeTab({ onAuth }: WelcomeTabProps) {
   return (
     <div className="flex flex-col gap-6 pb-4">
-      {/* HERO */}
-      <section className="relative overflow-hidden rounded-3xl border border-primary/20 bg-gradient-to-br from-primary/10 via-white to-accent/10 p-6 text-center">
-        <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-primary/15 blur-2xl" />
-        <div className="pointer-events-none absolute -bottom-10 -left-6 size-28 rounded-full bg-accent/20 blur-2xl" />
-        <div className="relative">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-white/70 px-3 py-1 text-[11px] font-medium text-primary">
+      {/* HERO — scroll-driven video */}
+      <section className="relative overflow-hidden rounded-3xl border border-primary/20">
+        <ScrollVideo
+          src="/header_video.mp4"
+          className="h-[56vh] min-h-[320px] w-full object-cover"
+        />
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/70 via-black/15 to-transparent p-5">
+          <span className="pointer-events-auto inline-flex w-fit items-center gap-1.5 rounded-full border border-white/30 bg-black/30 px-3 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
             <Sparkles className="size-3.5" />
             AI-проверка косметики
           </span>
-          <h2 className="mt-4 text-[28px] font-light leading-tight text-foreground">
-            Проверяй косметику <span className="text-primary">по составу</span>,
-            <br />
-            а не по обещаниям
-          </h2>
+          <h1 className="mt-3 text-[34px] font-light leading-[1.08] tracking-tight text-white">
+            Кожа · Состав · Результат
+          </h1>
+          <p className="mt-2 max-w-md text-sm leading-relaxed text-white/85">
+            Aidermy соединяет состав продукта с особенностями вашей кожи — чтобы выбор был осознанным, а не случайным.
+          </p>
         </div>
       </section>
 

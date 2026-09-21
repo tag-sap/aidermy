@@ -47,6 +47,10 @@ export function ShelfTab({
   const [detailContext, setDetailContext] = useState<{ cabinet: string; category: string } | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [busy, setBusy] = useState(false)
+  const [removalTarget, setRemovalTarget] = useState<ShelfItem | null>(null)
+  const [removalReason, setRemovalReason] = useState('')
+  const [removalNote, setRemovalNote] = useState('')
+  const [removing, setRemoving] = useState(false)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
@@ -109,6 +113,25 @@ export function ShelfTab({
     }
   }
 
+  const submitRemoval = async () => {
+    if (!removalTarget || !removalReason || removing) return
+    setRemoving(true)
+    try {
+      // Сохраняем причину (для истории предпочтений), затем удаляем.
+      await fetch('/api/shelf/removal-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug: removalTarget.slug, reason: removalReason, note: removalNote }),
+      }).catch(() => {})
+      await deleteIds([removalTarget.id])
+    } finally {
+      setRemoving(false)
+      setRemovalTarget(null)
+      setRemovalReason('')
+      setRemovalNote('')
+    }
+  }
+
   const clearShelf = async (cabinet: string, category: string) => {
     setBusy(true)
     try {
@@ -150,7 +173,7 @@ export function ShelfTab({
   }
 
   return (
-    <div className="px-1 py-2 pb-28">
+    <div className="px-1 py-2 pb-28" data-tour="shelves">
       <div className="mb-4 flex items-center justify-end">
         <button
           onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
@@ -339,7 +362,7 @@ export function ShelfTab({
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  setConfirm({ title: 'Удалить продукт?', message: `«${item.name}» будет убран с полки.`, confirmLabel: 'Удалить', onConfirm: () => deleteIds([item.id]) })
+                                  setRemovalTarget(item); setRemovalReason(''); setRemovalNote('')
                                 }}
                                 className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-500"
                                 aria-label="Удалить продукт"
@@ -367,7 +390,8 @@ export function ShelfTab({
           onAdded={refreshShelf}
           onOpenProduct={(slug) => {
             setDetailContext({ cabinet: addContext.cabinet, category: addContext.category })
-            setAddContext(null)
+            // Не закрываем ShelfAddModal: карточка товара открывается поверх (z-70),
+            // а при закрытии пользователь возвращается к выбору из трёх.
             setDetailSlug(slug)
           }}
         />
@@ -411,6 +435,52 @@ export function ShelfTab({
                 {confirm.confirmLabel || 'Удалить'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {removalTarget && (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setRemovalTarget(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-normal text-foreground">Почему вы убираете этот продукт?</h2>
+              <button onClick={() => setRemovalTarget(null)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
+            </div>
+            <div className="space-y-1.5">
+              {[
+                { key: 'complications', label: 'Вызвал осложнения' },
+                { key: 'unused', label: 'Не использовался' },
+                { key: 'variety', label: 'Хочу попробовать новое' },
+                { key: 'other', label: 'Другое' },
+              ].map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setRemovalReason(r.key)}
+                  className={cn(
+                    'w-full rounded-xl border px-3 py-2.5 text-left text-sm transition-colors',
+                    removalReason === r.key ? 'border-primary bg-primary/5 text-primary' : 'border-gray-200 text-foreground/80 hover:border-primary/30',
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            {removalReason === 'other' && (
+              <textarea
+                value={removalNote}
+                onChange={(e) => setRemovalNote(e.target.value)}
+                placeholder="Уточните причину…"
+                className="mt-2 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:border-primary/40 focus:outline-none resize-none"
+                rows={2}
+              />
+            )}
+            <button
+              onClick={submitRemoval}
+              disabled={!removalReason || removing}
+              className="mt-3 w-full rounded-xl bg-primary py-2.5 text-sm text-white transition-colors hover:bg-primary/90 disabled:opacity-40"
+            >
+              {removing ? 'Удаляем…' : 'Удалить с полки'}
+            </button>
           </div>
         </div>
       )}

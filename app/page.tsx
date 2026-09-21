@@ -11,7 +11,7 @@ import { ProfileTab } from '@/components/profile-tab'
 import { ResultSheet } from '@/components/result-sheet'
 import { SplashScreen } from '@/components/splash-screen'
 import { SkinQuiz } from '@/components/skin-quiz'
-import { ShelfOnboarding } from '@/components/shelf-onboarding'
+import { ShelfOnboarding, type OnboardingStepId } from '@/components/shelf-onboarding'
 import { InfoModal } from '@/components/info-modal'
 import { ShelfTab } from '@/components/shelf-tab'
 import { CatalogTab } from '@/components/catalog-tab'
@@ -66,6 +66,11 @@ export default function Page() {
 
   const [showQuiz, setShowQuiz] = useState(false)
   const [showShelfOnboarding, setShowShelfOnboarding] = useState(false)
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStepId>(() => {
+    if (typeof window === 'undefined') return 'profile'
+    const saved = localStorage.getItem('aidermy:onboardingStep')
+    return (saved as OnboardingStepId) || 'profile'
+  })
   const [catalogSlug, setCatalogSlug] = useState<string | null>(null)
   const [catalogFilter, setCatalogFilter] = useState<{ brand?: string; cat?: string }>({})
   const [catalogFilterKey, setCatalogFilterKey] = useState(0)
@@ -668,6 +673,12 @@ export default function Page() {
     setTab('catalog')
   }
 
+  const completeOnboarding = () => {
+    setShowShelfOnboarding(false)
+    localStorage.setItem('aidermy:shelfOnboarded', '1')
+    localStorage.removeItem('aidermy:onboardingStep')
+  }
+
   // ===== НАВИГАЦИЯ =====
   const handleGoToProfile = () => {
     if (!isAuthenticated) {
@@ -835,6 +846,7 @@ export default function Page() {
             onCheck={(product, skinType) => handleCheck(product, profile.skinType || skinType)}
             profile={profile}
             onRecognized={handleRecognized}
+            onOpenCatalog={(query) => openCatalogWithBrand(query)}
           />
 
           <ResultSheet
@@ -899,14 +911,18 @@ export default function Page() {
 
       {showShelfOnboarding && (
         <ShelfOnboarding
-          onClose={() => {
-            setShowShelfOnboarding(false)
-            localStorage.setItem('aidermy:shelfOnboarded', '1')
+          step={onboardingStep}
+          onNext={(next) => {
+            setOnboardingStep(next)
+            localStorage.setItem('aidermy:onboardingStep', next)
           }}
-          onGoToProfile={() => {
-            setShowShelfOnboarding(false)
-            localStorage.setItem('aidermy:shelfOnboarded', '1')
-            setTab('profile')
+          onSkip={completeOnboarding}
+          onGoToProfile={() => setTab('profile')}
+          onGoToShelf={() => setTab('shelf')}
+          onProfileSaved={() => {
+            if (profileTabRef.current) {
+              handleSaveProfile(profileTabRef.current.getDraft())
+            }
           }}
         />
       )}
