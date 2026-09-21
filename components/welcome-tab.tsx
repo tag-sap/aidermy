@@ -39,23 +39,25 @@ const STEPS = [
 export function WelcomeTab({ onAuth }: WelcomeTabProps) {
   return (
     <div className="flex flex-col gap-6 pb-4">
-      {/* HERO — scroll-driven video */}
-      <section className="relative overflow-hidden rounded-3xl border border-primary/20">
+      {/* HERO — scroll-driven video, во всю ширину экрана */}
+      <section className="relative overflow-hidden" style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}>
         <ScrollVideo
           src="/header_video.mp4"
-          className="h-[56vh] min-h-[320px] w-full object-cover"
+          className="h-[68vh] min-h-[380px] w-full object-cover"
         />
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/70 via-black/15 to-transparent p-5">
-          <span className="pointer-events-auto inline-flex w-fit items-center gap-1.5 rounded-full border border-white/30 bg-black/30 px-3 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
-            <Sparkles className="size-3.5" />
-            AI-проверка косметики
-          </span>
-          <h1 className="mt-3 text-[34px] font-light leading-[1.08] tracking-tight text-white">
-            Кожа · Состав · Результат
-          </h1>
-          <p className="mt-2 max-w-md text-sm leading-relaxed text-white/85">
-            Aidermy соединяет состав продукта с особенностями вашей кожи — чтобы выбор был осознанным, а не случайным.
-          </p>
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/75 via-black/20 to-transparent p-5 md:p-12">
+          <div className="mx-auto w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
+            <span className="pointer-events-auto inline-flex w-fit items-center gap-1.5 rounded-full border border-white/30 bg-black/30 px-3 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+              <Sparkles className="size-3.5" />
+              AI-проверка косметики
+            </span>
+            <h1 className="mt-3 text-[34px] font-light leading-[1.08] tracking-tight text-white md:text-[52px]">
+              Кожа · Состав · Результат
+            </h1>
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-white/85 md:max-w-xl md:text-base">
+              Aidermy соединяет состав продукта с особенностями вашей кожи — чтобы выбор был осознанным, а не случайным.
+            </p>
+          </div>
         </div>
       </section>
 

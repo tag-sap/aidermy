@@ -758,6 +758,17 @@ export default function Page() {
                 isAuthenticated={isAuthenticated}
                 userName={userName}
                 avatarUrl={avatarUrl}
+                onReplayGuide={() => {
+                  if (!isAuthenticated) { setIsAuthModalOpen(true); return }
+                  setOnboardingStep('profile')
+                  localStorage.removeItem('aidermy:shelfOnboarded')
+                  localStorage.removeItem('aidermy:onboardingStep')
+                  setShowShelfOnboarding(true)
+                }}
+                onReplayQuiz={() => {
+                  if (!isAuthenticated) { setIsAuthModalOpen(true); return }
+                  setShowQuiz(true)
+                }}
               />
 
               {tab !== 'home' && (

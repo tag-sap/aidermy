@@ -11,6 +11,8 @@ interface AppHeaderProps {
   isAuthenticated?: boolean
   userName?: string
   avatarUrl?: string
+  onReplayGuide?: () => void
+  onReplayQuiz?: () => void
 }
 
 export function AppHeader({
@@ -18,7 +20,9 @@ export function AppHeader({
   onAuth,
   isAuthenticated = false,
   userName = '',
-  avatarUrl = ''
+  avatarUrl = '',
+  onReplayGuide,
+  onReplayQuiz
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
 
@@ -96,6 +100,24 @@ export function AppHeader({
               Есть вопросы? Напишите нам!
             </p>
             <div className="flex flex-col gap-2">
+              {onReplayGuide && (
+                <button
+                  onClick={() => { setShowHelp(false); onReplayGuide() }}
+                  className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
+                >
+                  <span className="text-base">🧭</span>
+                  Пройти обучение
+                </button>
+              )}
+              {onReplayQuiz && (
+                <button
+                  onClick={() => { setShowHelp(false); onReplayQuiz() }}
+                  className="flex items-center gap-2 rounded-md border border-primary/15 px-3 py-2 text-sm text-foreground transition-colors hover:bg-primary/5 hover:border-primary/30"
+                >
+                  <span className="text-base">📝</span>
+                  Пройти опросник
+                </button>
+              )}
               <a
                 href="https://t.me/aidermy_news"
                 target="_blank"

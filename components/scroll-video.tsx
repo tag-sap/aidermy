@@ -5,9 +5,8 @@ import { useEffect, useRef } from 'react'
 /**
  * ScrollVideo — видео, прогресс которого управляется скроллом.
  *
- * - при скролле вниз видео плавно «проигрывается» вперёд;
- * - при обратном скролле — назад;
- * - нет автовоспроизведения, прогресс привязан к положению блока на экране.
+ * Позиция блока пересчитывается каждый кадр (requestAnimationFrame),
+ * поэтому реагирует на скролл сразу, без задержек, в любом скролл-контейнере.
  */
 export function ScrollVideo({ src, className }: { src: string; className?: string }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -21,40 +20,32 @@ export function ScrollVideo({ src, className }: { src: string; className?: strin
     video.pause()
     if (video.readyState >= 1) video.currentTime = 0
 
-    let target = 0
     let current = 0
     let raf = 0
 
-    const compute = () => {
+    const tick = () => {
+      // Читаем актуальную позицию каждый кадр — никакой зависимости от событий scroll.
       const rect = video.getBoundingClientRect()
       const vh = window.innerHeight || 1
       const total = Math.max(rect.height + vh, 1)
       const scrolled = vh - rect.top
-      target = Math.min(1, Math.max(0, scrolled / total))
-    }
+      const target = Math.min(1, Math.max(0, scrolled / total))
 
-    const tick = () => {
-      // Плавная интерполяция к цели — без рывков.
-      current += (target - current) * 0.09
+      // Быстрая, но плавная интерполяция — без ощущения отставания.
+      current += (target - current) * 0.25
       if (Math.abs(target - current) < 0.0005) current = target
+
       const dur = video.duration
       if (dur && isFinite(dur)) {
         const t = current * dur
-        if (Math.abs(video.currentTime - t) > 0.02) video.currentTime = t
+        if (Math.abs(video.currentTime - t) > 0.03) video.currentTime = t
       }
       raf = requestAnimationFrame(tick)
     }
 
-    compute()
-    window.addEventListener('scroll', compute, { passive: true, capture: true })
-    window.addEventListener('resize', compute)
     raf = requestAnimationFrame(tick)
 
-    return () => {
-      window.removeEventListener('scroll', compute, { capture: true } as EventListenerOptions)
-      window.removeEventListener('resize', compute)
-      cancelAnimationFrame(raf)
-    }
+    return () => cancelAnimationFrame(raf)
   }, [])
 
   return <video ref={videoRef} src={src} muted playsInline preload="auto" className={className} aria-hidden />
