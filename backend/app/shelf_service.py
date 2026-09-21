@@ -101,7 +101,7 @@ RECOMMEND_RULES: Dict[str, Dict[str, Dict[str, List[str]]]] = {
         "Пудры": {"categories": [], "keywords": ["пудр", "powder"]},
         "Румяна": {"categories": [], "keywords": ["румян", "blush"]},
         "Тушь": {"categories": [], "keywords": ["тушь", "mascara"]},
-        "Помады": {"categories": [], "keywords": ["помад", "lipstick", "блеск для губ", "lip gloss"]},
+        "Помады": {"categories": [], "keywords": ["помад", "lipstick", "блеск для губ", "lip gloss", "бальзам для губ", "lip balm", "блеск", "gloss"]},
     },
     "fragrance": {
         "Парфюм": {"categories": [], "keywords": ["парфюм", "parfum", "духи"]},
@@ -184,6 +184,26 @@ def resolve_shelf_cabinet(category: str, cabinet: str, name: str) -> Tuple[str, 
     return infer_cabinet_category(category, name)
 
 
+def _category_keywords(cabinet: str, category: str) -> List[str]:
+    rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
+    return rule.get("keywords") or []
+
+
+def _infer_category_within_cabinet(name: str, cabinet: str) -> Optional[str]:
+    """Определяет категорию внутри шкафа по ключевым словам в НАЗВАНИИ продукта.
+
+    Тип продукта (пудра, шампунь, тушь и т.д.) указывается в названии, поэтому
+    состав (ingredients) здесь НЕ учитываем — иначе «powder» в составе бальзама
+    для губ ложно отнесёт его к «Пудрам».
+    """
+    haystack = (name or "").lower()
+    for cat, rule in (RECOMMEND_RULES.get(cabinet) or {}).items():
+        for kw in rule.get("keywords") or []:
+            if kw in haystack:
+                return cat
+    return None
+
+
 def is_product_compatible(product: Dict[str, Any], cabinet: str, category: str) -> Tuple[bool, str]:
     """Проверяет, можно ли добавить продукт в выбранный шкаф/категорию.
 
@@ -204,6 +224,15 @@ def is_product_compatible(product: Dict[str, Any], cabinet: str, category: str) 
         mapped = canonical_category("face", prod_category)
         if mapped != "Другое" and mapped != category:
             return False, f"Этот продукт относится к категории «{mapped}», а не «{category}»."
+
+    # Для остальных шкафов сверяем категорию по ключевым словам названия
+    if cabinet != "face" and category and category != "Другое":
+        target_kws = _category_keywords(cabinet, category)
+        if target_kws and not any(k in name.lower() for k in target_kws):
+            natural_cat = _infer_category_within_cabinet(name, cabinet)
+            if natural_cat and natural_cat != category:
+                return False, f"Этот продукт относится к категории «{natural_cat}», а не «{category}»."
+            return False, f"Этот продукт не соответствует категории «{category}»."
 
     return True, ""
 # ---------------------------------------------------------------------------

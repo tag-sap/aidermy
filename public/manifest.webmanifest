@@ -1,13 +1,25 @@
 {
   "name": "Aidermy — AI-проверка косметики",
   "short_name": "Aidermy",
-  "description": "Футуристичный сервис проверки косметики с AI.",
+  "description": "Проверь косметику по составу — персонально для твоей кожи.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b0e14",
-  "theme_color": "#0b0e14",
+  "background_color": "#f5f1e9",
+  "theme_color": "#f5f1e9",
   "orientation": "portrait",
   "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icon.svg",
       "sizes": "any",
