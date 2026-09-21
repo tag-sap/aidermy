@@ -30,18 +30,18 @@
 
 :root {
   color-scheme: light;
-  --background: #FFFDF4;
-  --foreground: #2A2000;
+  --background: #F2F7F3;
+  --foreground: #16281C;
   --card: #FFFFFF;
-  --card-foreground: #2A2000;
-  --muted: #FFF2C8;
-  --muted-foreground: #3A2E00;
-  --primary: #F5B301;
-  --primary-foreground: #1A1200;
-  --accent: #FFC94D;
-  --accent-foreground: #1A1200;
-  --border: rgba(245, 179, 1, 0.3);
-  --ring: rgba(245, 179, 1, 0.4);
+  --card-foreground: #16281C;
+  --muted: #E4F0E7;
+  --muted-foreground: #1F3326;
+  --primary: #276749;
+  --primary-foreground: #FFFFFF;
+  --accent: #4E9F6E;
+  --accent-foreground: #FFFFFF;
+  --border: rgba(39, 103, 73, 0.25);
+  --ring: rgba(39, 103, 73, 0.35);
   --radius: 0.35rem;
 }
 

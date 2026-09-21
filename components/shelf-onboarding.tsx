@@ -60,13 +60,15 @@ export function ShelfOnboarding({
   onProfileSaved: () => void
 }) {
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
-  const [position, setPosition] = useState<'below' | 'above'>('below')
   const frameRef = useRef<number>(0)
 
   const current = STEPS.find((s) => s.id === step) || STEPS[0]
   const stepIndex = STEPS.findIndex((s) => s.id === step)
 
   useEffect(() => {
+    let raf = 0
+    let timeout = 0
+
     const measure = () => {
       const el = document.querySelector(current.target)
       if (!el) {
@@ -75,9 +77,14 @@ export function ShelfOnboarding({
       }
       const r = el.getBoundingClientRect()
       setRect({ top: r.top, left: r.left, width: r.width, height: r.height })
-      setPosition(r.top < 240 ? 'below' : 'above')
     }
-    measure()
+
+    // Двойной RAF + таймаут, чтобы дождаться окончания layout после смены шага/вкладки.
+    raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(measure)
+    })
+    timeout = window.setTimeout(measure, 300)
+
     const onResize = () => {
       cancelAnimationFrame(frameRef.current)
       frameRef.current = requestAnimationFrame(measure)
@@ -88,10 +95,13 @@ export function ShelfOnboarding({
     }
     window.addEventListener('resize', onResize)
     window.addEventListener('scroll', onScroll, { capture: true, passive: true })
+
     return () => {
+      cancelAnimationFrame(raf)
+      cancelAnimationFrame(frameRef.current)
+      clearTimeout(timeout)
       window.removeEventListener('resize', onResize)
       window.removeEventListener('scroll', onScroll, { capture: true } as EventListenerOptions)
-      cancelAnimationFrame(frameRef.current)
     }
   }, [step, current.target])
 
@@ -110,50 +120,53 @@ export function ShelfOnboarding({
     }
   }
 
+  // Подсказка снизу, если цель в верхней половине экрана; иначе сверху.
+  const placeBelow = rect ? rect.top < window.innerHeight * 0.55 : true
+
   return (
     <div className="fixed inset-0 z-[90]">
       <div className="absolute inset-0 bg-black/50" onClick={onSkip} />
 
       {rect && (
         <div
-          className="absolute rounded-2xl ring-4 ring-white shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]"
-          style={{ top: rect.top - 4, left: rect.left - 4, width: rect.width + 8, height: rect.height + 8 }}
+          className="pointer-events-none absolute rounded-xl ring-4 ring-white"
+          style={{ top: rect.top - 6, left: rect.left - 6, width: rect.width + 12, height: rect.height + 12 }}
         />
       )}
 
-      {rect && (
-        <div
-          className="absolute left-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-white p-4 shadow-2xl animate-modal-panel"
-          style={
-            position === 'below'
-              ? { top: rect.top + rect.height + 12 }
-              : { bottom: window.innerHeight - rect.top + 12 }
-          }
-        >
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-primary">
-              Шаг {stepIndex + 1} из {STEPS.length}
-            </span>
-            <button onClick={onSkip} className="text-muted-foreground/60 hover:text-foreground" aria-label="Пропустить гид">
-              <X className="size-4" />
-            </button>
-          </div>
-          <h3 className="text-base font-normal text-foreground">{current.title}</h3>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground/80">{current.text}</p>
-          <div className="mt-3 flex items-center gap-2">
-            <button onClick={onSkip} className="rounded-xl px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-gray-50">
-              Пропустить
-            </button>
-            <button
-              onClick={handleCta}
-              className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              {current.cta}
-              <ChevronRight className="size-4" />
-            </button>
-          </div>
+      <div
+        className="absolute left-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-white p-4 shadow-2xl animate-modal-panel"
+        style={
+          rect
+            ? placeBelow
+              ? { top: Math.min(rect.top + rect.height + 12, window.innerHeight - 240) }
+              : { bottom: Math.max(window.innerHeight - rect.top + 12, 12) }
+            : { top: '50%', transform: 'translate(-50%, -50%)' }
+        }
+      >
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-primary">
+            Шаг {stepIndex + 1} из {STEPS.length}
+          </span>
+          <button onClick={onSkip} className="text-muted-foreground/60 hover:text-foreground" aria-label="Пропустить гид">
+            <X className="size-4" />
+          </button>
         </div>
-      )}
+        <h3 className="text-base font-normal text-foreground">{current.title}</h3>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground/80">{current.text}</p>
+        <div className="mt-3 flex items-center gap-2">
+          <button onClick={onSkip} className="shrink-0 rounded-xl px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-gray-50">
+            Пропустить
+          </button>
+          <button
+            onClick={handleCta}
+            className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            {current.cta}
+            <ChevronRight className="size-4" />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

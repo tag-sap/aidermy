@@ -69,7 +69,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
         </p>
         <button
           onClick={onAuth}
-          className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-[0_8px_24px_rgba(245,179,1,0.35)] transition-all hover:bg-primary/90 active:scale-[0.98]"
+          className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-[0_8px_24px_rgba(39,103,73,0.35)] transition-all hover:bg-primary/90 active:scale-[0.98]"
         >
           Создать профиль и начать
           <ArrowRight className="size-4" />
@@ -148,7 +148,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
       {/* FINAL CTA */}
       <button
         onClick={onAuth}
-        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-sm font-medium text-primary-foreground shadow-[0_8px_24px_rgba(245,179,1,0.3)] transition-all hover:bg-primary/90 active:scale-[0.98]"
+        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 text-sm font-medium text-primary-foreground shadow-[0_8px_24px_rgba(39,103,73,0.3)] transition-all hover:bg-primary/90 active:scale-[0.98]"
       >
         <Sparkles className="size-4" />
         Начать бесплатно

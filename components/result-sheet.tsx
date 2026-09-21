@@ -23,8 +23,8 @@ function ScoreRing({ score }: { score: number }) {
   const offset = circumference - (progress / 100) * circumference
 
   const getColors = (s: number) => {
-    if (s >= 80) return { ring: '#F5B301', glow: 'rgba(245,179,1,0.3)', text: '#9A6B00' }
-    if (s >= 60) return { ring: '#FFC94D', glow: 'rgba(255,201,77,0.3)', text: '#9A6B00' }
+    if (s >= 80) return { ring: '#276749', glow: 'rgba(39,103,73,0.3)', text: '#2E7D4F' }
+    if (s >= 60) return { ring: '#4E9F6E', glow: 'rgba(78,159,110,0.3)', text: '#2E7D4F' }
     if (s >= 40) return { ring: '#A78BFA', glow: 'rgba(167,139,250,0.3)', text: '#A78BFA' }
     return { ring: '#C4B5FD', glow: 'rgba(196,181,253,0.3)', text: '#C4B5FD' }
   }

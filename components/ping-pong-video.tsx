@@ -3,8 +3,12 @@
 import { useEffect, useRef } from 'react'
 
 /**
- * PingPongVideo — видео, которое само плавно проигрывается вперёд и назад
- * (пинг-понг), без управления скроллом.
+ * PingPongVideo — видео, которое само плавно проигрывается вперёд и назад.
+ *
+ * Ручной шаг currentTime, но с двумя ключевыми исправлениями:
+ * - дожидаемся canplay (достаточно данных), чтобы не зависать на первом кадре;
+ * - шаг считаем по реальному прошедшему времени (delta), а не «кадр = 1/60»,
+ *   поэтому скорость одинакова на 60 Гц и 120 Гц мониторах.
  */
 export function PingPongVideo({ src, className }: { src: string; className?: string }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -16,42 +20,51 @@ export function PingPongVideo({ src, className }: { src: string; className?: str
     video.muted = true
     video.playsInline = true
     video.loop = false
-    video.pause()
+    video.preload = 'auto'
 
-    let raf = 0
     let direction = 1 // 1 — вперёд, -1 — назад
+    let raf = 0
+    let lastTs = 0
+    let started = false
 
-    const tick = () => {
+    const tick = (ts: number) => {
       const dur = video.duration
-      if (dur && isFinite(dur) && video.readyState >= 1) {
-        let t = video.currentTime + direction * (1 / 60)
-        if (t >= dur) {
+      if (dur && isFinite(dur) && video.readyState >= 2) {
+        const delta = lastTs ? Math.min((ts - lastTs) / 1000, 0.1) : 1 / 30
+        lastTs = ts
+        let t = video.currentTime + direction * delta
+        if (t >= dur - 0.001) {
           t = dur
           direction = -1
-        } else if (t <= 0) {
+        } else if (t <= 0.001) {
           t = 0
           direction = 1
         }
-        video.currentTime = t
+        if (Math.abs(video.currentTime - t) > 0.02) {
+          video.currentTime = t
+        }
       }
       raf = requestAnimationFrame(tick)
     }
 
     const start = () => {
+      if (started) return
+      started = true
       video.currentTime = 0
-      cancelAnimationFrame(raf)
+      lastTs = 0
       raf = requestAnimationFrame(tick)
     }
 
-    if (video.readyState >= 1) {
+    if (video.readyState >= 2) {
       start()
     } else {
-      video.addEventListener('loadedmetadata', start, { once: true })
+      video.addEventListener('canplay', start, { once: true })
+      video.load()
     }
 
     return () => {
       cancelAnimationFrame(raf)
-      video.removeEventListener('loadedmetadata', start)
+      video.removeEventListener('canplay', start)
     }
   }, [])
 

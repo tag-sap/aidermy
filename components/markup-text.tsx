@@ -4,7 +4,7 @@ import { Fragment, type ReactNode } from 'react'
 
 // Цвета совпадают с палитрой Aidermy (жёлтый / янтарный / красный).
 const TAG_COLORS: Record<string, string> = {
-  good: '#9A6B00',
+  good: '#2E7D4F',
   warning: '#D97706',
   bad: '#EF4444',
 }
