@@ -1,11 +1,20 @@
 'use client'
 
-import { Check, Trash2 } from 'lucide-react'
+import { Check, Trash2, Sparkles } from 'lucide-react'
 import { ScrambleText } from '@/components/scramble-text'
 import type { CheckResult } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import { useScrollLock } from '@/lib/use-scroll-lock'
+
+type Contribution = {
+  id: number
+  name: string
+  slug: string
+  brand: string
+  image_url: string
+  category: string
+}
 
 function formatDate(ts: number) {
   if (!ts || ts === 0 || isNaN(ts)) {
@@ -33,13 +42,18 @@ export function HistoryTab({
   onSelect,
   onDeleteItem,
   onDeleteSelected,
+  onOpenProduct,
 }: {
   history: CheckResult[]
   onClear: () => void
   onSelect: (item: CheckResult) => void
   onDeleteItem: (id: string) => void
   onDeleteSelected: (ids: string[]) => void
+  onOpenProduct?: (slug: string) => void
 }) {
+  const [subtab, setSubtab] = useState<'checks' | 'contributions'>('checks')
+  const [contributions, setContributions] = useState<Contribution[]>([])
+  const [contribLoading, setContribLoading] = useState(false)
   const [isVisible, setIsVisible] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [removingIds, setRemovingIds] = useState<string[]>([])
@@ -55,6 +69,29 @@ export function HistoryTab({
   useEffect(() => {
     setSelectedIds((prev) => prev.filter((id) => history.some((item) => item.id === id)))
   }, [history])
+
+  useEffect(() => {
+    if (subtab !== 'contributions') return
+    let cancelled = false
+    setContribLoading(true)
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    fetch('/api/auth/contributions', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => (r.ok ? r.json() : { contributions: [] }))
+      .then((d) => {
+        if (!cancelled) setContributions(Array.isArray(d.contributions) ? d.contributions : [])
+      })
+      .catch(() => {
+        if (!cancelled) setContributions([])
+      })
+      .finally(() => {
+        if (!cancelled) setContribLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [subtab])
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) =>
@@ -88,6 +125,31 @@ export function HistoryTab({
 
   return (
     <div className="flex flex-col gap-5 max-w-md md:max-w-4xl mx-auto w-full">
+      <div className="flex rounded-xl bg-gray-100 p-1">
+        <button
+          type="button"
+          onClick={() => setSubtab('checks')}
+          className={cn(
+            'flex-1 rounded-lg py-2 text-xs font-medium transition-colors',
+            subtab === 'checks' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground',
+          )}
+        >
+          Проверки
+        </button>
+        <button
+          type="button"
+          onClick={() => setSubtab('contributions')}
+          className={cn(
+            'flex-1 rounded-lg py-2 text-xs font-medium transition-colors',
+            subtab === 'contributions' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground',
+          )}
+        >
+          Внесённые
+        </button>
+      </div>
+
+      {subtab === 'checks' ? (
+        <>
       <div className="flex items-center justify-end gap-3">
         {history.length > 0 && (
           <div className="flex items-center gap-2">
@@ -230,6 +292,63 @@ export function HistoryTab({
             )
           })}
         </ul>
+      )}
+        </>
+      ) : (
+        <div className={cn(cardStyle, 'card-enter', isVisible && 'card-enter-1')}>
+          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+          <div className="relative">
+            {contribLoading ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground/50">
+                <Sparkles className="mb-2 size-6 animate-pulse text-primary/60" />
+                <span className="text-xs">Загружаем…</span>
+              </div>
+            ) : contributions.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-sm text-muted-foreground">
+                  Пока нет внесённых продуктов. Добавьте средство по ссылке — оно появится здесь.
+                </p>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {contributions.map((item, index) => {
+                  const parts = (item.name || '').split('\n').filter((x: string) => x.trim())
+                  const title = parts.length > 1 ? parts.slice(1).join(' ') : (item.name || '').trim()
+                  const brand = parts.length > 1 ? parts[0] : (item.brand || '')
+                  return (
+                    <li
+                      key={item.id}
+                      onClick={() => onOpenProduct?.(item.slug)}
+                      className={cn(
+                        cardStyle,
+                        'cursor-pointer transition-all hover:shadow-lg active:scale-[0.98]',
+                        'card-enter',
+                        isVisible && `card-enter-${Math.min(index + 1, 6)}`,
+                      )}
+                      style={{ animationDelay: `${index * 0.08}s` }}
+                    >
+                      <div className="relative flex items-center gap-3">
+                        <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/40">
+                          {item.image_url ? (
+                            <img src={item.image_url} alt="" className="h-full w-full object-contain p-1" />
+                          ) : (
+                            <Sparkles className="size-5 text-muted-foreground/30" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          {brand && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{brand}</p>}
+                          <p className="truncate text-sm font-medium text-foreground/90">{title}</p>
+                          {item.category && <p className="mt-0.5 text-xs text-muted-foreground/60">{item.category}</p>}
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
       )}
 
       {pendingDeleteIds.length > 0 && (

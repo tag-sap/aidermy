@@ -162,6 +162,31 @@ def canonical_category(cabinet: str, category: str) -> str:
     return "Другое"
 
 
+CATALOG_CATEGORIES = ["Очищение", "Тонер", "Сыворотка", "Крем", "Маска", "Защита"]
+
+_CATALOG_CATEGORY_KEYWORDS = [
+    ("Очищение", ["очищ", "cleans", "cleanser", "micellar", "мицелл", "пенк", "foam", "гель для умывания"]),
+    ("Тонер", ["тонер", "тоник", "toner", "tonic"]),
+    ("Сыворотка", ["сыворотк", "serum", "эссенци", "essence", "ампул", "ampoule"]),
+    ("Крем", ["крем", "cream", "увлажн", "moistur", "гидрат", "hydra", "лосьон", "lotion", "молочко", "эмульси", "emulsion", "крем для рук", "hand cream"]),
+    ("Маска", ["маск", "mask"]),
+    ("Защита", ["spf", "защит", "sunscreen", "солнц", "санскрин"]),
+]
+
+
+def normalize_imported_category(raw_category: Optional[str], name: str) -> str:
+    """Приводит сырую категорию импорта к канонической категории каталога.
+
+    Никогда не возвращает само название продукта как категорию: если категория
+    с сайта пустая или неоднозначная — определяем по названию, иначе «Другое».
+    """
+    haystack = f"{raw_category or ''} {name or ''}".lower()
+    for cat, keywords in _CATALOG_CATEGORY_KEYWORDS:
+        if any(k in haystack for k in keywords):
+            return cat
+    return "Другое"
+
+
 def infer_cabinet_category(category: str, name: str) -> Tuple[str, str]:
     """Определяет (cabinet, категория) для продукта без явного указания шкафа."""
     cat_key = (category or "").strip().lower()

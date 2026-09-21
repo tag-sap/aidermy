@@ -788,6 +788,7 @@ export default function Page() {
                         setResult(item)
                         setLoading(false)
                       }}
+                      onOpenProduct={(slug) => setCatalogSlug(slug)}
                     />
                   )}
                   {tab === 'profile' && (

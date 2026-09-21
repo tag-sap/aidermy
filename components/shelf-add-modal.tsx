@@ -89,7 +89,7 @@ export function ShelfAddModal({
     }
   }
 
-  const addBySlug = async (slug: string) => {
+  const addBySlug = async (slug: string, openCard = false) => {
     setBusy(true)
     setStatus('')
     try {
@@ -107,7 +107,11 @@ export function ShelfAddModal({
       }
       if (data.duplicate) setStatus('Этот продукт уже на полке')
       onAdded()
-      onClose()
+      if (openCard && onOpenProduct) {
+        onOpenProduct(slug)
+      } else {
+        onClose()
+      }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Не удалось добавить')
     } finally {
@@ -122,7 +126,10 @@ export function ShelfAddModal({
     try {
       const imp = await fetch('/api/products/import-url', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ url: url.trim() }),
       })
       const impData = await imp.json().catch(() => ({}))
@@ -130,7 +137,7 @@ export function ShelfAddModal({
       const slug = impData.product?.slug
       if (!slug) throw new Error('Товар на странице не найден')
       setStatus('Добавляем на полку…')
-      await addBySlug(slug)
+      await addBySlug(slug, true)
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Не удалось получить товар')
       setBusy(false)

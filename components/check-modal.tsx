@@ -89,9 +89,13 @@ export function CheckModal({ isOpen, onClose, onCheck }: {
     setLoading(true)
     setStatus('Загружаем страницу…')
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
       const res = await fetch('/api/products/import-url', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ url: link.trim() }),
       })
       const data = await res.json()

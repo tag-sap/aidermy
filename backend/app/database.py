@@ -211,6 +211,8 @@ def init_db():
     for column in ("image_url", "category", "brand"):
         if column not in product_columns:
             cursor.execute(f"ALTER TABLE products ADD COLUMN {column} TEXT")
+    if "contributed_by" not in product_columns:
+        cursor.execute("ALTER TABLE products ADD COLUMN contributed_by INTEGER")
     conn.commit()
     conn.close()
     
@@ -239,6 +241,7 @@ def upsert_imported_product(product: dict) -> dict:
         "url": source_url,
         "image_url": product.get("image_url"),
         "category": product.get("category"),
+        "contributed_by": product.get("contributed_by"),
     }
     if existing:
         cursor.execute(
@@ -248,9 +251,10 @@ def upsert_imported_product(product: dict) -> dict:
                 ingredients = COALESCE(NULLIF(ingredients, ''), ?),
                 url = COALESCE(NULLIF(url, ''), ?),
                 image_url = COALESCE(NULLIF(image_url, ''), ?),
-                category = COALESCE(NULLIF(category, ''), ?)
+                category = COALESCE(NULLIF(category, ''), ?),
+                contributed_by = COALESCE(contributed_by, ?)
             WHERE id = ?""",
-            (*values.values(), existing["id"]),
+            (name, brand, values["ingredients"], values["url"], values["image_url"], values["category"], values["contributed_by"], existing["id"]),
         )
         product_id = existing["id"]
         logger_message = "Existing product found"
@@ -262,9 +266,9 @@ def upsert_imported_product(product: dict) -> dict:
         if cursor.fetchone():
             slug = f"{slug}-{abs(hash(source_url or name)) % 100000}"
         cursor.execute(
-            """INSERT INTO products (name, slug, brand, ingredients, url, image_url, category, saved_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
-            (name, slug, values["brand"], values["ingredients"], values["url"], values["image_url"], values["category"]),
+            """INSERT INTO products (name, slug, brand, ingredients, url, image_url, category, contributed_by, saved_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            (name, slug, values["brand"], values["ingredients"], values["url"], values["image_url"], values["category"], values["contributed_by"]),
         )
         product_id = cursor.lastrowid
         logger_message = "Product normalized"

@@ -144,12 +144,17 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
 
 
 @app.post("/api/products/import-url")
-async def import_product_from_url(request: ImportUrlRequest):
+async def import_product_from_url(request: ImportUrlRequest, current_user: dict = Depends(get_current_user_optional)):
     try:
         imported = await import_product(request.url)
         if not imported.name:
             raise ProductImportError("Товар на странице не найден.")
-        saved = upsert_imported_product(imported.to_dict())
+        # Нормализуем категорию к канонической категории каталога (не храним сырую/название продукта).
+        from .shelf_service import normalize_imported_category
+        imported.category = normalize_imported_category(imported.category, imported.name)
+        payload = imported.to_dict()
+        payload["contributed_by"] = current_user.get("id") if current_user else None
+        saved = upsert_imported_product(payload)
         product = {
             "name": saved.get("name"),
             "brand": saved.get("brand"),

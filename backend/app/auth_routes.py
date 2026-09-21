@@ -8,6 +8,7 @@ from authlib.integrations.starlette_client import OAuth
 import yagmail
 import os
 import json
+import re
 
 from .database import get_connection, AIDERMY_DB, PRODUCTS_DB, clear_user_check_history
 from .auth import (
@@ -279,10 +280,21 @@ async def update_account(payload: UserAccountUpdate, current_user: dict = Depend
 
 
 # === ФУНКЦИЯ ДЛЯ PENDING ===
+def _strip_leading_symbols(value: str) -> str:
+    """Убирает знаки/скобки/кавычки/невидимые символы в начале названия."""
+    t = (value or "").strip()
+    t = re.sub(r"^[\s\uFFFC\uFEFF\u200B]+", "", t)
+    t = re.sub(r"^[\[\(\{][^\]\)\}]{0,60}[\]\)\}]\s*", "", t)
+    t = re.sub(r"^[\"'\u2018\u2019\u201C\u201D\u201E\u00AB\u00BB#\-\u2014\u2013\u00B7\u2022]+", "", t)
+    t = re.sub(r"^[^\w]+", "", t, flags=re.UNICODE)
+    return t.strip()
+
+
 def save_pending_product(product_name: str, ingredients: str, user_id: int = None):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
-    
+
+    product_name = _strip_leading_symbols(product_name)
     slug = generate_slug(product_name)
     
     cursor.execute("SELECT id FROM pending_products WHERE product_name = ? AND status = 'pending'", (product_name,))
@@ -308,9 +320,10 @@ async def submit_product(
     product_data: PendingProductRequest,
     current_user: dict = Depends(get_current_user)
 ):
+    product_name = _strip_leading_symbols(product_data.product_name)
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM products WHERE name = ?", (product_data.product_name,))
+    cursor.execute("SELECT id FROM products WHERE name = ?", (product_name,))
     exists = cursor.fetchone()
     conn.close()
     
@@ -321,7 +334,7 @@ async def submit_product(
         )
     
     pending_id = save_pending_product(
-        product_name=product_data.product_name,
+        product_name=product_name,
         ingredients=product_data.ingredients,
         user_id=current_user['id']
     )
@@ -330,6 +343,21 @@ async def submit_product(
         "message": "Продукт отправлен на модерацию. Спасибо за вклад! 🙌",
         "pending_id": pending_id
     }
+
+
+# === ПРОДУКТЫ, ВНЕСЁННЫЕ ПОЛЬЗОВАТЕЛЕМ ===
+@router.get("/contributions")
+async def get_contributions(current_user: dict = Depends(get_current_user)):
+    """Список продуктов, внесённых пользователем (через импорт по ссылке)."""
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, name, slug, brand, image_url, category, ingredients FROM products WHERE contributed_by = ? ORDER BY id DESC",
+        (current_user["id"],),
+    )
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return {"contributions": rows}
 
 # === СОХРАНЕНИЕ ПРОФИЛЯ ===
 @router.post("/profile")
