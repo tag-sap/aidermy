@@ -639,18 +639,11 @@ async def recommend_products(
     """Возвращает до 3 рекомендаций для конкретной полки шкафа.
 
     Контролируемая неопределённость: unknown-ингредиенты НЕ штрафуются. Сначала
-    детерминированно скорим всех кандидатов, выбираем топ-3, затем собираем unknown
-    ТОЛЬКО этих трёх и обогащаем их один раз (не по продукту), после чего
-    пересчитываем score топ-3 по свежим знаниям. Это ускоряет выдачу рекомендаций.
+    детерминированно скорим всех кандидатов и выбираем топ-3. Unknown-ингредиенты
+    этих трёх продуктов обогащаются в фоне (fire-and-forget), чтобы не блокировать
+    ответ: рекомендация отдаётся сразу с детерминированным скором, а Ingredient DB
+    пополняется для следующих запросов.
     """
-    import time as _time
-
-    _T0 = _time.perf_counter()
-
-    def _lap(msg: str) -> None:
-        print(f"[RECOMMEND-PROF] {(_time.perf_counter() - _T0) * 1000:7.1f}ms  {msg}", flush=True)
-
-    _lap(f"START cabinet={cabinet} category={category}")
     exclude_slugs = set(exclude_slugs or set())
     # Продукты, которые пользователь явно отклонил (дизлайк), не предлагаем снова.
     try:
@@ -697,10 +690,7 @@ async def recommend_products(
         if a not in profile["allergies"]:
             profile["allergies"].append(a)
 
-    _lap("profile loaded")
-
     candidates = _query_candidates(cabinet, category)
-    _lap(f"candidates loaded count={len(candidates)}")
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
     keywords = rule.get("keywords") or []
 
@@ -714,8 +704,6 @@ async def recommend_products(
         except Exception:
             knowledge = None
 
-    _lap("knowledge map loaded")
-
     # История проверок пользователя — тоже один раз, а не на каждого кандидата.
     user_history: List[Dict[str, Any]] = []
     current_skin = _skin.strip().lower()
@@ -725,7 +713,6 @@ async def recommend_products(
             user_history = get_user_check_history(user["id"], limit=200)
         except Exception:
             user_history = []
-    _lap(f"history loaded count={len(user_history)}")
 
     rated: List[Dict[str, Any]] = []
     seen_ids: set = set()
@@ -791,8 +778,6 @@ async def recommend_products(
             rec["_relevance"] = sum(1 for kw in keywords if kw in haystack)
         rated.append(rec)
 
-    _lap(f"scoring loop done rated={len(rated)}")
-
     # Стабильная сортировка: при равных скорax сохраняется порядок
     # «сначала точная категория, затем ключевые слова».
     if scored:
@@ -814,8 +799,6 @@ async def recommend_products(
         if len(result) >= 3:
             break
 
-    _lap(f"top-3 selected result={len(result)}")
-
     # Enrichment ТОЛЬКО для топ-3 (быстрее): собираем unknown среди выбранных,
     # обогащаем один раз, затем пересчитываем их score по свежим знаниям.
     if scored and result:
@@ -828,12 +811,10 @@ async def recommend_products(
                     if part.strip():
                         top_raw.append(part.strip())
             unknown = find_unknown_ingredients(top_raw)
-            _lap(f"unknown collected count={len(unknown)}")
             if unknown:
                 # Обогащаем в фоне (fire-and-forget). Рекомендация отдаётся сразу с
                 # детерминированным скором, а Ingredient DB пополняется для следующих
                 # запросов. Это убирает синхронный AI-вызов (~35 сек) из ответа.
-                _lap("AI enrichment DISPATCHED (background)")
                 try:
                     _dispatch_background_enrichment(unknown)
                 except Exception as exc:
@@ -847,7 +828,6 @@ async def recommend_products(
         r.pop("_ingredients", None)
         r.pop("_from_history", None)
         r.pop("id", None)
-    _lap(f"RESPONSE ready (total {(_time.perf_counter() - _T0) * 1000:.1f}ms)")
     return result
 
 
