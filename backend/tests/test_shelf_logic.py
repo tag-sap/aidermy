@@ -44,6 +44,15 @@ def test_allergy_conflict_fragrance_synonym():
     assert _allergy_conflict("Aqua, Parfum, Glycerin", ["Отдушки"]) is True
 
 
+def test_allergy_conflict_acid_synonym_does_not_match_hyaluronic():
+    # «acid» не должен ловить «hyaluronic acid» — иначе исключается почти всё.
+    assert _allergy_conflict("Aqua, Hyaluronic Acid, Glycerin", ["Кислоты"]) is False
+
+
+def test_allergy_conflict_acid_synonym_matches_salicylic():
+    assert _allergy_conflict("Aqua, Salicylic Acid, Glycerin", ["Кислоты"]) is True
+
+
 def test_summary_has_no_internal_factor_names():
     summary = build_summary(
         {

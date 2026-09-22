@@ -520,12 +520,15 @@ def _query_candidates(cabinet: str, category: str) -> List[Dict[str, Any]]:
 
 
 # Синонимы категорий непереносимости (пользовательские формулировки -> INCI-термины).
+# Значения — конкретные канонические имена ингредиентов. Совпадение идёт по токенам
+# (каноническим именам), а НЕ по подстроке: иначе «acid» ловил бы «hyaluronic acid»
+# или «stearic acid» и исключал бы почти всю косметику из подбора.
 _ALLERGEN_SYNONYMS: Dict[str, List[str]] = {
-    "отдушки": ["fragrance", "parfum", "perfume", "отдушка", "аромат"],
-    "спирт": ["alcohol", "ethanol", "спирт"],
-    "эфирные масла": ["essential oil", "эфирн"],
-    "ретиноиды": ["retinol", "retinal", "retinoid", "ретинол"],
-    "кислоты": ["acid", "aha", "bha", "salicylic", "glycolic"],
+    "отдушки": ["fragrance", "parfum", "perfume"],
+    "спирт": ["alcohol", "alcohol denat", "ethanol", "denatured alcohol", "isopropyl alcohol"],
+    "эфирные масла": ["essential oil", "citrus limon peel oil", "lavandula angustifolia oil", "eucalyptus globulus leaf oil", "melaleuca alternifolia leaf oil", "pinus sylvestris leaf oil"],
+    "ретиноиды": ["retinol", "retinal", "retinaldehyde", "retinyl palmitate", "retinyl acetate", "retinyl retinoate", "hydroxypinacolone retinoate", "tretinoin", "adapalene", "tazarotene"],
+    "кислоты": ["salicylic acid", "glycolic acid", "lactic acid", "mandelic acid", "malic acid", "tartaric acid", "azelaic acid", "ferulic acid", "gluconolactone", "lactobionic acid", "aha", "bha", "pha"],
 }
 
 
@@ -533,7 +536,8 @@ def _allergy_conflict(ingredients: str, allergies: List[str]) -> bool:
     """Жёсткая проверка непереносимости: есть ли в составе запрещённый ингредиент.
 
     Непереносимость — жёсткое ограничение (не мягкий фактор скорa): продукт
-    с конфликтом исключается из рекомендаций целиком.
+    с конфликтом исключается из рекомендаций целиком. Совпадение идёт по
+    каноническим именам ингредиентов (токенам), а не по подстроке.
     """
     if not allergies or not ingredients or not str(ingredients).strip():
         return False
@@ -549,10 +553,8 @@ def _allergy_conflict(ingredients: str, allergies: List[str]) -> bool:
         canon = canonicalize_ingredient_name(key)
         if canon and canon in ing_tokens:
             return True
-        if key in ing_lower:
-            return True
         for syn in _ALLERGEN_SYNONYMS.get(key, []):
-            if syn in ing_lower or canonicalize_ingredient_name(syn) in ing_tokens:
+            if canonicalize_ingredient_name(syn) in ing_tokens:
                 return True
     return False
 
