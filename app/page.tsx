@@ -750,7 +750,7 @@ export default function Page() {
         <div className="grid-shimmer" aria-hidden="true" />
 
         <div className="relative z-20 flex h-dvh flex-col">
-          <main ref={mainRef} className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-[calc(6rem+env(safe-area-inset-bottom,0px))]">
+          <main ref={mainRef} className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
             <div className="mx-auto w-full max-w-md px-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
               <AppHeader
                 onOpenAccount={() => setAccountModalOpen(true)}
@@ -793,7 +793,7 @@ export default function Page() {
                   />
                 </div>
               ) : (
-                <div key={tab} className="tab-content">
+                <div key={tab} className={tab === 'home' ? 'tab-content' : 'tab-content pb-[calc(6rem+env(safe-area-inset-bottom,0px))]'}>
                   {tab === 'home' && (
                     <WelcomeTab
                       onAuth={() => setIsAuthModalOpen(true)}

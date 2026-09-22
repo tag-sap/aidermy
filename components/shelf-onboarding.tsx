@@ -125,14 +125,22 @@ export function ShelfOnboarding({
 
   return (
     <div className="fixed inset-0 z-[90]">
-      {/* Затемнение: блокирует клики по фону, но НЕ сбрасывает гид по клику. */}
-      <div className="absolute inset-0 bg-black/50" />
-
-      {rect && (
-        <div
-          className="pointer-events-none absolute rounded-xl ring-4 ring-white"
-          style={{ top: rect.top - 6, left: rect.left - 6, width: rect.width + 12, height: rect.height + 12 }}
-        />
+      {rect ? (
+        <>
+          {/* Spotlight: 4 затемнённых прямоугольника вокруг цели — блокируют клики,
+              оставляя саму цель кликабельной и подсвеченной. */}
+          <div className="absolute bg-black/60" style={{ top: 0, left: 0, right: 0, height: Math.max(rect.top, 0) }} />
+          <div className="absolute bg-black/60" style={{ top: rect.top + rect.height, left: 0, right: 0, bottom: 0 }} />
+          <div className="absolute bg-black/60" style={{ top: rect.top, left: 0, width: Math.max(rect.left, 0), height: rect.height }} />
+          <div className="absolute bg-black/60" style={{ top: rect.top, left: rect.left + rect.width, right: 0, height: rect.height }} />
+          {/* Кольцо подсветки цели */}
+          <div
+            className="pointer-events-none absolute rounded-xl ring-4 ring-white"
+            style={{ top: rect.top - 4, left: rect.left - 4, width: rect.width + 8, height: rect.height + 8 }}
+          />
+        </>
+      ) : (
+        <div className="absolute inset-0 bg-black/60" />
       )}
 
       <div

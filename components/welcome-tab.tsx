@@ -75,7 +75,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
 
       {/* FOOTER — чёрный, тянется до низа */}
       <footer
-        className="bg-[#151515] text-white -mb-[calc(6rem+env(safe-area-inset-bottom,0px))] pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"
+        className="bg-[#151515] text-white pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"
         style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}
       >
         <div className="mx-auto w-full max-w-md px-5 py-10 md:max-w-5xl">
