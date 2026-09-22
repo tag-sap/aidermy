@@ -750,7 +750,7 @@ export default function Page() {
         <div className="grid-shimmer" aria-hidden="true" />
 
         <div className="relative z-20 flex h-dvh flex-col">
-          <main ref={mainRef} className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+          <main ref={mainRef} className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-none">
             <div className="mx-auto w-full max-w-md px-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
               <AppHeader
                 onOpenAccount={() => setAccountModalOpen(true)}

@@ -52,6 +52,7 @@
 
   html {
     @apply bg-background;
+    overscroll-behavior-y: none;
   }
 
   body {
@@ -59,6 +60,10 @@
     -webkit-tap-highlight-color: transparent;
     min-height: 100dvh;
     height: auto;
+    overscroll-behavior-y: none;
+    position: fixed;
+    inset: 0;
+    width: 100%;
   }
 }
 

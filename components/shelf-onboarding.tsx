@@ -138,8 +138,10 @@ export function ShelfOnboarding({
     }
   }
 
-  // Подсказка снизу, если цель в верхней половине экрана; иначе сверху.
-  const placeBelow = rect ? rect.top < window.innerHeight * 0.55 : true
+  // Для высокой цели показываем подсказку сверху, чтобы не перекрывать нижние кнопки
+  // (например, «Сохранить» в профиле). Для компактной цели — снизу, если она в верхней части.
+  const isTall = rect ? rect.height > window.innerHeight * 0.55 : false
+  const placeBelow = rect ? (!isTall && rect.top < window.innerHeight * 0.55) : true
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[90]">
@@ -162,11 +164,11 @@ export function ShelfOnboarding({
       )}
 
       <div
-        className="pointer-events-auto absolute left-1/2 z-10 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-white p-4 shadow-2xl animate-modal-panel"
+        className="pointer-events-auto absolute left-1/2 z-10 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-white p-3.5 shadow-2xl animate-modal-panel"
         style={
           rect
             ? placeBelow
-              ? { top: Math.min(rect.top + rect.height + 12, window.innerHeight - 240) }
+              ? { top: Math.min(rect.top + rect.height + 12, window.innerHeight - 200) }
               : { bottom: Math.max(window.innerHeight - rect.top + 12, 12) }
             : { top: '50%', transform: 'translate(-50%, -50%)' }
         }
@@ -179,15 +181,15 @@ export function ShelfOnboarding({
             <X className="size-4" />
           </button>
         </div>
-        <h3 className="text-base font-normal text-foreground">{current.title}</h3>
-        <p className="mt-1 text-sm leading-relaxed text-muted-foreground/80">{current.text}</p>
-        <div className="mt-3 flex items-center gap-2">
-          <button onClick={onSkip} className="shrink-0 rounded-xl px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-gray-50">
+        <h3 className="text-sm font-medium text-foreground">{current.title}</h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground/80">{current.text}</p>
+        <div className="mt-2.5 flex items-center gap-2">
+          <button onClick={onSkip} className="shrink-0 rounded-lg px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-gray-50">
             Пропустить
           </button>
           <button
             onClick={handleCta}
-            className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-primary py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             {current.cta}
             <ChevronRight className="size-4" />

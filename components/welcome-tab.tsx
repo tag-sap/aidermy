@@ -21,19 +21,21 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
         className="relative bg-[#151515]"
         style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}
       >
-        <video
-          src="/header_video.mp4"
-          autoPlay
-          muted
-          playsInline
-          loop
-          preload="auto"
-          className="h-[74vh] min-h-[480px] w-full object-cover"
-          aria-hidden
-        />
-        <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/75 via-black/10 to-transparent p-5 md:p-12">
-          <div className="mx-auto flex w-full max-w-md flex-col gap-6 md:max-w-5xl md:flex-row md:items-end md:justify-between">
-            <div className="max-w-2xl">
+        <div className="relative h-[74vh] min-h-[480px] overflow-hidden">
+          <video
+            src="/header_video.mp4"
+            autoPlay
+            muted
+            playsInline
+            loop
+            preload="auto"
+            className="h-full w-full object-cover"
+            aria-hidden
+          />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+          {/* Текст поверх видео */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-24 md:px-12 md:pb-28">
+            <div className="mx-auto w-full max-w-md md:max-w-5xl">
               <h1 className="font-[family-name:var(--font-playfair)] text-[44px] font-normal leading-[1.02] tracking-tight text-white md:text-[76px]">
                 Состав решает.
                 <br />
@@ -43,9 +45,14 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
                 Aidermy переводит INCI-список на язык вашей кожи и показывает, что действительно сработает, а что нет.
               </p>
             </div>
+          </div>
+        </div>
+        {/* Кнопка — наполовину за границей видео */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
+          <div className="mx-auto flex w-full max-w-md justify-start px-5 md:max-w-5xl md:justify-end md:px-12">
             <button
               onClick={onAuth}
-              className="pointer-events-auto inline-flex shrink-0 items-center gap-2 self-start rounded-lg bg-white px-7 py-3.5 text-sm font-medium text-[#151515] shadow-[0_8px_32px_rgba(0,0,0,0.35)] transition-all hover:bg-[#F7F3EA] active:scale-[0.98] translate-y-1/2 md:self-auto"
+              className="pointer-events-auto inline-flex translate-y-1/2 items-center gap-2 rounded-lg bg-white px-7 py-3.5 text-sm font-medium text-[#151515] shadow-[0_8px_32px_rgba(0,0,0,0.35)] transition-all hover:bg-[#F7F3EA] active:scale-[0.98]"
             >
               Начать
               <ArrowRight className="size-4" />
