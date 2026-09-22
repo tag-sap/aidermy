@@ -986,7 +986,7 @@ async def recommend_for_shelf(request: ShelfRecommendRequest, current_user: dict
         if p and p.get("slug"):
             exclude_slugs.add(p["slug"])
 
-    recommendations = recommend_products(current_user, cabinet, category, exclude_slugs)
+    recommendations = await recommend_products(current_user, cabinet, category, exclude_slugs)
     return {"cabinet": cabinet, "category": category, "recommendations": recommendations}
 
 
@@ -1115,7 +1115,7 @@ async def save_recommendation_feedback(request: RecommendationFeedbackRequest, c
     cabinet = (request.cabinet or "face").strip().lower()
     if cabinet in CABINET_BY_KEY and request.category:
         category = canonical_category(cabinet, request.category)
-        replacement = recommend_products(current_user, cabinet, category, {request.slug})
+        replacement = await recommend_products(current_user, cabinet, category, {request.slug})
 
     return {"status": "ok", "replacement": replacement}
 

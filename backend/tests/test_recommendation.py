@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 import unittest
@@ -59,7 +60,7 @@ class RecommendationTests(unittest.TestCase):
 
     def test_cleansing_does_not_return_moisturizer(self):
         with patch("app.shelf_service._query_candidates", return_value=self._candidates()):
-            recs = recommend_products(USER, "face", "Очищение", set())
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
         names = [r["name"] for r in recs]
         self.assertNotIn("Увлажняющий крем B", names)
         for name in names:
@@ -68,7 +69,7 @@ class RecommendationTests(unittest.TestCase):
     def test_existing_products_are_excluded(self):
         candidates = self._candidates()
         with patch("app.shelf_service._query_candidates", return_value=candidates):
-            recs = recommend_products(USER, "face", "Очищение", {"clean-a"})
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение", {"clean-a"}))
         names = [r["name"] for r in recs]
         self.assertNotIn("Гель для умывания A", names)
 
@@ -86,27 +87,29 @@ class RecommendationTests(unittest.TestCase):
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
              patch("app.shelf_service._find_history_score", side_effect=lambda u, p: (scores.get(p["slug"], None), None)), \
              patch("app.shelf_service._deterministic_analysis", side_effect=fake_analysis):
-            recs = recommend_products(USER, "face", "Очищение", set())
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
 
         self.assertEqual(len(recs), 3)
         ordered = [r["score"] for r in recs]
         self.assertEqual(ordered, sorted(ordered, reverse=True))
         self.assertEqual(recs[0]["slug"], "b")
 
-    def test_products_without_score_sort_last(self):
+    def test_unknown_ingredients_are_neutral_not_demoted(self):
         candidates = [
             _product("Очищение", "Scored", "scored", "Aqua, Glycerin, Betaine"),
-            _product("Очищение", "Unscored", "unscored", "Aqua, Panthenol, Ceramide"),
+            _product("Очищение", "Unknown", "unknown", "Aqua, MysteryIngredientX"),
         ]
 
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
              patch("app.shelf_service._find_history_score", side_effect=lambda u, p: (80, None) if p["slug"] == "scored" else (None, None)), \
              patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0}):
-            recs = recommend_products(USER, "face", "Очищение", set())
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
 
         self.assertEqual(recs[0]["slug"], "scored")
         self.assertEqual(len(recs), 2)
-        self.assertIsNone(recs[1]["score"])
+        # unknown не выбрасывается и не получает None: нейтральная оценка + статус
+        self.assertEqual(recs[1]["score"], 60)
+        self.assertTrue(recs[1].get("needs_enrichment"))
 
 
 class ShelfAggregationTests(unittest.TestCase):

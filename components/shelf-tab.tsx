@@ -34,26 +34,8 @@ function scoreBadge(s: number | null) {
   return 'bg-[#FF4D3D]/10 text-[#D63B2E]'
 }
 
-// --- Динамическая полка: ширина считается от количества товаров. ---
-// Левый/правый торец — фиксированные, центр растягивается/сжимается.
-const SHELF_CARD_W = 130 // ширина карточки (совпадает с w-[130px])
-const SHELF_GAP = 10 // gap-2.5 между карточками
-const SHELF_EDGE = 16 // ширина фиксированного торца
-const SHELF_PAD = 16 // внутренний отступ под карточки (px-4)
-const SHELF_MIN = 280 // полка не должна быть слишком маленькой
-const SHELF_MAX = 720 // и не должна быть огромной (на широких экранах)
-
-function shelfWidth(count: number) {
-  const content = count * SHELF_CARD_W + Math.max(0, count - 1) * SHELF_GAP
-  const desired = SHELF_EDGE * 2 + SHELF_PAD * 2 + content
-  return Math.max(SHELF_MIN, Math.min(desired, SHELF_MAX))
-}
-
-function shelfOverflows(count: number) {
-  const content = count * SHELF_CARD_W + Math.max(0, count - 1) * SHELF_GAP
-  const desired = SHELF_EDGE * 2 + SHELF_PAD * 2 + content
-  return desired > SHELF_MAX
-}
+// Ширина фиксированного торца полки (левый/правый край).
+const SHELF_EDGE = 16
 
 export function ShelfTab({
   onOpenReport,
@@ -320,77 +302,42 @@ export function ShelfTab({
             </div>
           </div>
 
-          {currentItems.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-gray-200/70 px-4 py-10 text-center">
-              <Sparkles className="mx-auto mb-3 size-7 text-muted-foreground/30" />
-              <p className="text-sm text-foreground/70">Ваш шкаф пока пуст</p>
-              <p className="mt-1 text-xs text-muted-foreground/50">Соберите здесь свой уход.</p>
-              <p className="mt-6 mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground/50">С чего начнём?</p>
-              <div className="flex flex-wrap justify-center gap-2">
-                {currentCabinet.categories.map((cat) => (
-                  <button
-                    key={cat.key}
-                    onClick={() => setAddContext({ cabinet: currentCabinet.key, category: cat.key })}
-                    className="rounded-full border border-gray-200 px-3.5 py-1.5 text-xs text-foreground/70 transition-colors hover:border-primary/40 hover:text-primary"
-                  >
-                    {cat.title}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {currentCabinet.categories.map((cat) => (
-                <div key={cat.key}>
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      {currentCabinet.has_scoring && cat.compatibility != null && (
-                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">{cat.compatibility}%</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {cat.items.length > 0 && (
-                        <button
-                          onClick={() => setConfirm({ title: `Очистить «${cat.title}»?`, message: 'Удалить все продукты из этой категории?', confirmLabel: 'Очистить', onConfirm: () => clearShelf(currentCabinet.key, cat.key) })}
-                          className="text-[10px] text-muted-foreground/40 transition-colors hover:text-red-500"
-                        >
-                          Очистить
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setAddContext({ cabinet: currentCabinet.key, category: cat.key })}
-                        className="flex size-6 items-center justify-center rounded-full border border-gray-200 text-muted-foreground/60 transition-colors hover:border-primary/40 hover:text-primary"
-                        aria-label={`Добавить в ${cat.title}`}
-                      >
-                        <Plus className="size-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {cat.items.length === 0 ? (
+          {/* Одна динамическая физическая полка на зону */}
+          <div className="relative">
+            {currentItems.length === 0 ? (
+              <div className="flex min-h-[150px] flex-col items-center justify-center px-4 pb-9 pt-6 text-center">
+                <Sparkles className="mb-2 size-6 text-muted-foreground/25" />
+                <p className="text-xs text-muted-foreground/50">Соберите здесь свой уход</p>
+                <div className="mt-5 flex flex-wrap justify-center gap-2">
+                  {currentCabinet.categories.map((cat) => (
                     <button
+                      key={cat.key}
                       onClick={() => setAddContext({ cabinet: currentCabinet.key, category: cat.key })}
-                      className="flex w-full flex-col items-center gap-1.5 rounded-2xl border border-dashed border-gray-200/70 py-6 text-center transition-colors hover:border-primary/30"
+                      className="rounded-full border border-gray-200 px-3 py-1 text-[11px] text-foreground/60 transition-colors hover:border-primary/40 hover:text-primary"
                     >
-                      <span className="text-xs text-foreground/60">Здесь пока ничего нет</span>
-                      <span className="text-[10px] text-muted-foreground/40">Добавьте продукт из базы, по ссылке или подберите автоматически</span>
-                      <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-[11px] text-primary">
-                        <Plus className="size-3" /> Добавить продукт
-                      </span>
+                      + {cat.title}
                     </button>
-                  ) : (
-                    <div
-                      className="relative mx-auto max-w-full"
-                      style={{
-                        width: shelfWidth(cat.items.length),
-                        transition: 'width 0.55s cubic-bezier(0.16, 1, 0.3, 1)',
-                      }}
-                    >
-                      {/* Карточки — отдельные UI-элементы, лежат поверх полки */}
-                      <div className={cn(
-                        'no-scrollbar relative z-10 flex gap-2.5 overflow-x-auto px-4 pb-7 pt-1',
-                        shelfOverflows(cat.items.length) ? 'justify-start' : 'justify-center',
-                      )}>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-x-6 gap-y-6 px-4 pb-9 pt-2">
+                {currentCabinet.categories.map((cat) => {
+                  if (cat.items.length === 0) return null
+                  return (
+                    <div key={cat.key} className="flex flex-col">
+                      <div className="mb-1.5 flex items-center gap-1.5">
+                        <span className="text-[9px] font-medium uppercase tracking-[0.18em] text-muted-foreground/50">{cat.title}</span>
+                        <button
+                          onClick={() => setAddContext({ cabinet: currentCabinet.key, category: cat.key })}
+                          className="flex size-4 items-center justify-center rounded-full text-muted-foreground/40 transition-colors hover:text-primary"
+                          aria-label={`Добавить в ${cat.title}`}
+                        >
+                          <Plus className="size-3" />
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2.5 rounded-2xl border border-dashed border-gray-300/70 p-2.5">
                         {cat.items.map((item, idx) => {
                           const isSelected = selected.has(item.id)
                           return (
@@ -455,24 +402,23 @@ export function ShelfTab({
                           )
                         })}
                       </div>
-
-                      {/* Полка: [ левый торец ][ центр — динамическая ширина ][ правый торец ].
-                          Название категории — маркировка по центру самой полки. */}
-                      <div className="shelf-plank pointer-events-none absolute inset-x-0 bottom-0 flex h-7 rounded-full">
-                        <div className="shelf-surface h-full rounded-l-full" style={{ width: SHELF_EDGE }} />
-                        <div className="shelf-surface flex h-full flex-1 items-center justify-center overflow-hidden px-2">
-                          <span className="select-none truncate text-[9px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-                            {cat.title}
-                          </span>
-                        </div>
-                        <div className="shelf-surface h-full rounded-r-full" style={{ width: SHELF_EDGE }} />
-                      </div>
                     </div>
-                  )}
-                </div>
-              ))}
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Полка: [ левый торец ][ центр — зона ][ правый торец ] */}
+            <div className="shelf-plank pointer-events-none absolute inset-x-0 bottom-0 flex h-7 rounded-full">
+              <div className="shelf-surface h-full rounded-l-full" style={{ width: SHELF_EDGE }} />
+              <div className="shelf-surface flex h-full flex-1 items-center justify-center overflow-hidden px-2">
+                <span className="select-none truncate text-[9px] font-medium uppercase tracking-[0.22em] text-foreground/35">
+                  {currentCabinet.title}
+                </span>
+              </div>
+              <div className="shelf-surface h-full rounded-r-full" style={{ width: SHELF_EDGE }} />
             </div>
-          )}
+          </div>
         </section>
       )}
 

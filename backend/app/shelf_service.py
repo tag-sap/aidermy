@@ -583,13 +583,19 @@ def _hard_filter_exclusion(profile: Dict[str, Any], ingredients: str) -> bool:
     return bool(apply_hard_filters(profile, raw_items))
 
 
-def recommend_products(
+async def recommend_products(
     user: Dict[str, Any],
     cabinet: str,
     category: str,
     exclude_slugs: Optional[set] = None,
 ) -> List[Dict[str, Any]]:
-    """Возвращает до 3 рекомендаций для конкретной полки шкафа."""
+    """Возвращает до 3 рекомендаций для конкретной полки шкафа.
+
+    Контролируемая неопределённость: unknown-ингредиенты НЕ штрафуются. До скоринга
+    собираем уникальные unknown-ингредиенты среди всех кандидатов и обогащаем их
+    один раз (а не для каждого продукта), затем повторно запускаем детерминированный
+    Score Engine. Продукты с неполностью известным составом остаются кандидатами.
+    """
     exclude_slugs = set(exclude_slugs or set())
     # Продукты, которые пользователь явно отклонил (дизлайк), не предлагаем снова.
     try:
@@ -640,6 +646,23 @@ def recommend_products(
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
     keywords = rule.get("keywords") or []
 
+    # Контролируемая неопределённость: enrichment неизвестных ингредиентов ДО скоринга.
+    # Собираем уникальные unknown-ингредиенты среди ВСЕХ кандидатов и обогащаем их один раз.
+    if scored:
+        try:
+            from .ingredient_enrichment import find_unknown_ingredients, enrich_unknown_ingredients
+
+            all_raw: List[str] = []
+            for p in candidates:
+                for part in re.split(r"[,;\n]+", p.get("ingredients") or ""):
+                    if part.strip():
+                        all_raw.append(part.strip())
+            unknown = find_unknown_ingredients(all_raw)
+            if unknown:
+                await enrich_unknown_ingredients(unknown)
+        except Exception as exc:
+            print(f"[RECOMMEND] enrichment failed: {exc!r}")
+
     rated: List[Dict[str, Any]] = []
     seen_ids: set = set()
     seen_names: set = set()
@@ -684,15 +707,18 @@ def recommend_products(
                 rec["score"] = history_score
                 rec["reason"] = _reason_from_analysis(history_analysis)
             else:
-                # 2) deterministic-движок, только если есть реальное знание об ингредиентах
+                # 2) deterministic-движок. Unknown-ингредиенты НЕ штрафуются:
+                # продукт с неполностью известным составом остаётся кандидатом,
+                # получает нейтральную позицию и статус needs_enrichment.
                 analysis = _deterministic_analysis(profile, product.get("ingredients") or "")
                 meaningful = _meaningful_score(analysis)
                 if meaningful is not None:
                     rec["score"] = meaningful
                     rec["reason"] = _reason_from_analysis(analysis)
                 else:
-                    rec["score"] = None
-                    rec["reason"] = "Анализ ещё не выполнен"
+                    rec["score"] = 60
+                    rec["needs_enrichment"] = True
+                    rec["reason"] = "Состав требует изучения"
         else:
             rec["reason"] = f"Подходит для категории «{category}»."
             haystack = f"{product.get('name') or ''} {product.get('ingredients') or ''}".lower()
