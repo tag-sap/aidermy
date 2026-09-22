@@ -62,6 +62,65 @@ def _prompt(unknown: List[str]) -> str:
     )
 
 
+# Для enrichment используем только deepseek-chat: фолбэки deepseek-v4-flash /
+# deepseek-flash — это reasoning-модели, возвращающие пустой `content`
+# (ответ кладут в `reasoning_content`), поэтому для JSON-задачи они бесполезны.
+_ENRICH_MODEL_FALLBACKS = ["deepseek-chat"]
+_ENRICH_MAX_TOKENS = 8000
+
+
+def _parse_enrichment_response(content: str) -> List[dict]:
+    """Парсит ответ AI для enrichment.
+
+    AI может вернуть JSON-массив `[{...}, {...}]` (как просит промпт) или
+    объект `{"ingredients": [...]}`. Промпт просит именно массив, поэтому
+    `extract_json_from_response` (он возвращает только dict) здесь не подходит —
+    он ломался на массиве regex'ом на фигурных скобках и кидал «Невалидный JSON».
+    """
+    import json as _json
+    import re as _re
+
+    if not content or not isinstance(content, str):
+        raise ValueError("Пустой ответ AI")
+
+    s = content.strip()
+
+    # Снимаем markdown-ограждение, если модель обернула JSON в ```json ... ```.
+    fence = _re.search(r"```(?:json)?\s*([\s\S]*?)```", s, _re.DOTALL)
+    if fence:
+        s = fence.group(1).strip()
+
+    obj = None
+    try:
+        obj = _json.loads(s)
+    except Exception:
+        obj = None
+
+    # Массив может быть обёрнут пояснительным текстом — берём первый `[ ... ]`.
+    if obj is None:
+        start, end = s.find("["), s.rfind("]")
+        if start != -1 and end != -1 and end > start:
+            try:
+                obj = _json.loads(s[start:end + 1])
+            except Exception:
+                obj = None
+
+    # Или `{"ingredients": [...]}`.
+    if obj is None:
+        start, end = s.find("{"), s.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                obj = _json.loads(s[start:end + 1])
+            except Exception:
+                obj = None
+
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict):
+        return obj.get("ingredients") or obj.get("data") or []
+    raise ValueError("Невалидный JSON")
+
+
 async def enrich_unknown_ingredients(
     unknown: List[str],
     repository: Optional[IngredientRepository] = None,
@@ -83,8 +142,6 @@ async def enrich_unknown_ingredients(
         from .services import (
             DEEPSEEK_API_KEY,
             DEEPSEEK_API_URL,
-            DEEPSEEK_MODEL_FALLBACKS,
-            extract_json_from_response,
         )
     except Exception:
         return 0
@@ -98,7 +155,7 @@ async def enrich_unknown_ingredients(
     prompt = _prompt(unknown)
     print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  prompt ready  unknown_count={len(unknown)} prompt_len={len(prompt)}")
 
-    for attempt, model_name in enumerate(DEEPSEEK_MODEL_FALLBACKS):
+    for attempt, model_name in enumerate(_ENRICH_MODEL_FALLBACKS):
         _req_t0 = _time.perf_counter()
         try:
             async with httpx.AsyncClient() as client:
@@ -112,7 +169,7 @@ async def enrich_unknown_ingredients(
                         "model": model_name,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.2,
-                        "max_tokens": 3000,
+                        "max_tokens": _ENRICH_MAX_TOKENS,
                     },
                     timeout=60,
                 )
@@ -123,10 +180,9 @@ async def enrich_unknown_ingredients(
             data = response.json()
             content = data["choices"][0]["message"]["content"]
             _parse_t0 = _time.perf_counter()
-            result = extract_json_from_response(content)
+            records = _parse_enrichment_response(content)
             _parse_t1 = _time.perf_counter()
-            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  parse={(_parse_t1-_parse_t0)*1000:.1f}ms response_len={len(content or '')}")
-            records = result if isinstance(result, list) else (result.get("ingredients") if isinstance(result, dict) else None)
+            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  parse={(_parse_t1-_parse_t0)*1000:.1f}ms response_len={len(content or '')} records={len(records) if isinstance(records, list) else records}")
             if not isinstance(records, list):
                 continue
 

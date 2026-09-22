@@ -800,31 +800,17 @@ async def recommend_products(
             unknown = find_unknown_ingredients(top_raw)
             _lap(f"unknown collected count={len(unknown)}")
             if unknown:
-                _lap("AI enrichment START")
-                await enrich_unknown_ingredients(unknown)
-                _lap("AI enrichment END")
-                # После enrichment перезагружаем knowledge map один раз.
+                # Обогащаем в фоне (fire-and-forget). Рекомендация отдаётся сразу с
+                # детерминированным скором, а Ingredient DB пополняется для следующих
+                # запросов. Это убирает синхронный AI-вызов (~35 сек) из ответа.
+                _lap("AI enrichment DISPATCHED (background)")
                 try:
-                    from .ingredient_repository import IngredientRepository
-                    knowledge = IngredientRepository().get_knowledge_map()
-                except Exception:
-                    pass
-                _lap("knowledge map reloaded after enrichment")
+                    import asyncio
+                    asyncio.create_task(enrich_unknown_ingredients(unknown))
+                except Exception as exc:
+                    print(f"[RECOMMEND] failed to dispatch enrichment: {exc!r}")
         except Exception as exc:
-            print(f"[RECOMMEND] enrichment failed: {exc!r}")
-
-        # Пересчитываем score топ-3 по свежим знаниям (историю не трогаем).
-        for r in result:
-            if r.get("_from_history"):
-                continue
-            analysis = _deterministic_analysis(profile, r.get("_ingredients") or "", knowledge=knowledge)
-            meaningful = _meaningful_score(analysis)
-            if meaningful is not None:
-                r["score"] = meaningful
-                r["reason"] = _reason_from_analysis(analysis)
-                r.pop("needs_enrichment", None)
-        result.sort(key=lambda r: (r["score"] is None, -int(r["score"] or 0)))
-        _lap("re-score top-3 done")
+            print(f"[RECOMMEND] enrichment dispatch failed: {exc!r}")
 
     for r in result:
         r.pop("_relevance", None)

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 
 from app.ingredient_repository import IngredientRepository
-from app.ingredient_enrichment import find_unknown_ingredients
+from app.ingredient_enrichment import find_unknown_ingredients, _parse_enrichment_response
 
 
 class EnrichmentTests(unittest.TestCase):
@@ -31,6 +31,30 @@ class EnrichmentTests(unittest.TestCase):
             "synonyms": ["Vitamin E"],
         })
         self.assertEqual(find_unknown_ingredients(["Vitamin E"], self.repo), [])
+
+    def test_parse_enrichment_json_array(self):
+        # AI возвращает JSON-массив — именно его просит промпт.
+        records = _parse_enrichment_response(
+            '[{"inci_name": "Niacinamide", "canonical_name": "Nicotinamide"}]'
+        )
+        self.assertEqual(records, [{"inci_name": "Niacinamide", "canonical_name": "Nicotinamide"}])
+
+    def test_parse_enrichment_markdown_array(self):
+        # Модель может обернуть массив в ```json ... ```.
+        records = _parse_enrichment_response(
+            '```json\n[{"inci_name": "Glycerin"}]\n```'
+        )
+        self.assertEqual(records, [{"inci_name": "Glycerin"}])
+
+    def test_parse_enrichment_dict_wrapper(self):
+        records = _parse_enrichment_response(
+            '{"ingredients": [{"inci_name": "Zinc PCA"}]}'
+        )
+        self.assertEqual(records, [{"inci_name": "Zinc PCA"}])
+
+    def test_parse_enrichment_empty_raises(self):
+        with self.assertRaises(ValueError):
+            _parse_enrichment_response("")
 
     def test_save_enriched_writes_claims_and_safety(self):
         ing_id = self.repo.save_enriched_ingredient({
