@@ -37,6 +37,16 @@ function scoreBadge(s: number | null) {
 // Ширина фиксированного торца полки (левый/правый край).
 const SHELF_EDGE = 16
 
+// Позиции облачков категорий вокруг центрального узла «●» (внутри SVG 300×240, центр 150/120).
+const CLOUD_POS = [
+  { x: 150, y: 16 },   // верх
+  { x: 238, y: 46 },   // верх-право
+  { x: 262, y: 120 },  // право
+  { x: 238, y: 194 },  // низ-право
+  { x: 150, y: 224 },  // низ
+  { x: 62, y: 120 },   // лево
+]
+
 export function ShelfTab({
   onOpenReport,
   onOpenBrand,
@@ -316,40 +326,15 @@ export function ShelfTab({
 
           {/* Одна динамическая физическая полка на зону: ширина растёт/сужается вместе с содержимым */}
           <div className="relative mx-auto w-fit min-w-[280px] max-w-full">
-            {currentItems.length === 0 ? (
-              <div className="flex min-h-[150px] flex-col items-center justify-center px-4 pb-9 pt-6 text-center">
-                <Sparkles className="mb-2 size-6 text-muted-foreground/25" />
-                <p className="text-xs text-muted-foreground/50">Соберите здесь свой уход</p>
-                <div className="mt-5 flex flex-wrap justify-center gap-2">
-                  {currentCabinet.categories.map((cat) => (
-                    <button
-                      key={cat.key}
-                      onClick={() => setAddContext({ cabinet: currentCabinet.key, category: cat.key })}
-                      className="rounded-full border border-gray-200 px-3 py-1 text-[11px] text-foreground/60 transition-colors hover:border-primary/40 hover:text-primary"
-                    >
-                      + {cat.title}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-x-6 gap-y-6 px-4 pb-9 pt-2">
+            <div className={cn('flex flex-wrap gap-x-5 gap-y-6 px-4 pb-9 pt-3', currentItems.length === 0 && 'justify-center')}>
                 {currentCabinet.categories.map((cat) => {
                   if (cat.items.length === 0) return null
                   return (
-                    <div key={cat.key} className="flex flex-col">
-                      <div className="mb-1.5 flex items-center gap-1.5">
-                        <span className="text-[9px] font-medium uppercase tracking-[0.18em] text-muted-foreground/50">{cat.title}</span>
-                        <button
-                          onClick={() => setAddContext({ cabinet: currentCabinet.key, category: cat.key })}
-                          className="flex size-4 items-center justify-center rounded-full text-muted-foreground/40 transition-colors hover:text-primary"
-                          aria-label={`Добавить в ${cat.title}`}
-                        >
-                          <Plus className="size-3" />
-                        </button>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2.5 rounded-2xl border border-dashed border-gray-300/70 p-2.5">
+                    <div key={cat.key} className="relative">
+                      <span className="absolute -top-2.5 left-2 z-10 rounded-full bg-background px-2 text-[9px] font-medium uppercase tracking-[0.18em] text-muted-foreground/50">
+                        {cat.title}
+                      </span>
+                      <div className="flex flex-wrap gap-2.5 rounded-2xl border border-dashed border-gray-300/70 p-2">
                         {cat.items.map((item, idx) => {
                           const isSelected = selected.has(item.id)
                           return (
@@ -357,33 +342,35 @@ export function ShelfTab({
                               <button
                                 onClick={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
                                 className={cn(
-                                  'w-full overflow-hidden rounded-2xl border text-left transition-all',
+                                  'flex h-[180px] w-full flex-col overflow-hidden rounded-2xl border text-left transition-all',
                                   selectionMode && isSelected
                                     ? 'border-primary/70 bg-primary/5 ring-2 ring-primary/20'
                                     : 'border-white/40 bg-white/60',
                                   !selectionMode && 'hover:-translate-y-0.5',
                                 )}
                               >
-                                <div className="flex h-[110px] items-center justify-center bg-gray-50/60 p-2">
+                                <div className="flex h-[110px] shrink-0 items-center justify-center bg-gray-50/60 p-2">
                                   {item.image_url ? (
                                     <img src={item.image_url} alt="" className="h-full w-full object-contain" />
                                   ) : (
                                     <Sparkles className="size-5 text-muted-foreground/30" />
                                   )}
                                 </div>
-                                <div className="p-2">
+                                <div className="flex flex-1 flex-col p-2">
                                   {item.brand && <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground/40">{item.brand}</p>}
                                   <p className="line-clamp-2 text-[11px] font-medium leading-tight text-foreground/80">{item.name}</p>
-                                  {currentCabinet.has_scoring &&
-                                    (item.score != null ? (
-                                      <span className={cn('mt-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', scoreBadge(item.score))}>
-                                        {item.score}%
-                                      </span>
-                                    ) : (
-                                      <span className="mt-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] text-muted-foreground/50">
-                                        Не проверен
-                                      </span>
-                                    ))}
+                                  <div className="mt-auto">
+                                    {currentCabinet.has_scoring &&
+                                      (item.score != null ? (
+                                        <span className={cn('mt-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', scoreBadge(item.score))}>
+                                          {item.score}%
+                                        </span>
+                                      ) : (
+                                        <span className="mt-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] text-muted-foreground/50">
+                                          Не проверен
+                                        </span>
+                                      ))}
+                                  </div>
                                 </div>
                               </button>
 
@@ -418,43 +405,55 @@ export function ShelfTab({
                   )
                 })}
 
-                {/* Интерактивный узел «+» — последний пустой слот (выровнен с группами) */}
-                <div data-shelf-add-node className="flex flex-col">
-                  <div className="mb-1.5 flex h-4 items-center" aria-hidden />
-                  {addNodeOpen ? (
-                    <div className="flex items-center gap-3 rounded-2xl border border-dashed border-primary/30 bg-white/70 p-3 shadow-sm animate-shelf-card">
+                {/* Интерактивный узел «+» — последний пустой слот */}
+                <div data-shelf-add-node className="relative">
+                  <div className="rounded-2xl border border-dashed border-gray-300/70 p-2">
+                    <button
+                      onClick={() => setAddNodeOpen(true)}
+                      className="flex h-[180px] w-[130px] items-center justify-center text-muted-foreground/40 transition-colors hover:text-primary"
+                      aria-label="Добавить продукт"
+                    >
+                      <Plus className={cn('size-6 transition-transform', addNodeOpen && 'animate-shelf-plus-collapse')} />
+                    </button>
+                  </div>
+
+                  {/* Раскрытый узел: абсолютный overlay, не влияет на ширину полки */}
+                  {addNodeOpen && (
+                    <div className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2" style={{ width: 300, height: 240 }}>
+                      <svg className="absolute inset-0" viewBox="0 0 300 240" fill="none">
+                        {CLOUD_POS.map((pos, i) => (
+                          <line
+                            key={i}
+                            x1="150" y1="120" x2={pos.x} y2={pos.y}
+                            stroke="rgba(21, 21, 21, 0.18)" strokeWidth="1" strokeDasharray="3 3"
+                            className="animate-shelf-line" style={{ animationDelay: `${i * 40}ms` }}
+                          />
+                        ))}
+                      </svg>
                       <button
                         onClick={() => setAddNodeOpen(false)}
-                        className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105"
+                        className="animate-shelf-dot absolute left-1/2 top-1/2 z-10 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
                         aria-label="Закрыть"
                       >
-                        <X className="size-4" />
+                        <X className="size-3.5" />
                       </button>
-                      <div className="h-px w-5 shrink-0 bg-gradient-to-r from-primary/40 to-transparent" />
-                      <div className="flex flex-wrap items-center gap-2">
-                        {currentCabinet.categories.map((cat) => (
+                      {currentCabinet.categories.map((cat, i) => {
+                        const pos = CLOUD_POS[i % CLOUD_POS.length]
+                        return (
                           <button
                             key={cat.key}
                             onClick={() => { setAddNodeOpen(false); setAddContext({ cabinet: currentCabinet.key, category: cat.key }) }}
-                            className="animate-help-popover rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] text-foreground/70 shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
+                            className="animate-shelf-cloud absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] text-foreground/70 shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
+                            style={{ left: pos.x, top: pos.y, animationDelay: `${i * 40}ms` }}
                           >
                             {cat.title}
                           </button>
-                        ))}
-                      </div>
+                        )
+                      })}
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => setAddNodeOpen(true)}
-                      className="flex h-[176px] w-[130px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:border-primary/40 hover:text-primary"
-                      aria-label="Добавить продукт"
-                    >
-                      <Plus className="size-6" />
-                    </button>
                   )}
                 </div>
               </div>
-            )}
 
             {/* Полка: [ левый торец ][ центр ][ правый торец ] (без дублирующего названия зоны) */}
             <div className="shelf-plank pointer-events-none absolute inset-x-0 bottom-0 flex h-7 rounded-full">

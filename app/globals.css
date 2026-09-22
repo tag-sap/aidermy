@@ -966,3 +966,71 @@ body.modal-open main {
 .animate-shelf-card {
   animation: shelf-card-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* ============ SHELF «+» NODE ============ */
+
+/* Плюсик закручивается и схлопывается в точку. */
+@keyframes shelf-plus-collapse {
+  0% {
+    transform: rotate(0deg) scale(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: rotate(135deg) scale(0.2);
+    opacity: 0;
+  }
+}
+
+.animate-shelf-plus-collapse {
+  animation: shelf-plus-collapse 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Центральная точка появляется из плюсика. */
+@keyframes shelf-dot-in {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-shelf-dot {
+  animation: shelf-dot-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0.12s both;
+}
+
+/* Облачка категорий — radial reveal от центра. */
+@keyframes shelf-cloud-in {
+  from {
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 0;
+  }
+
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-shelf-cloud {
+  animation: shelf-cloud-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Линии-связи проявляются плавно. */
+@keyframes shelf-line-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-shelf-line {
+  animation: shelf-line-in 0.3s ease both;
+}
