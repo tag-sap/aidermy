@@ -18,7 +18,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
     <div className="flex flex-col">
       {/* HERO — нативное зацикленное видео */}
       <section
-        className="relative overflow-hidden bg-[#151515]"
+        className="relative bg-[#151515]"
         style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}
       >
         <video
@@ -45,7 +45,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
             </div>
             <button
               onClick={onAuth}
-              className="pointer-events-auto inline-flex shrink-0 items-center gap-2 self-start rounded-lg bg-[#F5C900] px-7 py-3.5 text-sm font-medium text-[#151515] transition-all hover:bg-[#FFD84D] active:scale-[0.98] md:self-auto"
+              className="pointer-events-auto inline-flex shrink-0 items-center gap-2 self-start rounded-lg bg-white px-7 py-3.5 text-sm font-medium text-[#151515] shadow-[0_8px_32px_rgba(0,0,0,0.35)] transition-all hover:bg-[#F7F3EA] active:scale-[0.98] translate-y-1/2 md:self-auto"
             >
               Начать
               <ArrowRight className="size-4" />

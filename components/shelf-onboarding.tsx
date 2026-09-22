@@ -105,6 +105,24 @@ export function ShelfOnboarding({
     }
   }, [step, current.target])
 
+  // Клик по подсвеченной цели (например, по вкладке) — авто-переход на следующий шаг.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      const el = (e.target as Element | null)?.closest?.(current.target)
+      if (!el) return
+      if (step === 'profile') {
+        onGoToProfile()
+        onNext('quiz')
+      } else if (step === 'shelf') {
+        onGoToShelf()
+        onNext('shelves')
+      }
+    }
+    document.addEventListener('click', onClick, { capture: true })
+    return () => document.removeEventListener('click', onClick, { capture: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, current.target])
+
   const handleCta = () => {
     if (step === 'profile') {
       onGoToProfile()
@@ -124,15 +142,15 @@ export function ShelfOnboarding({
   const placeBelow = rect ? rect.top < window.innerHeight * 0.55 : true
 
   return (
-    <div className="fixed inset-0 z-[90]">
+    <div className="pointer-events-none fixed inset-0 z-[90]">
       {rect ? (
         <>
           {/* Spotlight: 4 затемнённых прямоугольника вокруг цели — блокируют клики,
               оставляя саму цель кликабельной и подсвеченной. */}
-          <div className="absolute bg-black/60" style={{ top: 0, left: 0, right: 0, height: Math.max(rect.top, 0) }} />
-          <div className="absolute bg-black/60" style={{ top: rect.top + rect.height, left: 0, right: 0, bottom: 0 }} />
-          <div className="absolute bg-black/60" style={{ top: rect.top, left: 0, width: Math.max(rect.left, 0), height: rect.height }} />
-          <div className="absolute bg-black/60" style={{ top: rect.top, left: rect.left + rect.width, right: 0, height: rect.height }} />
+          <div className="pointer-events-auto absolute bg-black/60" style={{ top: 0, left: 0, right: 0, height: Math.max(rect.top, 0) }} />
+          <div className="pointer-events-auto absolute bg-black/60" style={{ top: rect.top + rect.height, left: 0, right: 0, bottom: 0 }} />
+          <div className="pointer-events-auto absolute bg-black/60" style={{ top: rect.top, left: 0, width: Math.max(rect.left, 0), height: rect.height }} />
+          <div className="pointer-events-auto absolute bg-black/60" style={{ top: rect.top, left: rect.left + rect.width, right: 0, height: rect.height }} />
           {/* Кольцо подсветки цели */}
           <div
             className="pointer-events-none absolute rounded-xl ring-4 ring-white"
@@ -140,11 +158,11 @@ export function ShelfOnboarding({
           />
         </>
       ) : (
-        <div className="absolute inset-0 bg-black/60" />
+        <div className="pointer-events-auto absolute inset-0 bg-black/60" />
       )}
 
       <div
-        className="absolute left-1/2 z-10 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-white p-4 shadow-2xl animate-modal-panel"
+        className="pointer-events-auto absolute left-1/2 z-10 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-white p-4 shadow-2xl animate-modal-panel"
         style={
           rect
             ? placeBelow

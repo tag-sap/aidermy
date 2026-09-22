@@ -34,7 +34,11 @@ export function TabBar({
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-30 bg-background/80 backdrop-blur-sm border-t border-gray-200/50 pb-[env(safe-area-inset-bottom,0px)]"
+      className={
+        isAuthenticated
+          ? 'fixed bottom-0 left-0 right-0 z-30 bg-background/80 backdrop-blur-sm border-t border-gray-200/50 pb-[env(safe-area-inset-bottom,0px)]'
+          : 'fixed bottom-0 left-0 right-0 z-30 bg-[#151515] border-t border-white/10 pb-[env(safe-area-inset-bottom,0px)]'
+      }
       aria-label="Основная навигация"
     >
       <div className="mx-auto flex w-full max-w-md items-end justify-around px-2 pt-2 pb-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
@@ -56,13 +60,15 @@ export function TabBar({
                   className={cn(
                     'tab-circle flex size-14 items-center justify-center rounded-full border',
                     isActive
-                      ? 'bg-primary text-primary-foreground border-primary shadow-[0_8px_24px_rgba(21,21,21,0.4)]'
+                      ? isAuthenticated
+                        ? 'bg-primary text-primary-foreground border-primary shadow-[0_8px_24px_rgba(21,21,21,0.4)]'
+                        : 'bg-[#F5C900] text-[#151515] border-[#F5C900] shadow-[0_8px_24px_rgba(245,201,0,0.4)]'
                       : 'bg-white text-muted-foreground border-gray-200/70 shadow-sm hover:border-primary/40 hover:text-primary'
                   )}
                 >
                   <Icon className="tab-circle-icon size-6" strokeWidth={2} />
                 </span>
-                <span className={cn('text-[9px] font-normal leading-none', isActive ? 'text-primary' : 'text-muted-foreground')}>
+                <span className={cn('text-[9px] font-normal leading-none', isActive ? (isAuthenticated ? 'text-primary' : 'text-white') : 'text-muted-foreground')}>
                   {label}
                 </span>
               </button>
