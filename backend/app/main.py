@@ -286,9 +286,9 @@ async def create_product_endpoint(
     current_user: dict = Depends(get_current_user_optional),
 ):
     try:
-        from .services import generate_slug
         from .ingredient_normalizer import canonicalize_ingredient_name
         from .shelf_service import normalize_imported_category
+        from .product_dedup import find_or_create_canonical_product
 
         brand = (request.brand or "").strip()
         name = (request.name or "").strip()
@@ -304,35 +304,31 @@ async def create_product_endpoint(
         if normalized:
             register_ingredients([{"raw": n, "normalized": n} for n in normalized])
 
-        slug = (request.slug or generate_slug(name)).strip() or generate_slug(name)
-        full_name = f"{brand}\n\n\n{name}" if brand else name
-
-        conn = get_connection(PRODUCTS_DB)
-        cursor = conn.cursor()
-
-        existing = cursor.execute(
-            "SELECT id, name, slug, brand, image_url, category, ingredients FROM products WHERE slug = ?",
-            (slug,),
-        ).fetchone()
-        if existing:
-            conn.close()
-            return {"success": True, "product": dict(existing), "duplicate": True}
-
+        slug = (request.slug or "").strip()
         category = normalize_imported_category("", name)
-        cursor.execute(
-            "INSERT INTO products (name, slug, ingredients, brand, category, saved_at) "
-            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-            (full_name, slug, ingredients_str, brand, category),
-        )
-        conn.commit()
-        product_id = cursor.lastrowid
-        saved = cursor.execute(
-            "SELECT id, name, slug, brand, image_url, category, ingredients FROM products WHERE id = ?",
-            (product_id,),
-        ).fetchone()
-        conn.close()
 
-        return {"success": True, "product": dict(saved), "duplicate": False}
+        saved = find_or_create_canonical_product({
+            "name": name,
+            "brand": brand or None,
+            "ingredients": ingredients_str,
+            "category": category,
+            "slug": slug or None,
+            "source_type": "manual",
+        })
+
+        return {
+            "success": True,
+            "product": {
+                "id": saved.get("id"),
+                "name": saved.get("name"),
+                "slug": saved.get("slug"),
+                "brand": saved.get("brand"),
+                "image_url": saved.get("image_url"),
+                "category": saved.get("category"),
+                "ingredients": saved.get("ingredients"),
+            },
+            "duplicate": not saved.get("is_new", True),
+        }
     except Exception as exc:
         print(f"❌ Ошибка создания продукта: {exc!r}")
         raise HTTPException(status_code=500, detail=f"Ошибка создания продукта: {str(exc)}") from exc
@@ -456,6 +452,28 @@ async def check_with_ingredients(
         print(f"❌ Ошибка: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка проверки: {str(e)}")
 
+@app.post("/api/review")
+async def generate_review(request: CheckWithIngredientsRequest):
+    """AI-рецензия ПО ЯВНОМУ ЗАПРОСУ пользователя.
+
+    Процент совместимости всегда считает детерминированный Score Engine.
+    AI только пишет понятное объяснение по готовому результату и НЕ меняет score.
+    """
+    try:
+        from .services import generate_ai_review
+
+        result = await generate_ai_review(
+            request.product_name,
+            request.skin_type,
+            request.profile.dict(),
+            request.ingredients,
+        )
+        return result
+    except Exception as exc:
+        print(f"❌ Ошибка AI-рецензии: {exc!r}")
+        raise HTTPException(status_code=500, detail="Не удалось сформировать рецензию") from exc
+
+
 @app.get("/api/popular-products")
 async def get_popular_products():
     """Возвращает популярные продукты из истории проверок или бренды из БД"""
@@ -518,6 +536,7 @@ async def get_popular_products():
         cursor_products.execute('''
             SELECT name, slug, image_url 
             FROM products 
+            WHERE is_canonical = 1
             ORDER BY RANDOM() 
             LIMIT 8
         ''')
@@ -551,7 +570,7 @@ async def get_catalog(
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    where = ["1=1"]
+    where = ["is_canonical = 1"]
     params = []
 
     if category:
@@ -601,7 +620,7 @@ async def get_catalog_letters():
     cursor.execute(f"""
         SELECT DISTINCT lower_ru(SUBSTR({TITLE_SQL}, 1, 1)) AS letter
         FROM products
-        WHERE name IS NOT NULL AND name != ''
+        WHERE is_canonical = 1 AND name IS NOT NULL AND name != ''
         ORDER BY letter
     """)
     letters = [row[0] for row in cursor.fetchall() if row[0] and row[0].isalnum()]
@@ -623,11 +642,11 @@ async def get_categories():
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
-    cursor.execute("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand != '' ORDER BY brand")
+    cursor.execute("SELECT DISTINCT brand FROM products WHERE is_canonical = 1 AND brand IS NOT NULL AND brand != '' ORDER BY brand")
     brands = {row[0] for row in cursor.fetchall() if row[0]}
     
     # Извлекаем бренды из названий (часть до переноса строки), чтобы не терять бренды
-    cursor.execute("SELECT name FROM products WHERE brand IS NULL OR brand = ''")
+    cursor.execute("SELECT name FROM products WHERE is_canonical = 1 AND (brand IS NULL OR brand = '')")
     category_lower = [kw.lower() for kw in CATEGORY_KEYWORDS]
     for (name,) in cursor.fetchall():
         if not name:
@@ -661,7 +680,7 @@ async def get_catalog_sections():
     cursor = conn.cursor()
 
     def fetch(section):
-        base = "SELECT name, slug, image_url, category, brand, ingredients FROM products WHERE image_url IS NOT NULL AND image_url != ''"
+        base = "SELECT name, slug, image_url, category, brand, ingredients FROM products WHERE is_canonical = 1 AND image_url IS NOT NULL AND image_url != ''"
         if section["type"] == "popular":
             cursor.execute(base + " ORDER BY id DESC LIMIT 10")
         elif section["type"] == "categories":

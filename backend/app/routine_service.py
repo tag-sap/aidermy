@@ -205,7 +205,8 @@ def _fetch_pool(categories: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         f"""
         SELECT id, name, slug, image_url, category, brand, ingredients
         FROM products
-        WHERE category IN ({placeholders})
+        WHERE is_canonical = 1
+          AND category IN ({placeholders})
           AND ingredients IS NOT NULL
           AND trim(ingredients) != ''
         """,

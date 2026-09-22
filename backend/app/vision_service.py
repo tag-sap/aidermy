@@ -240,7 +240,7 @@ def find_product_matches(ingredients: List[str], limit: int = 5) -> List[Dict[st
     cursor = conn.cursor()
     cursor.execute(
         "SELECT id, name, slug, brand, image_url, category, ingredients FROM products "
-        "WHERE ingredients IS NOT NULL AND TRIM(ingredients) != ''"
+        "WHERE is_canonical = 1 AND ingredients IS NOT NULL AND TRIM(ingredients) != ''"
     )
     rows = cursor.fetchall()
     conn.close()

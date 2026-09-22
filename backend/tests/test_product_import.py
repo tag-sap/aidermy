@@ -77,7 +77,7 @@ class ProductImportTests(unittest.TestCase):
             try:
                 conn = sqlite3.connect(database_path)
                 conn.row_factory = sqlite3.Row
-                conn.execute("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, slug TEXT UNIQUE, brand TEXT, ingredients TEXT, url TEXT, image_url TEXT, category TEXT, contributed_by INTEGER, saved_at TEXT)")
+                conn.execute("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, slug TEXT UNIQUE, brand TEXT, ingredients TEXT, url TEXT, incidecoder_url TEXT, image_url TEXT, category TEXT, volume TEXT, description TEXT, sku TEXT, price REAL, currency TEXT, source_type TEXT, contributed_by INTEGER, normalized_name TEXT, is_canonical INTEGER DEFAULT 1, canonical_id INTEGER, saved_at TEXT)")
                 conn.commit()
                 conn.close()
 

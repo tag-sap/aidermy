@@ -42,10 +42,12 @@ class ReviewUpdate(BaseModel):
 
 
 def _get_product_by_slug(slug: str) -> Optional[dict]:
+    from .database import _resolve_product_row
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM products WHERE slug = ?", (slug,))
     row = cursor.fetchone()
+    row = _resolve_product_row(conn, row)
     conn.close()
     return dict(row) if row else None
 

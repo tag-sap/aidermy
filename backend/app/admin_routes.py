@@ -381,14 +381,13 @@ def setup_admin_routes(app: FastAPI):
             pending = cursor.fetchone()
             
             if pending:
-                conn_products = get_connection(PRODUCTS_DB)
-                cursor_products = conn_products.cursor()
-                cursor_products.execute('''
-                    INSERT INTO products (name, ingredients, slug, saved_at)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                ''', (pending['product_name'], pending['ingredients'], pending['slug']))
-                conn_products.commit()
-                conn_products.close()
+                from .product_dedup import find_or_create_canonical_product
+                find_or_create_canonical_product({
+                    "name": pending['product_name'],
+                    "ingredients": pending['ingredients'],
+                    "slug": pending['slug'],
+                    "source_type": "catalog",
+                })
                 
                 cursor.execute('''
                     UPDATE pending_products 
@@ -463,14 +462,13 @@ def setup_admin_routes(app: FastAPI):
             conn.close()
             raise HTTPException(status_code=404, detail="Продукт не найден или уже обработан")
         
-        conn_products = get_connection(PRODUCTS_DB)
-        cursor_products = conn_products.cursor()
-        cursor_products.execute('''
-            INSERT INTO products (name, ingredients, slug, saved_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        ''', (pending['product_name'], pending['ingredients'], pending['slug']))
-        conn_products.commit()
-        conn_products.close()
+        from .product_dedup import find_or_create_canonical_product
+        find_or_create_canonical_product({
+            "name": pending['product_name'],
+            "ingredients": pending['ingredients'],
+            "slug": pending['slug'],
+            "source_type": "catalog",
+        })
         
         cursor.execute('''
             UPDATE pending_products 

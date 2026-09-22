@@ -262,6 +262,22 @@ def init_db():
             cursor.execute(f"ALTER TABLE products ADD COLUMN {column} TEXT")
     if "contributed_by" not in product_columns:
         cursor.execute("ALTER TABLE products ADD COLUMN contributed_by INTEGER")
+    # Поля для дедупликации товаров и canonical-merge.
+    for column, ddl in [
+        ("volume", "TEXT"),
+        ("description", "TEXT"),
+        ("sku", "TEXT"),
+        ("price", "REAL"),
+        ("currency", "TEXT"),
+        ("source_type", "TEXT"),
+        ("normalized_name", "TEXT"),
+        ("is_canonical", "INTEGER DEFAULT 1"),
+        ("canonical_id", "INTEGER"),
+    ]:
+        if column not in product_columns:
+            cursor.execute(f"ALTER TABLE products ADD COLUMN {column} {ddl}")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_normalized ON products (normalized_name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_canonical ON products (is_canonical, canonical_id)")
     conn.commit()
     conn.close()
     
@@ -269,64 +285,39 @@ def init_db():
 
 
 def upsert_imported_product(product: dict) -> dict:
-    """Save an imported product while preserving existing non-empty fields."""
+    """Save an imported product, deduplicating to a single canonical record.
+
+    Делегирует в product_dedup.find_or_create_canonical_product:
+    Normalization -> Similarity -> Matching -> Canonical Merge (без AI).
+    Возвращает canonical-строку products.
+    """
     name = (product.get("name") or "").strip()
     if not name:
         raise ValueError("Imported product has no name")
 
-    source_url = product.get("source_url")
-    brand = (product.get("brand") or "").strip() or None
-    conn = get_connection(PRODUCTS_DB)
-    cursor = conn.cursor()
-    existing = cursor.execute(
-        "SELECT * FROM products WHERE (? IS NOT NULL AND url = ?) OR (LOWER(name) = LOWER(?) AND COALESCE(LOWER(brand), '') = COALESCE(LOWER(?), '')) LIMIT 1",
-        (source_url, source_url, name, brand),
-    ).fetchone()
+    from .product_dedup import find_or_create_canonical_product
 
-    values = {
+    payload = {
         "name": name,
-        "brand": brand,
-        "ingredients": product.get("ingredients_raw"),
-        "url": source_url,
+        "brand": (product.get("brand") or "").strip() or None,
+        "ingredients": product.get("ingredients_raw") or product.get("ingredients"),
+        "url": product.get("source_url") or product.get("url"),
         "image_url": product.get("image_url"),
         "category": product.get("category"),
+        "volume": product.get("volume"),
+        "description": product.get("description"),
+        "sku": product.get("sku"),
+        "price": product.get("price"),
+        "currency": product.get("currency"),
+        "incidecoder_url": product.get("incidecoder_url"),
         "contributed_by": product.get("contributed_by"),
+        "source_type": product.get("source_type"),
+        "slug": product.get("slug"),
     }
-    if existing:
-        cursor.execute(
-            """UPDATE products SET
-                name = COALESCE(NULLIF(name, ''), ?),
-                brand = COALESCE(NULLIF(brand, ''), ?),
-                ingredients = COALESCE(NULLIF(ingredients, ''), ?),
-                url = COALESCE(NULLIF(url, ''), ?),
-                image_url = COALESCE(NULLIF(image_url, ''), ?),
-                category = COALESCE(NULLIF(category, ''), ?),
-                contributed_by = COALESCE(contributed_by, ?)
-            WHERE id = ?""",
-            (name, brand, values["ingredients"], values["url"], values["image_url"], values["category"], values["contributed_by"], existing["id"]),
-        )
-        product_id = existing["id"]
-        logger_message = "Existing product found"
-    else:
-        import re
-        slug = re.sub(r"[^a-zA-Z0-9\s-]", "", name)
-        slug = re.sub(r"[-\s]+", "-", slug).lower().strip("-") or "product"
-        cursor.execute("SELECT 1 FROM products WHERE slug = ?", (slug,))
-        if cursor.fetchone():
-            slug = f"{slug}-{abs(hash(source_url or name)) % 100000}"
-        cursor.execute(
-            """INSERT INTO products (name, slug, brand, ingredients, url, image_url, category, contributed_by, saved_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
-            (name, slug, values["brand"], values["ingredients"], values["url"], values["image_url"], values["category"], values["contributed_by"]),
-        )
-        product_id = cursor.lastrowid
-        logger_message = "Product normalized"
 
-    conn.commit()
-    row = cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    conn.close()
-    print(f"[SCRAPER] {logger_message}: {name}")
-    return dict(row)
+    result = find_or_create_canonical_product(payload)
+    print(f"[PRODUCT] {'merged' if result.get('was_merged') else 'created'}: {name}")
+    return result
 
 # === РАБОТА С ИСТОРИЕЙ ===
 # database.py
@@ -612,7 +603,8 @@ def search_products(query: str, limit: int = 10):
     
     cursor.execute('''
         SELECT DISTINCT name, slug FROM products
-        WHERE LOWER(REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '')) LIKE ?
+        WHERE is_canonical = 1
+          AND LOWER(REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '')) LIKE ?
         ORDER BY name
         LIMIT ?
     ''', (f'%{clean_query}%', limit))
@@ -626,6 +618,7 @@ def get_all_products(limit: int = 100):
     cursor = conn.cursor()
     cursor.execute('''
         SELECT * FROM products 
+        WHERE is_canonical = 1
         ORDER BY id DESC 
         LIMIT ?
     ''', (limit,))
@@ -636,26 +629,39 @@ def get_all_products(limit: int = 100):
 def get_product_count():
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) as count FROM products')
+    cursor.execute('SELECT COUNT(*) as count FROM products WHERE is_canonical = 1')
     row = cursor.fetchone()
     conn.close()
     return row['count'] if row else 0
+
+
+def _resolve_product_row(conn, row):
+    """Если строка — source/merged, возвращает canonical-строку."""
+    if row and row["canonical_id"]:
+        canon = conn.execute(
+            "SELECT * FROM products WHERE id = ?", (row["canonical_id"],)
+        ).fetchone()
+        if canon:
+            return canon
+    return row
+
 
 def get_product_by_slug(slug: str):
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM products WHERE slug = ?', (slug,))
     row = cursor.fetchone()
+    row = _resolve_product_row(conn, row)
     conn.close()
     return dict(row) if row else None
 
 def product_exists_in_products_db(product_name: str) -> bool:
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM products WHERE name = ?", (product_name,))
-    exists = cursor.fetchone() is not None
+    cursor.execute("SELECT id, canonical_id FROM products WHERE name = ? LIMIT 1", (product_name,))
+    row = cursor.fetchone()
     conn.close()
-    return exists
+    return row is not None
 
 # === ПОЛКА (SHELF) ===
 def get_product_by_id(product_id: int):
@@ -663,6 +669,7 @@ def get_product_by_id(product_id: int):
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,))
     row = cursor.fetchone()
+    row = _resolve_product_row(conn, row)
     conn.close()
     return dict(row) if row else None
 

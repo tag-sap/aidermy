@@ -294,7 +294,6 @@ export function ShelfTab({
                 <div key={cat.key}>
                   <div className="mb-2 flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground/60">{cat.title}</h3>
                       {currentCabinet.has_scoring && cat.compatibility != null && (
                         <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">{cat.compatibility}%</span>
                       )}
@@ -339,7 +338,7 @@ export function ShelfTab({
                     >
                       {/* Карточки — отдельные UI-элементы, лежат поверх полки */}
                       <div className={cn(
-                        'no-scrollbar relative z-10 flex gap-2.5 overflow-x-auto px-4 pb-[14px] pt-1',
+                        'no-scrollbar relative z-10 flex gap-2.5 overflow-x-auto px-4 pb-7 pt-1',
                         shelfOverflows(cat.items.length) ? 'justify-start' : 'justify-center',
                       )}>
                         {cat.items.map((item, idx) => {
@@ -407,11 +406,16 @@ export function ShelfTab({
                         })}
                       </div>
 
-                      {/* Полка: [ левый торец ][ центр — динамическая ширина ][ правый торец ] */}
-                      <div className="shelf-plank pointer-events-none absolute inset-x-0 bottom-0 flex h-[14px] rounded-full">
-                        <div className="shelf-surface rounded-l-full" style={{ width: SHELF_EDGE }} />
-                        <div className="shelf-surface flex-1" />
-                        <div className="shelf-surface rounded-r-full" style={{ width: SHELF_EDGE }} />
+                      {/* Полка: [ левый торец ][ центр — динамическая ширина ][ правый торец ].
+                          Название категории — маркировка по центру самой полки. */}
+                      <div className="shelf-plank pointer-events-none absolute inset-x-0 bottom-0 flex h-7 rounded-full">
+                        <div className="shelf-surface h-full rounded-l-full" style={{ width: SHELF_EDGE }} />
+                        <div className="shelf-surface flex h-full flex-1 items-center justify-center overflow-hidden px-2">
+                          <span className="select-none truncate text-[9px] font-medium uppercase tracking-[0.22em] text-foreground/35">
+                            {cat.title}
+                          </span>
+                        </div>
+                        <div className="shelf-surface h-full rounded-r-full" style={{ width: SHELF_EDGE }} />
                       </div>
                     </div>
                   )}

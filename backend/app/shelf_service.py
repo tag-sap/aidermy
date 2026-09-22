@@ -482,7 +482,7 @@ def _query_candidates(cabinet: str, category: str) -> List[Dict[str, Any]]:
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
 
-    select = "SELECT id, name, slug, image_url, category, brand, ingredients FROM products WHERE 1=1"
+    select = "SELECT id, name, slug, image_url, category, brand, ingredients FROM products WHERE is_canonical = 1"
     params: List[Any] = []
     if cabinet_applies_scoring(cabinet):
         select += " AND ingredients IS NOT NULL AND trim(ingredients) != ''"

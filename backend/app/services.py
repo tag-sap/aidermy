@@ -220,22 +220,10 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         if float(deterministic.get("confidence") or 0.0) <= 0 and added > 0:
             deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
 
+    # Итоговое резюме — детерминированное (build_summary). AI-рецензия (summary) НЕ
+    # вызывается здесь автоматически: она доступна только по явному запросу через
+    # generate_ai_review() / эндпоинт /api/review. Процент всегда детерминированный.
     summary = deterministic.get('summary') or 'Не удалось получить рекомендацию.'
-
-    # AI #3 — Summary: ТОЛЬКО ПОСЛЕ scoring. Пишет объяснение, не меняет score.
-    if DEEPSEEK_API_KEY:
-        try:
-            from .ai_summary import summarize_with_ai
-            ai_summary = await summarize_with_ai(
-                product_name,
-                int(deterministic.get('score') or 0),
-                deterministic,
-                profile,
-            )
-            if ai_summary:
-                summary = ai_summary
-        except Exception as exc:
-            print(f"[SUMMARY] AI failed: {exc!r}")
 
     return {
         'score': int(deterministic.get('score') or 0),
@@ -247,6 +235,37 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'how_to_use': (enrichment or {}).get('how_to_use'),
         'expectations': (enrichment or {}).get('expectations'),
         'ingredient_claims': (enrichment or {}).get('ingredient_claims') or [],
+    }
+
+
+async def generate_ai_review(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
+    """AI-рецензия ПО ЯВНОМУ ЗАПРОСУ: score считает детерминированный движок,
+    а AI только пишет понятное объяснение. Процент не меняет."""
+    from .decision_engine import DecisionEngine
+
+    profile = profile or {}
+    engine = DecisionEngine()
+    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+    score = int(deterministic.get('score') or 0)
+
+    review = deterministic.get('summary') or ''
+    if DEEPSEEK_API_KEY:
+        try:
+            from .ai_summary import summarize_with_ai
+            ai_summary = await summarize_with_ai(product_name, score, deterministic, profile)
+            if ai_summary:
+                review = ai_summary
+        except Exception as exc:
+            print(f"[REVIEW] AI failed: {exc!r}")
+
+    return {
+        'score': score,
+        'verdict': deterministic.get('verdict') or 'Требует внимания',
+        'summary': review,
+        'safe_ingredients': deterministic.get('safe_ingredients') or [],
+        'caution_ingredients': deterministic.get('caution_ingredients') or [],
+        'positive_factors': deterministic.get('positive_factors') or [],
+        'negative_factors': deterministic.get('negative_factors') or [],
     }
 
 async def _enrich_with_ai(product_name: str, ingredients: str, skin_type: str, profile: dict) -> dict | None:
@@ -362,7 +381,7 @@ def search_products(query: str) -> List[dict]:
     cursor = conn.cursor()
     
     cursor.execute(
-        "SELECT name, slug, image_url, ingredients FROM products WHERE LOWER(name) = ? LIMIT 1",
+        "SELECT name, slug, image_url, ingredients FROM products WHERE is_canonical = 1 AND LOWER(name) = ? LIMIT 1",
         (q,)
     )
     row = cursor.fetchone()
@@ -373,11 +392,11 @@ def search_products(query: str) -> List[dict]:
     words = q.split()
     if len(words) == 1:
         cursor.execute(
-            "SELECT name, slug, image_url, ingredients FROM products WHERE LOWER(name) LIKE ? LIMIT 20",
+            "SELECT name, slug, image_url, ingredients FROM products WHERE is_canonical = 1 AND LOWER(name) LIKE ? LIMIT 20",
             (f"%{q}%",)
         )
     else:
-        conditions = []
+        conditions = ["is_canonical = 1"]
         params = []
         for word in words:
             conditions.append("LOWER(name) LIKE ?")
