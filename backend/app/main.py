@@ -959,12 +959,11 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
         if s["product_id"] == product["id"]:
             return {"status": "ok", "duplicate": True, "item": {"id": s["id"], "product_id": product["id"]}}
 
-    # Товар на полке должен быть проверен: запускаем проверку до добавления.
-    if (CABINET_BY_KEY.get(cabinet) or {}).get("compatibility"):
-        score, _analysis = await _ensure_product_checked(current_user, product)
-        if score is None:
-            raise HTTPException(status_code=422, detail="Не удалось проверить состав продукта — проверьте его вручную перед добавлением.")
-
+    # Добавление на полку — максимально простая операция (без AI и повторного анализа):
+    #   Product ID + Shelf/Category → DB insert → response.
+    # Индивидуальный score товара берётся из истории проверок при загрузке полки;
+    # здесь он НЕ пересчитывается. Совместимость ухода пересчитывается детерминированно
+    # на GET /api/shelf (Shelf Compatibility Engine, без AI).
     item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet)
     return {"status": "ok", "duplicate": False, "item": item}
 

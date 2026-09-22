@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, LoaderCircle, Sparkles, X, Check, ListChecks } from 'lucide-react'
+import { Plus, LoaderCircle, Sparkles, X, Check, ListChecks, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ShelfItem } from '@/lib/shelf'
 import type { CheckResult } from '@/lib/store'
@@ -15,6 +15,12 @@ type Cabinet = {
   title: string
   has_scoring: boolean
   compatibility: number | null
+  compatibility_details?: {
+    base: number | null
+    conflicts: { label: string; products: string[]; a: string[]; b: string[] }[]
+    duplicate_actives: { ingredient: string; count: number }[]
+    coverage: { present: string[]; missing: string[] }
+  } | null
   categories: Category[]
 }
 
@@ -72,6 +78,7 @@ export function ShelfTab({
   const [removalReason, setRemovalReason] = useState('')
   const [removalNote, setRemovalNote] = useState('')
   const [removing, setRemoving] = useState(false)
+  const [compatInfoOpen, setCompatInfoOpen] = useState(false)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
@@ -260,11 +267,54 @@ export function ShelfTab({
                 </button>
               )}
               {currentCabinet.has_scoring && (
-                <div className="text-right">
-                  <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50">Совместимость ухода</p>
-                  <p className={cn('text-lg font-light', currentCabinet.compatibility != null ? 'text-primary' : 'text-muted-foreground/40')}>
-                    {currentCabinet.compatibility != null ? `${currentCabinet.compatibility}%` : '—'}
-                  </p>
+                <div className="min-w-[190px] max-w-[260px] flex-1 sm:flex-none">
+                  <div className="flex items-center justify-end gap-1">
+                    <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50">Совместимость ухода</p>
+                    <button
+                      onClick={() => setCompatInfoOpen((v) => !v)}
+                      className="relative flex size-4 items-center justify-center rounded-full text-muted-foreground/40 transition-colors hover:text-primary"
+                      aria-label="Что такое совместимость ухода"
+                    >
+                      <Info className="size-3.5" />
+                      {compatInfoOpen && currentCabinet.compatibility_details && (
+                        <div
+                          className="absolute right-0 top-5 z-30 w-64 rounded-xl border border-gray-200 bg-white p-3 text-left shadow-xl animate-modal-panel"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <p className="text-[11px] font-medium text-foreground">Совместимость ухода</p>
+                          <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground/70">
+                            Насколько продукты сочетаются между собой, а не с вашей кожей.
+                          </p>
+                          {currentCabinet.compatibility_details.conflicts.length > 0 && (
+                            <div className="mt-2 border-t border-gray-100 pt-2">
+                              {currentCabinet.compatibility_details.conflicts.map((c, i) => (
+                                <p key={i} className="mt-1 text-[10px] text-foreground/70">
+                                  <span className="text-red-500">⚠</span> {c.label}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          {currentCabinet.compatibility_details.duplicate_actives.length > 0 && (
+                            <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                              Повторяются: {currentCabinet.compatibility_details.duplicate_actives.slice(0, 4).map((d) => d.ingredient).join(', ')}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </button>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200/60">
+                      <div
+                        className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+                        style={{ width: `${currentCabinet.compatibility ?? 0}%` }}
+                      />
+                    </div>
+                    <span className={cn('text-lg font-light tabular-nums', currentCabinet.compatibility != null ? 'text-primary' : 'text-muted-foreground/40')}>
+                      {currentCabinet.compatibility != null ? `${currentCabinet.compatibility}%` : '—'}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-right text-[9px] text-muted-foreground/40">Как сочетаются между собой</p>
                 </div>
               )}
             </div>

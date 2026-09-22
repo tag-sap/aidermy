@@ -463,13 +463,20 @@ def _aggregate_scores(items: List[Dict[str, Any]]) -> Optional[int]:
 
 
 def compute_cabinet_compatibility(user: Dict[str, Any], items: List[Dict[str, Any]]) -> Optional[int]:
-    """Агрегированная оценка шкафа в совокупности.
+    """Совместимость ухода шкафа — отдельный детерминированный Shelf Compatibility Engine.
 
-    Использует существующие compatibility scores продуктов (см. score_product):
-    это реальные оценки из проверок пользователя, а не независимый движок.
-    Не подставляет случайное значение при отсутствии анализа.
+    Это НЕ среднее арифметическое индивидуальных процентов: учитываются pairwise-
+    конфликты активов, дублирование функций, нагрузка на кожу и покрытие этапов ухода.
     """
-    return _aggregate_scores(items)
+    from .shelf_compatibility import compute_shelf_compatibility
+    result = compute_shelf_compatibility(items)
+    return result["score"]
+
+
+def compute_cabinet_compatibility_details(user: Dict[str, Any], items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Полный результат Shelf Compatibility Engine (для UI: причины/шкала)."""
+    from .shelf_compatibility import compute_shelf_compatibility
+    return compute_shelf_compatibility(items)
 # ---------------------------------------------------------------------------
 # ПОДБОР (рекомендации)
 # ---------------------------------------------------------------------------
@@ -773,12 +780,17 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
                 "compatibility": _aggregate_scores(other_items) if cab["compatibility"] else None,
             })
 
-        compatibility = compute_cabinet_compatibility(user, cab_items) if cab["compatibility"] else None
+        compatibility = None
+        compatibility_details = None
+        if cab["compatibility"]:
+            compatibility = compute_cabinet_compatibility(user, cab_items)
+            compatibility_details = compute_cabinet_compatibility_details(user, cab_items)
         cabinets.append({
             "key": cab["key"],
             "title": cab["title"],
             "has_scoring": bool(cab["compatibility"]),
             "compatibility": compatibility,
+            "compatibility_details": compatibility_details,
             "categories": categories,
         })
 
