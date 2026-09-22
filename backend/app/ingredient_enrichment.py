@@ -70,6 +70,9 @@ async def enrich_unknown_ingredients(
 
     Возвращает количество успешно сохранённых ингредиентов.
     """
+    import time as _time
+
+    _t0 = _time.perf_counter()
     if not unknown:
         return 0
 
@@ -87,11 +90,16 @@ async def enrich_unknown_ingredients(
         return 0
 
     if not DEEPSEEK_API_KEY:
+        print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  no API key -> skip")
         return 0
 
     import httpx
 
-    for model_name in DEEPSEEK_MODEL_FALLBACKS:
+    prompt = _prompt(unknown)
+    print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  prompt ready  unknown_count={len(unknown)} prompt_len={len(prompt)}")
+
+    for attempt, model_name in enumerate(DEEPSEEK_MODEL_FALLBACKS):
+        _req_t0 = _time.perf_counter()
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -102,22 +110,28 @@ async def enrich_unknown_ingredients(
                     },
                     json={
                         "model": model_name,
-                        "messages": [{"role": "user", "content": _prompt(unknown)}],
+                        "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.2,
                         "max_tokens": 3000,
                     },
                     timeout=60,
                 )
+            _req_t1 = _time.perf_counter()
+            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  model={model_name} request+wait={(_req_t1-_req_t0)*1000:.1f}ms status={response.status_code}")
             if response.status_code != 200:
                 continue
             data = response.json()
             content = data["choices"][0]["message"]["content"]
+            _parse_t0 = _time.perf_counter()
             result = extract_json_from_response(content)
+            _parse_t1 = _time.perf_counter()
+            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  parse={(_parse_t1-_parse_t0)*1000:.1f}ms response_len={len(content or '')}")
             records = result if isinstance(result, list) else (result.get("ingredients") if isinstance(result, dict) else None)
             if not isinstance(records, list):
                 continue
 
             saved = 0
+            _save_t0 = _time.perf_counter()
             for record in records:
                 if not isinstance(record, dict):
                     continue
@@ -138,10 +152,12 @@ async def enrich_unknown_ingredients(
 
                 if repo.save_enriched_ingredient(record):
                     saved += 1
+            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  saved={saved} db_write={(_time.perf_counter()-_save_t0)*1000:.1f}ms")
             return saved
         except Exception as exc:
-            print(f"[ENRICH] AI enrichment {model_name} failed: {exc}")
+            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  model={model_name} FAILED after={(_time.perf_counter()-_req_t0)*1000:.1f}ms exc={exc!r}")
             continue
 
+    print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  all models failed, total")
     return 0
 
