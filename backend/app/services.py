@@ -193,11 +193,23 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     from .decision_engine import DecisionEngine
 
     engine = DecisionEngine()
+
+    # AI #2 — Ingredient Enrichment: только для ингредиентов, которых нет в Ingredient DB.
+    if DEEPSEEK_API_KEY:
+        try:
+            from .ingredient_enrichment import find_unknown_ingredients, enrich_unknown_ingredients
+            prepared = engine.analysis_service.prepare_product_ingredients(ingredients)
+            unknown = find_unknown_ingredients(prepared)
+            if unknown:
+                await enrich_unknown_ingredients(unknown)
+        except Exception as exc:
+            print(f"[CHECK] ingredient enrichment failed: {exc!r}")
+
     deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
 
     # AI используется ТОЛЬКО для обогащения (active_ingredients / how_to_use /
-    # expectations / ingredient_claims). Финальный score/verdict/summary всегда
-    # берётся из deterministic scoring engine.
+    # expectations / ingredient_claims). Финальный score/verdict всегда берётся
+    # из deterministic scoring engine.
     enrichment = await _enrich_with_ai(product_name, ingredients, skin_type, profile) if DEEPSEEK_API_KEY else None
 
     if enrichment:
@@ -208,10 +220,27 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         if float(deterministic.get("confidence") or 0.0) <= 0 and added > 0:
             deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
 
+    summary = deterministic.get('summary') or 'Не удалось получить рекомендацию.'
+
+    # AI #3 — Summary: ТОЛЬКО ПОСЛЕ scoring. Пишет объяснение, не меняет score.
+    if DEEPSEEK_API_KEY:
+        try:
+            from .ai_summary import summarize_with_ai
+            ai_summary = await summarize_with_ai(
+                product_name,
+                int(deterministic.get('score') or 0),
+                deterministic,
+                profile,
+            )
+            if ai_summary:
+                summary = ai_summary
+        except Exception as exc:
+            print(f"[SUMMARY] AI failed: {exc!r}")
+
     return {
         'score': int(deterministic.get('score') or 0),
         'verdict': deterministic.get('verdict') or 'Требует внимания',
-        'summary': deterministic.get('summary') or 'Не удалось получить рекомендацию.',
+        'summary': summary,
         'safe_ingredients': deterministic.get('safe_ingredients') or [],
         'caution_ingredients': deterministic.get('caution_ingredients') or [],
         'active_ingredients': (enrichment or {}).get('active_ingredients'),
@@ -219,6 +248,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'expectations': (enrichment or {}).get('expectations'),
         'ingredient_claims': (enrichment or {}).get('ingredient_claims') or [],
     }
+
 async def _enrich_with_ai(product_name: str, ingredients: str, skin_type: str, profile: dict) -> dict | None:
     """AI-обогащение данных о составе.
 

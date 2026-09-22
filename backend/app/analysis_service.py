@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingredient_name
 from .ingredient_repository import IngredientRepository
-from .scoring_engine import score_product_against_profile
+from .scoring_engine import apply_hard_filters, score_product_against_profile
 
 
 class AnalysisService:
@@ -20,9 +20,20 @@ class AnalysisService:
             items = [canonicalize_ingredient_name(item) for item in raw_ingredients]
         return [item for item in items if item]
 
+    def find_unknown_ingredients(self, ingredients: str | List[str]) -> List[str]:
+        """Ингредиенты, которых нет в Ingredient DB (для AI #2 Enrichment)."""
+        from .ingredient_enrichment import find_unknown_ingredients
+
+        normalized = self.prepare_product_ingredients(ingredients)
+        return find_unknown_ingredients(normalized, self.repository)
+
     def analyze(self, product_name: str, ingredients: str | List[str], user_profile: Dict[str, Any], priorities: Dict[str, float]):
         normalized_ingredients = self.prepare_product_ingredients(ingredients)
         knowledge = self.repository.get_knowledge_map()
+
+        # Hard filters выполняются ДО скоринга: если есть нарушения — товар исключён.
+        hard_filters = apply_hard_filters(user_profile, normalized_ingredients)
+
         result = score_product_against_profile(
             ingredients=normalized_ingredients,
             knowledge=knowledge,
@@ -31,4 +42,6 @@ class AnalysisService:
         )
         result['product_name'] = product_name
         result['normalized_ingredients'] = normalized_ingredients
+        result['hard_filters'] = hard_filters
+        result['excluded'] = bool(hard_filters)
         return result

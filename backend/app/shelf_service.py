@@ -559,6 +559,23 @@ def _allergy_conflict(ingredients: str, allergies: List[str]) -> bool:
     return False
 
 
+def _hard_filter_exclusion(profile: Dict[str, Any], ingredients: str) -> bool:
+    """Жёсткие фильтры ДО скоринга: категории непереносимости + structured restrictions.
+
+    Совмещает два механизма:
+      1. _allergy_conflict — категории фронтенда («Отдушки», «Спирт»…) по синонимам;
+      2. apply_hard_filters — конкретные жёсткие исключения/аллергии из Structured Profile.
+    """
+    if _allergy_conflict(ingredients, profile.get("allergies") or []):
+        return True
+    try:
+        from .scoring_engine import apply_hard_filters
+    except Exception:
+        return False
+    raw_items = [p.strip() for p in re.split(r"[,;\n]+", ingredients or "") if p.strip()]
+    return bool(apply_hard_filters(profile, raw_items))
+
+
 def recommend_products(
     user: Dict[str, Any],
     cabinet: str,
@@ -598,6 +615,20 @@ def recommend_products(
         "custom_text": _custom,
     }
 
+    # Structured User Profile (если есть) дополняет raw-поля ограничениями
+    # restrictions/intolerances/allergies и personal_weights.
+    try:
+        from .database import get_structured_profile
+        structured = get_structured_profile(user["id"]) or {}
+    except Exception:
+        structured = {}
+    profile["restrictions"] = structured.get("restrictions") or []
+    profile["intolerances"] = structured.get("intolerances") or []
+    structured_allergies = structured.get("allergies") or []
+    for a in structured_allergies:
+        if a not in profile["allergies"]:
+            profile["allergies"].append(a)
+
     candidates = _query_candidates(cabinet, category)
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
     keywords = rule.get("keywords") or []
@@ -625,8 +656,8 @@ def recommend_products(
         if not compatible:
             continue
 
-        # Жёсткое ограничение: непереносимость ингредиента из профиля.
-        if _allergy_conflict(product.get("ingredients") or "", profile["allergies"]):
+        # Жёсткие фильтры ДО скоринга: категории непереносимости + structured restrictions.
+        if _hard_filter_exclusion(profile, product.get("ingredients") or ""):
             continue
 
         rec: Dict[str, Any] = {

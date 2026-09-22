@@ -24,6 +24,7 @@ from .auth import (
     resend_verification,
 )
 from .services import generate_slug
+from .profile_structuring import structure_profile_with_ai, serialize_structured
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -387,11 +388,32 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
                 custom_text TEXT,
                 quiz_answers TEXT,
                 skin_type_determined TEXT,
+                structured_profile TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         ''')
+
+    # Миграция: в старых БД могло не быть колонки structured_profile.
+    _profile_cols = {r[1] for r in cursor.execute("PRAGMA table_info(user_profiles)").fetchall()}
+    if "structured_profile" not in _profile_cols:
+        cursor.execute("ALTER TABLE user_profiles ADD COLUMN structured_profile TEXT")
     
+    # AI #1 — Profile Structuring: анкета -> Structured User Profile -> БД.
+    struct_input = {
+        "skin_type": profile.get("skinType"),
+        "skin_type_determined": profile.get("skinTypeDetermined"),
+        "concerns": profile.get("concerns") or [],
+        "allergies": profile.get("allergies") or [],
+        "custom_text": profile.get("customText"),
+    }
+    try:
+        structured = await structure_profile_with_ai(struct_input)
+    except Exception as exc:
+        print(f"[PROFILE] structuring failed: {exc!r}")
+        structured = None
+    structured_json = serialize_structured(structured) if structured else None
+
     # Сначала проверяем, есть ли запись
     cursor.execute("SELECT id FROM user_profiles WHERE user_id = ?", (user_id,))
     existing = cursor.fetchone()
@@ -408,6 +430,7 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
                 custom_text = ?,
                 quiz_answers = ?,
                 skin_type_determined = ?,
+                structured_profile = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id = ?
         ''', (
@@ -419,13 +442,14 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
             profile.get('customText'),
             json.dumps(profile.get('quizAnswers', {})),
             profile.get('skinTypeDetermined'),
+            structured_json,
             user_id
         ))
     else:
         # Вставляем
         cursor.execute('''
-            INSERT INTO user_profiles (user_id, name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO user_profiles (user_id, name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined, structured_profile)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             user_id,
             profile.get('name'),
@@ -435,7 +459,8 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
             ','.join(profile.get('allergies', [])),
             profile.get('customText'),
             json.dumps(profile.get('quizAnswers', {})),
-            profile.get('skinTypeDetermined')
+            profile.get('skinTypeDetermined'),
+            structured_json
         ))
     
     conn.commit()

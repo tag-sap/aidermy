@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Tuple
 
+from .ingredient_normalizer import normalize_ingredient_name
+
 
 def clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, value))
@@ -13,6 +15,56 @@ def calculate_position_weight(position: int, total: int) -> float:
         return 1.0
     normalized = position / max(total, 1)
     return clamp(1.2 - normalized * 0.7)
+
+
+def _ingredient_matches(item: str, ingredients: List[str]) -> bool:
+    """Проверяет, входит ли ограничение item в состав (по нормализованному имени).
+
+    Точное вхождение или подстрока — чтобы «niacinamide» ловил «Niacinamide 10%».
+    """
+    key = normalize_ingredient_name(item)
+    if not key:
+        return False
+    for ingredient in ingredients:
+        ni = normalize_ingredient_name(ingredient)
+        if not ni:
+            continue
+        if key == ni or key in ni or ni in key:
+            return True
+    return False
+
+
+def apply_hard_filters(user_profile: Dict[str, Any], ingredients: List[str]) -> List[Dict[str, Any]]:
+    """Жёсткие фильтры: выполняются ДО расчёта обычного процента.
+
+    Проверяет:
+      - restrictions — жёсткие исключения (товар исключается);
+      - allergies — заявленные аллергии (товар исключается).
+
+    Возвращает список нарушений. Пустой список = товар проходит hard filters.
+    """
+    violations: List[Dict[str, Any]] = []
+    valid = [i for i in ingredients if i and str(i).strip()]
+
+    for item in user_profile.get('restrictions') or []:
+        if _ingredient_matches(item, valid):
+            violations.append({
+                'type': 'restriction',
+                'ingredient': item,
+                'severity': 'exclude',
+                'message': f'Ingredient {item} is a hard exclusion for this user.',
+            })
+
+    for item in user_profile.get('allergies') or []:
+        if _ingredient_matches(item, valid):
+            violations.append({
+                'type': 'allergy',
+                'ingredient': item,
+                'severity': 'exclude',
+                'message': f'Ingredient {item} matches a reported allergy.',
+            })
+
+    return violations
 
 
 def score_product_against_profile(
@@ -41,6 +93,7 @@ def score_product_against_profile(
     hard_flags: List[Dict[str, Any]] = []
 
     allergies = {str(item).strip().lower() for item in user_profile.get('allergies', [])}
+    intolerances = {normalize_ingredient_name(item) for item in user_profile.get('intolerances', [])}
     concerns = {str(item).strip().lower() for item in user_profile.get('concerns', [])}
 
     for index, ingredient in enumerate(valid_ingredients, start=1):
@@ -90,6 +143,29 @@ def score_product_against_profile(
                     'confidence': confidence,
                     'position_weight': round(position_weight, 3),
                 })
+
+    # Непереносимости — МЯГКИЙ негативный вклад (в отличие от hard exclusion):
+    # снижают score, но не исключают товар.
+    for item in user_profile.get('intolerances') or []:
+        key = normalize_ingredient_name(item)
+        if not key:
+            continue
+        matched = False
+        for ingredient in valid_ingredients:
+            ni = normalize_ingredient_name(ingredient)
+            if ni and (key == ni or key in ni or ni in key):
+                matched = True
+                break
+        if matched:
+            negative_factors.append({
+                'ingredient': item,
+                'property': 'sensitivity',
+                'direction': 'negative',
+                'strength': 0.7,
+                'confidence': 0.7,
+                'position_weight': 1.0,
+            })
+            dimensions['sensitivity'] = dimensions.get('sensitivity', 0.0) - 0.7
 
     if interaction_knowledge:
         for key, interaction in interaction_knowledge.items():

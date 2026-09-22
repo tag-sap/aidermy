@@ -391,10 +391,13 @@ def get_user_profile(user_id: int):
     has_profiles = cursor.fetchone() is not None
 
     if has_profiles:
+        profile_cols = {r[1] for r in cursor.execute("PRAGMA table_info(user_profiles)").fetchall()}
+        select_cols = "name, skin_type, age, concerns, allergies, custom_text, quiz_answers, skin_type_determined"
+        if "structured_profile" in profile_cols:
+            select_cols += ", structured_profile"
         cursor.execute(
-            """
-            SELECT name, skin_type, age, concerns, allergies, custom_text,
-                   quiz_answers, skin_type_determined
+            f"""
+            SELECT {select_cols}
             FROM user_profiles
             WHERE user_id = ?
             ORDER BY updated_at DESC, id DESC
@@ -405,7 +408,7 @@ def get_user_profile(user_id: int):
         row = cursor.fetchone()
         if row:
             conn.close()
-            return {
+            result = {
                 "name": row["name"] or "",
                 "skin_type": row["skin_type"] or "",
                 "age": row["age"] or "",
@@ -415,6 +418,9 @@ def get_user_profile(user_id: int):
                 "quiz_answers": row["quiz_answers"] or "",
                 "skin_type_determined": row["skin_type_determined"] or "",
             }
+            if "structured_profile" in profile_cols:
+                result["structured_profile"] = row["structured_profile"] or ""
+            return result
 
     cursor.execute(
         "SELECT name, skin_type, age, concerns, allergies, custom_text FROM users WHERE id = ?",
@@ -443,6 +449,36 @@ def get_user_profile(user_id: int):
         "quiz_answers": "",
         "skin_type_determined": "",
     }
+
+
+def get_structured_profile(user_id: int):
+    """Возвращает структурированный профиль пользователя (JSON -> dict) или None."""
+    from .profile_structuring import deserialize_structured
+
+    profile = get_user_profile(user_id)
+    return deserialize_structured(profile.get("structured_profile"))
+
+
+def save_structured_profile(user_id: int, structured: dict) -> bool:
+    """Сохраняет Structured User Profile в колонку user_profiles.structured_profile."""
+    from .profile_structuring import serialize_structured
+
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'")
+    if not cursor.fetchone():
+        conn.close()
+        return False
+    cols = {r[1] for r in cursor.execute("PRAGMA table_info(user_profiles)").fetchall()}
+    if "structured_profile" not in cols:
+        cursor.execute("ALTER TABLE user_profiles ADD COLUMN structured_profile TEXT")
+    cursor.execute(
+        "UPDATE user_profiles SET structured_profile = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+        (serialize_structured(structured), user_id),
+    )
+    conn.commit()
+    conn.close()
+    return cursor.rowcount > 0
 
 
 def get_user_check_history(user_id: int, limit: int = 100):
