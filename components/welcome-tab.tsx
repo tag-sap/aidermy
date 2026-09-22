@@ -41,7 +41,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
                 <br />
                 Остальное — детали.
               </h1>
-              <p className="mt-4 max-w-md text-sm leading-relaxed text-white/85 md:text-base">
+              <p className="mt-4 max-w-md text-sm leading-relaxed text-[#151515] md:text-base">
                 Aidermy переводит INCI-список на язык вашей кожи и показывает, что действительно сработает, а что нет.
               </p>
             </div>

@@ -86,7 +86,7 @@ export function AppHeader({
             className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm animate-modal-backdrop"
             onClick={() => setShowHelp(false)}
           />
-          <div className="fixed right-4 top-20 z-50 w-64 origin-top-right rounded-xl bg-white p-4 shadow-xl border border-primary/15 md:right-6 animate-help-popover">
+          <div className="fixed right-4 top-16 z-50 w-64 origin-top-right rounded-xl bg-white p-4 shadow-xl border border-primary/15 md:right-6 animate-help-popover">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-normal text-foreground">Помощь</h3>
               <button

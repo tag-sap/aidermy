@@ -61,6 +61,7 @@ export function ShelfTab({
   const [removalNote, setRemovalNote] = useState('')
   const [removing, setRemoving] = useState(false)
   const [compatInfoOpen, setCompatInfoOpen] = useState(false)
+  const [addNodeOpen, setAddNodeOpen] = useState(false)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
@@ -87,6 +88,17 @@ export function ShelfTab({
   useEffect(() => {
     loadShelf()
   }, [loadShelf])
+
+  // Закрытие интерактивного узла «+» при клике вне его.
+  useEffect(() => {
+    if (!addNodeOpen) return
+    const onDown = (e: MouseEvent) => {
+      const el = (e.target as Element | null)?.closest?.('[data-shelf-add-node]')
+      if (!el) setAddNodeOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [addNodeOpen])
 
   const currentCabinet = cabinets.find((c) => c.key === activeCabinet) || null
 
@@ -405,17 +417,48 @@ export function ShelfTab({
                     </div>
                   )
                 })}
+
+                {/* Интерактивный узел «+» — последний пустой слот */}
+                <div data-shelf-add-node className="self-start">
+                  {addNodeOpen ? (
+                    <div className="flex items-center gap-3 rounded-2xl border border-dashed border-primary/30 bg-white/70 p-3 shadow-sm animate-shelf-card">
+                      <button
+                        onClick={() => setAddNodeOpen(false)}
+                        className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105"
+                        aria-label="Закрыть"
+                      >
+                        <X className="size-4" />
+                      </button>
+                      <div className="h-px w-5 shrink-0 bg-gradient-to-r from-primary/40 to-transparent" />
+                      <div className="flex flex-wrap items-center gap-2">
+                        {currentCabinet.categories.map((cat) => (
+                          <button
+                            key={cat.key}
+                            onClick={() => { setAddNodeOpen(false); setAddContext({ cabinet: currentCabinet.key, category: cat.key }) }}
+                            className="animate-help-popover rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] text-foreground/70 shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
+                          >
+                            {cat.title}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setAddNodeOpen(true)}
+                      className="flex min-h-[130px] w-[130px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 p-2.5 text-muted-foreground/40 transition-colors hover:border-primary/40 hover:text-primary"
+                      aria-label="Добавить продукт"
+                    >
+                      <Plus className="size-6" />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
-            {/* Полка: [ левый торец ][ центр — зона ][ правый торец ] */}
+            {/* Полка: [ левый торец ][ центр ][ правый торец ] (без дублирующего названия зоны) */}
             <div className="shelf-plank pointer-events-none absolute inset-x-0 bottom-0 flex h-7 rounded-full">
               <div className="shelf-surface h-full rounded-l-full" style={{ width: SHELF_EDGE }} />
-              <div className="shelf-surface flex h-full flex-1 items-center justify-center overflow-hidden px-2">
-                <span className="select-none truncate text-[9px] font-medium uppercase tracking-[0.22em] text-foreground/35">
-                  {currentCabinet.title}
-                </span>
-              </div>
+              <div className="shelf-surface h-full flex-1" />
               <div className="shelf-surface h-full rounded-r-full" style={{ width: SHELF_EDGE }} />
             </div>
           </div>

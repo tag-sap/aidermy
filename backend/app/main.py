@@ -1067,6 +1067,36 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     return {"status": "ok", "cached": False, "score": int(result.get("score") or 0), "analysis": analysis}
 
 
+@app.post("/api/shelf/review")
+async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict = Depends(get_current_user)):
+    """Короткая AI-рецензия ПО ЯВНОМУ ЗАПРОСУ («Почему такой процент?»).
+
+    Процент считает детерминированный Score Engine; AI пишет 2-3 предложения.
+    """
+    from .database import get_product_by_slug
+    from .services import generate_ai_review
+
+    product = get_product_by_slug(request.slug)
+    if not product:
+        raise HTTPException(status_code=404, detail="Продукт не найден")
+
+    profile = _profile_from_user(current_user)
+    skin_type = profile.get("skin_type") or "Нормальная"
+    name = (product.get("name") or "").replace("\n", " ").strip()
+    ingredients = product.get("ingredients") or ""
+
+    if not ingredients:
+        return {"score": None, "review": "Для этого продукта нет состава — проверьте его вручную."}
+
+    try:
+        result = await generate_ai_review(name, skin_type, profile, ingredients)
+    except Exception as exc:
+        print(f"[REVIEW] failed: {exc!r}")
+        raise HTTPException(status_code=502, detail="Не удалось сформировать рецензию") from exc
+
+    return {"score": result.get("score"), "review": result.get("summary") or ""}
+
+
 @app.patch("/api/shelf/{shelf_id}")
 async def update_shelf_product(shelf_id: int, request: ShelfUpdateRequest, current_user: dict = Depends(get_current_user)):
     from .database import update_shelf_product_category

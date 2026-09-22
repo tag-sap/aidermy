@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { X, Search, Link2, Wand2, LoaderCircle, Sparkles, ChevronLeft, ThumbsDown } from 'lucide-react'
 import { CABINET_TITLES, CABINET_META } from '@/lib/shelf'
-import { MarkupText } from '@/components/markup-text'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import { cn, capitalizeFirst } from '@/lib/utils'
 
@@ -62,11 +61,12 @@ export function ShelfAddModal({
   const [status, setStatus] = useState('')
   const [recs, setRecs] = useState<Recommendation[]>([])
   const [recLoading, setRecLoading] = useState(false)
-  const [analyzing, setAnalyzing] = useState<Set<string>>(new Set())
   const [dislikeTarget, setDislikeTarget] = useState<Recommendation | null>(null)
   const [dislikeReason, setDislikeReason] = useState('')
   const [dislikeNote, setDislikeNote] = useState('')
   const [submittingDislike, setSubmittingDislike] = useState(false)
+  const [reviews, setReviews] = useState<Record<string, string>>({})
+  const [reviewLoading, setReviewLoading] = useState<Set<string>>(new Set())
 
   useScrollLock(true)
 
@@ -188,30 +188,22 @@ export function ShelfAddModal({
     }
   }
 
-  const analyzeRecommendation = async (slug: string) => {
-    setAnalyzing((prev) => new Set(prev).add(slug))
+  const requestReview = async (slug: string) => {
+    setReviewLoading((prev) => new Set(prev).add(slug))
     try {
-      const res = await fetch('/api/shelf/analyze', {
+      const res = await fetch('/api/shelf/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ slug }),
       })
       const data = await res.json().catch(() => ({}))
-      setRecs((prev) =>
-        prev.map((r) =>
-          r.slug === slug
-            ? {
-                ...r,
-                score: res.ok && data.score != null ? data.score : r.score,
-                reason: res.ok && data.analysis?.summary ? data.analysis.summary : r.reason,
-              }
-            : r,
-        ),
-      )
+      if (res.ok && data.review) {
+        setReviews((prev) => ({ ...prev, [slug]: data.review }))
+      }
     } catch (e) {
       console.error(e)
     } finally {
-      setAnalyzing((prev) => {
+      setReviewLoading((prev) => {
         const next = new Set(prev)
         next.delete(slug)
         return next
@@ -232,10 +224,6 @@ export function ShelfAddModal({
       if (!res.ok) throw new Error(data.detail || 'Не удалось подобрать')
       const recommendations: Recommendation[] = (data.recommendations || []) as Recommendation[]
       setRecs(recommendations)
-      // Автоматически анализируем все три продукта (для скоринговых шкафов)
-      if (isScoring) {
-        recommendations.forEach((r) => analyzeRecommendation(r.slug))
-      }
     } catch (e) {
       setStatus(e instanceof Error ? e.message : 'Не удалось подобрать')
     } finally {
@@ -343,15 +331,21 @@ export function ShelfAddModal({
                         {r.score != null ? (
                           <p className="text-sm font-light text-primary">{r.score}%</p>
                         ) : isScoring ? (
-                          analyzing.has(r.slug) ? (
-                            <p className="text-[10px] text-muted-foreground/50">Анализ выполняется…</p>
-                          ) : (
-                            <p className="text-[10px] text-muted-foreground/50">Анализ ещё не выполнен</p>
-                          )
+                          <p className="text-[10px] text-muted-foreground/50">—</p>
                         ) : null}
                       </div>
                     </div>
-                    {r.reason && <p className="mt-2 break-words text-[10px] leading-relaxed text-muted-foreground/60"><MarkupText text={r.reason} /></p>}
+                    {reviews[r.slug] ? (
+                      <p className="mt-2 break-words text-[10px] leading-relaxed text-muted-foreground/70">{reviews[r.slug]}</p>
+                    ) : (
+                      <button
+                        onClick={() => requestReview(r.slug)}
+                        disabled={reviewLoading.has(r.slug)}
+                        className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-primary/70 transition-colors hover:text-primary disabled:opacity-40"
+                      >
+                        {reviewLoading.has(r.slug) ? 'Формируем…' : 'Почему такой процент?'}
+                      </button>
+                    )}
                     <div className="mt-2 flex gap-1.5">
                       {onOpenProduct && (
                         <button
