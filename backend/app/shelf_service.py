@@ -275,12 +275,21 @@ def is_product_compatible(product: Dict[str, Any], cabinet: str, category: str) 
 # СКОРИНГ
 # ---------------------------------------------------------------------------
 
+_DETERMINISTIC_ENGINE = None
+
+
 def _deterministic_analysis(profile: Dict[str, Any], ingredients: str) -> Optional[Dict[str, Any]]:
     if not ingredients or not str(ingredients).strip():
         return None
+    global _DETERMINISTIC_ENGINE
     try:
         from .decision_engine import DecisionEngine
-        return DecisionEngine().analyze(
+
+        if _DETERMINISTIC_ENGINE is None:
+            _DETERMINISTIC_ENGINE = DecisionEngine()
+        # Движок кэшируется: get_knowledge_map() каждый раз читает БД заново,
+        # поэтому enrichment подхватывается, а схема не мигрирует 60 раз подряд.
+        return _DETERMINISTIC_ENGINE.analyze(
             "",
             ingredients,
             profile,
@@ -591,10 +600,10 @@ async def recommend_products(
 ) -> List[Dict[str, Any]]:
     """Возвращает до 3 рекомендаций для конкретной полки шкафа.
 
-    Контролируемая неопределённость: unknown-ингредиенты НЕ штрафуются. До скоринга
-    собираем уникальные unknown-ингредиенты среди всех кандидатов и обогащаем их
-    один раз (а не для каждого продукта), затем повторно запускаем детерминированный
-    Score Engine. Продукты с неполностью известным составом остаются кандидатами.
+    Контролируемая неопределённость: unknown-ингредиенты НЕ штрафуются. Сначала
+    детерминированно скорим всех кандидатов, выбираем топ-3, затем собираем unknown
+    ТОЛЬКО этих трёх и обогащаем их один раз (не по продукту), после чего
+    пересчитываем score топ-3 по свежим знаниям. Это ускоряет выдачу рекомендаций.
     """
     exclude_slugs = set(exclude_slugs or set())
     # Продукты, которые пользователь явно отклонил (дизлайк), не предлагаем снова.
@@ -646,23 +655,6 @@ async def recommend_products(
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
     keywords = rule.get("keywords") or []
 
-    # Контролируемая неопределённость: enrichment неизвестных ингредиентов ДО скоринга.
-    # Собираем уникальные unknown-ингредиенты среди ВСЕХ кандидатов и обогащаем их один раз.
-    if scored:
-        try:
-            from .ingredient_enrichment import find_unknown_ingredients, enrich_unknown_ingredients
-
-            all_raw: List[str] = []
-            for p in candidates:
-                for part in re.split(r"[,;\n]+", p.get("ingredients") or ""):
-                    if part.strip():
-                        all_raw.append(part.strip())
-            unknown = find_unknown_ingredients(all_raw)
-            if unknown:
-                await enrich_unknown_ingredients(unknown)
-        except Exception as exc:
-            print(f"[RECOMMEND] enrichment failed: {exc!r}")
-
     rated: List[Dict[str, Any]] = []
     seen_ids: set = set()
     seen_names: set = set()
@@ -699,6 +691,7 @@ async def recommend_products(
             "score": None,
             "reason": "",
             "_signature": _formula_signature(product.get("ingredients") or ""),
+            "_ingredients": product.get("ingredients") or "",
         }
         if scored:
             # 1) уже рассчитанный скор из истории проверок пользователя
@@ -706,6 +699,7 @@ async def recommend_products(
             if history_score is not None:
                 rec["score"] = history_score
                 rec["reason"] = _reason_from_analysis(history_analysis)
+                rec["_from_history"] = True
             else:
                 # 2) deterministic-движок. Unknown-ингредиенты НЕ штрафуются:
                 # продукт с неполностью известным составом остаётся кандидатом,
@@ -746,9 +740,40 @@ async def recommend_products(
         if len(result) >= 3:
             break
 
+    # Enrichment ТОЛЬКО для топ-3 (быстрее): собираем unknown среди выбранных,
+    # обогащаем один раз, затем пересчитываем их score по свежим знаниям.
+    if scored and result:
+        try:
+            from .ingredient_enrichment import find_unknown_ingredients, enrich_unknown_ingredients
+
+            top_raw: List[str] = []
+            for r in result:
+                for part in re.split(r"[,;\n]+", r.get("_ingredients") or ""):
+                    if part.strip():
+                        top_raw.append(part.strip())
+            unknown = find_unknown_ingredients(top_raw)
+            if unknown:
+                await enrich_unknown_ingredients(unknown)
+        except Exception as exc:
+            print(f"[RECOMMEND] enrichment failed: {exc!r}")
+
+        # Пересчитываем score топ-3 по свежим знаниям (историю не трогаем).
+        for r in result:
+            if r.get("_from_history"):
+                continue
+            analysis = _deterministic_analysis(profile, r.get("_ingredients") or "")
+            meaningful = _meaningful_score(analysis)
+            if meaningful is not None:
+                r["score"] = meaningful
+                r["reason"] = _reason_from_analysis(analysis)
+                r.pop("needs_enrichment", None)
+        result.sort(key=lambda r: (r["score"] is None, -int(r["score"] or 0)))
+
     for r in result:
         r.pop("_relevance", None)
         r.pop("_signature", None)
+        r.pop("_ingredients", None)
+        r.pop("_from_history", None)
         r.pop("id", None)
     return result
 

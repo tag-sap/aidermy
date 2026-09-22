@@ -314,8 +314,8 @@ export function ShelfTab({
             </div>
           </div>
 
-          {/* Одна динамическая физическая полка на зону */}
-          <div className="relative">
+          {/* Одна динамическая физическая полка на зону: ширина растёт/сужается вместе с содержимым */}
+          <div className="relative mx-auto w-fit min-w-[280px] max-w-full">
             {currentItems.length === 0 ? (
               <div className="flex min-h-[150px] flex-col items-center justify-center px-4 pb-9 pt-6 text-center">
                 <Sparkles className="mb-2 size-6 text-muted-foreground/25" />
@@ -418,8 +418,9 @@ export function ShelfTab({
                   )
                 })}
 
-                {/* Интерактивный узел «+» — последний пустой слот */}
-                <div data-shelf-add-node className="self-start">
+                {/* Интерактивный узел «+» — последний пустой слот (выровнен с группами) */}
+                <div data-shelf-add-node className="flex flex-col">
+                  <div className="mb-1.5 flex h-4 items-center" aria-hidden />
                   {addNodeOpen ? (
                     <div className="flex items-center gap-3 rounded-2xl border border-dashed border-primary/30 bg-white/70 p-3 shadow-sm animate-shelf-card">
                       <button
@@ -445,7 +446,7 @@ export function ShelfTab({
                   ) : (
                     <button
                       onClick={() => setAddNodeOpen(true)}
-                      className="flex min-h-[130px] w-[130px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 p-2.5 text-muted-foreground/40 transition-colors hover:border-primary/40 hover:text-primary"
+                      className="flex h-[176px] w-[130px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:border-primary/40 hover:text-primary"
                       aria-label="Добавить продукт"
                     >
                       <Plus className="size-6" />
