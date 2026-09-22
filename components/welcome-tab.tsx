@@ -45,7 +45,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
             </div>
             <button
               onClick={onAuth}
-              className="pointer-events-auto inline-flex shrink-0 items-center gap-2 self-start rounded-full bg-[#F5C900] px-7 py-3.5 text-sm font-medium text-[#151515] transition-all hover:bg-[#FFD84D] active:scale-[0.98] md:self-auto"
+              className="pointer-events-auto inline-flex shrink-0 items-center gap-2 self-start rounded-lg bg-[#F5C900] px-7 py-3.5 text-sm font-medium text-[#151515] transition-all hover:bg-[#FFD84D] active:scale-[0.98] md:self-auto"
             >
               Начать
               <ArrowRight className="size-4" />
@@ -54,18 +54,18 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
         </div>
       </section>
 
-      {/* PIPELINE — на коралловом фоне */}
-      <section className="bg-[#FF4D3D] text-white" style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}>
+      {/* PIPELINE — молочный фон, коралловый шрифт */}
+      <section className="bg-[#F7F3EA]" style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}>
         <div className="mx-auto w-full max-w-md px-5 py-12 md:max-w-5xl md:py-16">
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/60">Как это устроено</p>
+          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#FF4D3D]">Как это устроено</p>
           <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-4 md:gap-4">
             {PIPELINE.map((step, i) => (
               <div key={step.n} className="relative md:pr-4">
-                <span className="font-[family-name:var(--font-playfair)] text-4xl font-normal text-white/35">{step.n}</span>
-                <h3 className="mt-2 text-lg font-normal leading-snug">{step.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-white/80">{step.text}</p>
+                <span className="font-[family-name:var(--font-playfair)] text-4xl font-normal text-[#FF4D3D]/35">{step.n}</span>
+                <h3 className="mt-2 text-lg font-normal leading-snug text-[#FF4D3D]">{step.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-[#FF4D3D]/70">{step.text}</p>
                 {i < PIPELINE.length - 1 && (
-                  <ArrowRight className="mt-4 hidden size-5 text-white/40 md:block" />
+                  <ArrowRight className="mt-4 hidden size-5 text-[#FF4D3D]/40 md:block" />
                 )}
               </div>
             ))}
@@ -73,8 +73,11 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
         </div>
       </section>
 
-      {/* FOOTER — чёрный */}
-      <footer className="bg-[#151515] text-white" style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}>
+      {/* FOOTER — чёрный, тянется до низа */}
+      <footer
+        className="bg-[#151515] text-white -mb-[calc(6rem+env(safe-area-inset-bottom,0px))] pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"
+        style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}
+      >
         <div className="mx-auto w-full max-w-md px-5 py-10 md:max-w-5xl">
           <div className="flex flex-col gap-8 md:flex-row md:justify-between">
             <div className="max-w-xs">

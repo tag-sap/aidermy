@@ -125,7 +125,8 @@ export function ShelfOnboarding({
 
   return (
     <div className="fixed inset-0 z-[90]">
-      <div className="absolute inset-0 bg-black/50" onClick={onSkip} />
+      {/* Затемнение: блокирует клики по фону, но НЕ сбрасывает гид по клику. */}
+      <div className="absolute inset-0 bg-black/50" />
 
       {rect && (
         <div
@@ -135,7 +136,7 @@ export function ShelfOnboarding({
       )}
 
       <div
-        className="absolute left-1/2 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-white p-4 shadow-2xl animate-modal-panel"
+        className="absolute left-1/2 z-10 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-2xl bg-white p-4 shadow-2xl animate-modal-panel"
         style={
           rect
             ? placeBelow
