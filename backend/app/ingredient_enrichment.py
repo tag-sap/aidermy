@@ -147,13 +147,13 @@ async def enrich_unknown_ingredients(
         return 0
 
     if not DEEPSEEK_API_KEY:
-        print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  no API key -> skip")
+        print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  no API key -> skip", flush=True)
         return 0
 
     import httpx
 
     prompt = _prompt(unknown)
-    print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  prompt ready  unknown_count={len(unknown)} prompt_len={len(prompt)}")
+    print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  prompt ready  unknown_count={len(unknown)} prompt_len={len(prompt)}", flush=True)
 
     for attempt, model_name in enumerate(_ENRICH_MODEL_FALLBACKS):
         _req_t0 = _time.perf_counter()
@@ -174,7 +174,7 @@ async def enrich_unknown_ingredients(
                     timeout=60,
                 )
             _req_t1 = _time.perf_counter()
-            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  model={model_name} request+wait={(_req_t1-_req_t0)*1000:.1f}ms status={response.status_code}")
+            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  model={model_name} request+wait={(_req_t1-_req_t0)*1000:.1f}ms status={response.status_code}", flush=True)
             if response.status_code != 200:
                 continue
             data = response.json()
@@ -182,7 +182,7 @@ async def enrich_unknown_ingredients(
             _parse_t0 = _time.perf_counter()
             records = _parse_enrichment_response(content)
             _parse_t1 = _time.perf_counter()
-            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  parse={(_parse_t1-_parse_t0)*1000:.1f}ms response_len={len(content or '')} records={len(records) if isinstance(records, list) else records}")
+            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  parse={(_parse_t1-_parse_t0)*1000:.1f}ms response_len={len(content or '')} records={len(records) if isinstance(records, list) else records}", flush=True)
             if not isinstance(records, list):
                 continue
 
@@ -208,12 +208,12 @@ async def enrich_unknown_ingredients(
 
                 if repo.save_enriched_ingredient(record):
                     saved += 1
-            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  saved={saved} db_write={(_time.perf_counter()-_save_t0)*1000:.1f}ms")
+            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  saved={saved} db_write={(_time.perf_counter()-_save_t0)*1000:.1f}ms", flush=True)
             return saved
         except Exception as exc:
-            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  model={model_name} FAILED after={(_time.perf_counter()-_req_t0)*1000:.1f}ms exc={exc!r}")
+            print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  model={model_name} FAILED after={(_time.perf_counter()-_req_t0)*1000:.1f}ms exc={exc!r}", flush=True)
             continue
 
-    print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  all models failed, total")
+    print(f"[ENRICH-PROF] {(_time.perf_counter()-_t0)*1000:7.1f}ms  all models failed, total", flush=True)
     return 0
 
