@@ -28,6 +28,27 @@ function scoreBadge(s: number | null) {
   return 'bg-[#FF4D3D]/10 text-[#D63B2E]'
 }
 
+// --- Динамическая полка: ширина считается от количества товаров. ---
+// Левый/правый торец — фиксированные, центр растягивается/сжимается.
+const SHELF_CARD_W = 130 // ширина карточки (совпадает с w-[130px])
+const SHELF_GAP = 10 // gap-2.5 между карточками
+const SHELF_EDGE = 16 // ширина фиксированного торца
+const SHELF_PAD = 16 // внутренний отступ под карточки (px-4)
+const SHELF_MIN = 280 // полка не должна быть слишком маленькой
+const SHELF_MAX = 720 // и не должна быть огромной (на широких экранах)
+
+function shelfWidth(count: number) {
+  const content = count * SHELF_CARD_W + Math.max(0, count - 1) * SHELF_GAP
+  const desired = SHELF_EDGE * 2 + SHELF_PAD * 2 + content
+  return Math.max(SHELF_MIN, Math.min(desired, SHELF_MAX))
+}
+
+function shelfOverflows(count: number) {
+  const content = count * SHELF_CARD_W + Math.max(0, count - 1) * SHELF_GAP
+  const desired = SHELF_EDGE * 2 + SHELF_PAD * 2 + content
+  return desired > SHELF_MAX
+}
+
 export function ShelfTab({
   onOpenReport,
   onOpenBrand,
@@ -309,70 +330,89 @@ export function ShelfTab({
                       </span>
                     </button>
                   ) : (
-                    <div className="no-scrollbar flex gap-2.5 overflow-x-auto pb-1">
-                      {cat.items.map((item) => {
-                        const isSelected = selected.has(item.id)
-                        return (
-                          <div key={item.id} className="group relative w-[130px] shrink-0">
-                            <button
-                              onClick={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
-                              className={cn(
-                                'w-full overflow-hidden rounded-2xl border text-left transition-all',
-                                selectionMode && isSelected
-                                  ? 'border-primary/70 bg-primary/5 ring-2 ring-primary/20'
-                                  : 'border-white/40 bg-white/60',
-                                !selectionMode && 'hover:-translate-y-0.5',
-                              )}
-                            >
-                              <div className="flex h-[110px] items-center justify-center bg-gray-50/60 p-2">
-                                {item.image_url ? (
-                                  <img src={item.image_url} alt="" className="h-full w-full object-contain" />
-                                ) : (
-                                  <Sparkles className="size-5 text-muted-foreground/30" />
-                                )}
-                              </div>
-                              <div className="p-2">
-                                {item.brand && <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground/40">{item.brand}</p>}
-                                <p className="line-clamp-2 text-[11px] font-medium leading-tight text-foreground/80">{item.name}</p>
-                                {currentCabinet.has_scoring &&
-                                  (item.score != null ? (
-                                    <span className={cn('mt-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', scoreBadge(item.score))}>
-                                      {item.score}%
-                                    </span>
-                                  ) : (
-                                    <span className="mt-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] text-muted-foreground/50">
-                                      Не проверен
-                                    </span>
-                                  ))}
-                              </div>
-                            </button>
-
-                            {selectionMode && (
-                              <span
-                                className={cn(
-                                  'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border bg-white/95 transition-colors',
-                                  isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-300 text-transparent',
-                                )}
-                              >
-                                <Check className="size-3" strokeWidth={3} />
-                              </span>
-                            )}
-
-                            {!selectionMode && (
+                    <div
+                      className="relative mx-auto max-w-full"
+                      style={{
+                        width: shelfWidth(cat.items.length),
+                        transition: 'width 0.55s cubic-bezier(0.16, 1, 0.3, 1)',
+                      }}
+                    >
+                      {/* Карточки — отдельные UI-элементы, лежат поверх полки */}
+                      <div className={cn(
+                        'no-scrollbar relative z-10 flex gap-2.5 overflow-x-auto px-4 pb-[14px] pt-1',
+                        shelfOverflows(cat.items.length) ? 'justify-start' : 'justify-center',
+                      )}>
+                        {cat.items.map((item, idx) => {
+                          const isSelected = selected.has(item.id)
+                          return (
+                            <div key={item.id} className="animate-shelf-card group relative w-[130px] shrink-0" style={{ animationDelay: `${idx * 35}ms` }}>
                               <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setRemovalTarget(item); setRemovalReason(''); setRemovalNote('')
-                                }}
-                                className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-500"
-                                aria-label="Удалить продукт"
+                                onClick={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
+                                className={cn(
+                                  'w-full overflow-hidden rounded-2xl border text-left transition-all',
+                                  selectionMode && isSelected
+                                    ? 'border-primary/70 bg-primary/5 ring-2 ring-primary/20'
+                                    : 'border-white/40 bg-white/60',
+                                  !selectionMode && 'hover:-translate-y-0.5',
+                                )}
                               >
-                                <X className="size-3.5" />
+                                <div className="flex h-[110px] items-center justify-center bg-gray-50/60 p-2">
+                                  {item.image_url ? (
+                                    <img src={item.image_url} alt="" className="h-full w-full object-contain" />
+                                  ) : (
+                                    <Sparkles className="size-5 text-muted-foreground/30" />
+                                  )}
+                                </div>
+                                <div className="p-2">
+                                  {item.brand && <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground/40">{item.brand}</p>}
+                                  <p className="line-clamp-2 text-[11px] font-medium leading-tight text-foreground/80">{item.name}</p>
+                                  {currentCabinet.has_scoring &&
+                                    (item.score != null ? (
+                                      <span className={cn('mt-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', scoreBadge(item.score))}>
+                                        {item.score}%
+                                      </span>
+                                    ) : (
+                                      <span className="mt-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] text-muted-foreground/50">
+                                        Не проверен
+                                      </span>
+                                    ))}
+                                </div>
                               </button>
-                            )}
-                          </div>
-                        )
-                      })}
+
+                              {selectionMode && (
+                                <span
+                                  className={cn(
+                                    'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border bg-white/95 transition-colors',
+                                    isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-300 text-transparent',
+                                  )}
+                                >
+                                  <Check className="size-3" strokeWidth={3} />
+                                </span>
+                              )}
+
+                              {!selectionMode && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setRemovalTarget(item); setRemovalReason(''); setRemovalNote('')
+                                  }}
+                                  className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-500"
+                                  aria-label="Удалить продукт"
+                                >
+                                  <X className="size-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {/* Полка: [ левый торец ][ центр — динамическая ширина ][ правый торец ] */}
+                      <div className="shelf-plank pointer-events-none absolute inset-x-0 bottom-0 flex h-[14px] rounded-full">
+                        <div className="shelf-surface rounded-l-full" style={{ width: SHELF_EDGE }} />
+                        <div className="shelf-surface flex-1" />
+                        <div className="shelf-surface rounded-r-full" style={{ width: SHELF_EDGE }} />
+                      </div>
                     </div>
                   )}
                 </div>

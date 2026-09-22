@@ -931,3 +931,38 @@ body.modal-open main {
 .tab-circle:hover .tab-circle-icon {
   transform: scale(1.12) rotate(-8deg);
 }
+
+/* ============ DYNAMIC SHELF (Моя полка) ============ */
+
+/* Поверхность полки: общая для левого/правого торца и центра,
+   поэтому стыки между тремя частями визуально не читаются. */
+.shelf-surface {
+  background: linear-gradient(180deg, #ffffff 0%, #f4efe5 48%, #e9e3d5 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid rgba(21, 21, 21, 0.06);
+}
+
+/* Мягкая студийная тень под всей полкой (одна на всю длину, без двойных стыков). */
+.shelf-plank {
+  box-shadow:
+    0 16px 30px -18px rgba(21, 21, 21, 0.32),
+    0 5px 12px -6px rgba(21, 21, 21, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.7) inset;
+}
+
+/* Появление новой карточки на полке. */
+@keyframes shelf-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-shelf-card {
+  animation: shelf-card-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
