@@ -276,6 +276,7 @@ class DecisionEngine:
         ingredients: str | List[str],
         profile: Dict[str, Any],
         skin_type: str = "",
+        knowledge: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
     ) -> Dict[str, Any]:
         priorities = priorities_for_profile(profile, skin_type)
         result = self.analysis_service.analyze(
@@ -283,6 +284,7 @@ class DecisionEngine:
             ingredients,
             profile,
             priorities,
+            knowledge=knowledge,
         )
         score = int(result.get("score") or 0)
         safe, caution = ingredient_lists(result)

@@ -85,7 +85,7 @@ class RecommendationTests(unittest.TestCase):
             return {"score": 0, "confidence": 1.0}
 
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
-             patch("app.shelf_service._find_history_score", side_effect=lambda u, p: (scores.get(p["slug"], None), None)), \
+             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)), \
              patch("app.shelf_service._deterministic_analysis", side_effect=fake_analysis):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
 
@@ -101,7 +101,7 @@ class RecommendationTests(unittest.TestCase):
         ]
 
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
-             patch("app.shelf_service._find_history_score", side_effect=lambda u, p: (80, None) if p["slug"] == "scored" else (None, None)), \
+             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (80, None) if p["slug"] == "scored" else (None, None)), \
              patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0}):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
 

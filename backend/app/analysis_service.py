@@ -27,9 +27,17 @@ class AnalysisService:
         normalized = self.prepare_product_ingredients(ingredients)
         return find_unknown_ingredients(normalized, self.repository)
 
-    def analyze(self, product_name: str, ingredients: str | List[str], user_profile: Dict[str, Any], priorities: Dict[str, float]):
+    def analyze(
+        self,
+        product_name: str,
+        ingredients: str | List[str],
+        user_profile: Dict[str, Any],
+        priorities: Dict[str, float],
+        knowledge: Dict[str, Dict[str, Dict[str, float]]] | None = None,
+    ):
         normalized_ingredients = self.prepare_product_ingredients(ingredients)
-        knowledge = self.repository.get_knowledge_map()
+        if knowledge is None:
+            knowledge = self.repository.get_knowledge_map()
 
         # Hard filters выполняются ДО скоринга: если есть нарушения — товар исключён.
         hard_filters = apply_hard_filters(user_profile, normalized_ingredients)

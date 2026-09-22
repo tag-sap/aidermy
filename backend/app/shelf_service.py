@@ -278,7 +278,7 @@ def is_product_compatible(product: Dict[str, Any], cabinet: str, category: str) 
 _DETERMINISTIC_ENGINE = None
 
 
-def _deterministic_analysis(profile: Dict[str, Any], ingredients: str) -> Optional[Dict[str, Any]]:
+def _deterministic_analysis(profile: Dict[str, Any], ingredients: str, knowledge=None) -> Optional[Dict[str, Any]]:
     if not ingredients or not str(ingredients).strip():
         return None
     global _DETERMINISTIC_ENGINE
@@ -287,13 +287,14 @@ def _deterministic_analysis(profile: Dict[str, Any], ingredients: str) -> Option
 
         if _DETERMINISTIC_ENGINE is None:
             _DETERMINISTIC_ENGINE = DecisionEngine()
-        # Движок кэшируется: get_knowledge_map() каждый раз читает БД заново,
-        # поэтому enrichment подхватывается, а схема не мигрирует 60 раз подряд.
+        # Движок кэшируется, knowledge map передаётся извне (загружается один раз),
+        # поэтому enrichment подхватывается, а БД не читается 60 раз подряд.
         return _DETERMINISTIC_ENGINE.analyze(
             "",
             ingredients,
             profile,
             (profile or {}).get("skin_type") or "",
+            knowledge=knowledge,
         )
     except Exception:
         return None
@@ -411,12 +412,19 @@ def _current_skin_type(user: Dict[str, Any]) -> str:
         return (user.get("skin_type") or "").strip().lower()
 
 
-def _find_history_score(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+def _find_history_score(
+    user: Dict[str, Any],
+    product: Dict[str, Any],
+    history: Optional[List[Dict[str, Any]]] = None,
+    current_skin: str = "",
+) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
     from .database import get_user_check_history
     cleaned_name = (product.get("name") or "").replace("\n", " ").strip().lower()
     slug = (product.get("slug") or "").strip()
-    current_skin = _current_skin_type(user)
-    for h in get_user_check_history(user["id"], limit=200):
+    if not current_skin:
+        current_skin = _current_skin_type(user)
+    records = history if history is not None else get_user_check_history(user["id"], limit=200)
+    for h in records:
         # Пропускаем устаревшие записи, сделанные под другой тип кожи —
         # чтобы не показывать «нормальной кожи», если сейчас «чувствительная».
         h_skin = (h.get("skin_type") or "").strip().lower()
@@ -655,6 +663,26 @@ async def recommend_products(
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
     keywords = rule.get("keywords") or []
 
+    # Загружаем knowledge map Ingredient DB ОДИН раз (а не на каждого кандидата) —
+    # это убирает N+1 запрос к БД при deterministic scoring.
+    knowledge = None
+    if scored:
+        try:
+            from .ingredient_repository import IngredientRepository
+            knowledge = IngredientRepository().get_knowledge_map()
+        except Exception:
+            knowledge = None
+
+    # История проверок пользователя — тоже один раз, а не на каждого кандидата.
+    user_history: List[Dict[str, Any]] = []
+    current_skin = _skin.strip().lower()
+    if scored:
+        try:
+            from .database import get_user_check_history
+            user_history = get_user_check_history(user["id"], limit=200)
+        except Exception:
+            user_history = []
+
     rated: List[Dict[str, Any]] = []
     seen_ids: set = set()
     seen_names: set = set()
@@ -695,7 +723,7 @@ async def recommend_products(
         }
         if scored:
             # 1) уже рассчитанный скор из истории проверок пользователя
-            history_score, history_analysis = _find_history_score(user, product)
+            history_score, history_analysis = _find_history_score(user, product, history=user_history, current_skin=current_skin)
             if history_score is not None:
                 rec["score"] = history_score
                 rec["reason"] = _reason_from_analysis(history_analysis)
@@ -704,7 +732,7 @@ async def recommend_products(
                 # 2) deterministic-движок. Unknown-ингредиенты НЕ штрафуются:
                 # продукт с неполностью известным составом остаётся кандидатом,
                 # получает нейтральную позицию и статус needs_enrichment.
-                analysis = _deterministic_analysis(profile, product.get("ingredients") or "")
+                analysis = _deterministic_analysis(profile, product.get("ingredients") or "", knowledge=knowledge)
                 meaningful = _meaningful_score(analysis)
                 if meaningful is not None:
                     rec["score"] = meaningful
@@ -754,6 +782,12 @@ async def recommend_products(
             unknown = find_unknown_ingredients(top_raw)
             if unknown:
                 await enrich_unknown_ingredients(unknown)
+                # После enrichment перезагружаем knowledge map один раз.
+                try:
+                    from .ingredient_repository import IngredientRepository
+                    knowledge = IngredientRepository().get_knowledge_map()
+                except Exception:
+                    pass
         except Exception as exc:
             print(f"[RECOMMEND] enrichment failed: {exc!r}")
 
@@ -761,7 +795,7 @@ async def recommend_products(
         for r in result:
             if r.get("_from_history"):
                 continue
-            analysis = _deterministic_analysis(profile, r.get("_ingredients") or "")
+            analysis = _deterministic_analysis(profile, r.get("_ingredients") or "", knowledge=knowledge)
             meaningful = _meaningful_score(analysis)
             if meaningful is not None:
                 r["score"] = meaningful

@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import type { ShelfItem } from '@/lib/shelf'
 import type { CheckResult } from '@/lib/store'
 import { ShelfAddModal } from '@/components/shelf-add-modal'
+import { ShelfAddNode } from '@/components/shelf-add-node'
 import { ProductModal } from '@/components/product-modal'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
@@ -36,16 +37,6 @@ function scoreBadge(s: number | null) {
 
 // Ширина фиксированного торца полки (левый/правый край).
 const SHELF_EDGE = 16
-
-// Позиции облачков категорий вокруг центрального узла «●» (внутри SVG 300×240, центр 150/120).
-const CLOUD_POS = [
-  { x: 150, y: 16 },   // верх
-  { x: 238, y: 46 },   // верх-право
-  { x: 262, y: 120 },  // право
-  { x: 238, y: 194 },  // низ-право
-  { x: 150, y: 224 },  // низ
-  { x: 62, y: 120 },   // лево
-]
 
 export function ShelfTab({
   onOpenReport,
@@ -419,38 +410,11 @@ export function ShelfTab({
 
                   {/* Раскрытый узел: абсолютный overlay, не влияет на ширину полки */}
                   {addNodeOpen && (
-                    <div className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2" style={{ width: 300, height: 240 }}>
-                      <svg className="absolute inset-0" viewBox="0 0 300 240" fill="none">
-                        {CLOUD_POS.map((pos, i) => (
-                          <line
-                            key={i}
-                            x1="150" y1="120" x2={pos.x} y2={pos.y}
-                            stroke="rgba(21, 21, 21, 0.18)" strokeWidth="1" strokeDasharray="3 3"
-                            className="animate-shelf-line" style={{ animationDelay: `${i * 40}ms` }}
-                          />
-                        ))}
-                      </svg>
-                      <button
-                        onClick={() => setAddNodeOpen(false)}
-                        className="animate-shelf-dot absolute left-1/2 top-1/2 z-10 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
-                        aria-label="Закрыть"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                      {currentCabinet.categories.map((cat, i) => {
-                        const pos = CLOUD_POS[i % CLOUD_POS.length]
-                        return (
-                          <button
-                            key={cat.key}
-                            onClick={() => { setAddNodeOpen(false); setAddContext({ cabinet: currentCabinet.key, category: cat.key }) }}
-                            className="animate-shelf-cloud absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] text-foreground/70 shadow-sm transition-colors hover:border-primary/40 hover:text-primary"
-                            style={{ left: pos.x, top: pos.y, animationDelay: `${i * 40}ms` }}
-                          >
-                            {cat.title}
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <ShelfAddNode
+                      categories={currentCabinet.categories}
+                      onClose={() => setAddNodeOpen(false)}
+                      onPick={(cat) => { setAddNodeOpen(false); setAddContext({ cabinet: currentCabinet.key, category: cat.key }) }}
+                    />
                   )}
                 </div>
               </div>

@@ -20,6 +20,53 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return True
 
+
+def _get_ingredients_admin():
+    """Сводка по Ingredient DB для админки (статус, claims, аллергенность, число продуктов)."""
+    import re as _re
+    from .database import AIDERMY_DB
+    from .ingredient_normalizer import normalize_ingredient_name
+
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    rows = cursor.execute(
+        """
+        SELECT i.*,
+               (SELECT COUNT(*) FROM ingredient_claims c WHERE c.ingredient_id = i.id) AS claim_count,
+               (SELECT c.source_type FROM ingredient_claims c WHERE c.ingredient_id = i.id LIMIT 1) AS source_type,
+               a.is_allergen, a.is_sensitizer, a.allergen_level
+        FROM ingredients_catalog i
+        LEFT JOIN allergen_sensitizer a ON a.ingredient_id = i.id
+        ORDER BY i.id DESC
+        """
+    ).fetchall()
+    conn.close()
+
+    # Число продуктов, использующих каждый ингредиент (один проход по Product DB).
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    prods = cursor.execute("SELECT ingredients FROM products WHERE ingredients IS NOT NULL").fetchall()
+    conn.close()
+    product_counts: dict = {}
+    for p in prods:
+        seen = set()
+        for part in _re.split(r"[,;\n]+", p["ingredients"] or ""):
+            n = normalize_ingredient_name(part)
+            if n and n not in seen:
+                seen.add(n)
+        for t in seen:
+            product_counts[t] = product_counts.get(t, 0) + 1
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        has_claims = (d.get("claim_count") or 0) > 0
+        conf = float(d.get("knowledge_confidence") or 0)
+        d["status"] = "known" if (has_claims or conf > 0) else "needs_enrichment"
+        d["product_count"] = product_counts.get((d.get("normalized_name") or "").lower(), 0)
+        result.append(d)
+    return result
+
 def setup_admin_routes(app: FastAPI):
     """Регистрирует все админ-роуты в приложении"""
     
@@ -76,7 +123,14 @@ def setup_admin_routes(app: FastAPI):
             conn.close()
         except:
             pass
-        
+
+        # Ингредиенты (Ingredient DB) — контроль качества данных.
+        try:
+            ingredients = _get_ingredients_admin()
+        except Exception:
+            ingredients = []
+        unknown_ingredients = [i for i in ingredients if i.get("status") == "needs_enrichment"]
+
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -145,6 +199,7 @@ def setup_admin_routes(app: FastAPI):
                     <button class="tab-btn active" onclick="switchTab('history')">📋 История ({len(filtered_history)})</button>
                     <button class="tab-btn" onclick="switchTab('moderation')">📦 Модерация ({len(pending)})</button>
                     <button class="tab-btn" onclick="switchTab('users')">👤 Пользователи ({len(users)})</button>
+                    <button class="tab-btn" onclick="switchTab('ingredients')">🧪 Ингредиенты ({len(ingredients)})</button>
                 </div>
 
                 <!-- Вкладка: История -->
@@ -264,7 +319,43 @@ def setup_admin_routes(app: FastAPI):
                         </table>
                     </div>
                 </div>
-                
+
+                <!-- Вкладка: Ингредиенты -->
+                <div id="tab-ingredients" class="tab-content">
+                    <div class="table-wrap">
+                        <div class="table-header">
+                            <span>🧪 Ingredient DB — всего {len(ingredients)}, unknown/needs_enrichment: {len(unknown_ingredients)}</span>
+                            <input id="ingredient-search" type="text" placeholder="Поиск по названию…" oninput="filterIngredients()" style="padding:6px 12px;border-radius:6px;border:1px solid #ddd;width:220px;">
+                        </div>
+                        <table>
+                            <thead><tr><th>ID</th><th>Ингредиент</th><th>Статус</th><th>Claims</th><th>Аллерген</th><th>Источник</th><th>Продуктов</th><th>Обновлён</th><th>Enrich</th></tr></thead>
+                            <tbody>
+        """
+
+        for ing in ingredients:
+            status_badge = '<span class="badge-green">known</span>' if ing.get("status") == "known" else '<span class="badge-red">needs_enrichment</span>'
+            allergen = ('⚠️ ' + str(ing.get("allergen_level") or "?")) if ing.get("is_allergen") else "—"
+            norm = str(ing.get("normalized_name") or "")
+            inci = str(ing.get("inci_name") or norm)
+            html += f"""
+                                <tr class="ingredient-row" data-name="{norm}" data-status="{ing.get('status')}">
+                                    <td>{ing['id']}</td>
+                                    <td><strong>{inci}</strong><br><span style="font-size:11px;color:#999;">{norm}</span></td>
+                                    <td>{status_badge}</td>
+                                    <td>{ing.get('claim_count', 0)}</td>
+                                    <td>{allergen}</td>
+                                    <td style="font-size:12px;">{ing.get('source_type') or ing.get('research_status') or '—'}</td>
+                                    <td>{ing.get('product_count', 0)}</td>
+                                    <td style="font-size:12px;">{ing.get('updated_at') or ing.get('created_at') or '—'}</td>
+                                    <td><button class="btn-approve" onclick="enrichIngredient({ing['id']}, this)">🔬</button></td>
+                                </tr>
+            """
+        html += """
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <div class="footer"><p>🟢 База данных работает</p></div>
             </div>
 
@@ -339,6 +430,23 @@ def setup_admin_routes(app: FastAPI):
                     .then(r => r.json())
                     .then(data => { alert(data.message || '🗑️ Удалено!'); location.reload(); })
                     .catch(() => alert('Ошибка'));
+            }
+            function filterIngredients() {
+                const q = (document.getElementById('ingredient-search').value || '').toLowerCase();
+                document.querySelectorAll('.ingredient-row').forEach(tr => {
+                    const name = (tr.getAttribute('data-name') || '').toLowerCase();
+                    tr.style.display = (!q || name.includes(q)) ? '' : 'none';
+                });
+            }
+            async function enrichIngredient(id, btn) {
+                if (!confirm('🔬 Запустить AI enrichment для этого ингредиента?')) return;
+                btn.disabled = true; btn.textContent = '⏳';
+                try {
+                    const r = await fetch('/api/admin/enrich-ingredient/' + id, { method: 'POST' });
+                    const data = await r.json();
+                    alert(data.message || 'Готово');
+                } catch (e) { alert('Ошибка: ' + e.message); }
+                location.reload();
             }
             </script>
         </body>
@@ -531,3 +639,25 @@ def setup_admin_routes(app: FastAPI):
         conn_products.close()
         
         raise HTTPException(status_code=404, detail="Продукт не найден")
+
+    @app.post("/api/admin/enrich-ingredient/{ingredient_id}")
+    async def enrich_ingredient(ingredient_id: int, _: bool = Depends(verify_admin)):
+        """Ручной запуск AI enrichment для конкретного ингредиента."""
+        from .database import AIDERMY_DB
+        from .ingredient_enrichment import enrich_unknown_ingredients
+
+        conn = get_connection(AIDERMY_DB)
+        cursor = conn.cursor()
+        row = cursor.execute(
+            "SELECT inci_name, canonical_name, normalized_name FROM ingredients_catalog WHERE id = ?",
+            (ingredient_id,),
+        ).fetchone()
+        conn.close()
+        if not row:
+            raise HTTPException(status_code=404, detail="Ингредиент не найден")
+
+        name = row["inci_name"] or row["normalized_name"]
+        saved = await enrich_unknown_ingredients([name])
+        if saved:
+            return {"message": f"🔬 Ингредиент «{name}» обогащён"}
+        return {"message": f"Не удалось обогатить «{name}» (нет AI-ключа или не удалось распознать)"}
