@@ -12,6 +12,7 @@ from app.shelf_service import (
     is_product_compatible,
     recommend_products,
 )
+import app.shelf_service as shelf_service
 
 
 USER = {
@@ -110,6 +111,40 @@ class RecommendationTests(unittest.TestCase):
         # unknown не выбрасывается и не получает None: нейтральная оценка + статус
         self.assertEqual(recs[1]["score"], 60)
         self.assertTrue(recs[1].get("needs_enrichment"))
+
+    def test_enrichment_dispatch_failure_does_not_break_recommendation(self):
+        # Если фоновое обогащение не удалось запустить — рекомендация всё равно
+        # возвращается, а unknown остаётся needs_enrichment.
+        candidates = [
+            _product("Очищение", "A", "a", "Aqua, Glycerin, UnknownX"),
+            _product("Очищение", "B", "b", "Aqua, Glycerin"),
+        ]
+        with patch("app.shelf_service._query_candidates", return_value=candidates), \
+             patch("app.shelf_service._find_history_score", return_value=(None, None)), \
+             patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0}), \
+             patch("app.ingredient_enrichment.find_unknown_ingredients", return_value=["UnknownX"]), \
+             patch("app.shelf_service._dispatch_background_enrichment", side_effect=RuntimeError("dispatch boom")):
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+        self.assertEqual(len(recs), 2)
+        self.assertTrue(any(r.get("needs_enrichment") for r in recs))
+
+    def test_background_dispatch_holds_reference_until_done(self):
+        # _dispatch_background_enrichment должен держать сильную ссылку на задачу
+        # (защита от GC) и убирать её из set после завершения.
+        async def bad_enrich(unknown):
+            raise RuntimeError("enrich failed")
+
+        async def run():
+            with patch("app.ingredient_enrichment.enrich_unknown_ingredients", side_effect=bad_enrich):
+                shelf_service._dispatch_background_enrichment(["X"])
+            self.assertEqual(len(shelf_service._BACKGROUND_ENRICHMENT_TASKS), 1)
+            for _ in range(50):
+                if not shelf_service._BACKGROUND_ENRICHMENT_TASKS:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertEqual(len(shelf_service._BACKGROUND_ENRICHMENT_TASKS), 0)
+
+        asyncio.run(run())
 
 
 class ShelfAggregationTests(unittest.TestCase):

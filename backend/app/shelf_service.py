@@ -600,6 +600,36 @@ def _hard_filter_exclusion(profile: Dict[str, Any], ingredients: str) -> bool:
     return bool(apply_hard_filters(profile, raw_items))
 
 
+# ---------------------------------------------------------------------------
+# ФОНОВОЕ ОБОГАЩЕНИЕ (fire-and-forget)
+# ---------------------------------------------------------------------------
+# asyncio.create_task сам по себе не даёт гарантии, что задача не будет собрана
+# сборщиком мусора, если на неё не остаётся сильной ссылки (документация asyncio
+# явно советует «сохраняйте ссылку на результат create_task»). Держим задачу в
+# set до завершения, затем убираем через done-callback.
+_BACKGROUND_ENRICHMENT_TASKS: set = set()
+
+
+def _dispatch_background_enrichment(unknown: List[str]) -> None:
+    """Запускает enrichment в фоне, удерживая сильную ссылку на задачу."""
+    import asyncio
+
+    from .ingredient_enrichment import enrich_unknown_ingredients
+
+    task = asyncio.create_task(enrich_unknown_ingredients(unknown))
+    _BACKGROUND_ENRICHMENT_TASKS.add(task)
+
+    def _done(t) -> None:
+        _BACKGROUND_ENRICHMENT_TASKS.discard(t)
+        # Достаём исключение, чтобы не копился warning «exception was never retrieved».
+        try:
+            t.exception()
+        except Exception:
+            pass
+
+    task.add_done_callback(_done)
+
+
 async def recommend_products(
     user: Dict[str, Any],
     cabinet: str,
@@ -805,8 +835,7 @@ async def recommend_products(
                 # запросов. Это убирает синхронный AI-вызов (~35 сек) из ответа.
                 _lap("AI enrichment DISPATCHED (background)")
                 try:
-                    import asyncio
-                    asyncio.create_task(enrich_unknown_ingredients(unknown))
+                    _dispatch_background_enrichment(unknown)
                 except Exception as exc:
                     print(f"[RECOMMEND] failed to dispatch enrichment: {exc!r}")
         except Exception as exc:
