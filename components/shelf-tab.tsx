@@ -24,8 +24,8 @@ function scoreBadge(s: number | null) {
   if (s == null) return ''
   if (s >= 80) return 'bg-[#F5C900]/25 text-[#7A5E00]'
   if (s >= 60) return 'bg-[#F5C900]/15 text-[#7A5E00]'
-  if (s >= 40) return 'bg-[#8B7CF6]/10 text-[#6B5CD6]'
-  return 'bg-[#B7A7F0]/15 text-[#8B7CF6]'
+  if (s >= 40) return 'bg-[#8B5CF6]/10 text-[#6D28D9]'
+  return 'bg-[#FF4D3D]/10 text-[#D63B2E]'
 }
 
 export function ShelfTab({

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { X, Sparkles, LoaderCircle, Check, Trash2, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkupText } from '@/components/markup-text'
-import { CABINET_TITLES, CABINET_META } from '@/lib/shelf'
+import { CABINET_TITLES } from '@/lib/shelf'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import { CommunitySection } from '@/components/community-section'
 import type { CheckResult } from '@/lib/store'
@@ -41,8 +41,8 @@ type ProductDetail = {
 function scoreColor(s: number) {
   if (s >= 80) return 'text-[#7A5E00] bg-[#F5C900]/25 border-[#F5C900]/40'
   if (s >= 60) return 'text-[#7A5E00] bg-[#F5C900]/15 border-[#F5C900]/30'
-  if (s >= 40) return 'text-[#8B7CF6] bg-[#8B7CF6]/10 border-[#8B7CF6]/30'
-  return 'text-[#B7A7F0] bg-[#B7A7F0]/10 border-[#B7A7F0]/30'
+  if (s >= 40) return 'text-[#6D28D9] bg-[#8B5CF6]/10 border-[#8B5CF6]/30'
+  return 'text-[#D63B2E] bg-[#FF4D3D]/10 border-[#FF4D3D]/30'
 }
 
 function asList(v: unknown): string[] {
@@ -83,9 +83,6 @@ export function ProductModal({
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
   const [showComposition, setShowComposition] = useState(false)
-  const [showShelfPicker, setShowShelfPicker] = useState(false)
-  const [pickCabinet, setPickCabinet] = useState('face')
-  const [pickCategory, setPickCategory] = useState('')
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
@@ -123,23 +120,21 @@ export function ProductModal({
     if (res.ok) setData(await res.json())
   }
 
-  const addToShelf = async (cabinet?: string, category?: string) => {
+  const addToShelf = async () => {
     if (!product) return
-    const targetCabinet = cabinet || shelfContext?.cabinet || 'face'
-    const targetCategory = category || shelfContext?.category || ''
     setBusy(true)
     try {
       const res = await fetch('/api/shelf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ slug: product.slug, cabinet: targetCabinet, category: targetCategory }),
+        // Полка определяется автоматически на бэкенде (по названию/категории товара).
+        body: JSON.stringify({ slug: product.slug, cabinet: shelfContext?.cabinet || '', category: shelfContext?.category || '' }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || 'Не удалось добавить')
       }
       onChanged()
-      setShowShelfPicker(false)
       await refreshDetail()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось добавить')
@@ -381,60 +376,13 @@ export function ProductModal({
                       Убрать с полки
                     </button>
                   </>
-                ) : shelfContext ? (
+                ) : (
                   <button
-                    onClick={() => addToShelf()}
+                    onClick={addToShelf}
                     disabled={busy}
                     className="w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                   >
                     {busy ? 'Добавляем…' : 'Добавить на полку'}
-                  </button>
-                ) : showShelfPicker ? (
-                  <div className="rounded-xl border border-gray-200 p-3">
-                    <p className="mb-2 text-xs font-medium text-muted-foreground/70">Выберите полку</p>
-                    <div className="mb-2 flex flex-wrap gap-1.5">
-                      {CABINET_META.map((c) => (
-                        <button
-                          key={c.key}
-                          onClick={() => { setPickCabinet(c.key); setPickCategory('') }}
-                          className={cn(
-                            'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                            pickCabinet === c.key ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
-                          )}
-                        >
-                          {c.title}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="mb-2 flex flex-wrap gap-1.5">
-                      {(CABINET_META.find((c) => c.key === pickCabinet)?.categories || []).map((cat) => (
-                        <button
-                          key={cat}
-                          onClick={() => setPickCategory(cat)}
-                          className={cn(
-                            'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                            pickCategory === cat ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
-                          )}
-                        >
-                          {cat}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => addToShelf(pickCabinet, pickCategory)}
-                      disabled={busy || !pickCategory}
-                      className="w-full rounded-lg bg-primary py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-                    >
-                      {busy ? 'Добавляем…' : 'Добавить'}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setShowShelfPicker(true)}
-                    disabled={busy}
-                    className="w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-                  >
-                    Добавить на полку
                   </button>
                 )
               )}

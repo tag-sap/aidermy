@@ -917,16 +917,20 @@ async def get_shelf(current_user: dict = Depends(get_current_user)):
 @app.post("/api/shelf")
 async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(get_current_user)):
     from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf
-    from .shelf_service import canonical_category, CABINET_BY_KEY, is_product_compatible
+    from .shelf_service import canonical_category, CABINET_BY_KEY, is_product_compatible, infer_cabinet_category
 
     product = get_product_by_slug(request.slug)
     if not product:
         raise HTTPException(status_code=404, detail="Продукт не найден")
 
-    cabinet = (request.cabinet or "face").strip().lower()
-    if cabinet not in CABINET_BY_KEY:
-        cabinet = "face"
-    category = canonical_category(cabinet, request.category)
+    # Если полка не указана явно — определяем её автоматически по названию/категории.
+    if not (request.category or "").strip():
+        cabinet, category = infer_cabinet_category(product.get("category"), product.get("name"))
+    else:
+        cabinet = (request.cabinet or "face").strip().lower()
+        if cabinet not in CABINET_BY_KEY:
+            cabinet = "face"
+        category = canonical_category(cabinet, request.category)
 
     ok, reason = is_product_compatible(product, cabinet, category)
     if not ok:
