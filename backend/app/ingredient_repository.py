@@ -93,6 +93,11 @@ class IngredientRepository:
             '''
         )
 
+        # Дедупликация: в старых БД upsert_ingredient мог создать несколько строк с
+        # одинаковым normalized_name (без UNIQUE-индекса). Объединяем дубли, чтобы
+        # ниже корректно создать уникальный индекс. Claims переносим на каноническую строку.
+        self._dedupe_catalog(cursor)
+
         # Уникальность normalized_name нужна для ON CONFLICT(normalized_name) в upsert.
         cursor.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_ingredients_catalog_normalized "
@@ -100,6 +105,39 @@ class IngredientRepository:
         )
         conn.commit()
         conn.close()
+
+    @staticmethod
+    def _dedupe_catalog(cursor) -> int:
+        """Объединяет дубликаты ingredients_catalog по normalized_name.
+
+        Канонической считается строка с минимальным id; claims дублей переносятся
+        на неё, строки-дубли удаляются. Возвращает число удалённых строк.
+        """
+        groups = cursor.execute(
+            "SELECT normalized_name, COUNT(*) AS c FROM ingredients_catalog "
+            "WHERE normalized_name IS NOT NULL AND normalized_name != '' "
+            "GROUP BY normalized_name HAVING c > 1"
+        ).fetchall()
+        removed = 0
+        for group in groups:
+            name = group["normalized_name"]
+            ids = [r["id"] for r in cursor.execute(
+                "SELECT id FROM ingredients_catalog WHERE normalized_name = ? ORDER BY id ASC",
+                (name,),
+            ).fetchall()]
+            keep = ids[0]
+            for dup_id in ids[1:]:
+                cursor.execute(
+                    "UPDATE ingredient_claims SET ingredient_id = ? WHERE ingredient_id = ?",
+                    (keep, dup_id),
+                )
+                cursor.execute(
+                    "UPDATE allergen_sensitizer SET ingredient_id = ? WHERE ingredient_id = ?",
+                    (keep, dup_id),
+                )
+                cursor.execute("DELETE FROM ingredients_catalog WHERE id = ?", (dup_id,))
+                removed += 1
+        return removed
 
     def upsert_ingredient(self, inci_name: str, canonical_name: str = '', normalized_name: str = '') -> int:
         conn = get_connection(self.db_path)
