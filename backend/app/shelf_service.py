@@ -622,10 +622,10 @@ def _dispatch_background_enrichment(unknown: List[str]) -> None:
     def _done(t) -> None:
         _BACKGROUND_ENRICHMENT_TASKS.discard(t)
         # Достаём исключение, чтобы не копился warning «exception was never retrieved».
-        try:
+        # Отменённую задачу пропускаем: Task.exception() на ней бросает CancelledError
+        # (BaseException), который не ловится `except Exception` и роняет callback.
+        if not t.cancelled():
             t.exception()
-        except Exception:
-            pass
 
     task.add_done_callback(_done)
 

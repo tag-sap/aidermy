@@ -146,6 +146,32 @@ class RecommendationTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_background_dispatch_callback_handles_cancellation(self):
+        # При отмене фоновой задачи (graceful shutdown воркера) done-callback не
+        # должен падать на Task.exception() -> CancelledError.
+        async def never_finishes(unknown):
+            await asyncio.Event().wait()
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            errors = []
+            loop.set_exception_handler(lambda _loop, ctx: errors.append(ctx))
+
+            with patch("app.ingredient_enrichment.enrich_unknown_ingredients", side_effect=never_finishes):
+                shelf_service._dispatch_background_enrichment(["X"])
+            self.assertEqual(len(shelf_service._BACKGROUND_ENRICHMENT_TASKS), 1)
+            task = next(iter(shelf_service._BACKGROUND_ENRICHMENT_TASKS))
+            task.cancel()
+            for _ in range(50):
+                if not shelf_service._BACKGROUND_ENRICHMENT_TASKS:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertTrue(task.cancelled())
+            self.assertEqual(len(shelf_service._BACKGROUND_ENRICHMENT_TASKS), 0)
+            self.assertEqual(errors, [])
+
+        asyncio.run(run())
+
 
 class ShelfAggregationTests(unittest.TestCase):
     def test_aggregate_skips_missing_scores(self):
