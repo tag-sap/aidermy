@@ -745,7 +745,7 @@ export default function Page() {
     <>
       <SplashScreen />
 
-      <div className="relative h-dvh overflow-hidden bg-[linear-gradient(to_bottom,#F7F3EA_0%,#F7F3EA_78%,#151515_100%)]">
+      <div className="relative h-dvh overflow-hidden bg-background">
         <ParticleField />
         <div className="grid-shimmer" aria-hidden="true" />
 

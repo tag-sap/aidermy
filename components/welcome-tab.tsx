@@ -52,10 +52,10 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
           <div className="mx-auto flex w-full max-w-md justify-start px-5 md:max-w-5xl md:justify-end md:px-12">
             <button
               onClick={onAuth}
-              className="pointer-events-auto inline-flex translate-y-1/2 items-center gap-2 rounded-lg bg-white px-7 py-3.5 text-sm font-medium text-[#151515] shadow-[0_8px_32px_rgba(0,0,0,0.35)] transition-all hover:bg-[#F7F3EA] active:scale-[0.98]"
+              className="pointer-events-auto inline-flex translate-y-1/2 items-center gap-2 rounded-lg bg-white px-8 py-4 text-base font-medium text-[#151515] shadow-[0_8px_32px_rgba(0,0,0,0.35)] transition-all hover:bg-[#F7F3EA] active:scale-[0.98]"
             >
               Начать
-              <ArrowRight className="size-4" />
+              <ArrowRight className="size-5" />
             </button>
           </div>
         </div>
@@ -82,7 +82,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
 
       {/* FOOTER — чёрный, тянется до низа */}
       <footer
-        className="bg-[#151515] text-white pb-[calc(6rem+env(safe-area-inset-bottom,0px))]"
+        className="flex min-h-[50vh] flex-col bg-[#151515] text-white"
         style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}
       >
         <div className="mx-auto w-full max-w-md px-5 py-10 md:max-w-5xl">
@@ -101,7 +101,9 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
               <a href="https://t.me/aidermy_news" target="_blank" rel="noopener noreferrer" className="text-white/70 transition-colors hover:text-white">Telegram</a>
             </div>
           </div>
-          <div className="mt-8 border-t border-white/10 pt-5 text-xs text-white/40">
+        </div>
+        <div className="mx-auto mt-auto w-full max-w-md px-5 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:max-w-5xl">
+          <div className="border-t border-white/10 pt-5 text-xs text-white/40">
             © {new Date().getFullYear()} aidermy. Все права защищены.
           </div>
         </div>
