@@ -95,6 +95,23 @@ async def run():
     print("I_class_routing before=%d after=%d %s" % (
         route["before"], route["after"], json.dumps(METRICS.snapshot(), ensure_ascii=False)))
 
+    # J: static product model (первый запуск = build, повторный = cache hit)
+    import app.product_model as pm
+    from app.ingredient_repository import IngredientRepository as IR
+    pm._cache.clear()
+    cand0 = cands[0] if cands else {"id": 1, "ingredients": "Aqua"}
+    METRICS.reset()
+    m1 = pm.get_or_build_product_model(cand0, graph=G3, repository=IR())
+    first_snap = METRICS.snapshot()
+    METRICS.reset()
+    m2 = pm.get_or_build_product_model(cand0, graph=G3, repository=IR())
+    second_snap = METRICS.snapshot()
+    print("J_static_model first=%s second=%s same=%s" % (
+        json.dumps(first_snap, ensure_ascii=False),
+        json.dumps(second_snap, ensure_ascii=False),
+        m1 == m2,
+    ))
+
 
 if __name__ == "__main__":
     asyncio.run(run())

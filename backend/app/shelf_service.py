@@ -507,12 +507,22 @@ def _load_shelf_products(
         score = s.get("score")
         if score is None:
             score = compute_product_compatibility(user, p, knowledge=knowledge, history=history)
+        # Фаза 5 — Static Product Model (cache-first): shelf использует кэшированную
+        # объективную модель (классы/эффекты), не перестраивая её повторно.
+        classes: List[str] = []
+        try:
+            from .product_model import get_or_build_product_model
+            model = get_or_build_product_model(p)
+            classes = model.get("classes") or []
+        except Exception:
+            classes = []
         result.append({
             "name": (p.get("name") or "").replace("\n", " "),
             "category": category,
             "ingredients": p.get("ingredients") or "",
             "score": score,
             "slug": p.get("slug") or "",
+            "classes": classes,
         })
     return result
 
@@ -955,11 +965,11 @@ async def recommend_products(
         except Exception as exc:
             print(f"[RECOMMEND] enrichment dispatch failed: {exc!r}")
 
-    # Фаза 3B — shadow mode: сравнение OLD CONFLICT_RULES vs NEW interaction lookup.
-    # НЕ влияет на score/ranking — только логирует расхождения в METRICS.
+    # Фаза 5 — реальный class routing (shadow-only): exact lookup ТОЛЬКО для
+    # релевантных пар. НЕ влияет на score/ranking — только METRICS.
     if scored and result and shelf_products:
         try:
-            from .interaction_system import shadow_compare_interactions
+            from .interaction_system import detect_cross_product_interactions
             for r in result:
                 cand = {
                     "name": r.get("name"),
@@ -967,9 +977,9 @@ async def recommend_products(
                     "ingredients": r.get("_ingredients") or "",
                     "score": r.get("score"),
                 }
-                shadow_compare_interactions(shelf_products, cand)
+                detect_cross_product_interactions(shelf_products, cand)
         except Exception as exc:
-            print(f"[SHADOW] interaction shadow check failed: {exc!r}")
+            print(f"[INTERACTION] class routing check failed: {exc!r}")
 
     for r in result:
         r.pop("_relevance", None)

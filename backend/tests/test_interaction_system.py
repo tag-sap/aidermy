@@ -4,7 +4,7 @@ import unittest
 
 from app.ingredient_graph import IngredientGraph
 from app.ingredient_repository import IngredientRepository
-from app.interaction_system import shadow_compare_interactions
+from app.interaction_system import detect_cross_product_interactions, shadow_compare_interactions
 from app.instrumentation import METRICS
 
 
@@ -14,6 +14,7 @@ class InteractionSystemTests(unittest.TestCase):
         self.db_path = os.path.join(self._tmp.name, "test.db")
         self.repo = IngredientRepository(self.db_path)
         self.repo.seed_interactions()
+        self.repo.seed_taxonomy()
         self.graph = IngredientGraph(self.repo)
         METRICS.reset()
 
@@ -45,6 +46,26 @@ class InteractionSystemTests(unittest.TestCase):
         candidate_before = dict(candidate)
         shadow_compare_interactions(shelf, candidate, graph=self.graph)
         self.assertEqual(candidate, candidate_before)
+
+    def test_detect_cross_product_class_routing(self):
+        # exact lookup только после class routing: after < before, exact == after
+        shelf = [{"name": "BHA Serum", "ingredients": "Aqua, Salicylic Acid"}]
+        candidate = {"name": "Retinol Cream", "ingredients": "Aqua, Retinol"}
+        rep = detect_cross_product_interactions(shelf, candidate, graph=self.graph)
+        self.assertLess(rep["after"], rep["before"])
+        self.assertEqual(rep["exact_lookups"], rep["after"])
+        g = METRICS.snapshot()["gauges"]
+        self.assertEqual(g["interaction_exact_lookup_count"], rep["after"])
+        self.assertEqual(g["class_filtered_count"], rep["before"] - rep["after"])
+
+    def test_class_membership_does_not_create_interaction(self):
+        # vitamin_c (ascorbyl palmitate) × niacinamide: класс релевантен, exact unknown
+        shelf = [{"name": "Niac", "ingredients": "Aqua, Niacinamide"}]
+        candidate = {"name": "VC", "ingredients": "Aqua, Ascorbyl Palmitate"}
+        rep = detect_cross_product_interactions(shelf, candidate, graph=self.graph)
+        states = {r["state"] for r in rep["results"]}
+        self.assertIn("unknown", states)
+        self.assertNotIn("known", states)
 
 
 if __name__ == "__main__":

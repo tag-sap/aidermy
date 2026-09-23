@@ -558,6 +558,75 @@ class IngredientRepository:
                     m[ing].append(n)
         return m
 
+    # ------------------------------------------------------------------
+    # Фаза 5 — Static Product Model (кэш объективного состояния продукта)
+    # ------------------------------------------------------------------
+    def ensure_product_model_tables(self) -> None:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS product_models (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL UNIQUE,
+                composition_hash TEXT NOT NULL,
+                data TEXT NOT NULL,
+                taxonomy_version TEXT DEFAULT '',
+                knowledge_version TEXT DEFAULT '',
+                interaction_version TEXT DEFAULT '',
+                model_version TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        conn.commit()
+        conn.close()
+
+    def save_product_model(self, product_id: int, model: Dict[str, Any]) -> int:
+        import json
+
+        self.ensure_product_model_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT OR REPLACE INTO product_models
+                (product_id, composition_hash, data, taxonomy_version, knowledge_version,
+                 interaction_version, model_version, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''',
+            (
+                product_id,
+                model.get("composition_hash"),
+                json.dumps(model, ensure_ascii=False),
+                model.get("taxonomy_version"),
+                model.get("knowledge_version"),
+                model.get("interaction_version"),
+                model.get("model_version"),
+            ),
+        )
+        conn.commit()
+        conn.close()
+        return product_id
+
+    def get_product_model(self, product_id: int) -> Optional[Dict[str, Any]]:
+        import json
+
+        self.ensure_product_model_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT * FROM product_models WHERE product_id = ?", (product_id,)).fetchone()
+        conn.close()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["data"] = json.loads(d["data"])
+        except Exception:
+            d["data"] = {}
+        return d
+
     def initialize_knowledge_graph(self) -> Dict[str, int]:
         """Startup/migration: создаёт таблицы + seed (идемпотентно).
 
@@ -568,6 +637,7 @@ class IngredientRepository:
         interactions = self.seed_interactions()
         self.ensure_taxonomy_tables()
         classes = self.seed_taxonomy()
+        self.ensure_product_model_tables()
         return {"seed_interactions": interactions, "seed_classes": classes}
 
     # ------------------------------------------------------------------
