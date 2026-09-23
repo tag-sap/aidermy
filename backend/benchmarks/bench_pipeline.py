@@ -57,6 +57,20 @@ async def run():
     unk = find_unknown_ingredients(["Glycerin", "Aqua", "Niacinamide", "Hyaluronic Acid"])
     print("C_known_reuse unknown=%d  %s" % (len(unk), json.dumps(METRICS.snapshot(), ensure_ascii=False)))
 
+    # G: graph cache (cache-first): первый lookup = miss (DB), второй = hit (без DB)
+    from app.ingredient_graph import GRAPH
+    GRAPH.invalidate()
+    METRICS.reset()
+    GRAPH.get_canonical_knowledge_map()
+    miss_snap = METRICS.snapshot()
+    METRICS.reset()
+    GRAPH.get_canonical_knowledge_map()
+    hit_snap = METRICS.snapshot()
+    print("G_graph_cache miss=%s hit=%s" % (
+        json.dumps(miss_snap, ensure_ascii=False),
+        json.dumps(hit_snap, ensure_ascii=False),
+    ))
+
 
 if __name__ == "__main__":
     asyncio.run(run())
