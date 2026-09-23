@@ -19,48 +19,37 @@ def detect_cross_product_interactions(
 ) -> Dict[str, Any]:
     """Реальный class routing: exact lookup ТОЛЬКО для релевантных ingredient-пар.
 
-    candidate × shelf → классы → class routing → релевантные пары → exact lookup.
-    НЕ влияет на score (shadow-only). Метрики: before/after/exact_lookup/class_filtered/class_pair.
+    candidate × shelf → class_route (product-level, ставит before/after/class_filtered)
+    → только релевантные пары → ingredient-level exact lookup.
+    НЕ влияет на score (shadow-only). Ставит interaction_exact_lookup_count.
     """
     from .ingredient_graph import GRAPH
 
     g = graph or GRAPH
     routes = g._repo.get_class_routes()
 
-    cand_ings = list(dict.fromkeys(g._split_ingredients(candidate.get("ingredients"))))
-    shelf_ings: List[str] = []
-    for sp in shelf_products:
-        for i in g._split_ingredients(sp.get("ingredients")):
-            if i not in shelf_ings:
-                shelf_ings.append(i)
+    # 1) class routing на уровне продуктов (before/after/class_filtered — здесь)
+    route = g.class_route(shelf_products, [candidate])
+    relevant_pairs = route["pairs"]
 
-    cand_classes = {i: set(g.lookup_classes(i)) for i in cand_ings}
-    shelf_classes = {i: set(g.lookup_classes(i)) for i in shelf_ings}
-
-    before = 0
-    after = 0
+    # 2) ingredient-level exact lookup только для релевантных продуктовых пар
     exact_lookups = 0
-    class_pairs: set = set()
     results: List[Dict[str, Any]] = []
-    for ci in cand_ings:
-        cc = cand_classes[ci]
-        for si in shelf_ings:
-            before += 1
-            sc = shelf_classes[si]
-            if not cc or not sc:
+    for cand_p, shelf_p in relevant_pairs:
+        cand_ings = g._split_ingredients(cand_p.get("ingredients"))
+        shelf_ings = g._split_ingredients(shelf_p.get("ingredients"))
+        for ci in cand_ings:
+            cc = set(g.lookup_classes(ci))
+            if not cc:
                 continue
-            if g._classes_relevant(cc, sc, routes):
-                after += 1
-                g._collect_class_pairs(cc, sc, routes, class_pairs)
-                exact_lookups += 1
-                results.append(g.lookup_interaction(ci, si))
+            for si in shelf_ings:
+                sc = set(g.lookup_classes(si))
+                if sc and g._classes_relevant(cc, sc, routes):
+                    exact_lookups += 1
+                    results.append(g.lookup_interaction(ci, si))
 
-    METRICS.set_gauge("interaction_candidate_count_before", before)
-    METRICS.set_gauge("interaction_candidate_count_after", after)
     METRICS.set_gauge("interaction_exact_lookup_count", exact_lookups)
-    METRICS.set_gauge("class_filtered_count", before - after)
-    METRICS.set_gauge("class_pair_count", len(class_pairs))
-    return {"before": before, "after": after, "exact_lookups": exact_lookups, "results": results}
+    return {"before": route["before"], "after": route["after"], "exact_lookups": exact_lookups, "results": results}
 
 
 def shadow_compare_interactions(

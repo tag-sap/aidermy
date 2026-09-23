@@ -48,15 +48,19 @@ class InteractionSystemTests(unittest.TestCase):
         self.assertEqual(candidate, candidate_before)
 
     def test_detect_cross_product_class_routing(self):
-        # exact lookup только после class routing: after < before, exact == after
-        shelf = [{"name": "BHA Serum", "ingredients": "Aqua, Salicylic Acid"}]
+        # exact lookup только после class routing
+        shelf = [
+            {"name": "BHA Serum", "ingredients": "Aqua, Salicylic Acid"},
+            {"name": "Plain", "ingredients": "Aqua, Glycerin"},
+        ]
         candidate = {"name": "Retinol Cream", "ingredients": "Aqua, Retinol"}
         rep = detect_cross_product_interactions(shelf, candidate, graph=self.graph)
-        self.assertLess(rep["after"], rep["before"])
-        self.assertEqual(rep["exact_lookups"], rep["after"])
+        self.assertEqual(rep["before"], 2)   # 2 shelf × 1 candidate
+        self.assertEqual(rep["after"], 1)    # только BHA релевантен
+        self.assertGreaterEqual(rep["exact_lookups"], 1)  # retinol × salicylic acid
         g = METRICS.snapshot()["gauges"]
-        self.assertEqual(g["interaction_exact_lookup_count"], rep["after"])
-        self.assertEqual(g["class_filtered_count"], rep["before"] - rep["after"])
+        self.assertEqual(g["interaction_exact_lookup_count"], rep["exact_lookups"])
+        self.assertEqual(g["class_filtered_count"], 1)
 
     def test_class_membership_does_not_create_interaction(self):
         # vitamin_c (ascorbyl palmitate) × niacinamide: класс релевантен, exact unknown
