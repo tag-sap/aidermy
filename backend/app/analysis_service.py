@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingredient_name
 from .ingredient_repository import IngredientRepository
-from .scoring_engine import apply_hard_filters, score_product_against_profile
+from .scoring_engine import apply_hard_filters, score_product_against_profile_canonical
 
 
 class AnalysisService:
@@ -34,19 +34,23 @@ class AnalysisService:
         user_profile: Dict[str, Any],
         priorities: Dict[str, float],
         knowledge: Dict[str, Dict[str, Dict[str, float]]] | None = None,
+        interactions: List[Dict[str, Any]] | None = None,
     ):
+        from .axes import canonicalize_weights
+
         normalized_ingredients = self.prepare_product_ingredients(ingredients)
         if knowledge is None:
-            knowledge = self.repository.get_knowledge_map()
+            knowledge = self.repository.get_canonical_knowledge_map()
 
         # Hard filters выполняются ДО скоринга: если есть нарушения — товар исключён.
         hard_filters = apply_hard_filters(user_profile, normalized_ingredients)
 
-        result = score_product_against_profile(
+        result = score_product_against_profile_canonical(
             ingredients=normalized_ingredients,
-            knowledge=knowledge,
+            canonical_knowledge=knowledge,
             user_profile=user_profile,
-            priority_weights=priorities,
+            canonical_weights=canonicalize_weights(priorities),
+            interactions=interactions,
         )
         result['product_name'] = product_name
         result['normalized_ingredients'] = normalized_ingredients

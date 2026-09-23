@@ -59,13 +59,14 @@ CONCERN_WEIGHTS: Dict[str, Dict[str, float]] = {
     "купероз": {"sensitivity": 0.4, "barrier_support": 0.2},
 }
 
-# Человекочитаемые названия измерений для summary.
+# Человекочитаемые названия измерений для summary (canonical axes).
 DIMENSION_LABELS: Dict[str, str] = {
     "hydration": "увлажнение",
-    "barrier_support": "поддержку барьера кожи",
-    "sensitivity": "снижение раздражения",
-    "acne_control": "контроль акне",
-    "brightening": "выравнивание тона",
+    "barrier": "поддержку барьера кожи",
+    "irritation": "снижение раздражения",
+    "sensitization": "снижение сенсибилизации",
+    "sebum": "контроль себума",
+    "pigmentation": "выравнивание тона",
 }
 
 VERDICT_GOOD = 70
@@ -156,20 +157,22 @@ def _top_factor(factors: List[Dict[str, Any]], direction: str) -> Optional[Dict[
     return best
 
 
-# Человекочитаемое описание эффекта ингредиента (без внутренних имён факторов).
+# Человекочитаемое описание эффекта ингредиента (canonical axes, без legacy-имён).
 _POSITIVE_EFFECT: Dict[str, str] = {
     "hydration": "увлажнение кожи",
-    "barrier_support": "укрепление защитного барьера",
-    "sensitivity": "успокоение и снижение раздражения",
-    "acne_control": "контроль высыпаний",
-    "brightening": "выравнивание тона",
+    "barrier": "укрепление защитного барьера",
+    "irritation": "успокоение и снижение раздражения",
+    "sensitization": "снижение сенсибилизирующего потенциала",
+    "sebum": "контроль высыпаний",
+    "pigmentation": "выравнивание тона",
 }
 _NEGATIVE_EFFECT: Dict[str, str] = {
     "hydration": "может подсушивать кожу",
-    "barrier_support": "может ослаблять защитный барьер",
-    "sensitivity": "может раздражать чувствительную кожу",
-    "acne_control": "может провоцировать высыпания",
-    "brightening": "может не способствовать выравниванию тона",
+    "barrier": "может ослаблять защитный барьер",
+    "irritation": "может раздражать чувствительную кожу",
+    "sensitization": "может сенсибилизировать кожу",
+    "sebum": "может провоцировать высыпания",
+    "pigmentation": "может не способствовать выравниванию тона",
 }
 
 
@@ -277,6 +280,7 @@ class DecisionEngine:
         profile: Dict[str, Any],
         skin_type: str = "",
         knowledge: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
+        interactions: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         priorities = priorities_for_profile(profile, skin_type)
         result = self.analysis_service.analyze(
@@ -285,6 +289,7 @@ class DecisionEngine:
             profile,
             priorities,
             knowledge=knowledge,
+            interactions=interactions,
         )
         score = int(result.get("score") or 0)
         safe, caution = ingredient_lists(result)

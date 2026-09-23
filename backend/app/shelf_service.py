@@ -278,7 +278,12 @@ def is_product_compatible(product: Dict[str, Any], cabinet: str, category: str) 
 _DETERMINISTIC_ENGINE = None
 
 
-def _deterministic_analysis(profile: Dict[str, Any], ingredients: str, knowledge=None) -> Optional[Dict[str, Any]]:
+def _deterministic_analysis(
+    profile: Dict[str, Any],
+    ingredients: str,
+    knowledge=None,
+    interactions: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
     if not ingredients or not str(ingredients).strip():
         return None
     global _DETERMINISTIC_ENGINE
@@ -295,9 +300,16 @@ def _deterministic_analysis(profile: Dict[str, Any], ingredients: str, knowledge
             profile,
             (profile or {}).get("skin_type") or "",
             knowledge=knowledge,
+            interactions=interactions,
         )
     except Exception:
         return None
+
+
+def _interaction_scoring_enabled() -> bool:
+    """Feature flag interaction contribution (Фаза 7). False = legacy score бит-в-бит."""
+    from . import interaction_scoring
+    return interaction_scoring.INTERACTION_SCORING_ENABLED
 
 
 def _meaningful_score(analysis: Optional[Dict[str, Any]]) -> Optional[int]:
@@ -366,13 +378,13 @@ def enrich_ingredient_knowledge(claims: List[Dict[str, Any]]) -> int:
     try:
         from .ingredient_repository import IngredientRepository
         from .ingredient_normalizer import canonicalize_ingredient_name
+        from .axes import canonicalize_axis
     except Exception:
         return 0
 
     repo = IngredientRepository()
     repo.ensure_ingredient_tables()
 
-    allowed_props = {"hydration", "barrier_support", "sensitivity", "acne_control", "brightening"}
     added = 0
     for claim in claims:
         if not isinstance(claim, dict):
@@ -384,7 +396,11 @@ def enrich_ingredient_knowledge(claims: List[Dict[str, Any]]) -> int:
         if not canonical:
             continue
         property_name = str(claim.get("property") or "").strip().lower()
-        if property_name not in allowed_props:
+        # Фаза 9-fix: persist ТОЛЬКО atomic effects, соответствующие canonical axes.
+        # "acne_control"/"comedogenicity"/"pore_clogging"/"breakout_potential" → не ось →
+        # НЕ становятся scoring knowledge (marketing/mechanism claim не равен axis-эффекту).
+        axis, _ = canonicalize_axis(property_name)
+        if axis is None:
             continue
         direction = str(claim.get("direction") or "positive").strip().lower()
         if direction not in {"positive", "negative", "neutral"}:
@@ -463,7 +479,7 @@ def compute_product_compatibility(
     try:
         from .ingredient_repository import IngredientRepository
         if knowledge is None:
-            knowledge = IngredientRepository().get_knowledge_map()
+            knowledge = IngredientRepository().get_canonical_knowledge_map()
         analysis = _deterministic_analysis(
             _build_user_profile(user),
             product.get("ingredients") or "",
@@ -689,36 +705,6 @@ def _hard_filter_exclusion(profile: Dict[str, Any], ingredients: str) -> bool:
     return bool(apply_hard_filters(profile, raw_items))
 
 
-# ---------------------------------------------------------------------------
-# ФОНОВОЕ ОБОГАЩЕНИЕ (fire-and-forget)
-# ---------------------------------------------------------------------------
-# asyncio.create_task сам по себе не даёт гарантии, что задача не будет собрана
-# сборщиком мусора, если на неё не остаётся сильной ссылки (документация asyncio
-# явно советует «сохраняйте ссылку на результат create_task»). Держим задачу в
-# set до завершения, затем убираем через done-callback.
-_BACKGROUND_ENRICHMENT_TASKS: set = set()
-
-
-def _dispatch_background_enrichment(unknown: List[str]) -> None:
-    """Запускает enrichment в фоне, удерживая сильную ссылку на задачу."""
-    import asyncio
-
-    from .ingredient_enrichment import enrich_unknown_ingredients
-
-    task = asyncio.create_task(enrich_unknown_ingredients(unknown))
-    _BACKGROUND_ENRICHMENT_TASKS.add(task)
-
-    def _done(t) -> None:
-        _BACKGROUND_ENRICHMENT_TASKS.discard(t)
-        # Достаём исключение, чтобы не копился warning «exception was never retrieved».
-        # Отменённую задачу пропускаем: Task.exception() на ней бросает CancelledError
-        # (BaseException), который не ловится `except Exception` и роняет callback.
-        if not t.cancelled():
-            t.exception()
-
-    task.add_done_callback(_done)
-
-
 def _build_user_profile(user: Dict[str, Any]) -> Dict[str, Any]:
     """Собирает профиль пользователя для deterministic scoring.
 
@@ -806,7 +792,7 @@ async def recommend_products(
     if scored:
         try:
             from .ingredient_repository import IngredientRepository
-            knowledge = IngredientRepository().get_knowledge_map()
+            knowledge = IngredientRepository().get_canonical_knowledge_map()
         except Exception:
             knowledge = None
 
@@ -826,6 +812,32 @@ async def recommend_products(
     if scored:
         shelf_products = _load_shelf_products(user, cabinet, knowledge=knowledge, history=user_history)
     METRICS.set_gauge("interaction_candidate_count", len(candidates) * len(shelf_products))
+
+    # Фаза 9 — Research Queue: неизвестные ингредиенты дожидаются batch research
+    # ДО scoring, чтобы пользователь получил ОДИН согласованный результат.
+    if scored:
+        try:
+            from .services import DEEPSEEK_API_KEY
+            if DEEPSEEK_API_KEY:
+                from .ingredient_enrichment import find_unknown_ingredients
+                from .research_queue import run_research
+                raw_names: List[str] = []
+                for p in candidates:
+                    for part in re.split(r"[,;\n]+", p.get("ingredients") or ""):
+                        if part.strip():
+                            raw_names.append(part.strip())
+                for p in shelf_products:
+                    for part in re.split(r"[,;\n]+", p.get("ingredients") or ""):
+                        if part.strip():
+                            raw_names.append(part.strip())
+                unknown = find_unknown_ingredients(raw_names)
+                if unknown:
+                    _research_status = await run_research(unknown_ingredients=unknown)
+                    if _research_status == "completed":
+                        from .ingredient_repository import IngredientRepository
+                        knowledge = IngredientRepository().get_canonical_knowledge_map()
+        except Exception as exc:
+            print(f"[RECOMMEND] research failed: {exc!r}")
 
     rated: List[Dict[str, Any]] = []
     seen_ids: set = set()
@@ -876,7 +888,16 @@ async def recommend_products(
                 # 2) deterministic-движок. Unknown-ингредиенты НЕ штрафуются:
                 # продукт с неполностью известным составом остаётся кандидатом,
                 # получает нейтральную позицию и статус needs_enrichment.
-                analysis = _deterministic_analysis(profile, product.get("ingredients") or "", knowledge=knowledge)
+                internal_recs = None
+                if _interaction_scoring_enabled():
+                    try:
+                        from .product_model import get_internal_interactions
+                        internal_recs = get_internal_interactions(product)
+                    except Exception:
+                        internal_recs = None
+                analysis = _deterministic_analysis(
+                    profile, product.get("ingredients") or "", knowledge=knowledge, interactions=internal_recs
+                )
                 meaningful = _meaningful_score(analysis)
                 if meaningful is not None:
                     rec["score"] = meaningful
@@ -896,12 +917,18 @@ async def recommend_products(
             try:
                 from .shelf_compatibility import compute_shelf_compatibility
                 candidate_product = {
+                    "id": rec.get("id"),
                     "name": rec["name"],
                     "category": category,
                     "ingredients": rec.get("_ingredients") or "",
                     "score": rec["score"],
                 }
-                shelf_result = compute_shelf_compatibility(shelf_products + [candidate_product])
+                cross_recs = None
+                if _interaction_scoring_enabled():
+                    from .interaction_system import build_dynamic_shelf_model, flatten_cross_product_interactions
+                    dyn = build_dynamic_shelf_model(shelf_products, candidate_product)
+                    cross_recs = flatten_cross_product_interactions(dyn["results"])
+                shelf_result = compute_shelf_compatibility(shelf_products + [candidate_product], interactions=cross_recs)
                 rec["shelf_compatibility"] = shelf_result.get("score")
             except Exception:
                 rec["shelf_compatibility"] = None
@@ -942,44 +969,27 @@ async def recommend_products(
         if len(result) >= 3:
             break
 
-    # Enrichment ТОЛЬКО для топ-3 (быстрее): собираем unknown среди выбранных,
-    # обогащаем один раз, затем пересчитываем их score по свежим знаниям.
-    if scored and result:
-        try:
-            from .ingredient_enrichment import find_unknown_ingredients, enrich_unknown_ingredients
+    # Фаза 9 — Research уже выполнен ДО scoring (см. выше). Фонового пересчёта
+    # показанного score больше нет: пользователь получает один согласованный результат.
 
-            top_raw: List[str] = []
-            for r in result:
-                for part in re.split(r"[,;\n]+", r.get("_ingredients") or ""):
-                    if part.strip():
-                        top_raw.append(part.strip())
-            unknown = find_unknown_ingredients(top_raw)
-            if unknown:
-                # Обогащаем в фоне (fire-and-forget). Рекомендация отдаётся сразу с
-                # детерминированным скором, а Ingredient DB пополняется для следующих
-                # запросов. Это убирает синхронный AI-вызов (~35 сек) из ответа.
-                try:
-                    _dispatch_background_enrichment(unknown)
-                except Exception as exc:
-                    print(f"[RECOMMEND] failed to dispatch enrichment: {exc!r}")
-        except Exception as exc:
-            print(f"[RECOMMEND] enrichment dispatch failed: {exc!r}")
-
-    # Фаза 5 — реальный class routing (shadow-only): exact lookup ТОЛЬКО для
-    # релевантных пар. НЕ влияет на score/ranking — только METRICS.
+    # Фаза 6 — Dynamic Shelf Model (production path): Static Product Models →
+    # class routing → exact lookup только для relevant ingredient-пар.
+    # НЕ влияет на score/verdict/ranking/hard constraints — только interaction
+    # detection + METRICS (before/after/filtered/exact/class_pair).
     if scored and result and shelf_products:
         try:
-            from .interaction_system import detect_cross_product_interactions
+            from .interaction_system import build_dynamic_shelf_model
             for r in result:
                 cand = {
+                    "id": r.get("id"),
                     "name": r.get("name"),
                     "category": category,
                     "ingredients": r.get("_ingredients") or "",
                     "score": r.get("score"),
                 }
-                detect_cross_product_interactions(shelf_products, cand)
+                build_dynamic_shelf_model(shelf_products, cand)
         except Exception as exc:
-            print(f"[INTERACTION] class routing check failed: {exc!r}")
+            print(f"[INTERACTION] dynamic shelf model failed: {exc!r}")
 
     for r in result:
         r.pop("_relevance", None)
@@ -1009,7 +1019,7 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
     knowledge = None
     try:
         from .ingredient_repository import IngredientRepository
-        knowledge = IngredientRepository().get_knowledge_map()
+        knowledge = IngredientRepository().get_canonical_knowledge_map()
     except Exception:
         knowledge = None
 

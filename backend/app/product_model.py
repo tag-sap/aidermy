@@ -39,19 +39,88 @@ def _split_ingredients(raw: str) -> List[str]:
     return out
 
 
+def get_current_versions() -> Dict[str, str]:
+    """Единый источник текущих версий (инвалидация Static Product Model)."""
+    return {
+        "taxonomy_version": TAXONOMY_VERSION,
+        "knowledge_version": KNOWLEDGE_VERSION,
+        "interaction_version": INTERACTION_VERSION,
+        "model_version": MODEL_VERSION,
+    }
+
+
+def build_product_context(ingredient_names: List[str], graph=None) -> Dict[str, Any]:
+    """Контекст продукта: классы резолвятся ОДИН раз на ингредиент (O(n), не O(n²)).
+
+    Возвращает: ingredient_to_classes, class_to_ingredients, classes,
+    relevant_internal_pairs (только пары из релевантных классовых маршрутов).
+    """
+    from .ingredient_graph import GRAPH
+
+    g = graph or GRAPH
+    ingredient_to_classes = {ing: list(g.lookup_classes(ing)) for ing in ingredient_names}
+    class_to_ingredients: Dict[str, List[str]] = {}
+    for ing, classes in ingredient_to_classes.items():
+        for c in classes:
+            class_to_ingredients.setdefault(c, []).append(ing)
+
+    routes = g._repo.get_class_routes()
+    relevant_pairs: List[tuple] = []
+    seen = set()
+    for route_a, route_b in routes:
+        for ca in route_a:
+            for cb in route_b:
+                for a in class_to_ingredients.get(ca, []):
+                    for b in class_to_ingredients.get(cb, []):
+                        if a == b:
+                            continue
+                        p = tuple(sorted([a, b]))
+                        if p not in seen:
+                            seen.add(p)
+                            relevant_pairs.append(p)
+
+    return {
+        "ingredient_names": ingredient_names,
+        "ingredient_to_classes": ingredient_to_classes,
+        "class_to_ingredients": class_to_ingredients,
+        "classes": list(class_to_ingredients.keys()),
+        "relevant_internal_pairs": relevant_pairs,
+    }
+
+
+# ProductContext — промежуточный ВЫЧИСЛИТЕЛЬНЫЙ кэш контекста продукта (Фаза 6).
+# НЕ является системой знаний: чистая функция от состава + версий. Инвалидируется
+# сменой composition_hash или любой версии (taxonomy/knowledge/interaction/model).
+_context_cache: Dict[str, Dict[str, Any]] = {}
+_context_cache_lock = threading.Lock()
+
+
+def get_or_build_product_context(ingredient_names: List[str], graph=None) -> Dict[str, Any]:
+    """Cache-first ProductContext: классы резолвятся один раз на ингредиент и переиспользуются."""
+    versions = get_current_versions()
+    key = composition_hash(",".join(ingredient_names)) + "|" + "|".join(versions.values())
+    with _context_cache_lock:
+        cached = _context_cache.get(key)
+        if cached:
+            METRICS.increment("product_context_cache_hit")
+            return cached
+    METRICS.increment("product_context_cache_miss")
+    ctx = build_product_context(ingredient_names, graph=graph)
+    with _context_cache_lock:
+        _context_cache[key] = ctx
+    return ctx
+
+
 def build_static_product_model(product: Dict[str, Any], graph=None) -> Dict[str, Any]:
     """Строит объективную модель продукта из глобального knowledge graph."""
     from .ingredient_graph import GRAPH
 
     g = graph or GRAPH
     ingredient_names = _split_ingredients(product.get("ingredients") or "")
+    context = get_or_build_product_context(ingredient_names, graph=g)
 
-    classes: List[str] = []
     effects: Dict[str, Dict[str, Any]] = {}
     for ing in ingredient_names:
-        for c in g.lookup_classes(ing):
-            if c not in classes:
-                classes.append(c)
         for axis, eff in g.lookup_effects(ing).items():
             if eff["state"] in ("known", "insufficient"):
                 effects.setdefault(ing, {})[axis] = {
@@ -61,13 +130,13 @@ def build_static_product_model(product: Dict[str, Any], graph=None) -> Dict[str,
                     "state": eff["state"],
                 }
 
-    internal_ids = _detect_internal_interaction_ids(ingredient_names, g)
+    internal_ids = _detect_internal_interaction_ids(context, g)
 
     return {
         "product_id": product.get("id"),
         "composition_hash": composition_hash(product.get("ingredients") or ""),
         "ingredient_names": ingredient_names,
-        "classes": classes,
+        "classes": context["classes"],
         "individual_effects": effects,
         "internal_interaction_ids": internal_ids,
         "taxonomy_version": TAXONOMY_VERSION,
@@ -77,22 +146,43 @@ def build_static_product_model(product: Dict[str, Any], graph=None) -> Dict[str,
     }
 
 
-def _detect_internal_interaction_ids(ingredient_names: List[str], g) -> List[int]:
-    routes = g._repo.get_class_routes()
+def _detect_internal_interaction_ids(context: Dict[str, Any], g) -> List[int]:
+    """Exact lookup только для relevant_internal_pairs (классовый routing).
+
+    Классы уже резолвены в context (O(n) lookup'ов), здесь — только пары из
+    релевантных маршрутов, без повторного class lookup.
+    """
     ids: List[int] = []
-    for i in range(len(ingredient_names)):
-        for j in range(i + 1, len(ingredient_names)):
-            a, b = ingredient_names[i], ingredient_names[j]
-            ca = set(g.lookup_classes(a))
-            cb = set(g.lookup_classes(b))
-            if not ca or not cb:
-                continue
-            if g._classes_relevant(ca, cb, routes):
-                r = g.lookup_interaction(a, b)
-                for rec in r.get("records", []):
-                    if rec.get("interaction_id") is not None and rec["interaction_id"] not in ids:
-                        ids.append(rec["interaction_id"])
+    for a, b in context["relevant_internal_pairs"]:
+        r = g.lookup_interaction(a, b)
+        for rec in r.get("records", []):
+            if rec.get("interaction_id") is not None and rec["interaction_id"] not in ids:
+                ids.append(rec["interaction_id"])
     return ids
+
+
+def get_internal_interactions(product: Dict[str, Any], graph=None) -> List[Dict[str, Any]]:
+    """Подготовленные internal interaction-записи продукта (для Scoring Engine, Фаза 7).
+
+    Использует кэшированный ProductContext (классы резолвены один раз) + cached
+    interaction map. Возвращает плоские записи с ingredient_a/ingredient_b/type="internal"
+    и полями lookup (axis/direction/strength/confidence/state). Без повторных class lookups.
+    """
+    from .ingredient_graph import GRAPH
+
+    g = graph or GRAPH
+    ingredient_names = _split_ingredients(product.get("ingredients") or "")
+    context = get_or_build_product_context(ingredient_names, graph=g)
+    records: List[Dict[str, Any]] = []
+    for a, b in context["relevant_internal_pairs"]:
+        r = g.lookup_interaction(a, b)
+        for rec in r.get("records", []):
+            rec = dict(rec)
+            rec["ingredient_a"] = a
+            rec["ingredient_b"] = b
+            rec["type"] = "internal"
+            records.append(rec)
+    return records
 
 
 # ---------------------------------------------------------------------------
@@ -103,12 +193,8 @@ _cache_lock = threading.Lock()
 
 
 def _is_current(model: Dict[str, Any]) -> bool:
-    return (
-        model.get("taxonomy_version") == TAXONOMY_VERSION
-        and model.get("knowledge_version") == KNOWLEDGE_VERSION
-        and model.get("interaction_version") == INTERACTION_VERSION
-        and model.get("model_version") == MODEL_VERSION
-    )
+    versions = get_current_versions()
+    return all(model.get(k) == v for k, v in versions.items())
 
 
 def get_or_build_product_model(product: Dict[str, Any], graph=None, repository=None) -> Dict[str, Any]:
@@ -128,11 +214,12 @@ def get_or_build_product_model(product: Dict[str, Any], graph=None, repository=N
             return cached
 
     stored = None
-    try:
-        repo.ensure_product_model_tables()
-        stored = repo.get_product_model(product_id)
-    except Exception:
-        stored = None
+    if product_id is not None:
+        try:
+            repo.ensure_product_model_tables()
+            stored = repo.get_product_model(product_id)
+        except Exception:
+            stored = None
     if stored:
         data = stored.get("data") or {}
         if data.get("composition_hash") == h and _is_current(data):
@@ -144,11 +231,12 @@ def get_or_build_product_model(product: Dict[str, Any], graph=None, repository=N
     METRICS.increment("product_model_cache_miss")
     METRICS.increment("static_model_build_count")
     model = build_static_product_model(product, graph=g)
-    try:
-        repo.ensure_product_model_tables()
-        repo.save_product_model(product_id, model)
-    except Exception:
-        pass
+    if product_id is not None:
+        try:
+            repo.ensure_product_model_tables()
+            repo.save_product_model(product_id, model)
+        except Exception:
+            pass
     with _cache_lock:
         _cache[product_id] = model
     return model

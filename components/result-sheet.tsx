@@ -168,7 +168,8 @@ export function ResultSheet({
         {loading ? (
           <div className="flex flex-col items-center gap-3 py-8">
             <div className="relative"><div className="size-10 rounded-full border-3 border-primary/20 border-t-primary animate-spin" /><div className="absolute inset-0 rounded-full border-3 border-primary/5 animate-pulse" /></div>
-            <p className="text-xs text-muted-foreground/60 font-light">AI анализирует состав...</p>
+            <p className="text-xs text-muted-foreground/60 font-light">Анализируем состав…</p>
+            <p className="max-w-[240px] text-center text-[9px] leading-relaxed text-muted-foreground/40 font-light">Уточняем данные по ингредиентам, чтобы расчёт был точнее</p>
           </div>
         ) : result ? (
           <div className="flex flex-col gap-2.5">

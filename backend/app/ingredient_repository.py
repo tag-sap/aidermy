@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .database import get_connection, AIDERMY_DB
 
@@ -414,6 +414,122 @@ class IngredientRepository:
         return rows
 
     # ------------------------------------------------------------------
+    # Фаза 9 — Research Queue (persistent, dedup, batch)
+    # ------------------------------------------------------------------
+    def ensure_research_tables(self) -> None:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS research_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_type TEXT NOT NULL,
+                dedup_key TEXT NOT NULL UNIQUE,
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                priority INTEGER DEFAULT 0,
+                attempts INTEGER DEFAULT 0,
+                last_error TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        conn.commit()
+        conn.close()
+
+    def enqueue_research_task(self, task_type: str, dedup_key: str, payload: Any) -> Tuple[int, bool]:
+        """Добавляет research-задачу. Возвращает (task_id, created).
+
+        created=False, если задача с таким dedup_key уже существует (дедупликация).
+        """
+        self.ensure_research_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO research_tasks (task_type, dedup_key, payload) VALUES (?, ?, ?)",
+            (task_type, dedup_key, json.dumps(payload, ensure_ascii=False)),
+        )
+        created = cursor.rowcount > 0
+        conn.commit()
+        row = cursor.execute("SELECT id, status, attempts FROM research_tasks WHERE dedup_key = ?", (dedup_key,)).fetchone()
+        conn.close()
+        return (int(row["id"]) if row else 0, created)
+
+    def get_research_tasks(self, task_ids: List[int]) -> List[Dict[str, Any]]:
+        if not task_ids:
+            return []
+        self.ensure_research_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        placeholders = ",".join("?" for _ in task_ids)
+        rows = [dict(r) for r in cursor.execute(
+            f"SELECT * FROM research_tasks WHERE id IN ({placeholders})", task_ids
+        ).fetchall()]
+        conn.close()
+        return rows
+
+    def claim_pending_research_tasks(self, batch_size: int) -> List[Dict[str, Any]]:
+        """Атомарно забирает pending-задачи и помечает их processing (attempts+1)."""
+        self.ensure_research_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        rows = [dict(r) for r in cursor.execute(
+            "SELECT * FROM research_tasks WHERE status = 'pending' "
+            "ORDER BY priority DESC, id ASC LIMIT ?", (batch_size,)
+        ).fetchall()]
+        ids = [r["id"] for r in rows]
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            cursor.execute(
+                f"UPDATE research_tasks SET status = 'processing', attempts = attempts + 1, "
+                f"updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})", ids
+            )
+            conn.commit()
+            for r in rows:
+                r["status"] = "processing"
+                r["attempts"] = (r.get("attempts") or 0) + 1
+        conn.close()
+        return rows
+
+    def complete_research_task(self, task_id: int) -> None:
+        self.ensure_research_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE research_tasks SET status = 'completed', last_error = '', "
+            "updated_at = CURRENT_TIMESTAMP WHERE id = ?", (task_id,)
+        )
+        conn.commit()
+        conn.close()
+
+    def fail_research_task(self, task_id: int, error: str, max_attempts: int) -> str:
+        """Отмечает задачу failed или (при попытках) возвращает в pending.
+
+        Возвращает итоговый статус ('pending' | 'failed').
+        """
+        self.ensure_research_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT attempts FROM research_tasks WHERE id = ?", (task_id,)).fetchone()
+        attempts = int(row["attempts"]) if row else 0
+        if attempts < max_attempts:
+            cursor.execute(
+                "UPDATE research_tasks SET status = 'pending', last_error = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?", (error, task_id)
+            )
+            new_status = "pending"
+        else:
+            cursor.execute(
+                "UPDATE research_tasks SET status = 'failed', last_error = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?", (error, task_id)
+            )
+            new_status = "failed"
+        conn.commit()
+        conn.close()
+        return new_status
+
+    # ------------------------------------------------------------------
     # Фаза 4 — Taxonomy / Class layer
     # ------------------------------------------------------------------
     def ensure_taxonomy_tables(self) -> None:
@@ -638,6 +754,7 @@ class IngredientRepository:
         self.ensure_taxonomy_tables()
         classes = self.seed_taxonomy()
         self.ensure_product_model_tables()
+        self.ensure_research_tables()
         return {"seed_interactions": interactions, "seed_classes": classes}
 
     # ------------------------------------------------------------------

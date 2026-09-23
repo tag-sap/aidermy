@@ -13,7 +13,6 @@ from app.shelf_service import (
     recommend_products,
     compute_product_compatibility,
 )
-import app.shelf_service as shelf_service
 
 
 USER = {
@@ -113,9 +112,9 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual(recs[1]["score"], 60)
         self.assertTrue(recs[1].get("needs_enrichment"))
 
-    def test_enrichment_dispatch_failure_does_not_break_recommendation(self):
-        # Если фоновое обогащение не удалось запустить — рекомендация всё равно
-        # возвращается, а unknown остаётся needs_enrichment.
+    def test_research_failure_does_not_break_recommendation(self):
+        # Если Research (batch) не удался — рекомендация всё равно возвращается,
+        # а unknown остаётся needs_enrichment (без ложного точного score).
         candidates = [
             _product("Очищение", "A", "a", "Aqua, Glycerin, UnknownX"),
             _product("Очищение", "B", "b", "Aqua, Glycerin"),
@@ -124,54 +123,11 @@ class RecommendationTests(unittest.TestCase):
              patch("app.shelf_service._find_history_score", return_value=(None, None)), \
              patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0}), \
              patch("app.ingredient_enrichment.find_unknown_ingredients", return_value=["UnknownX"]), \
-             patch("app.shelf_service._dispatch_background_enrichment", side_effect=RuntimeError("dispatch boom")):
+             patch("app.services.DEEPSEEK_API_KEY", "test-key"), \
+             patch("app.research_queue.run_research", side_effect=RuntimeError("research boom")):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
         self.assertEqual(len(recs), 2)
         self.assertTrue(any(r.get("needs_enrichment") for r in recs))
-
-    def test_background_dispatch_holds_reference_until_done(self):
-        # _dispatch_background_enrichment должен держать сильную ссылку на задачу
-        # (защита от GC) и убирать её из set после завершения.
-        async def bad_enrich(unknown):
-            raise RuntimeError("enrich failed")
-
-        async def run():
-            with patch("app.ingredient_enrichment.enrich_unknown_ingredients", side_effect=bad_enrich):
-                shelf_service._dispatch_background_enrichment(["X"])
-            self.assertEqual(len(shelf_service._BACKGROUND_ENRICHMENT_TASKS), 1)
-            for _ in range(50):
-                if not shelf_service._BACKGROUND_ENRICHMENT_TASKS:
-                    break
-                await asyncio.sleep(0.01)
-            self.assertEqual(len(shelf_service._BACKGROUND_ENRICHMENT_TASKS), 0)
-
-        asyncio.run(run())
-
-    def test_background_dispatch_callback_handles_cancellation(self):
-        # При отмене фоновой задачи (graceful shutdown воркера) done-callback не
-        # должен падать на Task.exception() -> CancelledError.
-        async def never_finishes(unknown):
-            await asyncio.Event().wait()
-
-        async def run():
-            loop = asyncio.get_running_loop()
-            errors = []
-            loop.set_exception_handler(lambda _loop, ctx: errors.append(ctx))
-
-            with patch("app.ingredient_enrichment.enrich_unknown_ingredients", side_effect=never_finishes):
-                shelf_service._dispatch_background_enrichment(["X"])
-            self.assertEqual(len(shelf_service._BACKGROUND_ENRICHMENT_TASKS), 1)
-            task = next(iter(shelf_service._BACKGROUND_ENRICHMENT_TASKS))
-            task.cancel()
-            for _ in range(50):
-                if not shelf_service._BACKGROUND_ENRICHMENT_TASKS:
-                    break
-                await asyncio.sleep(0.01)
-            self.assertTrue(task.cancelled())
-            self.assertEqual(len(shelf_service._BACKGROUND_ENRICHMENT_TASKS), 0)
-            self.assertEqual(errors, [])
-
-        asyncio.run(run())
 
     def test_compute_product_compatibility_uses_history(self):
         # История проверок — приоритетный источник (тот же, что в подборе).

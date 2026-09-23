@@ -77,6 +77,10 @@ _IRRITATION_PENALTY = 4
 _IRRITATION_CAP = 16
 _COVERAGE_BONUS = {0: 0, 1: 0, 2: 2, 3: 4, 4: 6, 5: 8}
 
+# Фаза 7 — масштаб cross-product interaction contribution → score-пункты (0–100).
+# Совпадает с _CONFLICT_PENALTY: сильное подтверждённое взаимодействие ≈ один conflict.
+_INTERACTION_SHELF_SCALE = 12
+
 
 def _matches(ingredient: str, token: str) -> bool:
     return token in ingredient or ingredient in token
@@ -101,10 +105,14 @@ def _ingredient_matches_any(ingredients: Set[str], tokens: List[str]) -> List[st
     return matched
 
 
-def compute_shelf_compatibility(products: List[Dict[str, Any]]) -> Dict[str, Any]:
+def compute_shelf_compatibility(
+    products: List[Dict[str, Any]],
+    interactions: List[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
     """Совместимость ухода для списка продуктов.
 
     products: список dict с ключами name, category, ingredients, score (score м.б. None).
+    interactions: подготовленные cross-product interaction-записи (Фаза 7, optional).
     """
     if not products:
         return {"score": None, "base": None, "conflicts": [], "duplicate_actives": [],
@@ -167,6 +175,15 @@ def compute_shelf_compatibility(products: List[Dict[str, Any]]) -> Dict[str, Any
     missing = [c for c in CORE_STEPS if c not in present]
     coverage_bonus = _COVERAGE_BONUS.get(distinct_steps, 0)
 
+    # Фаза 7 — cross-product interaction contribution (feature-flagged).
+    interaction_breakdown: List[Dict[str, Any]] = []
+    interaction_delta = 0.0
+    if interactions:
+        from . import interaction_scoring
+        if interaction_scoring.INTERACTION_SCORING_ENABLED:
+            agg, interaction_breakdown = interaction_scoring.aggregate_interactions(interactions)
+            interaction_delta = sum(agg.values()) * _INTERACTION_SHELF_SCALE
+
     if base is None:
         score = None
     else:
@@ -175,7 +192,7 @@ def compute_shelf_compatibility(products: List[Dict[str, Any]]) -> Dict[str, Any
             + min(_DUPLICATE_CAP, _DUPLICATE_PENALTY * len(duplicate_actives))
             + min(_IRRITATION_CAP, _IRRITATION_PENALTY * max(0, len(irritation)))
         )
-        score = max(0, min(100, base - penalty + coverage_bonus))
+        score = max(0, min(100, base - penalty + coverage_bonus + interaction_delta))
 
     return {
         "score": score,
@@ -184,5 +201,12 @@ def compute_shelf_compatibility(products: List[Dict[str, Any]]) -> Dict[str, Any
         "duplicate_actives": duplicate_actives,
         "irritation": irritation,
         "coverage": {"present": present, "missing": missing, "steps_covered": distinct_steps},
+        "interaction_breakdown": interaction_breakdown,
+        "interaction_scoring_version": _interaction_scoring_version(),
     }
+
+
+def _interaction_scoring_version() -> str:
+    from . import interaction_scoring
+    return interaction_scoring.INTERACTION_SCORING_VERSION
 

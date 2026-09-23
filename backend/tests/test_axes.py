@@ -67,6 +67,23 @@ class AxesTests(unittest.TestCase):
         self.assertEqual(canonicalize_axis("Barrier_Support"), ("barrier", False))
         self.assertEqual(canonicalize_axis("OIL CONTROL"), ("sebum", True))
 
+    # ------------------------------------------------------------------
+    # Фаза 9-fix: comedogenicity/acne_control НЕ должны попадать в sebum.
+    # ------------------------------------------------------------------
+    def test_acne_control_is_not_sebum(self):
+        self.assertEqual(canonicalize_axis("acne_control"), (None, False))
+        self.assertEqual(canonicalize_effect("acne_control", "negative"), (None, "negative"))
+
+    def test_comedogenic_properties_are_not_axes(self):
+        for prop in ("comedogenicity", "comedogenic", "pore_clogging",
+                     "breakout_potential", "acneogenicity", "acneogenic"):
+            self.assertEqual(canonicalize_axis(prop), (None, False), prop)
+
+    def test_sebum_production_still_maps_to_sebum(self):
+        # настоящий claim «про себум» по-прежнему создаёт sebum effect
+        self.assertEqual(canonicalize_axis("sebum"), ("sebum", False))
+        self.assertEqual(canonicalize_axis("sebum_production"), ("sebum", False))
+
 
 if __name__ == "__main__":
     unittest.main()

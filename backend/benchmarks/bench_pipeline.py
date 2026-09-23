@@ -88,7 +88,7 @@ async def run():
     G3.invalidate()
     profile = _build_user_profile(u)
     cands = _query_candidates("face", "Очищение")
-    shelf = _load_shelf_products(u, "face", knowledge=G3.get_knowledge_map(), history=[])
+    shelf = _load_shelf_products(u, "face", knowledge=G3.get_canonical_knowledge_map(), history=[])
     cand_products = [{"name": c.get("name"), "ingredients": c.get("ingredients") or ""} for c in cands]
     METRICS.reset()
     route = G3.class_route(shelf, cand_products)
@@ -111,6 +111,40 @@ async def run():
         json.dumps(second_snap, ensure_ascii=False),
         m1 == m2,
     ))
+
+    # K: большой состав — class lookups растут ЛИНЕЙНО (Фаза 6), не как O(n²)
+    import app.product_model as pm2
+    from app.ingredient_repository import IngredientRepository as IR2
+    pm2._context_cache.clear()
+    pm2._cache.clear()
+    _base = ["Aqua", "Retinol", "Salicylic Acid", "Niacinamide", "Ascorbyl Palmitate"]
+    _fill = ["Filler%d" % i for i in range(200)]
+    large_ings = _base + _fill
+    big_product = {"id": 99999, "ingredients": ", ".join(large_ings)}
+    n = len(large_ings)
+    naive_pairs = n * (n - 1) // 2
+    naive_class_lookups = n * (n - 1)  # OLD: 2 class lookup на каждую пару
+    METRICS.reset()
+    t0 = time.perf_counter()
+    pm2.get_or_build_product_model(big_product, graph=G3, repository=IR2())
+    t_big = (time.perf_counter() - t0) * 1000
+    snap = METRICS.snapshot()
+    cls = snap["counters"].get("class_lookup_count", 0)
+    print("K_large_composition unique_ings=%d naive_pairs=%d naive_class_lookups=%d "
+          "actual_class_lookups=%d build_ms=%.2f %s" % (
+              n, naive_pairs, naive_class_lookups, cls, t_big, json.dumps(snap, ensure_ascii=False)))
+
+    # L: dynamic shelf model — class routing в production path (Фаза 6)
+    from app.interaction_system import build_dynamic_shelf_model
+    pm2._context_cache.clear()
+    pm2._cache.clear()
+    shelf_for_dyn = [{"id": 100 + i, "name": p.get("name"), "ingredients": p.get("ingredients") or ""}
+                     for i, p in enumerate(shelf)]
+    cand_for_dyn = {"id": 900, "name": cands[0].get("name"), "ingredients": cands[0].get("ingredients") or ""}
+    METRICS.reset()
+    dyn = build_dynamic_shelf_model(shelf_for_dyn, cand_for_dyn, graph=G3)
+    print("L_dynamic_shelf_model before=%d after=%d exact=%d %s" % (
+        dyn["before"], dyn["after"], dyn["exact_lookups"], json.dumps(METRICS.snapshot(), ensure_ascii=False)))
 
 
 if __name__ == "__main__":

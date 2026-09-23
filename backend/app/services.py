@@ -194,16 +194,20 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 
     engine = DecisionEngine()
 
-    # AI #2 — Ingredient Enrichment: только для ингредиентов, которых нет в Ingredient DB.
+    # Фаза 9 — Research Queue: неизвестные ингредиенты дожидаются batch research.
+    # Анализ НЕ отдаёт предварительный score, а ждёт завершения Research.
+    research_status = None
     if DEEPSEEK_API_KEY:
         try:
-            from .ingredient_enrichment import find_unknown_ingredients, enrich_unknown_ingredients
+            from .ingredient_enrichment import find_unknown_ingredients
+            from .research_queue import run_research
             prepared = engine.analysis_service.prepare_product_ingredients(ingredients)
             unknown = find_unknown_ingredients(prepared)
             if unknown:
-                await enrich_unknown_ingredients(unknown)
+                research_status = await run_research(unknown_ingredients=unknown)
         except Exception as exc:
-            print(f"[CHECK] ingredient enrichment failed: {exc!r}")
+            print(f"[CHECK] research failed: {exc!r}")
+            research_status = "failed"
 
     deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
 
@@ -235,6 +239,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'how_to_use': (enrichment or {}).get('how_to_use'),
         'expectations': (enrichment or {}).get('expectations'),
         'ingredient_claims': (enrichment or {}).get('ingredient_claims') or [],
+        'research_status': research_status,
     }
 
 

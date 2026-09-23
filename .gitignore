@@ -10,3 +10,12 @@ __pycache__/
 *.pyc
 venv/
 nohup.out
+
+# Runtime-состояние (не код) — не пушим в git, чтобы git pull на сервере
+# не перезаписывал production-БД.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+backups/
+*.MP4
