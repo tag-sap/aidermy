@@ -444,6 +444,36 @@ def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Option
     return _find_history_score(user, product)
 
 
+def compute_product_compatibility(
+    user: Dict[str, Any],
+    product: Dict[str, Any],
+    knowledge=None,
+    history: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[int]:
+    """Итоговый Product Compatibility % для полки.
+
+    Источник — тот же deterministic Score Engine, что и в подборе (recommend_products):
+    сначала история проверок пользователя, затем детерминированный анализ состава.
+    Без AI и без отдельного алгоритма. Возвращает None, если продукт реально не
+    анализировался (нет истории и нет валидного знания об ингредиентах).
+    """
+    score, _ = _find_history_score(user, product, history=history)
+    if score is not None:
+        return score
+    try:
+        from .ingredient_repository import IngredientRepository
+        if knowledge is None:
+            knowledge = IngredientRepository().get_knowledge_map()
+        analysis = _deterministic_analysis(
+            _build_user_profile(user),
+            product.get("ingredients") or "",
+            knowledge=knowledge,
+        )
+        return _meaningful_score(analysis)
+    except Exception:
+        return None
+
+
 def _reason_from_analysis(analysis: Optional[Dict[str, Any]]) -> str:
     if not analysis:
         return ""
@@ -630,29 +660,13 @@ def _dispatch_background_enrichment(unknown: List[str]) -> None:
     task.add_done_callback(_done)
 
 
-async def recommend_products(
-    user: Dict[str, Any],
-    cabinet: str,
-    category: str,
-    exclude_slugs: Optional[set] = None,
-) -> List[Dict[str, Any]]:
-    """Возвращает до 3 рекомендаций для конкретной полки шкафа.
+def _build_user_profile(user: Dict[str, Any]) -> Dict[str, Any]:
+    """Собирает профиль пользователя для deterministic scoring.
 
-    Контролируемая неопределённость: unknown-ингредиенты НЕ штрафуются. Сначала
-    детерминированно скорим всех кандидатов и выбираем топ-3. Unknown-ингредиенты
-    этих трёх продуктов обогащаются в фоне (fire-and-forget), чтобы не блокировать
-    ответ: рекомендация отдаётся сразу с детерминированным скором, а Ingredient DB
-    пополняется для следующих запросов.
+    Тот же профиль, что используется в recommend_products: raw-поля (users /
+    user_profiles) + structured restrictions/intolerances/allergies. Вынесен,
+    чтобы подбор и полка использовали один и тот же источник данных.
     """
-    exclude_slugs = set(exclude_slugs or set())
-    # Продукты, которые пользователь явно отклонил (дизлайк), не предлагаем снова.
-    try:
-        from .database import get_user_disliked_slugs
-        exclude_slugs |= get_user_disliked_slugs(user["id"])
-    except Exception:
-        pass
-    scored = cabinet_applies_scoring(cabinet)
-
     try:
         from .database import get_user_profile
         _p = get_user_profile(user["id"])
@@ -676,8 +690,6 @@ async def recommend_products(
         "custom_text": _custom,
     }
 
-    # Structured User Profile (если есть) дополняет raw-поля ограничениями
-    # restrictions/intolerances/allergies и personal_weights.
     try:
         from .database import get_structured_profile
         structured = get_structured_profile(user["id"]) or {}
@@ -689,6 +701,34 @@ async def recommend_products(
     for a in structured_allergies:
         if a not in profile["allergies"]:
             profile["allergies"].append(a)
+    return profile
+
+
+async def recommend_products(
+    user: Dict[str, Any],
+    cabinet: str,
+    category: str,
+    exclude_slugs: Optional[set] = None,
+) -> List[Dict[str, Any]]:
+    """Возвращает до 3 рекомендаций для конкретной полки шкафа.
+
+    Контролируемая неопределённость: unknown-ингредиенты НЕ штрафуются. Сначала
+    детерминированно скорим всех кандидатов и выбираем топ-3. Unknown-ингредиенты
+    этих трёх продуктов обогащаются в фоне (fire-and-forget), чтобы не блокировать
+    ответ: рекомендация отдаётся сразу с детерминированным скором, а Ingredient DB
+    пополняется для следующих запросов.
+    """
+    exclude_slugs = set(exclude_slugs or set())
+    # Продукты, которые пользователь явно отклонил (дизлайк), не предлагаем снова.
+    try:
+        from .database import get_user_disliked_slugs
+        exclude_slugs |= get_user_disliked_slugs(user["id"])
+    except Exception:
+        pass
+    scored = cabinet_applies_scoring(cabinet)
+
+    profile = _build_user_profile(user)
+    _skin = profile["skin_type"]
 
     candidates = _query_candidates(cabinet, category)
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
@@ -837,7 +877,21 @@ async def recommend_products(
 
 def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Группирует записи полки по шкафам и категориям, считает совместимость."""
-    from .database import get_product_by_id
+    from .database import get_product_by_id, get_user_check_history
+
+    # Загружаем один раз на весь запрос: история проверок и knowledge map.
+    # Это убирает N+1 при deterministic scoring индивидуальных продуктов.
+    user_history: List[Dict[str, Any]] = []
+    try:
+        user_history = get_user_check_history(user["id"], limit=200)
+    except Exception:
+        user_history = []
+    knowledge = None
+    try:
+        from .ingredient_repository import IngredientRepository
+        knowledge = IngredientRepository().get_knowledge_map()
+    except Exception:
+        knowledge = None
 
     enriched: List[Dict[str, Any]] = []
     for s in shelf_items:
@@ -847,7 +901,14 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
         score = None
         if cabinet_applies_scoring(cabinet):
-            score, _ = score_product(user, p)
+            # Приоритет: сохранённый при добавлении score → история → deterministic engine.
+            # Источник тот же, что и в подборе, поэтому карточка на полке показывает
+            # тот же Product Compatibility %, а не «Не проверен».
+            score = s.get("score")
+            if score is None:
+                score = compute_product_compatibility(
+                    user, p, knowledge=knowledge, history=user_history
+                )
         enriched.append({
             "id": s["id"],
             "shelf_id": s["id"],

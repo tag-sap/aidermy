@@ -131,6 +131,10 @@ def init_db():
         cursor.execute('ALTER TABLE shelf_products ADD COLUMN routine_id INTEGER')
     if 'cabinet' not in shelf_columns:
         cursor.execute("ALTER TABLE shelf_products ADD COLUMN cabinet TEXT DEFAULT 'face'")
+    if 'score' not in shelf_columns:
+        # Индивидуальный Product Compatibility % (deterministic Score Engine),
+        # сохраняемый при добавлении на полку, чтобы не терять уже рассчитанный скор.
+        cursor.execute('ALTER TABLE shelf_products ADD COLUMN score INTEGER')
     
     # Миграция: сгруппировать ранее добавленные продукты (с notes) в подборы
     cursor.execute("SELECT DISTINCT user_id, notes FROM shelf_products WHERE notes IS NOT NULL AND notes != '' AND routine_id IS NULL")
@@ -673,13 +677,13 @@ def get_product_by_id(product_id: int):
     conn.close()
     return dict(row) if row else None
 
-def add_product_to_shelf(user_id: int, product_id: int, category: str = "", notes: str = "", routine_id: int = None, cabinet: str = "face"):
+def add_product_to_shelf(user_id: int, product_id: int, category: str = "", notes: str = "", routine_id: int = None, cabinet: str = "face", score: int = None):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR IGNORE INTO shelf_products (user_id, product_id, category, notes, routine_id, cabinet)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (user_id, product_id, category, notes, routine_id, cabinet or "face"))
+        INSERT OR IGNORE INTO shelf_products (user_id, product_id, category, notes, routine_id, cabinet, score)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (user_id, product_id, category, notes, routine_id, cabinet or "face", score))
     conn.commit()
     cursor.execute("SELECT * FROM shelf_products WHERE user_id = ? AND product_id = ?", (user_id, product_id))
     row = cursor.fetchone()

@@ -936,7 +936,14 @@ async def get_shelf(current_user: dict = Depends(get_current_user)):
 @app.post("/api/shelf")
 async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(get_current_user)):
     from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf
-    from .shelf_service import canonical_category, CABINET_BY_KEY, is_product_compatible, infer_cabinet_category
+    from .shelf_service import (
+        canonical_category,
+        CABINET_BY_KEY,
+        is_product_compatible,
+        infer_cabinet_category,
+        cabinet_applies_scoring,
+        compute_product_compatibility,
+    )
 
     product = get_product_by_slug(request.slug)
     if not product:
@@ -959,12 +966,15 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
         if s["product_id"] == product["id"]:
             return {"status": "ok", "duplicate": True, "item": {"id": s["id"], "product_id": product["id"]}}
 
-    # Добавление на полку — максимально простая операция (без AI и повторного анализа):
-    #   Product ID + Shelf/Category → DB insert → response.
-    # Индивидуальный score товара берётся из истории проверок при загрузке полки;
-    # здесь он НЕ пересчитывается. Совместимость ухода пересчитывается детерминированно
-    # на GET /api/shelf (Shelf Compatibility Engine, без AI).
-    item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet)
+    # Сохраняем уже рассчитанный Product Compatibility % при добавлении на полку.
+    # Источник — тот же deterministic Score Engine, что и в подборе (история проверок →
+    # детерминированный анализ состава), БЕЗ AI и без отдельного алгоритма. Так карточка
+    # на полке сразу показывает тот же процент, а не «Не проверен».
+    score = None
+    if cabinet_applies_scoring(cabinet):
+        score = compute_product_compatibility(current_user, product)
+
+    item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet, score=score)
     return {"status": "ok", "duplicate": False, "item": item}
 
 

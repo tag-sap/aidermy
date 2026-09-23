@@ -11,6 +11,7 @@ from app.shelf_service import (
     compute_cabinet_compatibility,
     is_product_compatible,
     recommend_products,
+    compute_product_compatibility,
 )
 import app.shelf_service as shelf_service
 
@@ -171,6 +172,28 @@ class RecommendationTests(unittest.TestCase):
             self.assertEqual(errors, [])
 
         asyncio.run(run())
+
+    def test_compute_product_compatibility_uses_history(self):
+        # История проверок — приоритетный источник (тот же, что в подборе).
+        with patch("app.shelf_service._find_history_score", return_value=(85, {"summary": "ok"})):
+            score = compute_product_compatibility(USER, {"ingredients": "Aqua"}, knowledge={}, history=[])
+        self.assertEqual(score, 85)
+
+    def test_compute_product_compatibility_deterministic_without_history(self):
+        # Нет истории → deterministic Score Engine по knowledge map.
+        with patch("app.shelf_service._find_history_score", return_value=(None, None)), \
+             patch("app.shelf_service._build_user_profile", return_value={"skin_type": "Чувствительная"}), \
+             patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.9, "score": 99}):
+            score = compute_product_compatibility(USER, {"ingredients": "Aqua, Glycerin"}, knowledge={}, history=[])
+        self.assertEqual(score, 99)
+
+    def test_compute_product_compatibility_none_when_unknown(self):
+        # Нет ни истории, ни валидного знания → None («Не проверен»).
+        with patch("app.shelf_service._find_history_score", return_value=(None, None)), \
+             patch("app.shelf_service._build_user_profile", return_value={"skin_type": ""}), \
+             patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0}):
+            score = compute_product_compatibility(USER, {"ingredients": "Aqua, MysteryX"}, knowledge={}, history=[])
+        self.assertIsNone(score)
 
 
 class ShelfAggregationTests(unittest.TestCase):
