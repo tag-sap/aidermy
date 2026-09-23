@@ -10,8 +10,9 @@
 
 from __future__ import annotations
 
+import re
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .axes import AXES
 from .ingredient_normalizer import normalize_ingredient_name
@@ -47,6 +48,7 @@ class IngredientGraph:
         self._legacy_cache: Optional[Dict[str, Any]] = None
         self._canonical_cache: Optional[Dict[str, Any]] = None
         self._interaction_map_cache: Optional[Dict[tuple, list]] = None
+        self._class_map_cache: Optional[Dict[str, List[str]]] = None
 
     @property
     def confidence_threshold(self) -> float:
@@ -58,6 +60,7 @@ class IngredientGraph:
             self._legacy_cache = None
             self._canonical_cache = None
             self._interaction_map_cache = None
+            self._class_map_cache = None
 
     # ------------------------------------------------------------------
     # Cache-first чтение карт
@@ -162,6 +165,95 @@ class IngredientGraph:
         else:
             METRICS.increment("interaction_insufficient_count")
         return {"a": a_c, "b": b_c, "state": agg, "records": out}
+
+    # ------------------------------------------------------------------
+    # Фаза 4 — Taxonomy / Class layer (routing/index, НЕ доказательство)
+    # ------------------------------------------------------------------
+    def _class_map(self) -> Dict[str, List[str]]:
+        with self._lock:
+            if self._class_map_cache is None:
+                METRICS.increment("cache_miss")
+                self._repo.ensure_taxonomy_tables()
+                self._class_map_cache = self._repo.get_ingredient_class_map()
+            else:
+                METRICS.increment("cache_hit")
+            return self._class_map_cache
+
+    def lookup_classes(self, ingredient: str) -> List[str]:
+        """Классы ингредиента (листья + предки). Пусто = класс неизвестен."""
+        METRICS.increment("class_lookup_count")
+        return list(self._class_map().get(normalize_ingredient_name(ingredient), []))
+
+    @staticmethod
+    def _split_ingredients(raw: Any) -> List[str]:
+        out: List[str] = []
+        for part in re.split(r"[,;\n]+", str(raw or "")):
+            n = normalize_ingredient_name(part)
+            if n:
+                out.append(n)
+        return out
+
+    def class_route(self, shelf_products: List[Dict[str, Any]], candidate_products: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Классовый routing: релевантные (candidate, shelf) пары по классам.
+
+        Это ИНДЕКС/фильтр, а не доказательство interaction: релевантность по классам
+        лишь сокращает пространство поиска; итог решает exact ingredient lookup.
+        """
+        routes = self._repo.get_class_routes()
+
+        shelf_classes: List[set] = []
+        for p in shelf_products:
+            s = set()
+            for ing in self._split_ingredients(p.get("ingredients")):
+                s.update(self.lookup_classes(ing))
+            shelf_classes.append(s)
+
+        cand_classes: List[set] = []
+        for p in candidate_products:
+            s = set()
+            for ing in self._split_ingredients(p.get("ingredients")):
+                s.update(self.lookup_classes(ing))
+            cand_classes.append(s)
+
+        before = len(candidate_products) * len(shelf_products)
+        relevant = 0
+        class_pairs: set = set()
+        pairs: List[tuple] = []
+        for i, cc in enumerate(cand_classes):
+            for j, sc in enumerate(shelf_classes):
+                if not cc or not sc:
+                    continue
+                if self._classes_relevant(cc, sc, routes):
+                    relevant += 1
+                    pairs.append((candidate_products[i], shelf_products[j]))
+                self._collect_class_pairs(cc, sc, routes, class_pairs)
+
+        METRICS.set_gauge("interaction_candidate_count_before", before)
+        METRICS.set_gauge("interaction_candidate_count_after", relevant)
+        METRICS.set_gauge("class_filtered_count", before - relevant)
+        METRICS.set_gauge("class_pair_count", len(class_pairs))
+        return {"before": before, "after": relevant, "pairs": pairs}
+
+    @staticmethod
+    def _classes_relevant(cc: set, sc: set, routes) -> bool:
+        for route_a, route_b in routes:
+            a, b = set(route_a), set(route_b)
+            if (cc & a) and (sc & b):
+                return True
+            if (cc & b) and (sc & a):
+                return True
+        return False
+
+    @staticmethod
+    def _collect_class_pairs(cc: set, sc: set, routes, class_pairs: set) -> None:
+        for route_a, route_b in routes:
+            a, b = set(route_a), set(route_b)
+            for ca in (cc & a):
+                for cb in (sc & b):
+                    class_pairs.add((ca, cb))
+            for ca in (cc & b):
+                for cb in (sc & a):
+                    class_pairs.add((ca, cb))
 
 
 # Глобальный (per-process) экземпляр для совместного кэша.

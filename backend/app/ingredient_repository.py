@@ -27,6 +27,48 @@ _SEED_RULES = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Фаза 4 — Taxonomy / Class layer (routing/index, НЕ доказательство interaction).
+#
+# _TAXONOMY_SEED: классы + подклассы + принадлежащие ингредиенты (canonical names).
+# _CLASS_ROUTES: классовые routing-правила (из CONFLICT_RULES) — только для
+# сокращения пространства поиска, НЕ для установления факта взаимодействия.
+# ---------------------------------------------------------------------------
+_TAXONOMY_SEED = {
+    "retinoids": {
+        "label": "Ретиноиды",
+        "ingredients": ["retinol", "retinal", "retinyl palmitate", "tretinoin", "adapalene", "tazarotene"],
+    },
+    "exfoliants": {
+        "label": "Отшелушивающие",
+        "subclasses": {
+            "aha": {"label": "AHA", "ingredients": ["glycolic acid", "lactic acid", "mandelic acid", "malic acid"]},
+            "bha": {"label": "BHA", "ingredients": ["salicylic acid"]},
+            "pha": {"label": "PHA", "ingredients": ["gluconolactone", "lactobionic acid"]},
+        },
+    },
+    "vitamin_c": {
+        "label": "Витамин C",
+        "ingredients": [
+            "ascorbic acid", "ascorbyl palmitate", "ascorbyl glucoside",
+            "sodium ascorbyl phosphate", "magnesium ascorbyl phosphate",
+            "3-o-ethyl ascorbic acid",
+        ],
+    },
+    "niacinamide": {"label": "Ниацинамид", "ingredients": ["niacinamide", "nicotinamide"]},
+    "benzoyl_peroxide": {"label": "Бензоилпероксид", "ingredients": ["benzoyl peroxide"]},
+}
+
+# Классовые routing-правила: (классы A, классы B). Пара классов «релевантна»,
+# если существует пересечение. Это НЕ факт interaction.
+_CLASS_ROUTES = [
+    (("retinoids",), ("aha", "bha")),
+    (("niacinamide",), ("vitamin_c",)),
+    (("retinoids",), ("benzoyl_peroxide",)),
+    (("aha",), ("bha",)),
+]
+
+
 class IngredientRepository:
     def __init__(self, db_path: str = AIDERMY_DB):
         self.db_path = db_path
@@ -254,13 +296,8 @@ class IngredientRepository:
     # ------------------------------------------------------------------
     # Фаза 3A — Ingredient Interactions (глобальная knowledge-таблица)
     # ------------------------------------------------------------------
-    def ensure_interaction_tables(self) -> int:
-        """Создаёт ingredient_interactions и вставляет seed-данные (идемпотентно).
-
-        Возвращает число вставленных seed-строк в этот вызов.
-        """
-        from .ingredient_normalizer import normalize_ingredient_name
-
+    def ensure_interaction_tables(self) -> None:
+        """Создаёт ingredient_interactions (БЕЗ seed — seed отдельно)."""
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
@@ -285,7 +322,19 @@ class IngredientRepository:
             )
             '''
         )
+        conn.commit()
+        conn.close()
 
+    def seed_interactions(self) -> int:
+        """Вставляет seed-данные взаимодействий (идемпотентно).
+
+        Возвращает число вставленных строк в этот вызов (0 при повторном запуске).
+        """
+        from .ingredient_normalizer import normalize_ingredient_name
+
+        self.ensure_interaction_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
         inserted = 0
         for axis, direction, list_a, list_b, label in _SEED_RULES:
             for a in list_a:
@@ -363,6 +412,163 @@ class IngredientRepository:
         rows = [dict(r) for r in cursor.execute("SELECT * FROM ingredient_interactions").fetchall()]
         conn.close()
         return rows
+
+    # ------------------------------------------------------------------
+    # Фаза 4 — Taxonomy / Class layer
+    # ------------------------------------------------------------------
+    def ensure_taxonomy_tables(self) -> None:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS taxonomy_classes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                label TEXT DEFAULT '',
+                kind TEXT DEFAULT 'class',
+                parent_id INTEGER,
+                taxonomy_version TEXT DEFAULT 'v1',
+                metadata TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS ingredient_classes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ingredient_name TEXT NOT NULL,
+                class_id INTEGER NOT NULL,
+                taxonomy_version TEXT DEFAULT 'v1',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ingredient_name, class_id),
+                FOREIGN KEY (class_id) REFERENCES taxonomy_classes(id)
+            )
+            '''
+        )
+        conn.commit()
+        conn.close()
+
+    def seed_taxonomy(self) -> int:
+        """Вставляет seed-таксономию (идемпотентно). Возвращает число классов."""
+        from .ingredient_normalizer import normalize_ingredient_name
+
+        self.ensure_taxonomy_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        created = 0
+
+        def _upsert_class(name: str, label: str, kind: str, parent_id=None):
+            nonlocal created
+            cursor.execute(
+                "INSERT OR IGNORE INTO taxonomy_classes (name, label, kind, parent_id) VALUES (?, ?, ?, ?)",
+                (name, label, kind, parent_id),
+            )
+            if cursor.rowcount:
+                created += 1
+            row = cursor.execute("SELECT id FROM taxonomy_classes WHERE name = ?", (name,)).fetchone()
+            return row["id"] if row else 0
+
+        for cls_name, cfg in _TAXONOMY_SEED.items():
+            cls_id = _upsert_class(cls_name, cfg.get("label", cls_name), "class")
+            for ing in cfg.get("ingredients", []):
+                cursor.execute(
+                    "INSERT OR IGNORE INTO ingredient_classes (ingredient_name, class_id) VALUES (?, ?)",
+                    (normalize_ingredient_name(ing), cls_id),
+                )
+            for sub_name, sub_cfg in (cfg.get("subclasses") or {}).items():
+                sub_id = _upsert_class(sub_name, sub_cfg.get("label", sub_name), "subclass", cls_id)
+                for ing in sub_cfg.get("ingredients", []):
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO ingredient_classes (ingredient_name, class_id) VALUES (?, ?)",
+                        (normalize_ingredient_name(ing), sub_id),
+                    )
+        conn.commit()
+        conn.close()
+        return created
+
+    def get_all_classes(self) -> List[Dict[str, Any]]:
+        self.ensure_taxonomy_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        rows = [dict(r) for r in cursor.execute("SELECT * FROM taxonomy_classes ORDER BY id").fetchall()]
+        conn.close()
+        return rows
+
+    def get_ingredient_classes(self, ingredient_name: str) -> List[str]:
+        """Классы ингредиента (листья + все предки). Пусто, если ингредиент неизвестен."""
+        from .ingredient_normalizer import normalize_ingredient_name
+
+        self.ensure_taxonomy_tables()
+        key = normalize_ingredient_name(ingredient_name)
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        classes = cursor.execute(
+            '''
+            SELECT c.id, c.name, c.parent_id FROM ingredient_classes ic
+            JOIN taxonomy_classes c ON c.id = ic.class_id
+            WHERE ic.ingredient_name = ?
+            ''',
+            (key,),
+        ).fetchall()
+        conn.close()
+
+        # разрешаем цепочку предков
+        all_nodes = {r["id"]: r for r in self.get_all_classes()}
+        result: List[str] = []
+        seen = set()
+        for r in classes:
+            cur = r
+            while cur is not None:
+                name = cur["name"]
+                if name not in seen:
+                    seen.add(name)
+                    result.append(name)
+                cur = all_nodes.get(cur["parent_id"]) if cur["parent_id"] else None
+        return result
+
+    def get_class_routes(self) -> List[Any]:
+        return list(_CLASS_ROUTES)
+
+    def get_ingredient_class_map(self) -> Dict[str, List[str]]:
+        """{normalized_ingredient_name: [класс + предки]} для всех ингредиентов (1 запрос)."""
+        self.ensure_taxonomy_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        nodes = {r["id"]: r for r in cursor.execute("SELECT id, name, parent_id FROM taxonomy_classes").fetchall()}
+        rows = cursor.execute("SELECT ingredient_name, class_id FROM ingredient_classes").fetchall()
+        conn.close()
+
+        m: Dict[str, List[str]] = {}
+        for row in rows:
+            ing = row["ingredient_name"]
+            names: List[str] = []
+            seen = set()
+            cur = nodes.get(row["class_id"])
+            while cur is not None:
+                name = cur["name"]
+                if name not in seen:
+                    seen.add(name)
+                    names.append(name)
+                cur = nodes.get(cur["parent_id"]) if cur["parent_id"] else None
+            m.setdefault(ing, [])
+            for n in names:
+                if n not in m[ing]:
+                    m[ing].append(n)
+        return m
+
+    def initialize_knowledge_graph(self) -> Dict[str, int]:
+        """Startup/migration: создаёт таблицы + seed (идемпотентно).
+
+        Вызывается ОДИН раз при старте, чтобы первый /recommend не нёс seed-нагрузку.
+        """
+        self.ensure_ingredient_tables()
+        self.ensure_interaction_tables()
+        interactions = self.seed_interactions()
+        self.ensure_taxonomy_tables()
+        classes = self.seed_taxonomy()
+        return {"seed_interactions": interactions, "seed_classes": classes}
 
     # ------------------------------------------------------------------
     # Методы для Ingredient Enrichment и Allergen/Sensitizer DB

@@ -82,6 +82,19 @@ async def run():
     print("H_interaction known=%s unknown=%s lookup_ms=%.2f %s" % (
         known["state"], unknown["state"], t_known, json.dumps(METRICS.snapshot(), ensure_ascii=False)))
 
+    # I: class routing (before/after candidate counts) — 44 candidates × 2 shelf
+    from app.shelf_service import _query_candidates, _load_shelf_products, _build_user_profile
+    from app.ingredient_graph import GRAPH as G3
+    G3.invalidate()
+    profile = _build_user_profile(u)
+    cands = _query_candidates("face", "Очищение")
+    shelf = _load_shelf_products(u, "face", knowledge=G3.get_knowledge_map(), history=[])
+    cand_products = [{"name": c.get("name"), "ingredients": c.get("ingredients") or ""} for c in cands]
+    METRICS.reset()
+    route = G3.class_route(shelf, cand_products)
+    print("I_class_routing before=%d after=%d %s" % (
+        route["before"], route["after"], json.dumps(METRICS.snapshot(), ensure_ascii=False)))
+
 
 if __name__ == "__main__":
     asyncio.run(run())

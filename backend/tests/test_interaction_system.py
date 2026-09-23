@@ -13,7 +13,7 @@ class InteractionSystemTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.db_path = os.path.join(self._tmp.name, "test.db")
         self.repo = IngredientRepository(self.db_path)
-        self.repo.ensure_interaction_tables()
+        self.repo.seed_interactions()
         self.graph = IngredientGraph(self.repo)
         METRICS.reset()
 

@@ -19,14 +19,14 @@ class IngredientInteractionTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_seed_migration_inserts_29_records_idempotently(self):
-        first = self.repo.ensure_interaction_tables()
-        second = self.repo.ensure_interaction_tables()
+        first = self.repo.seed_interactions()
+        second = self.repo.seed_interactions()
         self.assertEqual(first, 29)
         self.assertEqual(second, 0)  # idempotent
         self.assertEqual(len(self.repo.get_all_interactions()), 29)
 
     def test_seed_data_marked_low_confidence(self):
-        self.repo.ensure_interaction_tables()
+        self.repo.seed_interactions()
         rows = self.repo.get_all_interactions()
         self.assertGreater(len(rows), 0)
         for r in rows:
@@ -60,6 +60,7 @@ class IngredientInteractionTests(unittest.TestCase):
         self.assertEqual(r["state"], EffectState.KNOWN)
 
     def test_insufficient_state_seed(self):
+        self.repo.seed_interactions()
         graph = IngredientGraph(self.repo)
         r = graph.lookup_interaction("Retinol", "Salicylic Acid")
         self.assertEqual(r["state"], EffectState.INSUFFICIENT)

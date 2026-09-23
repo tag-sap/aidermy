@@ -39,6 +39,14 @@ from .vision_service import (
 
 init_db()
 
+# Фаза 4 — инициализация Knowledge Graph (таблицы + seed) НА СТАРТЕ,
+# чтобы первый /recommend не нёс seed-нагрузку. Идемпотентно.
+try:
+    from .ingredient_repository import IngredientRepository
+    IngredientRepository().initialize_knowledge_graph()
+except Exception as exc:
+    print(f"[INIT] knowledge graph init failed: {exc!r}")
+
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 app = FastAPI(
