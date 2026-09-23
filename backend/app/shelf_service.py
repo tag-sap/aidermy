@@ -955,6 +955,22 @@ async def recommend_products(
         except Exception as exc:
             print(f"[RECOMMEND] enrichment dispatch failed: {exc!r}")
 
+    # Фаза 3B — shadow mode: сравнение OLD CONFLICT_RULES vs NEW interaction lookup.
+    # НЕ влияет на score/ranking — только логирует расхождения в METRICS.
+    if scored and result and shelf_products:
+        try:
+            from .interaction_system import shadow_compare_interactions
+            for r in result:
+                cand = {
+                    "name": r.get("name"),
+                    "category": category,
+                    "ingredients": r.get("_ingredients") or "",
+                    "score": r.get("score"),
+                }
+                shadow_compare_interactions(shelf_products, cand)
+        except Exception as exc:
+            print(f"[SHADOW] interaction shadow check failed: {exc!r}")
+
     for r in result:
         r.pop("_relevance", None)
         r.pop("_signature", None)

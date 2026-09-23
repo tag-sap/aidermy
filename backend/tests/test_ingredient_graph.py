@@ -109,10 +109,10 @@ class IngredientGraphTests(unittest.TestCase):
         graph = IngredientGraph(self.repo)
         self.assertEqual(graph.lookup_effects("Retinol"), graph.lookup_effects("Retinol"))
 
-    def test_interaction_unknown_without_table(self):
-        r = IngredientGraph(self.repo).lookup_interaction("Retinol", "Salicylic Acid")
+    def test_interaction_unknown_for_non_seed_pair(self):
+        r = IngredientGraph(self.repo).lookup_interaction("Glycerin", "Panthenol")
         self.assertEqual(r["state"], EffectState.UNKNOWN)
-        self.assertEqual(r["reason"], "no_interaction_table")
+        self.assertEqual(r["records"], [])
 
     def test_regression_legacy_score_identical(self):
         graph = IngredientGraph(self.repo)

@@ -46,6 +46,7 @@ class IngredientGraph:
         self._lock = threading.Lock()
         self._legacy_cache: Optional[Dict[str, Any]] = None
         self._canonical_cache: Optional[Dict[str, Any]] = None
+        self._interaction_map_cache: Optional[Dict[tuple, list]] = None
 
     @property
     def confidence_threshold(self) -> float:
@@ -56,6 +57,7 @@ class IngredientGraph:
         with self._lock:
             self._legacy_cache = None
             self._canonical_cache = None
+            self._interaction_map_cache = None
 
     # ------------------------------------------------------------------
     # Cache-first чтение карт
@@ -107,20 +109,59 @@ class IngredientGraph:
         return {axis: self.lookup_effect(ingredient, axis) for axis in AXES}
 
     # ------------------------------------------------------------------
-    # Interaction lookup (интерфейс для будущего ingredient_interactions)
+    # Interaction lookup (Фаза 3A: реальный lookup, cache-first)
     # ------------------------------------------------------------------
-    def lookup_interaction(self, ingredient_a: str, ingredient_b: str) -> Dict[str, Any]:
-        """Interaction A×B: known / unknown.
+    def _interaction_map(self) -> Dict[tuple, list]:
+        """Cache-first карта (a,b) -> список interaction-записей."""
+        with self._lock:
+            if self._interaction_map_cache is None:
+                METRICS.increment("cache_miss")
+                self._repo.ensure_interaction_tables()
+                m: Dict[tuple, list] = {}
+                for r in self._repo.get_all_interactions():
+                    key = (r["ingredient_a"], r["ingredient_b"])
+                    m.setdefault(key, []).append(r)
+                self._interaction_map_cache = m
+            else:
+                METRICS.increment("cache_hit")
+            return self._interaction_map_cache
 
-        Таблицы ingredient_interactions ещё нет (Фаза 3), поэтому состояние всегда
-        unknown. Здесь НЕ создаётся временная логика поверх CONFLICT_RULES.
+    def lookup_interaction(self, ingredient_a: str, ingredient_b: str) -> Dict[str, Any]:
+        """Interaction A×B: known / insufficient / unknown (unknown ≠ no interaction).
+
+        Пара канонизируется (сортировка), A×B == B×A. Возвращает состояние по
+        порогу confidence и список записей по осям (с source/evidence).
         """
-        return {
-            "a": normalize_ingredient_name(ingredient_a),
-            "b": normalize_ingredient_name(ingredient_b),
-            "state": EffectState.UNKNOWN,
-            "reason": "no_interaction_table",
-        }
+        METRICS.increment("interaction_lookup_count")
+        a_c, b_c = sorted([normalize_ingredient_name(ingredient_a), normalize_ingredient_name(ingredient_b)])
+        records = self._interaction_map().get((a_c, b_c), [])
+        if not records:
+            METRICS.increment("interaction_unknown_count")
+            return {"a": a_c, "b": b_c, "state": EffectState.UNKNOWN, "records": []}
+
+        out = []
+        has_known = False
+        for r in records:
+            conf = float(r.get("confidence") or 0.0)
+            state = EffectState.KNOWN if conf >= self._threshold else EffectState.INSUFFICIENT
+            if state == EffectState.KNOWN:
+                has_known = True
+            out.append({
+                "interaction_id": r.get("id"),
+                "axis": r.get("axis"),
+                "direction": r.get("direction"),
+                "strength": r.get("strength"),
+                "confidence": conf,
+                "state": state,
+                "source": r.get("source"),
+                "evidence": r.get("evidence"),
+            })
+        agg = EffectState.KNOWN if has_known else EffectState.INSUFFICIENT
+        if agg == EffectState.KNOWN:
+            METRICS.increment("interaction_known_count")
+        else:
+            METRICS.increment("interaction_insufficient_count")
+        return {"a": a_c, "b": b_c, "state": agg, "records": out}
 
 
 # Глобальный (per-process) экземпляр для совместного кэша.

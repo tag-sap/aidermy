@@ -71,6 +71,17 @@ async def run():
         json.dumps(hit_snap, ensure_ascii=False),
     ))
 
+    # H: interaction lookup (известная seed-пара vs неизвестная)
+    from app.ingredient_graph import GRAPH as G2
+    G2.invalidate()
+    METRICS.reset()
+    t0 = time.perf_counter()
+    known = G2.lookup_interaction("Retinol", "Salicylic Acid")
+    t_known = (time.perf_counter() - t0) * 1000
+    unknown = G2.lookup_interaction("Glycerin", "Panthenol")
+    print("H_interaction known=%s unknown=%s lookup_ms=%.2f %s" % (
+        known["state"], unknown["state"], t_known, json.dumps(METRICS.snapshot(), ensure_ascii=False)))
+
 
 if __name__ == "__main__":
     asyncio.run(run())

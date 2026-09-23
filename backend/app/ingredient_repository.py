@@ -5,6 +5,28 @@ from typing import Any, Dict, List, Optional
 from .database import get_connection, AIDERMY_DB
 
 
+# ---------------------------------------------------------------------------
+# Фаза 3A — seed-данные взаимодействий.
+# Перенесены из shelf_compatibility.CONFLICT_RULES (классовые эвристики),
+# развёрнутые в канонические пары ингредиентов.
+# source="seed", evidence="legacy heuristic", confidence=0.2 (низкий) — НЕ выдаём
+# за научно подтверждённые взаимодействия.
+# ---------------------------------------------------------------------------
+_SEED_RETINOIDS = ["retinol", "tretinoin", "adapalene", "tazarotene"]
+_SEED_AHA = ["glycolic acid", "lactic acid", "mandelic acid", "malic acid"]
+_SEED_BHA = ["salicylic acid"]
+_SEED_VITC = ["ascorbic acid"]
+_SEED_BP = ["benzoyl peroxide"]
+
+# (axis, direction, list_a, list_b, label)
+_SEED_RULES = [
+    ("irritation", "positive", _SEED_RETINOIDS, _SEED_AHA + _SEED_BHA, "Ретиноиды + AHA/BHA-кислоты"),
+    ("irritation", "positive", ["niacinamide"], _SEED_VITC, "Ниацинамид + L-аскорбиновая кислота"),
+    ("irritation", "positive", _SEED_RETINOIDS, _SEED_BP, "Ретиноиды + бензоилпероксид"),
+    ("barrier", "negative", _SEED_AHA, _SEED_BHA, "AHA + BHA (двойное отшелушивание)"),
+]
+
+
 class IngredientRepository:
     def __init__(self, db_path: str = AIDERMY_DB):
         self.db_path = db_path
@@ -228,6 +250,119 @@ class IngredientRepository:
         """
         from .axes import canonicalize_knowledge_map
         return canonicalize_knowledge_map(self.get_knowledge_map())
+
+    # ------------------------------------------------------------------
+    # Фаза 3A — Ingredient Interactions (глобальная knowledge-таблица)
+    # ------------------------------------------------------------------
+    def ensure_interaction_tables(self) -> int:
+        """Создаёт ingredient_interactions и вставляет seed-данные (идемпотентно).
+
+        Возвращает число вставленных seed-строк в этот вызов.
+        """
+        from .ingredient_normalizer import normalize_ingredient_name
+
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS ingredient_interactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ingredient_a TEXT NOT NULL,
+                ingredient_b TEXT NOT NULL,
+                axis TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                strength REAL NOT NULL DEFAULT 0,
+                confidence REAL NOT NULL DEFAULT 0,
+                evidence TEXT DEFAULT '',
+                source TEXT DEFAULT '',
+                source_type TEXT DEFAULT '',
+                interaction_type TEXT DEFAULT '',
+                research_version TEXT DEFAULT 'v1',
+                knowledge_version TEXT DEFAULT 'v1',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ingredient_a, ingredient_b, axis)
+            )
+            '''
+        )
+
+        inserted = 0
+        for axis, direction, list_a, list_b, label in _SEED_RULES:
+            for a in list_a:
+                for b in list_b:
+                    a_n = normalize_ingredient_name(a)
+                    b_n = normalize_ingredient_name(b)
+                    a_c, b_c = sorted([a_n, b_n])  # канонический порядок пары
+                    cursor.execute(
+                        '''
+                        INSERT OR IGNORE INTO ingredient_interactions (
+                            ingredient_a, ingredient_b, axis, direction, strength,
+                            confidence, evidence, source, source_type, interaction_type,
+                            research_version, knowledge_version, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ''',
+                        (
+                            a_c, b_c, axis, direction, 0.5, 0.2,
+                            f"legacy heuristic: {label}", "seed", "heuristic", "conflict",
+                            "seed-v1", "v1",
+                        ),
+                    )
+                    inserted += cursor.rowcount
+        conn.commit()
+        conn.close()
+        return inserted
+
+    def save_interaction(
+        self,
+        ingredient_a: str,
+        ingredient_b: str,
+        axis: str,
+        direction: str,
+        strength: float = 0.0,
+        confidence: float = 0.0,
+        evidence: str = "",
+        source: str = "",
+        source_type: str = "",
+        interaction_type: str = "",
+        research_version: str = "v1",
+        knowledge_version: str = "v1",
+    ) -> Optional[Dict[str, Any]]:
+        """Сохраняет interaction (канонический порядок пары, без дублей)."""
+        from .ingredient_normalizer import normalize_ingredient_name
+
+        self.ensure_interaction_tables()
+        a_c, b_c = sorted([normalize_ingredient_name(ingredient_a), normalize_ingredient_name(ingredient_b)])
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT OR IGNORE INTO ingredient_interactions (
+                ingredient_a, ingredient_b, axis, direction, strength,
+                confidence, evidence, source, source_type, interaction_type,
+                research_version, knowledge_version, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''',
+            (
+                a_c, b_c, axis, direction, strength, confidence,
+                evidence, source, source_type, interaction_type,
+                research_version, knowledge_version,
+            ),
+        )
+        conn.commit()
+        row = cursor.execute(
+            "SELECT * FROM ingredient_interactions WHERE ingredient_a = ? AND ingredient_b = ? AND axis = ?",
+            (a_c, b_c, axis),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def get_all_interactions(self) -> List[Dict[str, Any]]:
+        self.ensure_interaction_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        rows = [dict(r) for r in cursor.execute("SELECT * FROM ingredient_interactions").fetchall()]
+        conn.close()
+        return rows
 
     # ------------------------------------------------------------------
     # Методы для Ingredient Enrichment и Allergen/Sensitizer DB
