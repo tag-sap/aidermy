@@ -220,6 +220,15 @@ class IngredientRepository:
                 }
         return knowledge
 
+    def get_canonical_knowledge_map(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """Каноническая knowledge map на 6 осях (axes.AXES).
+
+        НЕ используется scoring'ом на Фазе 1 — это read-слой для будущего
+        Ingredient Graph (Фаза 2). Non-destructive: исходные claims не меняются.
+        """
+        from .axes import canonicalize_knowledge_map
+        return canonicalize_knowledge_map(self.get_knowledge_map())
+
     # ------------------------------------------------------------------
     # Методы для Ingredient Enrichment и Allergen/Sensitizer DB
     # ------------------------------------------------------------------

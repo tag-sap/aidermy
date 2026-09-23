@@ -152,6 +152,8 @@ async def enrich_unknown_ingredients(
 
     for model_name in _ENRICH_MODEL_FALLBACKS:
         try:
+            from .instrumentation import METRICS
+            METRICS.increment("ai_call_count")
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     DEEPSEEK_API_URL,

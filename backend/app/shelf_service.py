@@ -776,10 +776,17 @@ async def recommend_products(
         pass
     scored = cabinet_applies_scoring(cabinet)
 
+    # Инструментация (Фаза 0): таймер пайплайна и счётчик вызовов. Логику не меняет.
+    from .instrumentation import METRICS
+    import time as _time
+    _t_instr = _time.perf_counter()
+    METRICS.increment("recommend_count")
+
     profile = _build_user_profile(user)
     _skin = profile["skin_type"]
 
     candidates = _query_candidates(cabinet, category)
+    METRICS.set_gauge("ingredient_count", len(candidates))
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
     keywords = rule.get("keywords") or []
 
@@ -808,6 +815,7 @@ async def recommend_products(
     shelf_products: List[Dict[str, Any]] = []
     if scored:
         shelf_products = _load_shelf_products(user, cabinet, knowledge=knowledge, history=user_history)
+    METRICS.set_gauge("interaction_candidate_count", len(candidates) * len(shelf_products))
 
     rated: List[Dict[str, Any]] = []
     seen_ids: set = set()
@@ -953,6 +961,7 @@ async def recommend_products(
         r.pop("_ingredients", None)
         r.pop("_from_history", None)
         r.pop("id", None)
+    METRICS.add_time("pipeline_duration", _time.perf_counter() - _t_instr)
     return result
 
 

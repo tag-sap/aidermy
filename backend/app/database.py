@@ -18,6 +18,13 @@ def get_connection(db_path=None):
         else 1 if (a or "").lower() > (b or "").lower()
         else 0
     ))
+    # Инструментация (Фаза 0): считаем реальное число SQL-запросов.
+    # Не меняет поведение — только устанавливает trace-колбэк.
+    try:
+        from .instrumentation import METRICS
+        conn.set_trace_callback(lambda _stmt: METRICS.increment("db_query_count"))
+    except Exception:
+        pass
     return conn
 
 def init_db():

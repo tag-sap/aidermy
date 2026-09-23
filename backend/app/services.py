@@ -327,6 +327,9 @@ async def _enrich_with_ai(product_name: str, ingredients: str, skin_type: str, p
     for attempt in range(len(DEEPSEEK_MODEL_FALLBACKS)):
         model_name = DEEPSEEK_MODEL_FALLBACKS[attempt]
         try:
+            from .instrumentation import METRICS
+            METRICS.increment("ai_call_count")
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     DEEPSEEK_API_URL,
