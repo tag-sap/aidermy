@@ -474,6 +474,55 @@ def compute_product_compatibility(
         return None
 
 
+def _load_shelf_products(
+    user: Dict[str, Any],
+    cabinet: str,
+    knowledge=None,
+    history: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Продукты текущей полки шкафа (для Shelf Compatibility Engine).
+
+    Возвращает список {name, category, ingredients, score, slug} для товаров, уже
+    находящихся в указанном шкафу. score — индивидуальный Product Compatibility %.
+    Это отдельный вход подбора: User Profile + Candidate Product + Current Shelf.
+    """
+    from .database import get_user_shelf, get_product_by_id
+
+    result: List[Dict[str, Any]] = []
+    try:
+        shelf_items = get_user_shelf(user["id"])
+    except Exception:
+        return result
+
+    for s in shelf_items:
+        try:
+            p = get_product_by_id(s["product_id"])
+        except Exception:
+            continue
+        if not p:
+            continue
+        c_cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
+        if c_cabinet != cabinet:
+            continue
+        score = s.get("score")
+        if score is None:
+            score = compute_product_compatibility(user, p, knowledge=knowledge, history=history)
+        result.append({
+            "name": (p.get("name") or "").replace("\n", " "),
+            "category": category,
+            "ingredients": p.get("ingredients") or "",
+            "score": score,
+            "slug": p.get("slug") or "",
+        })
+    return result
+
+
+# Веса ранжирования рекомендаций: Product Compatibility доминирует, Shelf
+# Compatibility влияет, но не уничтожает исходный процент.
+_RANK_PRODUCT_WEIGHT = 0.75
+_RANK_SHELF_WEIGHT = 0.25
+
+
 def _reason_from_analysis(analysis: Optional[Dict[str, Any]]) -> str:
     if not analysis:
         return ""
@@ -754,6 +803,12 @@ async def recommend_products(
         except Exception:
             user_history = []
 
+    # Текущая полка пользователя — отдельный вход подбора:
+    #   User Profile + Candidate Product + Current Shelf.
+    shelf_products: List[Dict[str, Any]] = []
+    if scored:
+        shelf_products = _load_shelf_products(user, cabinet, knowledge=knowledge, history=user_history)
+
     rated: List[Dict[str, Any]] = []
     seen_ids: set = set()
     seen_names: set = set()
@@ -816,13 +871,43 @@ async def recommend_products(
             rec["reason"] = f"Подходит для категории «{category}»."
             haystack = f"{product.get('name') or ''} {product.get('ingredients') or ''}".lower()
             rec["_relevance"] = sum(1 for kw in keywords if kw in haystack)
+
+        # Shelf Compatibility: насколько добавление кандидата подходит текущей
+        # комбинации средств на полке. Отдельный показатель (НЕ Product Compatibility).
+        if scored and shelf_products and rec["score"] is not None:
+            try:
+                from .shelf_compatibility import compute_shelf_compatibility
+                candidate_product = {
+                    "name": rec["name"],
+                    "category": category,
+                    "ingredients": rec.get("_ingredients") or "",
+                    "score": rec["score"],
+                }
+                shelf_result = compute_shelf_compatibility(shelf_products + [candidate_product])
+                rec["shelf_compatibility"] = shelf_result.get("score")
+            except Exception:
+                rec["shelf_compatibility"] = None
+        else:
+            rec["shelf_compatibility"] = None
+
         rated.append(rec)
 
     # Стабильная сортировка: при равных скорax сохраняется порядок
     # «сначала точная категория, затем ключевые слова».
     if scored:
-        # Продукты с валидным score идут первыми, без скорa — в конец.
-        rated.sort(key=lambda r: (r["score"] is None, -int(r["score"] or 0)))
+        def _rank_key(r):
+            s = r["score"]
+            if s is None:
+                return (1, 0.0)  # без скорa — в конец
+            sc = r.get("shelf_compatibility")
+            if sc is None:
+                return (0, -float(s))  # пустая полка — только Product Compatibility
+            # Оба фактора: Product Compatibility доминирует, Shelf Compatibility
+            # влияет, но не уничтожает исходный процент.
+            blended = _RANK_PRODUCT_WEIGHT * float(s) + _RANK_SHELF_WEIGHT * float(sc)
+            return (0, -blended)
+
+        rated.sort(key=_rank_key)
     else:
         rated.sort(key=lambda r: -int(r.get("_relevance", 0)))
 

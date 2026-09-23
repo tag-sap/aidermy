@@ -357,7 +357,7 @@ export function ProductModal({
                 className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
               >
                 {checking ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
-                {checking ? 'Анализ выполняется…' : 'Проверить совместимость'}
+                {checking ? 'Анализ выполняется…' : data?.score != null ? 'Посмотреть анализ' : 'Проверить состав'}
               </button>
 
               {token && (

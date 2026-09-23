@@ -84,6 +84,7 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
         cabinet_applies_scoring,
         infer_cabinet_category,
         normalize_history_analysis,
+        compute_product_compatibility,
     )
 
     product = get_product_by_slug(slug)
@@ -127,6 +128,12 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
                     analysis = normalize_history_analysis(h)
                     score = int(h.get("score") or 0)
                     break
+
+        # Product Compatibility % — история → deterministic Score Engine (без AI).
+        # Это ОТДЕЛЬНО от AI Analysis: наличие score НЕ означает, что AI-анализ
+        # уже запускался. Поэтому карточка может показывать «99%» + «Посмотреть анализ».
+        if score is None and cabinet_applies_scoring(cabinet):
+            score = compute_product_compatibility(current_user, product)
 
     from .community_service import CommunityIntelligenceService
     from .community_routes import _get_profile_for_user

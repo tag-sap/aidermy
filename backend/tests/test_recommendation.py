@@ -195,6 +195,43 @@ class RecommendationTests(unittest.TestCase):
             score = compute_product_compatibility(USER, {"ingredients": "Aqua, MysteryX"}, knowledge={}, history=[])
         self.assertIsNone(score)
 
+    def test_recommend_empty_shelf_returns_no_shelf_compatibility(self):
+        # Пустая полка → Shelf Compatibility не применяется, ранжирование только по Product Compatibility.
+        candidates = [
+            _product("Очищение", "A", "a", "Aqua, Glycerin"),
+            _product("Очищение", "B", "b", "Aqua, Niacinamide"),
+        ]
+        scores = {"a": 76, "b": 95}
+        with patch("app.shelf_service._query_candidates", return_value=candidates), \
+             patch("app.shelf_service._load_shelf_products", return_value=[]), \
+             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)):
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+        self.assertEqual([r["slug"] for r in recs], ["b", "a"])
+        for r in recs:
+            self.assertIsNone(r["shelf_compatibility"])
+
+    def test_recommend_shelf_conflict_affects_ranking(self):
+        # На полке ретинол → кандидат с салициловой кислотой (AHA/BHA) конфликтует,
+        # его Shelf Compatibility ниже, и он ранжируется ниже при равном Product Compatibility.
+        candidates = [
+            _product("Очищение", "A", "a", "Aqua, Salicylic Acid"),
+            _product("Очищение", "B", "b", "Aqua, Glycerin"),
+        ]
+        shelf = [{"name": "Retinol Serum", "category": "Сыворотки", "ingredients": "Aqua, Retinol", "score": 90, "slug": "retinol-serum"}]
+        scores = {"a": 80, "b": 80}
+        with patch("app.shelf_service._query_candidates", return_value=candidates), \
+             patch("app.shelf_service._load_shelf_products", return_value=shelf), \
+             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)):
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+        self.assertEqual([r["slug"] for r in recs], ["b", "a"])
+        by = {r["slug"]: r for r in recs}
+        # Product Compatibility одинаковый (не уничтожен), Shelf Compatibility разный.
+        self.assertEqual(by["a"]["score"], 80)
+        self.assertEqual(by["b"]["score"], 80)
+        self.assertIsNotNone(by["a"]["shelf_compatibility"])
+        self.assertIsNotNone(by["b"]["shelf_compatibility"])
+        self.assertLess(by["a"]["shelf_compatibility"], by["b"]["shelf_compatibility"])
+
 
 class ShelfAggregationTests(unittest.TestCase):
     def test_aggregate_skips_missing_scores(self):

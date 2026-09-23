@@ -22,6 +22,7 @@ type Recommendation = {
   brand: string
   image_url: string
   score: number | null
+  shelf_compatibility: number | null
   reason: string
 }
 
@@ -329,7 +330,12 @@ export function ShelfAddModal({
                         {r.brand && <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50">{r.brand}</p>}
                         <p className="truncate text-xs font-medium text-foreground/90">{r.name}</p>
                         {r.score != null ? (
-                          <p className="text-sm font-light text-primary">{r.score}%</p>
+                          <div className="mt-0.5">
+                            <p className="text-sm font-light text-primary">{r.score}% <span className="text-[9px] font-normal text-muted-foreground/50">совместимость</span></p>
+                            {r.shelf_compatibility != null && (
+                              <p className="text-[10px] text-muted-foreground/60">Совместимость с полкой: {r.shelf_compatibility}%</p>
+                            )}
+                          </div>
                         ) : isScoring ? (
                           <p className="text-[10px] text-muted-foreground/50">—</p>
                         ) : null}
