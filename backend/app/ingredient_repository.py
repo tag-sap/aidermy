@@ -743,6 +743,29 @@ class IngredientRepository:
             d["data"] = {}
         return d
 
+    def has_current_product_model(
+        self, product_id: int, composition_hash: Optional[str] = None
+    ) -> bool:
+        """Есть ли АКТУАЛЬНАЯ Static Product Model для продукта.
+
+        Проверяет независимо от пользовательской истории (check_history):
+        модель считается актуальной, если её версии (taxonomy/knowledge/interaction/
+        model) совпадают с текущими и composition_hash совпадает с текущим составом.
+        """
+        stored = self.get_product_model(product_id)
+        if not stored:
+            return False
+        data = stored.get("data") or {}
+        from .product_model import get_current_versions
+
+        versions = get_current_versions()
+        for key, value in versions.items():
+            if data.get(key) != value:
+                return False
+        if composition_hash is not None and data.get("composition_hash") != composition_hash:
+            return False
+        return True
+
     def initialize_knowledge_graph(self) -> Dict[str, int]:
         """Startup/migration: создаёт таблицы + seed (идемпотентно).
 

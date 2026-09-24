@@ -153,7 +153,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
     clean_query = ''.join(product_name.split())
     
     cursor.execute('''
-        SELECT name, ingredients, slug, image_url FROM products
+        SELECT id, name, ingredients, slug, image_url FROM products
         WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
         LIMIT 1
     ''', (f'%{clean_query}%',))
@@ -170,6 +170,14 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         result['slug'] = row['slug'] or generate_slug(product_name)
         result['ingredients'] = row['ingredients']
         result['image_url'] = row['image_url']
+        # Сохраняем Static Product Model — глобальную объективную модель продукта,
+        # НЕ привязанную к пользователю. Она переиспользуется другими пользователями
+        # и НЕ удаляется при очистке истории.
+        try:
+            from .product_model import get_or_build_product_model
+            get_or_build_product_model(dict(row))
+        except Exception as exc:
+            print(f"[PRODUCT_MODEL] save failed: {exc!r}")
         return result
     
     return {

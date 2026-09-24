@@ -71,6 +71,19 @@ class ProductModelTests(unittest.TestCase):
         finally:
             pm.MODEL_VERSION = "v1"
 
+    def test_has_current_product_model_true_when_current(self):
+        p = {"id": 1, "ingredients": "Aqua, Retinol"}
+        get_or_build_product_model(p, graph=self.graph, repository=self.repo)
+        self.assertTrue(self.repo.has_current_product_model(1, composition_hash("Aqua, Retinol")))
+
+    def test_has_current_product_model_false_when_missing(self):
+        self.assertFalse(self.repo.has_current_product_model(999))
+
+    def test_has_current_product_model_false_when_hash_differs(self):
+        p = {"id": 1, "ingredients": "Aqua, Retinol"}
+        get_or_build_product_model(p, graph=self.graph, repository=self.repo)
+        self.assertFalse(self.repo.has_current_product_model(1, composition_hash("Aqua, Salicylic Acid")))
+
     def test_internal_interaction_ids_are_references(self):
         p = {"id": 1, "ingredients": "Aqua, Retinol, Salicylic Acid"}
         m = build_static_product_model(p, graph=self.graph)

@@ -746,10 +746,11 @@ async def recommend_products(
 ) -> List[Dict[str, Any]]:
     """Возвращает до 3 рекомендаций для конкретной полки шкафа.
 
-    Участвуют ТОЛЬКО продукты с актуальным User Analysis (история проверок
-    пользователя). score берётся из истории и НЕ пересчитывается; продукты без
-    анализа не получают fallback-оценку и не попадают в выдачу. Если готовых
-    продуктов меньше трёх — возвращается меньше (или пустой список).
+    Участвуют ТОЛЬКО «подготовленные» продукты — с актуальной Static Product Model
+    (product_models), НЕЗАВИСИМО от истории конкретного пользователя. Персональный
+    score рассчитывается под текущего пользователя: из истории (кэш) или
+    детерминированно из модели/knowledge map. Продукты без Static Product Model
+    не получают fallback-оценку и не попадают в выдачу.
     """
     exclude_slugs = set(exclude_slugs or set())
     # Продукты, которые пользователь явно отклонил (дизлайк), не предлагаем снова.
@@ -774,9 +775,18 @@ async def recommend_products(
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
     keywords = rule.get("keywords") or []
 
-    # score берётся ТОЛЬКО из актуального User Analysis (история проверок),
-    # поэтому knowledge map для детерминированного scoring здесь не нужен.
+    # knowledge map + репозиторий загружаются ОДИН раз: для персонального scoring
+    # и для проверки наличия актуальной Static Product Model.
+    repo = None
     knowledge = None
+    if scored:
+        try:
+            from .ingredient_repository import IngredientRepository
+            repo = IngredientRepository()
+            knowledge = repo.get_canonical_knowledge_map()
+        except Exception:
+            repo = None
+            knowledge = None
 
     # История проверок пользователя — тоже один раз, а не на каждого кандидата.
     user_history: List[Dict[str, Any]] = []
@@ -834,13 +844,37 @@ async def recommend_products(
             "_ingredients": product.get("ingredients") or "",
         }
         if scored:
-            # Участвуют ТОЛЬКО продукты с актуальным User Analysis (история проверок).
-            history_score, history_analysis = _find_history_score(user, product, history=user_history, current_skin=current_skin)
-            if history_score is None:
+            # Продукт «подготовлен» глобально ТОЛЬКО при наличии актуальной
+            # Static Product Model (product_models), НЕЗАВИСИМО от истории пользователя.
+            # Удаление check_history не должно скрывать продукт из подбора.
+            has_model = False
+            if repo is not None and pid is not None:
+                try:
+                    from .product_model import composition_hash
+                    has_model = repo.has_current_product_model(
+                        pid, composition_hash(product.get("ingredients") or "")
+                    )
+                except Exception:
+                    has_model = False
+            if not has_model:
                 continue
-            rec["score"] = history_score
-            rec["reason"] = _reason_from_analysis(history_analysis)
-            rec["_from_history"] = True
+
+            # Персональный score: история (кэш текущего пользователя) → детерминированный
+            # расчёт из Static Product Model / knowledge map относительно профиля.
+            history_score, history_analysis = _find_history_score(user, product, history=user_history, current_skin=current_skin)
+            if history_score is not None:
+                rec["score"] = history_score
+                rec["reason"] = _reason_from_analysis(history_analysis)
+                rec["_from_history"] = True
+            else:
+                analysis = _deterministic_analysis(
+                    profile, product.get("ingredients") or "", knowledge=knowledge
+                )
+                meaningful = _meaningful_score(analysis)
+                if meaningful is None:
+                    continue
+                rec["score"] = meaningful
+                rec["reason"] = _reason_from_analysis(analysis)
         else:
             rec["reason"] = f"Подходит для категории «{category}»."
             haystack = f"{product.get('name') or ''} {product.get('ingredients') or ''}".lower()
