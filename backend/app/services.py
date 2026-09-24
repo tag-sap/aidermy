@@ -273,6 +273,23 @@ async def generate_ai_review(product_name: str, skin_type: str, profile: dict, i
         'negative_factors': deterministic.get('negative_factors') or [],
     }
 
+
+async def generate_ai_report(product_name: str, analysis: dict, profile: dict) -> str:
+    """AI-отчёт: человеческое объяснение УЖЕ СУЩЕСТВУЮЩЕГО User Analysis.
+
+    Score НЕ пересчитывается — берётся из переданного analysis (история проверок).
+    AI пишет 2-3 предложения по готовым safe/caution ингредиентам.
+    """
+    from .ai_summary import summarize_with_ai
+
+    analysis = analysis or {}
+    score = int(analysis.get("score") or 0)
+    pos = [{"ingredient": i} for i in (analysis.get("safe_ingredients") or [])]
+    neg = [{"ingredient": i} for i in (analysis.get("caution_ingredients") or [])]
+    payload = {**analysis, "positive_factors": pos, "negative_factors": neg}
+    summary = await summarize_with_ai(product_name, score, payload, profile or {})
+    return summary or (analysis.get("summary") or "")
+
 async def _enrich_with_ai(product_name: str, ingredients: str, skin_type: str, profile: dict) -> dict | None:
     """AI-обогащение данных о составе.
 

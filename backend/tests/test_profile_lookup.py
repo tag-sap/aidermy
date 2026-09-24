@@ -33,7 +33,7 @@ class ProfileLookupTests(unittest.TestCase):
             "skin_type TEXT, score INTEGER, verdict TEXT, summary TEXT, ingredients TEXT, "
             "slug TEXT, image_url TEXT, active_ingredients TEXT, how_to_use TEXT, "
             "expectations TEXT, safe_ingredients TEXT, caution_ingredients TEXT, "
-            "profile_snapshot TEXT, created_at TEXT, deleted_at TEXT)"
+            "ai_report TEXT, profile_snapshot TEXT, created_at TEXT, deleted_at TEXT)"
         )
         conn.commit()
         conn.close()

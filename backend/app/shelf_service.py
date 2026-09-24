@@ -354,7 +354,11 @@ def _parse_json(value: Any) -> Any:
 
 
 def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
-    """Приводит запись истории проверки к единому виду (списки вместо JSON-строк)."""
+    """Приводит запись истории проверки к единому виду (списки вместо JSON-строк).
+
+    `report` — отдельный AI-отчёт (человеческая рецензия). НЕ является условием
+    наличия User Analysis и НЕ влияет на score.
+    """
     return {
         "verdict": h.get("verdict") or "",
         "summary": h.get("summary") or "",
@@ -364,6 +368,7 @@ def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
         "active_ingredients": _parse_json(h.get("active_ingredients")),
         "how_to_use": _parse_json(h.get("how_to_use")),
         "expectations": _parse_json(h.get("expectations")),
+        "report": h.get("ai_report") or None,
     }
 
 
@@ -468,26 +473,12 @@ def compute_product_compatibility(
 ) -> Optional[int]:
     """Итоговый Product Compatibility % для полки.
 
-    Источник — тот же deterministic Score Engine, что и в подборе (recommend_products):
-    сначала история проверок пользователя, затем детерминированный анализ состава.
-    Без AI и без отдельного алгоритма. Возвращает None, если продукт реально не
-    анализировался (нет истории и нет валидного знания об ингредиентах).
+    Единственный источник — актуальный User Analysis (история проверок пользователя).
+    НЕ считает score по составу/знанию и НЕ возвращает fallback: если пользователь
+    ещё не анализировал продукт, возвращает None (→ «Анализ ещё не выполнен»).
     """
     score, _ = _find_history_score(user, product, history=history)
-    if score is not None:
-        return score
-    try:
-        from .ingredient_repository import IngredientRepository
-        if knowledge is None:
-            knowledge = IngredientRepository().get_canonical_knowledge_map()
-        analysis = _deterministic_analysis(
-            _build_user_profile(user),
-            product.get("ingredients") or "",
-            knowledge=knowledge,
-        )
-        return _meaningful_score(analysis)
-    except Exception:
-        return None
+    return score
 
 
 def _load_shelf_products(
@@ -520,9 +511,7 @@ def _load_shelf_products(
         c_cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
         if c_cabinet != cabinet:
             continue
-        score = s.get("score")
-        if score is None:
-            score = compute_product_compatibility(user, p, knowledge=knowledge, history=history)
+        score, _ = _find_history_score(user, p, history=history)
         # Фаза 5 — Static Product Model (cache-first): shelf использует кэшированную
         # объективную модель (классы/эффекты), не перестраивая её повторно.
         classes: List[str] = []
@@ -757,11 +746,10 @@ async def recommend_products(
 ) -> List[Dict[str, Any]]:
     """Возвращает до 3 рекомендаций для конкретной полки шкафа.
 
-    Контролируемая неопределённость: unknown-ингредиенты НЕ штрафуются. Сначала
-    детерминированно скорим всех кандидатов и выбираем топ-3. Unknown-ингредиенты
-    этих трёх продуктов обогащаются в фоне (fire-and-forget), чтобы не блокировать
-    ответ: рекомендация отдаётся сразу с детерминированным скором, а Ingredient DB
-    пополняется для следующих запросов.
+    Участвуют ТОЛЬКО продукты с актуальным User Analysis (история проверок
+    пользователя). score берётся из истории и НЕ пересчитывается; продукты без
+    анализа не получают fallback-оценку и не попадают в выдачу. Если готовых
+    продуктов меньше трёх — возвращается меньше (или пустой список).
     """
     exclude_slugs = set(exclude_slugs or set())
     # Продукты, которые пользователь явно отклонил (дизлайк), не предлагаем снова.
@@ -786,15 +774,9 @@ async def recommend_products(
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
     keywords = rule.get("keywords") or []
 
-    # Загружаем knowledge map Ingredient DB ОДИН раз (а не на каждого кандидата) —
-    # это убирает N+1 запрос к БД при deterministic scoring.
+    # score берётся ТОЛЬКО из актуального User Analysis (история проверок),
+    # поэтому knowledge map для детерминированного scoring здесь не нужен.
     knowledge = None
-    if scored:
-        try:
-            from .ingredient_repository import IngredientRepository
-            knowledge = IngredientRepository().get_canonical_knowledge_map()
-        except Exception:
-            knowledge = None
 
     # История проверок пользователя — тоже один раз, а не на каждого кандидата.
     user_history: List[Dict[str, Any]] = []
@@ -812,32 +794,6 @@ async def recommend_products(
     if scored:
         shelf_products = _load_shelf_products(user, cabinet, knowledge=knowledge, history=user_history)
     METRICS.set_gauge("interaction_candidate_count", len(candidates) * len(shelf_products))
-
-    # Фаза 9 — Research Queue: неизвестные ингредиенты дожидаются batch research
-    # ДО scoring, чтобы пользователь получил ОДИН согласованный результат.
-    if scored:
-        try:
-            from .services import DEEPSEEK_API_KEY
-            if DEEPSEEK_API_KEY:
-                from .ingredient_enrichment import find_unknown_ingredients
-                from .research_queue import run_research
-                raw_names: List[str] = []
-                for p in candidates:
-                    for part in re.split(r"[,;\n]+", p.get("ingredients") or ""):
-                        if part.strip():
-                            raw_names.append(part.strip())
-                for p in shelf_products:
-                    for part in re.split(r"[,;\n]+", p.get("ingredients") or ""):
-                        if part.strip():
-                            raw_names.append(part.strip())
-                unknown = find_unknown_ingredients(raw_names)
-                if unknown:
-                    _research_status = await run_research(unknown_ingredients=unknown)
-                    if _research_status == "completed":
-                        from .ingredient_repository import IngredientRepository
-                        knowledge = IngredientRepository().get_canonical_knowledge_map()
-        except Exception as exc:
-            print(f"[RECOMMEND] research failed: {exc!r}")
 
     rated: List[Dict[str, Any]] = []
     seen_ids: set = set()
@@ -878,34 +834,13 @@ async def recommend_products(
             "_ingredients": product.get("ingredients") or "",
         }
         if scored:
-            # 1) уже рассчитанный скор из истории проверок пользователя
+            # Участвуют ТОЛЬКО продукты с актуальным User Analysis (история проверок).
             history_score, history_analysis = _find_history_score(user, product, history=user_history, current_skin=current_skin)
-            if history_score is not None:
-                rec["score"] = history_score
-                rec["reason"] = _reason_from_analysis(history_analysis)
-                rec["_from_history"] = True
-            else:
-                # 2) deterministic-движок. Unknown-ингредиенты НЕ штрафуются:
-                # продукт с неполностью известным составом остаётся кандидатом,
-                # получает нейтральную позицию и статус needs_enrichment.
-                internal_recs = None
-                if _interaction_scoring_enabled():
-                    try:
-                        from .product_model import get_internal_interactions
-                        internal_recs = get_internal_interactions(product)
-                    except Exception:
-                        internal_recs = None
-                analysis = _deterministic_analysis(
-                    profile, product.get("ingredients") or "", knowledge=knowledge, interactions=internal_recs
-                )
-                meaningful = _meaningful_score(analysis)
-                if meaningful is not None:
-                    rec["score"] = meaningful
-                    rec["reason"] = _reason_from_analysis(analysis)
-                else:
-                    rec["score"] = 60
-                    rec["needs_enrichment"] = True
-                    rec["reason"] = "Состав требует изучения"
+            if history_score is None:
+                continue
+            rec["score"] = history_score
+            rec["reason"] = _reason_from_analysis(history_analysis)
+            rec["_from_history"] = True
         else:
             rec["reason"] = f"Подходит для категории «{category}»."
             haystack = f"{product.get('name') or ''} {product.get('ingredients') or ''}".lower()
@@ -1016,13 +951,6 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         user_history = get_user_check_history(user["id"], limit=200)
     except Exception:
         user_history = []
-    knowledge = None
-    try:
-        from .ingredient_repository import IngredientRepository
-        knowledge = IngredientRepository().get_canonical_knowledge_map()
-    except Exception:
-        knowledge = None
-
     enriched: List[Dict[str, Any]] = []
     for s in shelf_items:
         p = get_product_by_id(s["product_id"])
@@ -1031,14 +959,9 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
         score = None
         if cabinet_applies_scoring(cabinet):
-            # Приоритет: сохранённый при добавлении score → история → deterministic engine.
-            # Источник тот же, что и в подборе, поэтому карточка на полке показывает
-            # тот же Product Compatibility %, а не «Не проверен».
-            score = s.get("score")
-            if score is None:
-                score = compute_product_compatibility(
-                    user, p, knowledge=knowledge, history=user_history
-                )
+            # score ТОЛЬКО из актуального User Analysis (история проверок).
+            # Продукт на полке без анализа → score None («Анализ ещё не выполнен»).
+            score, _ = _find_history_score(user, p, history=user_history)
         enriched.append({
             "id": s["id"],
             "shelf_id": s["id"],

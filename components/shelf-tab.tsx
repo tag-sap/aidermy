@@ -358,7 +358,7 @@ export function ShelfTab({
                                         </span>
                                       ) : (
                                         <span className="mt-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] text-muted-foreground/50">
-                                          Не проверен
+                                          —
                                         </span>
                                       ))}
                                   </div>

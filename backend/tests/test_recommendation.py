@@ -60,7 +60,9 @@ class RecommendationTests(unittest.TestCase):
         ]
 
     def test_cleansing_does_not_return_moisturizer(self):
-        with patch("app.shelf_service._query_candidates", return_value=self._candidates()):
+        with patch("app.shelf_service._query_candidates", return_value=self._candidates()), \
+             patch("app.shelf_service._load_shelf_products", return_value=[]), \
+             patch("app.shelf_service._find_history_score", return_value=(80, None)):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
         names = [r["name"] for r in recs]
         self.assertNotIn("Увлажняющий крем B", names)
@@ -69,7 +71,9 @@ class RecommendationTests(unittest.TestCase):
 
     def test_existing_products_are_excluded(self):
         candidates = self._candidates()
-        with patch("app.shelf_service._query_candidates", return_value=candidates):
+        with patch("app.shelf_service._query_candidates", return_value=candidates), \
+             patch("app.shelf_service._load_shelf_products", return_value=[]), \
+             patch("app.shelf_service._find_history_score", return_value=(80, None)):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", {"clean-a"}))
         names = [r["name"] for r in recs]
         self.assertNotIn("Гель для умывания A", names)
@@ -82,12 +86,9 @@ class RecommendationTests(unittest.TestCase):
         ]
         scores = {"a": 76, "b": 95, "c": 84}
 
-        def fake_analysis(profile, ingredients):
-            return {"score": 0, "confidence": 1.0}
-
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
-             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)), \
-             patch("app.shelf_service._deterministic_analysis", side_effect=fake_analysis):
+             patch("app.shelf_service._load_shelf_products", return_value=[]), \
+             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
 
         self.assertEqual(len(recs), 3)
@@ -95,39 +96,48 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual(ordered, sorted(ordered, reverse=True))
         self.assertEqual(recs[0]["slug"], "b")
 
-    def test_unknown_ingredients_are_neutral_not_demoted(self):
+    def test_unanalyzed_products_are_excluded_from_recommendation(self):
+        # Участвуют ТОЛЬКО продукты с актуальным User Analysis (история).
+        # Продукт без истории НЕ получает fallback score и не попадает в выдачу.
         candidates = [
             _product("Очищение", "Scored", "scored", "Aqua, Glycerin, Betaine"),
-            _product("Очищение", "Unknown", "unknown", "Aqua, MysteryIngredientX"),
+            _product("Очищение", "Unanalyzed", "unanalyzed", "Aqua, MysteryIngredientX"),
         ]
 
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
-             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (80, None) if p["slug"] == "scored" else (None, None)), \
-             patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0}):
+             patch("app.shelf_service._load_shelf_products", return_value=[]), \
+             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (80, None) if p["slug"] == "scored" else (None, None)):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
 
-        self.assertEqual(recs[0]["slug"], "scored")
-        self.assertEqual(len(recs), 2)
-        # unknown не выбрасывается и не получает None: нейтральная оценка + статус
-        self.assertEqual(recs[1]["score"], 60)
-        self.assertTrue(recs[1].get("needs_enrichment"))
+        self.assertEqual([r["slug"] for r in recs], ["scored"])
+        self.assertEqual(recs[0]["score"], 80)
 
-    def test_research_failure_does_not_break_recommendation(self):
-        # Если Research (batch) не удался — рекомендация всё равно возвращается,
-        # а unknown остаётся needs_enrichment (без ложного точного score).
+    def test_recommendation_skips_all_unanalyzed(self):
+        # Ни один кандидат не анализирован → пустая выдача (без fallback/needs_enrichment).
         candidates = [
             _product("Очищение", "A", "a", "Aqua, Glycerin, UnknownX"),
             _product("Очищение", "B", "b", "Aqua, Glycerin"),
         ]
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
-             patch("app.shelf_service._find_history_score", return_value=(None, None)), \
-             patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0}), \
-             patch("app.ingredient_enrichment.find_unknown_ingredients", return_value=["UnknownX"]), \
-             patch("app.services.DEEPSEEK_API_KEY", "test-key"), \
-             patch("app.research_queue.run_research", side_effect=RuntimeError("research boom")):
+             patch("app.shelf_service._load_shelf_products", return_value=[]), \
+             patch("app.shelf_service._find_history_score", return_value=(None, None)):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
-        self.assertEqual(len(recs), 2)
-        self.assertTrue(any(r.get("needs_enrichment") for r in recs))
+        self.assertEqual(len(recs), 0)
+
+    def test_recommendation_returns_fewer_than_three_when_not_enough_analyzed(self):
+        # Готовых (проанализированных) меньше трёх → показываем только реально готовые.
+        candidates = [
+            _product("Очищение", "A", "a", "Aqua, Glycerin"),
+            _product("Очищение", "B", "b", "Aqua, Betaine"),
+            _product("Очищение", "C", "c", "Aqua, Niacinamide"),
+            _product("Очищение", "D", "d", "Aqua, Panthenol"),
+        ]
+        scores = {"a": 80, "c": 70}
+        with patch("app.shelf_service._query_candidates", return_value=candidates), \
+             patch("app.shelf_service._load_shelf_products", return_value=[]), \
+             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)):
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+        self.assertEqual(sorted([r["slug"] for r in recs]), ["a", "c"])
 
     def test_compute_product_compatibility_uses_history(self):
         # История проверок — приоритетный источник (тот же, что в подборе).
@@ -135,19 +145,16 @@ class RecommendationTests(unittest.TestCase):
             score = compute_product_compatibility(USER, {"ingredients": "Aqua"}, knowledge={}, history=[])
         self.assertEqual(score, 85)
 
-    def test_compute_product_compatibility_deterministic_without_history(self):
-        # Нет истории → deterministic Score Engine по knowledge map.
-        with patch("app.shelf_service._find_history_score", return_value=(None, None)), \
-             patch("app.shelf_service._build_user_profile", return_value={"skin_type": "Чувствительная"}), \
-             patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.9, "score": 99}):
+    def test_compute_product_compatibility_none_without_history(self):
+        # Нет истории → None. Детерминированный fallback НЕ используется:
+        # score приходит только из актуального User Analysis.
+        with patch("app.shelf_service._find_history_score", return_value=(None, None)):
             score = compute_product_compatibility(USER, {"ingredients": "Aqua, Glycerin"}, knowledge={}, history=[])
-        self.assertEqual(score, 99)
+        self.assertIsNone(score)
 
     def test_compute_product_compatibility_none_when_unknown(self):
-        # Нет ни истории, ни валидного знания → None («Не проверен»).
-        with patch("app.shelf_service._find_history_score", return_value=(None, None)), \
-             patch("app.shelf_service._build_user_profile", return_value={"skin_type": ""}), \
-             patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0}):
+        # Нет истории → None («Анализ ещё не выполнен»), даже если состав известен движку.
+        with patch("app.shelf_service._find_history_score", return_value=(None, None)):
             score = compute_product_compatibility(USER, {"ingredients": "Aqua, MysteryX"}, knowledge={}, history=[])
         self.assertIsNone(score)
 

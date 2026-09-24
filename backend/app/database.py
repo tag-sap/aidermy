@@ -72,6 +72,7 @@ def init_db():
         ("expectations", "TEXT"),
         ("safe_ingredients", "TEXT"),
         ("caution_ingredients", "TEXT"),
+        ("ai_report", "TEXT"),
     ]:
         if _col not in _history_cols:
             cursor.execute(f"ALTER TABLE check_history ADD COLUMN {_col} {_ddl}")
@@ -179,6 +180,8 @@ def init_db():
         cursor.execute('ALTER TABLE check_history ADD COLUMN safe_ingredients TEXT')
     if 'caution_ingredients' not in columns:
         cursor.execute('ALTER TABLE check_history ADD COLUMN caution_ingredients TEXT')
+    if 'ai_report' not in columns:
+        cursor.execute('ALTER TABLE check_history ADD COLUMN ai_report TEXT')
 
     # Аватар и имя пользователя (личный кабинет)
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
@@ -489,7 +492,7 @@ def get_user_check_history(user_id: int, limit: int = 100):
     cursor.execute('''
         SELECT id, user_id, product_name, skin_type, score, verdict, summary, 
                ingredients, slug, image_url, active_ingredients, how_to_use, 
-               expectations, safe_ingredients, caution_ingredients, profile_snapshot, created_at
+               expectations, safe_ingredients, caution_ingredients, ai_report, profile_snapshot, created_at
         FROM check_history 
         WHERE user_id = ? AND deleted_at IS NULL
         ORDER BY created_at DESC 
@@ -498,6 +501,27 @@ def get_user_check_history(user_id: int, limit: int = 100):
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+def save_ai_report(user_id: int, slug: str, report: str) -> bool:
+    """Сохраняет AI-отчёт к актуальному User Analysis (check_history).
+
+    Отчёт привязан к существующей записи анализа (user + product + slug);
+    НЕ создаёт новую запись и НЕ меняет score. Возвращает True, если обновили.
+    """
+    if not report or not slug:
+        return False
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE check_history SET ai_report = ? "
+        "WHERE user_id = ? AND slug = ? AND deleted_at IS NULL",
+        (report, user_id, slug),
+    )
+    conn.commit()
+    updated = cursor.rowcount
+    conn.close()
+    return updated > 0
 
 
 def clear_user_check_history(user_id: int):

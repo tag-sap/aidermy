@@ -44,14 +44,73 @@ export function AppHeader({
         </div>
 
         <div className="absolute right-4 top-3 flex items-center gap-2 md:right-6 md:top-4">
-          <button
-            type="button"
-            aria-label="Помощь"
-            onClick={() => setShowHelp(!showHelp)}
-            className="relative z-50 flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
-          >
-            <span className="text-sm font-normal">?</span>
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              aria-label="Помощь"
+              onClick={() => setShowHelp(!showHelp)}
+              className="relative z-50 flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
+            >
+              <span className="text-sm font-normal">?</span>
+            </button>
+
+            {/* === ПОПАП ПОМОЩИ — привязан к кнопке «?» === */}
+            {showHelp && (
+              <>
+                <div
+                  className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm animate-modal-backdrop"
+                  onClick={() => setShowHelp(false)}
+                />
+                <div className="absolute right-0 top-full z-50 mt-2 w-64 origin-top-right rounded-xl bg-white p-4 shadow-xl border border-primary/15 animate-help-popover">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-normal text-foreground">Помощь</h3>
+                    <button
+                      onClick={() => setShowHelp(false)}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    {onReplayGuide && (
+                      <button
+                        onClick={() => { setShowHelp(false); onReplayGuide() }}
+                        className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
+                      >
+                        <Compass className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
+                        Пройти обучение
+                      </button>
+                    )}
+                    {onReplayQuiz && (
+                      <button
+                        onClick={() => { setShowHelp(false); onReplayQuiz() }}
+                        className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
+                      >
+                        <ClipboardList className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
+                        Пройти опросник
+                      </button>
+                    )}
+                    <a
+                      href="https://t.me/aidermy_news"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
+                    >
+                      <Send className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
+                      Telegram
+                    </a>
+                    <a
+                      href="mailto:lyr.ami.tag@gmail.com"
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
+                    >
+                      <Mail className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
+                      Email
+                    </a>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
 
           {isAuthenticated ? (
             <button
@@ -78,63 +137,6 @@ export function AppHeader({
           )}
         </div>
       </header>
-
-      {/* === ПОПАП ПОМОЩИ === */}
-      {showHelp && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm animate-modal-backdrop"
-            onClick={() => setShowHelp(false)}
-          />
-          <div className="fixed right-4 top-16 z-50 w-64 origin-top-right rounded-xl bg-white p-4 shadow-xl border border-primary/15 md:right-6 animate-help-popover">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-normal text-foreground">Помощь</h3>
-              <button
-                onClick={() => setShowHelp(false)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-            <div className="flex flex-col gap-1">
-              {onReplayGuide && (
-                <button
-                  onClick={() => { setShowHelp(false); onReplayGuide() }}
-                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
-                >
-                  <Compass className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
-                  Пройти обучение
-                </button>
-              )}
-              {onReplayQuiz && (
-                <button
-                  onClick={() => { setShowHelp(false); onReplayQuiz() }}
-                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
-                >
-                  <ClipboardList className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
-                  Пройти опросник
-                </button>
-              )}
-              <a
-                href="https://t.me/aidermy_news"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
-              >
-                <Send className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
-                Telegram
-              </a>
-              <a
-                href="mailto:lyr.ami.tag@gmail.com"
-                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors hover:bg-primary/5"
-              >
-                <Mail className="size-4 shrink-0 text-primary/70" strokeWidth={1.75} />
-                Email
-              </a>
-            </div>
-          </div>
-        </>
-      )}
     </>
   )
 }

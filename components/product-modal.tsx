@@ -8,6 +8,7 @@ import { CABINET_TITLES } from '@/lib/shelf'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import { CommunitySection } from '@/components/community-section'
 import type { CheckResult } from '@/lib/store'
+import { deriveAnalysisState, ANALYSIS_LABELS, ANALYSIS_ACTIONS } from '@/lib/analysis-state'
 
 type ProductDetail = {
   product: {
@@ -30,6 +31,7 @@ type ProductDetail = {
     active_ingredients?: { name: string; position: number; concentration: 'высокая' | 'средняя' | 'низкая'; effectiveness: 'рабочая' | 'средняя' | 'минимальная' } | null
     how_to_use?: { application: string; time: string; note: string } | null
     expectations?: { when: string; normal: string; danger: string } | null
+    report?: string | null
   } | null
   on_shelf: { shelf_id: number; cabinet: string; category: string } | null
   community: {
@@ -83,6 +85,9 @@ export function ProductModal({
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
   const [showComposition, setShowComposition] = useState(false)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [showReport, setShowReport] = useState(false)
+  const [analysisError, setAnalysisError] = useState('')
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
@@ -169,6 +174,7 @@ export function ProductModal({
       return
     }
     setChecking(true)
+    setAnalysisError('')
     setError('')
     try {
       const res = await fetch('/api/shelf/analyze', {
@@ -189,9 +195,39 @@ export function ProductModal({
       )
       onChanged()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось выполнить анализ')
+      setAnalysisError(e instanceof Error ? e.message : 'Не удалось выполнить анализ')
     } finally {
       setChecking(false)
+    }
+  }
+
+  const loadReport = async () => {
+    if (!product || reportLoading) return
+    // Отчёт уже сгенерирован для этого актуального анализа — просто показать/скрыть.
+    if (data?.analysis?.report) {
+      setShowReport((v) => !v)
+      return
+    }
+    setReportLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/shelf/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug: product.slug }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.detail || 'Не удалось сформировать отчёт')
+      setData((prev) =>
+        prev && prev.analysis
+          ? { ...prev, analysis: { ...prev.analysis, report: d.review } }
+          : prev,
+      )
+      setShowReport(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось сформировать отчёт')
+    } finally {
+      setReportLoading(false)
     }
   }
 
@@ -217,10 +253,17 @@ export function ProductModal({
     onOpenReport(result)
   }
 
+  const analysisState = deriveAnalysisState({
+    analysis: data?.analysis,
+    score: data?.score,
+    loading: checking,
+    error: analysisError,
+  })
+
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
       <div
-        className="no-scrollbar max-h-[85dvh] w-full max-w-md max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 animate-modal-panel"
+        className="no-scrollbar max-h-[85dvh] w-full max-w-md md:max-w-xl max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 md:p-5 animate-modal-panel"
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (
@@ -238,41 +281,40 @@ export function ProductModal({
               </button>
             </div>
 
-            <div className="flex gap-3">
-              <div className="flex size-20 shrink-0 flex-col items-center justify-center overflow-hidden rounded-2xl bg-gray-50">
-                {product.image_url ? (
-                  <img src={product.image_url} alt="" className="h-full w-full object-contain p-1" />
+            <div className="flex h-44 md:h-56 items-center justify-center overflow-hidden rounded-2xl border border-gray-100 bg-gray-50">
+              {product.image_url ? (
+                <img src={product.image_url} alt={product.name} className="h-full w-full object-contain p-3" />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-muted-foreground/40">
+                  <Sparkles className="size-8" />
+                  <span className="mt-2 text-xs">Изображение недоступно</span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3">
+              {product.brand &&
+                (onOpenBrand ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenBrand(product.brand)}
+                    className="text-left text-[10px] uppercase tracking-wide text-muted-foreground/50 underline-offset-2 transition-colors hover:text-primary hover:underline"
+                  >
+                    {product.brand}
+                  </button>
                 ) : (
-                  <>
-                    <Sparkles className="size-6 text-muted-foreground/30" />
-                    <span className="mt-1 text-[8px] text-muted-foreground/40">Изображение недоступно</span>
-                  </>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                {product.brand &&
-                  (onOpenBrand ? (
-                    <button
-                      type="button"
-                      onClick={() => onOpenBrand(product.brand)}
-                      className="text-left text-[10px] uppercase tracking-wide text-muted-foreground/50 underline-offset-2 transition-colors hover:text-primary hover:underline"
-                    >
-                      {product.brand}
-                    </button>
-                  ) : (
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{product.brand}</p>
-                  ))}
-                <p className="text-sm font-medium leading-snug text-foreground/90">{product.name}</p>
-                {data?.score != null ? (
-                  <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', scoreColor(data.score))}>
-                    {data.score}% совместимость
-                  </span>
-                ) : (
-                  <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-muted-foreground/60">
-                    Не проверен
-                  </span>
-                )}
-              </div>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{product.brand}</p>
+                ))}
+              <p className="text-base font-medium leading-snug text-foreground/90">{product.name}</p>
+              {analysisState.kind === 'ANALYZED' ? (
+                <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', scoreColor(analysisState.score))}>
+                  {analysisState.score}% совместимость
+                </span>
+              ) : (
+                <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-muted-foreground/60">
+                  —
+                </span>
+              )}
             </div>
 
             {product.category &&
@@ -313,33 +355,37 @@ export function ProductModal({
               )}
             </div>
 
-            {data?.analysis ? (
+            {analysisState.kind === 'ANALYZED' ? (
               <div className="mt-3 rounded-xl border border-primary/15 bg-primary/5 p-3">
                 <div className="flex items-center gap-1.5">
                   <ShieldCheck className="size-3.5 text-primary" />
-                  <span className="text-xs font-medium text-foreground/80">{data.analysis.verdict || 'Проверено'}</span>
+                  <span className="text-xs font-medium text-foreground/80">{data?.analysis?.verdict || 'Проверено'}</span>
                 </div>
-                {data.analysis.summary && (
+                {showReport && data?.analysis?.report ? (
+                  <p className="mt-1 break-words text-[11px] leading-relaxed text-foreground/60">{data.analysis.report}</p>
+                ) : data?.analysis?.summary ? (
                   <p className="mt-1 break-words text-[11px] leading-relaxed text-foreground/60"><MarkupText text={data.analysis.summary} /></p>
-                )}
-                {(asList(data.analysis.safe_ingredients).length > 0 || asList(data.analysis.caution_ingredients).length > 0) && (
+                ) : null}
+                {(asList(data?.analysis?.safe_ingredients).length > 0 || asList(data?.analysis?.caution_ingredients).length > 0) && (
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {asList(data.analysis.safe_ingredients).slice(0, 4).map((i) => (
+                    {asList(data?.analysis?.safe_ingredients).slice(0, 4).map((i) => (
                       <span key={i} className="rounded-full bg-white/70 px-1.5 py-0.5 text-[9px] text-foreground/60">{i}</span>
                     ))}
-                    {asList(data.analysis.caution_ingredients).slice(0, 4).map((i) => (
+                    {asList(data?.analysis?.caution_ingredients).slice(0, 4).map((i) => (
                       <span key={i} className="rounded-full bg-red-50 px-1.5 py-0.5 text-[9px] text-red-500">{i}</span>
                     ))}
                   </div>
                 )}
               </div>
+            ) : analysisState.kind === 'ANALYSIS_PENDING' ? (
+              <div className="mt-3 rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">{ANALYSIS_LABELS.PENDING}</div>
+            ) : analysisState.kind === 'ANALYSIS_FAILED' ? (
+              <div className="mt-3 rounded-xl border border-dashed border-red-200/70 py-3 text-center text-[11px] text-red-500">{ANALYSIS_LABELS.FAILED}</div>
             ) : (
-              <div className="mt-3 rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">
-                Анализ ещё не выполнен
-              </div>
+              <div className="mt-3 rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">{ANALYSIS_LABELS.NOT_ANALYZED}</div>
             )}
 
-            {data?.analysis && onOpenReport && (
+            {analysisState.kind === 'ANALYZED' && onOpenReport && (
               <button
                 onClick={openFullReport}
                 className="mt-2 w-full rounded-xl border border-primary/20 bg-white py-2 text-xs text-primary transition-colors hover:bg-primary/5"
@@ -351,14 +397,25 @@ export function ProductModal({
             {error && product && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
 
             <div className="mt-4 flex flex-col gap-2">
-              <button
-                onClick={checkCompatibility}
-                disabled={checking}
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
-              >
-                {checking ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
-                {checking ? 'Анализ выполняется…' : data?.score != null ? 'Посмотреть анализ' : 'Проверить состав'}
-              </button>
+              {analysisState.kind === 'ANALYZED' ? (
+                <button
+                  onClick={loadReport}
+                  disabled={reportLoading}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+                >
+                  {reportLoading ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                  {ANALYSIS_ACTIONS.SHOW_REPORT}
+                </button>
+              ) : (
+                <button
+                  onClick={checkCompatibility}
+                  disabled={checking}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+                >
+                  {checking ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                  {analysisState.kind === 'ANALYSIS_FAILED' ? ANALYSIS_ACTIONS.RETRY : ANALYSIS_ACTIONS.CHECK}
+                </button>
+              )}
 
               {token && (
                 data?.on_shelf ? (

@@ -92,7 +92,6 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
         cabinet_applies_scoring,
         infer_cabinet_category,
         normalize_history_analysis,
-        compute_product_compatibility,
     )
 
     product = get_product_by_slug(slug)
@@ -137,11 +136,8 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
                     score = int(h.get("score") or 0)
                     break
 
-        # Product Compatibility % — история → deterministic Score Engine (без AI).
-        # Это ОТДЕЛЬНО от AI Analysis: наличие score НЕ означает, что AI-анализ
-        # уже запускался. Поэтому карточка может показывать «99%» + «Посмотреть анализ».
-        if score is None and cabinet_applies_scoring(cabinet):
-            score = compute_product_compatibility(current_user, product)
+        # score доступен ТОЛЬКО при наличии актуального User Analysis (история проверок).
+        # Детерминированный fallback по составу НЕ используется: без анализа score = None.
 
     from .community_service import CommunityIntelligenceService
     from .community_routes import _get_profile_for_user
@@ -957,7 +953,7 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
         is_product_compatible,
         infer_cabinet_category,
         cabinet_applies_scoring,
-        compute_product_compatibility,
+        score_product,
     )
 
     product = get_product_by_slug(request.slug)
@@ -981,13 +977,11 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
         if s["product_id"] == product["id"]:
             return {"status": "ok", "duplicate": True, "item": {"id": s["id"], "product_id": product["id"]}}
 
-    # Сохраняем уже рассчитанный Product Compatibility % при добавлении на полку.
-    # Источник — тот же deterministic Score Engine, что и в подборе (история проверок →
-    # детерминированный анализ состава), БЕЗ AI и без отдельного алгоритма. Так карточка
-    # на полке сразу показывает тот же процент, а не «Не проверен».
+    # При добавлении на полку score берётся ТОЛЬКО из актуального User Analysis
+    # (история проверок). Без анализа score = None → «Анализ ещё не выполнен».
     score = None
     if cabinet_applies_scoring(cabinet):
-        score = compute_product_compatibility(current_user, product)
+        score, _ = score_product(current_user, product)
 
     item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet, score=score)
     return {"status": "ok", "duplicate": False, "item": item}
@@ -1094,32 +1088,41 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
 
 @app.post("/api/shelf/review")
 async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict = Depends(get_current_user)):
-    """Короткая AI-рецензия ПО ЯВНОМУ ЗАПРОСУ («Почему такой процент?»).
+    """AI-отчёт («Показать отчёт») ПО ЯВНОМУ ЗАПРОСУ.
 
-    Процент считает детерминированный Score Engine; AI пишет 2-3 предложения.
+    Требует существующий актуальный User Analysis (история проверок).
+    Score НЕ пересчитывается — AI только пишет человеческое объяснение
+    уже рассчитанного результата. Отчёт кэшируется в check_history.ai_report.
     """
-    from .database import get_product_by_slug
-    from .services import generate_ai_review
+    from .database import get_product_by_slug, save_ai_report
+    from .shelf_service import score_product
+    from .services import generate_ai_report
 
     product = get_product_by_slug(request.slug)
     if not product:
         raise HTTPException(status_code=404, detail="Продукт не найден")
 
-    profile = _profile_from_user(current_user)
-    skin_type = profile.get("skin_type") or "Нормальная"
     name = (product.get("name") or "").replace("\n", " ").strip()
-    ingredients = product.get("ingredients") or ""
 
-    if not ingredients:
-        return {"score": None, "review": "Для этого продукта нет состава — проверьте его вручную."}
+    # Источник — актуальный User Analysis (история проверок).
+    score, analysis = score_product(current_user, product)
+    if score is None:
+        raise HTTPException(status_code=409, detail="Анализ ещё не выполнен — сначала проверьте совместимость.")
 
+    # Если отчёт уже сгенерирован для этого актуального анализа — возвращаем сохранённый.
+    if analysis and analysis.get("report"):
+        return {"score": score, "review": analysis["report"]}
+
+    profile = _profile_from_user(current_user)
     try:
-        result = await generate_ai_review(name, skin_type, profile, ingredients)
+        review = await generate_ai_report(name, analysis, profile)
     except Exception as exc:
         print(f"[REVIEW] failed: {exc!r}")
-        raise HTTPException(status_code=502, detail="Не удалось сформировать рецензию") from exc
+        raise HTTPException(status_code=502, detail="Не удалось сформировать отчёт") from exc
 
-    return {"score": result.get("score"), "review": result.get("summary") or ""}
+    save_ai_report(current_user["id"], product.get("slug") or request.slug, review)
+
+    return {"score": score, "review": review}
 
 
 @app.patch("/api/shelf/{shelf_id}")

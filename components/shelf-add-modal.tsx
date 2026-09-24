@@ -349,7 +349,7 @@ export function ShelfAddModal({
                         disabled={reviewLoading.has(r.slug)}
                         className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-primary/70 transition-colors hover:text-primary disabled:opacity-40"
                       >
-                        {reviewLoading.has(r.slug) ? 'Формируем…' : 'Почему такой процент?'}
+                        {reviewLoading.has(r.slug) ? 'Формируем…' : 'Показать отчёт'}
                       </button>
                     )}
                     <div className="mt-2 flex gap-1.5">
