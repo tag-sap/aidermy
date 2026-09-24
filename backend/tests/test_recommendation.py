@@ -12,6 +12,8 @@ from app.shelf_service import (
     is_product_compatible,
     recommend_products,
     compute_product_compatibility,
+    get_personalized_analysis,
+    get_personalized_score,
 )
 
 
@@ -192,10 +194,46 @@ class RecommendationTests(unittest.TestCase):
         self.assertIsNone(score)
 
     def test_compute_product_compatibility_none_when_unknown(self):
-        # Нет истории → None («Анализ ещё не выполнен»), даже если состав известен движку.
+        # Нет истории и нет id (не подготовлен) → None («Анализ ещё не выполнен»).
         with patch("app.shelf_service._find_history_score", return_value=(None, None)):
             score = compute_product_compatibility(USER, {"ingredients": "Aqua, MysteryX"}, knowledge={}, history=[])
         self.assertIsNone(score)
+
+    def test_get_personalized_score_prefers_history(self):
+        product = {"id": 1, "ingredients": "Aqua, Glycerin"}
+        with patch("app.shelf_service._find_history_score", return_value=(82, None)):
+            self.assertEqual(get_personalized_score(USER, product), 82)
+
+    def test_get_personalized_analysis_recomputes_without_history(self):
+        # Истории нет, но продукт «подготовлен» (есть Static Product Model) →
+        # анализ пересчитывается детерминированно, а НЕ исчезает.
+        product = {"id": 1, "ingredients": "Aqua, Glycerin"}
+        computed = {
+            "verdict": "Подходит",
+            "summary": "ок",
+            "score": 61,
+            "safe_ingredients": ["glycerin"],
+            "caution_ingredients": [],
+            "active_ingredients": None,
+            "how_to_use": None,
+            "expectations": None,
+            "report": None,
+        }
+        with patch("app.shelf_service._find_history_score", return_value=(None, None)), \
+             patch("app.shelf_service._compute_analysis_if_prepared", return_value=computed):
+            score, analysis = get_personalized_analysis(USER, product)
+        self.assertEqual(score, 61)
+        self.assertEqual(analysis["score"], 61)
+        self.assertEqual(analysis["verdict"], "Подходит")
+
+    def test_get_personalized_analysis_none_when_not_prepared(self):
+        # Нет истории и нет модели → (None, None).
+        product = {"id": 1, "ingredients": "Aqua, Glycerin"}
+        with patch("app.shelf_service._find_history_score", return_value=(None, None)), \
+             patch("app.shelf_service._compute_analysis_if_prepared", return_value=None):
+            score, analysis = get_personalized_analysis(USER, product)
+        self.assertIsNone(score)
+        self.assertIsNone(analysis)
 
     def test_recommend_empty_shelf_returns_no_shelf_compatibility(self):
         # Пустая полка → Shelf Compatibility не применяется, ранжирование только по Product Compatibility.

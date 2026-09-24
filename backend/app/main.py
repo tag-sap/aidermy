@@ -85,13 +85,12 @@ async def get_products(q: str = ""):
 
 @app.get("/api/products/{slug}")
 async def get_product_detail(slug: str, current_user: dict = Depends(get_current_user_optional)):
-    from .database import get_product_by_slug, get_user_shelf, get_user_check_history
+    from .database import get_product_by_slug, get_user_shelf
     from .shelf_service import (
-        score_product,
+        get_personalized_analysis,
         resolve_shelf_cabinet,
         cabinet_applies_scoring,
         infer_cabinet_category,
-        normalize_history_analysis,
     )
 
     product = get_product_by_slug(slug)
@@ -108,7 +107,9 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
         # Определяем шкаф по категории/названию, чтобы понять, применим ли скоринг
         cabinet, _ = infer_cabinet_category(product.get("category"), name)
         if cabinet_applies_scoring(cabinet):
-            score, analysis = score_product(current_user, product)
+            # История — snapshot: если записи нет, но продукт «подготовлен» (Static Product Model),
+            # персональный анализ пересчитывается детерминированно под пользователя.
+            score, analysis = get_personalized_analysis(current_user, product)
 
         for s in get_user_shelf(current_user["id"]):
             if s["product_id"] == product["id"]:
@@ -119,25 +120,6 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
                     "category": c_category,
                 }
                 break
-
-        if analysis is None:
-            from .database import get_user_profile
-            _profile = get_user_profile(current_user["id"])
-            current_skin = (_profile.get("skin_type") or "").strip().lower()
-            cleaned = name.strip().lower()
-            for h in get_user_check_history(current_user["id"], limit=200):
-                h_skin = (h.get("skin_type") or "").strip().lower()
-                # Не показываем устаревшие проверки под другой тип кожи.
-                if current_skin and h_skin and h_skin != current_skin:
-                    continue
-                h_name = (h.get("product_name") or "").replace("\n", " ").strip().lower()
-                if h_name == cleaned or h_name in cleaned or cleaned in h_name or (h.get("slug") and h.get("slug") == slug):
-                    analysis = normalize_history_analysis(h)
-                    score = int(h.get("score") or 0)
-                    break
-
-        # score доступен ТОЛЬКО при наличии актуального User Analysis (история проверок).
-        # Детерминированный fallback по составу НЕ используется: без анализа score = None.
 
     from .community_service import CommunityIntelligenceService
     from .community_routes import _get_profile_for_user
@@ -953,7 +935,7 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
         is_product_compatible,
         infer_cabinet_category,
         cabinet_applies_scoring,
-        score_product,
+        get_personalized_score,
     )
 
     product = get_product_by_slug(request.slug)
@@ -977,11 +959,10 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
         if s["product_id"] == product["id"]:
             return {"status": "ok", "duplicate": True, "item": {"id": s["id"], "product_id": product["id"]}}
 
-    # При добавлении на полку score берётся ТОЛЬКО из актуального User Analysis
-    # (история проверок). Без анализа score = None → «Анализ ещё не выполнен».
+    # При добавлении на полку score = история (snapshot) → пересчёт из Static Product Model.
     score = None
     if cabinet_applies_scoring(cabinet):
-        score, _ = score_product(current_user, product)
+        score = get_personalized_score(current_user, product)
 
     item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet, score=score)
     return {"status": "ok", "duplicate": False, "item": item}

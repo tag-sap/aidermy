@@ -465,6 +465,90 @@ def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Option
     return _find_history_score(user, product)
 
 
+def _compute_analysis_if_prepared(
+    user: Dict[str, Any],
+    product: Dict[str, Any],
+    knowledge=None,
+) -> Optional[Dict[str, Any]]:
+    """Детерминированный персональный анализ, если продукт «подготовлен».
+
+    «Подготовленность» = есть актуальная Static Product Model (product_models),
+    НЕЗАВИСИМО от истории. История — это snapshot: её удаление НЕ стирает анализ,
+    т.к. его можно пересчитать из Static Product Model + профиля пользователя.
+
+    Возвращает dict {verdict, summary, score, safe_ingredients, caution_ingredients};
+    AI-enrichment поля (active_ingredients/how_to_use/expectations) и report = None —
+    они хранятся в snapshot истории.
+    """
+    try:
+        from .ingredient_repository import IngredientRepository
+        from .product_model import composition_hash
+
+        repo = IngredientRepository()
+        pid = product.get("id")
+        if pid is None or not repo.has_current_product_model(
+            pid, composition_hash(product.get("ingredients") or "")
+        ):
+            return None
+        if knowledge is None:
+            knowledge = repo.get_canonical_knowledge_map()
+        analysis = _deterministic_analysis(
+            _build_user_profile(user),
+            product.get("ingredients") or "",
+            knowledge=knowledge,
+        )
+        score = _meaningful_score(analysis)
+        if score is None:
+            return None
+        return {
+            "verdict": analysis.get("verdict") or "",
+            "summary": analysis.get("summary") or "",
+            "score": score,
+            "safe_ingredients": analysis.get("safe_ingredients") or [],
+            "caution_ingredients": analysis.get("caution_ingredients") or [],
+            "active_ingredients": None,
+            "how_to_use": None,
+            "expectations": None,
+            "report": None,
+        }
+    except Exception:
+        return None
+
+
+def get_personalized_score(
+    user: Dict[str, Any],
+    product: Dict[str, Any],
+    knowledge=None,
+    history: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[int]:
+    """Персональный score: история (snapshot) → детерминированный пересчёт из модели."""
+    score, _ = _find_history_score(user, product, history=history)
+    if score is not None:
+        return score
+    analysis = _compute_analysis_if_prepared(user, product, knowledge=knowledge)
+    return analysis["score"] if analysis else None
+
+
+def get_personalized_analysis(
+    user: Dict[str, Any],
+    product: Dict[str, Any],
+    knowledge=None,
+    history: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+    """Персональный анализ: история (snapshot) → детерминированный пересчёт из модели.
+
+    История — snapshot, НЕ source of truth: если записи нет, но продукт «подготовлен»
+    (есть актуальная Static Product Model), анализ пересчитывается под пользователя.
+    """
+    score, analysis = _find_history_score(user, product, history=history)
+    if score is not None:
+        return score, analysis
+    computed = _compute_analysis_if_prepared(user, product, knowledge=knowledge)
+    if computed is None:
+        return None, None
+    return computed["score"], computed
+
+
 def compute_product_compatibility(
     user: Dict[str, Any],
     product: Dict[str, Any],
@@ -473,12 +557,11 @@ def compute_product_compatibility(
 ) -> Optional[int]:
     """Итоговый Product Compatibility % для полки.
 
-    Единственный источник — актуальный User Analysis (история проверок пользователя).
-    НЕ считает score по составу/знанию и НЕ возвращает fallback: если пользователь
-    ещё не анализировал продукт, возвращает None (→ «Анализ ещё не выполнен»).
+    История — snapshot: сначала берём score из неё, затем (если продукт «подготовлен»
+    — есть актуальная Static Product Model) пересчитываем персональный score.
+    Без Static Product Model и без истории → None («Анализ ещё не выполнен»).
     """
-    score, _ = _find_history_score(user, product, history=history)
-    return score
+    return get_personalized_score(user, product, knowledge=knowledge, history=history)
 
 
 def _load_shelf_products(
@@ -511,7 +594,7 @@ def _load_shelf_products(
         c_cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
         if c_cabinet != cabinet:
             continue
-        score, _ = _find_history_score(user, p, history=history)
+        score = get_personalized_score(user, p, knowledge=knowledge, history=history)
         # Фаза 5 — Static Product Model (cache-first): shelf использует кэшированную
         # объективную модель (классы/эффекты), не перестраивая её повторно.
         classes: List[str] = []
@@ -995,7 +1078,7 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         if cabinet_applies_scoring(cabinet):
             # score ТОЛЬКО из актуального User Analysis (история проверок).
             # Продукт на полке без анализа → score None («Анализ ещё не выполнен»).
-            score, _ = _find_history_score(user, p, history=user_history)
+            score = get_personalized_score(user, p, history=user_history)
         enriched.append({
             "id": s["id"],
             "shelf_id": s["id"],
