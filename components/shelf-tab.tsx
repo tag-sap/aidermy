@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, LoaderCircle, Sparkles, X, Check, ListChecks, Info } from 'lucide-react'
+import { Plus, LoaderCircle, X, Check, ListChecks, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ShelfItem } from '@/lib/shelf'
 import type { CheckResult } from '@/lib/store'
@@ -192,43 +192,6 @@ export function ShelfTab({
     setDetailSlug(slug)
   }
 
-  const checkShelfProduct = async (slug: string) => {
-    setCheckingSlugs((prev) => new Set(prev).add(slug))
-    try {
-      const res = await fetch('/api/shelf/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ slug }),
-      })
-      if (res.ok) {
-        await refreshShelf()
-      }
-    } catch {
-      /* ignore */
-    } finally {
-      setCheckingSlugs((prev) => {
-        const next = new Set(prev)
-        next.delete(slug)
-        return next
-      })
-    }
-  }
-
-  const getDescription = async (slug: string) => {
-    try {
-      const res = await fetch('/api/analysis/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ slug }),
-      })
-      if (res.ok) {
-        await refreshShelf()
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
   // ===== АВТОМАТИЧЕСКАЯ ПЕРЕПРОВЕРКА ПОЛКИ (без LLM) =====
   const collectStaleItems = (cabinets: Cabinet[]): ShelfItem[] =>
     cabinets.flatMap((cab) => cab.categories.flatMap((cat) => cat.items.filter((it) => it.needs_recheck)))
@@ -275,16 +238,6 @@ export function ShelfTab({
         return next
       })
     }
-  }
-
-  const retryRecheck = async (item: ShelfItem) => {
-    setRecheckErrors((prev) => {
-      const next = new Map(prev)
-      next.delete(item.slug)
-      return next
-    })
-    await recheckProduct(item)
-    await fetchShelf(true)
   }
 
   // Запускаем перепроверку неактуальных Analysis после первой загрузки полки.
@@ -452,23 +405,6 @@ export function ShelfTab({
             </div>
           </div>
 
-          {currentItems.length === 0 && (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white/40 px-6 py-12 text-center">
-              <Sparkles className="size-8 text-primary/30" />
-              <p className="mt-3 text-base font-normal text-foreground/80">На полке пока нет продуктов</p>
-              <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground/60">
-                Добавьте продукт из каталога, по названию, по ссылке или по фото — и он появится здесь.
-              </p>
-              <button
-                onClick={() => setAddContext({ cabinet: currentCabinet.key, category: '' })}
-                className="mt-4 flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
-              >
-                <Plus className="size-4" />
-                Добавить продукт
-              </button>
-            </div>
-          )}
-
           {/* Одна динамическая физическая полка на зону: ширина плавно растёт/сужается
               вместе с содержимым, при переполнении flex-wrap переносит на новую строку. */}
           <div className="relative mx-auto w-fit min-w-[280px] max-w-full transition-[width] duration-300 ease-out">
@@ -492,15 +428,8 @@ export function ShelfTab({
                                   imageUrl={item.image_url}
                                   category={item.category}
                                   score={item.score}
-                                  hasReport={item.has_report}
-                                  scoring={currentCabinet.has_scoring}
                                   checking={checkingSlugs.has(item.slug) || (Boolean(item.needs_recheck) && !recheckErrors.has(item.slug))}
-                                  error={recheckErrors.get(item.slug)}
                                   onOpen={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
-                                  onCheck={() => checkShelfProduct(item.slug)}
-                                  onGetDescription={() => getDescription(item.slug)}
-                                  onViewAnalysis={() => openDetail(item.slug, item.cabinet, item.category)}
-                                  onRetry={() => retryRecheck(item)}
                                 />
                               </div>
 
@@ -565,6 +494,12 @@ export function ShelfTab({
               <div className="shelf-surface h-full rounded-r-full" style={{ width: SHELF_EDGE }} />
             </div>
           </div>
+
+          {currentItems.length === 0 && (
+            <p className="mt-4 text-center text-xs leading-relaxed text-muted-foreground/60">
+              На полке пока нет продуктов. Добавьте продукт из каталога, по названию, по ссылке или по фото — и он появится здесь.
+            </p>
+          )}
         </section>
       )}
 

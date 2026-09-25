@@ -16,8 +16,6 @@ type Product = {
   rating: number | null
   rating_count: number
   score: number | null
-  hasReport: boolean
-  checking?: boolean
 }
 type Taxonomy = { key: string; title: string; subcategories: { key: string; title: string }[] }
 
@@ -36,7 +34,6 @@ function normalize(p: any): Product {
     rating: typeof p.rating === 'number' ? p.rating : null,
     rating_count: p.rating_count || 0,
     score: typeof p.score === 'number' ? p.score : null,
-    hasReport: Boolean(p.analysis?.report),
   }
 }
 
@@ -147,53 +144,6 @@ export function CatalogTab({
       .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey])
-
-  const checkProduct = async (slug: string) => {
-    const token = localStorage.getItem('token')
-    // Без авторизации делегируем в карточку товара (там проверка работает без токена).
-    if (!token) {
-      onOpenProduct(slug)
-      return
-    }
-    setProducts((prev) => prev.map((p) => (p.slug === slug ? { ...p, checking: true } : p)))
-    try {
-      const res = await fetch('/api/shelf/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ slug }),
-      })
-      const d = await res.json().catch(() => ({}))
-      if (res.ok && typeof d.score === 'number') {
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.slug === slug
-              ? { ...p, score: d.score, hasReport: Boolean(d.analysis?.report), checking: false }
-              : p,
-          ),
-        )
-      } else {
-        setProducts((prev) => prev.map((p) => (p.slug === slug ? { ...p, checking: false } : p)))
-      }
-    } catch {
-      setProducts((prev) => prev.map((p) => (p.slug === slug ? { ...p, checking: false } : p)))
-    }
-  }
-
-  const getDescription = async (slug: string) => {
-    const token = localStorage.getItem('token')
-    try {
-      const res = await fetch('/api/analysis/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ slug }),
-      })
-      if (res.ok) {
-        setProducts((prev) => prev.map((p) => (p.slug === slug ? { ...p, hasReport: true } : p)))
-      }
-    } catch {
-      /* ignore */
-    }
-  }
 
   const loadMore = useCallback(() => {
     if (loadingRef.current || !hasMore) return
@@ -348,12 +298,7 @@ export function CatalogTab({
                     imageUrl={p.image_url}
                     category={p.category}
                     score={p.score}
-                    hasReport={p.hasReport}
-                    checking={p.checking}
                     onOpen={() => onOpenProduct(p.slug)}
-                    onCheck={() => checkProduct(p.slug)}
-                    onGetDescription={() => getDescription(p.slug)}
-                    onViewAnalysis={() => onOpenProduct(p.slug)}
                   />
                 ))}
               </div>

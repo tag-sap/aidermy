@@ -904,11 +904,7 @@ export default function Page() {
               slug={catalogSlug}
               onClose={() => setCatalogSlug(null)}
               onChanged={() => setCatalogRefreshKey((k) => k + 1)}
-              onCheck={(productName) => {
-                // Не закрываем карточку: после закрытия полного отчёта
-                // пользователь должен вернуться в эту же карточку товара.
-                handleCheck(productName, profile.skinType || 'Нормальная')
-              }}
+              onOpenReport={handleOpenReport}
               onOpenBrand={(brand) => {
                 setCatalogSlug(null)
                 openCatalogWithBrand(brand)

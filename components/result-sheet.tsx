@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Sparkles, Clock, AlertCircle, CheckCircle } from 'lucide-react'
+import { X, Sparkles, Clock, AlertCircle, CheckCircle, FileText, LoaderCircle } from 'lucide-react'
 import { ScrambleText } from '@/components/scramble-text'
 import { MarkupText } from '@/components/markup-text'
 import type { CheckResult, SkinProfile } from '@/lib/store'
@@ -85,6 +85,8 @@ export function ResultSheet({
   const [productNameInput, setProductNameInput] = useState('')
   const [ingredientsInput, setIngredientsInput] = useState('')
   const [isCheckingIngredients, setIsCheckingIngredients] = useState(false)
+  const [gettingDetails, setGettingDetails] = useState(false)
+  const [detailsError, setDetailsError] = useState('')
 
   useScrollLock(isOpen)
 
@@ -131,6 +133,32 @@ export function ResultSheet({
       setIngredientsInput('')
     } catch (error) { console.error('Ошибка проверки с составом:', error) }
     finally { setIsCheckingIngredients(false) }
+  }
+
+  // Генерация подробного описания (Слой 2). LLM объясняет уже готовый результат,
+  // НЕ пересчитывает процент и НЕ меняет verdict.
+  const handleGetDetails = async () => {
+    if (!result?.slug || gettingDetails) return
+    setGettingDetails(true)
+    setDetailsError('')
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      const res = await fetch('/api/analysis/report', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ slug: result.slug }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.detail || 'Не удалось подготовить подробный анализ')
+      onResultUpdate({ ...result, report: d.review ?? result.report })
+    } catch {
+      setDetailsError('Не удалось подготовить подробный анализ')
+    } finally {
+      setGettingDetails(false)
+    }
   }
 
   if (!isOpen) return null
@@ -195,46 +223,70 @@ export function ResultSheet({
                   <p className="text-xs text-muted-foreground/50 font-light">на основе состава</p>
                 </div>
               </div>
-              {result.report && (
-                <div className="sm:flex-1 rounded-xl bg-primary/5 border border-primary/10 p-3">
+            </div>
+
+            {result.report ? (
+              <>
+                <Section icon={Sparkles} title="Общий вывод" className="border-primary/10">
                   <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.report} /></p>
+                </Section>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {result.active_ingredients && (
+                    <Section icon={Sparkles} title="Ключевой ингредиент" className="border-purple-100/50">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-sm font-medium text-foreground/80">{result.active_ingredients.name}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">#{result.active_ingredients.position}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground/60 font-light mt-1">
+                        Значимый для вашего анализа компонент
+                      </p>
+                    </Section>
+                  )}
+
+                  {result.how_to_use && (
+                    <Section icon={Clock} title="Как применять" className="border-blue-100/50">
+                      <div className="space-y-0.5 text-xs text-foreground/70 font-light">
+                        <p><span className="font-medium text-foreground/80">Нанесение:</span> {result.how_to_use.application}</p>
+                        <p><span className="font-medium text-foreground/80">Время:</span> {result.how_to_use.time}</p>
+                        {result.how_to_use.note && <p className="text-[11px] text-muted-foreground/60 mt-0.5"><MarkupText text={result.how_to_use.note} /></p>}
+                      </div>
+                    </Section>
+                  )}
+
+                  {result.expectations && (
+                    <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50">
+                      <div className="space-y-0.5 text-xs text-foreground/70 font-light">
+                        <p><span className="font-medium text-foreground/80">Когда:</span> {result.expectations.when}</p>
+                        <p className="text-[11px] flex items-start gap-1"><CheckCircle className="size-3.5 text-primary/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.normal} /></span></p>
+                        <p className="text-[11px] flex items-start gap-1"><AlertCircle className="size-3.5 text-red-400/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.danger} /></span></p>
+                      </div>
+                    </Section>
+                  )}
                 </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {result.active_ingredients && (
-                <Section icon={Sparkles} title="Ключевой ингредиент" className="border-purple-100/50">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-sm font-medium text-foreground/80">{result.active_ingredients.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">#{result.active_ingredients.position}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground/60 font-light mt-1">
-                    Значимый для вашего анализа компонент
-                  </p>
-                </Section>
-              )}
-
-              {result.how_to_use && (
-                <Section icon={Clock} title="Как применять" className="border-blue-100/50">
-                  <div className="space-y-0.5 text-xs text-foreground/70 font-light">
-                    <p><span className="font-medium text-foreground/80">Нанесение:</span> {result.how_to_use.application}</p>
-                    <p><span className="font-medium text-foreground/80">Время:</span> {result.how_to_use.time}</p>
-                    {result.how_to_use.note && <p className="text-[11px] text-muted-foreground/60 mt-0.5"><MarkupText text={result.how_to_use.note} /></p>}
-                  </div>
-                </Section>
-              )}
-
-              {result.expectations && (
-                <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50">
-                  <div className="space-y-0.5 text-xs text-foreground/70 font-light">
-                    <p><span className="font-medium text-foreground/80">Когда:</span> {result.expectations.when}</p>
-                    <p className="text-[11px] flex items-start gap-1"><CheckCircle className="size-3.5 text-primary/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.normal} /></span></p>
-                    <p className="text-[11px] flex items-start gap-1"><AlertCircle className="size-3.5 text-red-400/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.danger} /></span></p>
-                  </div>
-                </Section>
-              )}
-            </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-2 py-2">
+                {detailsError && <p className="text-center text-xs text-red-500">{detailsError}</p>}
+                <button
+                  onClick={handleGetDetails}
+                  disabled={gettingDetails}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                >
+                  {gettingDetails ? (
+                    <>
+                      <LoaderCircle className="size-4 animate-spin" />
+                      Готовим подробный анализ...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="size-4" />
+                      Показать подробности
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
 
 
             {showIngredientsInput && (

@@ -7,7 +7,6 @@ import { CABINET_TITLES } from '@/lib/shelf'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import { CommunitySection } from '@/components/community-section'
 import type { CheckResult } from '@/lib/store'
-import { deriveAnalysisState, ANALYSIS_LABELS, ANALYSIS_ACTIONS } from '@/lib/analysis-state'
 
 type ProductDetail = {
   product: {
@@ -65,7 +64,6 @@ export function ProductModal({
   onClose,
   onChanged,
   onOpenReport,
-  onCheck,
   onOpenBrand,
   onOpenCategory,
 }: {
@@ -74,7 +72,6 @@ export function ProductModal({
   onClose: () => void
   onChanged: () => void
   onOpenReport?: (result: CheckResult) => void
-  onCheck?: (productName: string) => void
   onOpenBrand?: (brand: string) => void
   onOpenCategory?: (category: string) => void
 }) {
@@ -83,7 +80,6 @@ export function ProductModal({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
-  const [gettingDescription, setGettingDescription] = useState(false)
   const [showComposition, setShowComposition] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
 
@@ -166,9 +162,8 @@ export function ProductModal({
 
   const checkCompatibility = async () => {
     if (!product || checking) return
-    // Если передан внешний обработчик (например, из каталога) — делегируем ему.
-    if (onCheck) {
-      onCheck(product.name)
+    if (!token) {
+      setAnalysisError('Войдите в аккаунт, чтобы проверить совместимость')
       return
     }
     setChecking(true)
@@ -181,47 +176,22 @@ export function ProductModal({
         body: JSON.stringify({ slug: product.slug }),
       })
       const d = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(d.detail || 'Не удалось выполнить анализ')
+      if (!res.ok) throw new Error(d.detail || 'Не удалось проверить совместимость')
+      // Обновляем локальное состояние напрямую из ответа API (не через refreshKey).
       setData((prev) =>
         prev
           ? {
               ...prev,
-              score: d.score ?? prev.score,
+              score: typeof d.score === 'number' ? d.score : prev.score,
               analysis: d.analysis ?? prev.analysis,
             }
           : prev,
       )
       onChanged()
-    } catch (e) {
-      setAnalysisError(e instanceof Error ? e.message : 'Не удалось выполнить анализ')
+    } catch {
+      setAnalysisError('Не удалось проверить совместимость')
     } finally {
       setChecking(false)
-    }
-  }
-
-  const getDescription = async () => {
-    if (!product || gettingDescription) return
-    setGettingDescription(true)
-    setAnalysisError('')
-    setError('')
-    try {
-      const res = await fetch('/api/analysis/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ slug: product.slug }),
-      })
-      const d = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(d.detail || 'Не удалось сформировать описание')
-      setData((prev) =>
-        prev && prev.analysis
-          ? { ...prev, analysis: { ...prev.analysis, report: d.review ?? prev.analysis.report } }
-          : prev,
-      )
-      onChanged()
-    } catch (e) {
-      setAnalysisError(e instanceof Error ? e.message : 'Не удалось сформировать описание')
-    } finally {
-      setGettingDescription(false)
     }
   }
 
@@ -248,12 +218,7 @@ export function ProductModal({
     onOpenReport(result)
   }
 
-  const analysisState = deriveAnalysisState({
-    analysis: data?.analysis,
-    score: data?.score,
-    loading: checking,
-    error: analysisError,
-  })
+  const hasAnalysis = typeof data?.score === 'number' && data?.analysis != null
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
@@ -301,9 +266,9 @@ export function ProductModal({
                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{product.brand}</p>
                 ))}
               <p className="text-base font-medium leading-snug text-foreground/90">{product.name}</p>
-              {analysisState.kind === 'ANALYZED' ? (
-                <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', scoreColor(analysisState.score))}>
-                  {analysisState.score}% совместимость
+              {hasAnalysis ? (
+                <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', scoreColor(data?.score ?? 0))}>
+                  {data?.score}% совместимость
                 </span>
               ) : (
                 <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-muted-foreground/60">
@@ -350,50 +315,47 @@ export function ProductModal({
               )}
             </div>
 
-            {analysisState.kind === 'ANALYZED' ? (
+            {hasAnalysis && (
               <div className="mt-3 flex items-center gap-1.5">
                 <ShieldCheck className="size-3.5 text-primary" />
                 <span className="text-xs font-medium text-foreground/80">{data?.analysis?.verdict || 'Проверено'}</span>
               </div>
-            ) : analysisState.kind === 'ANALYSIS_PENDING' ? (
-              <div className="mt-3 rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">{ANALYSIS_LABELS.PENDING}</div>
-            ) : analysisState.kind === 'ANALYSIS_FAILED' ? (
-              <div className="mt-3 rounded-xl border border-dashed border-red-200/70 py-3 text-center text-[11px] text-red-500">{ANALYSIS_LABELS.FAILED}</div>
-            ) : (
-              <div className="mt-3 rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">{ANALYSIS_LABELS.NOT_ANALYZED}</div>
             )}
 
             {error && product && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
 
             <div className="mt-4 flex flex-col gap-2">
-              {analysisState.kind === 'ANALYZED' ? (
-                analysisState.hasReport && onOpenReport ? (
-                  <button
-                    onClick={openFullReport}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
-                  >
-                    <ShieldCheck className="size-4" />
-                    {ANALYSIS_ACTIONS.VIEW_ANALYSIS}
-                  </button>
-                ) : (
-                  <button
-                    onClick={getDescription}
-                    disabled={gettingDescription}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
-                  >
-                    {gettingDescription ? <LoaderCircle className="size-4 animate-spin" /> : <FileText className="size-4" />}
-                    {ANALYSIS_ACTIONS.GET_DESCRIPTION}
-                  </button>
-                )
-              ) : (
+              {hasAnalysis ? (
                 <button
-                  onClick={checkCompatibility}
-                  disabled={checking}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+                  onClick={openFullReport}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
                 >
-                  {checking ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
-                  {analysisState.kind === 'ANALYSIS_FAILED' ? ANALYSIS_ACTIONS.RETRY : ANALYSIS_ACTIONS.CHECK}
+                  <FileText className="size-4" />
+                  Показать отчёт
                 </button>
+              ) : (
+                <>
+                  {analysisError && (
+                    <p className="text-center text-xs text-red-500">{analysisError}</p>
+                  )}
+                  <button
+                    onClick={checkCompatibility}
+                    disabled={checking}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                  >
+                    {checking ? (
+                      <>
+                        <LoaderCircle className="size-4 animate-spin" />
+                        Проверяем...
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="size-4" />
+                        {analysisError ? 'Повторить' : 'Проверить совместимость'}
+                      </>
+                    )}
+                  </button>
+                </>
               )}
 
               {token && (
