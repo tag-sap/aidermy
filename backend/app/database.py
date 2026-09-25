@@ -865,10 +865,16 @@ def get_user_shelf(user_id: int):
 def remove_product_from_shelf(user_id: int, shelf_id: int) -> int:
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
+    row = cursor.execute(
+        "SELECT product_id FROM shelf_products WHERE id = ? AND user_id = ?", (shelf_id, user_id)
+    ).fetchone()
     cursor.execute("DELETE FROM shelf_products WHERE id = ? AND user_id = ?", (shelf_id, user_id))
     conn.commit()
     deleted = cursor.rowcount
     conn.close()
+    # После снятия с полки Analysis сохраняется, но живёт ограниченно (7 суток).
+    if row:
+        set_analysis_expiry(user_id, row["product_id"])
     return deleted
 
 
@@ -887,6 +893,10 @@ def remove_products_from_shelf(user_id: int, shelf_ids: list) -> int:
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     placeholders = ",".join(["?"] * len(ids))
+    rows = cursor.execute(
+        f"SELECT product_id FROM shelf_products WHERE user_id = ? AND id IN ({placeholders})",
+        (user_id, *ids),
+    ).fetchall()
     cursor.execute(
         f"DELETE FROM shelf_products WHERE user_id = ? AND id IN ({placeholders})",
         (user_id, *ids),
@@ -894,6 +904,8 @@ def remove_products_from_shelf(user_id: int, shelf_ids: list) -> int:
     conn.commit()
     deleted = cursor.rowcount
     conn.close()
+    for r in rows:
+        set_analysis_expiry(user_id, r["product_id"])
     return deleted
 
 def update_shelf_product_category(user_id: int, shelf_id: int, category: str):
@@ -951,7 +963,7 @@ def get_user_disliked_slugs(user_id: int) -> set:
 # Отдельная сущность «текущего» анализа. Score/verdict рассчитывает scoring engine,
 # описание (report) запрашивается отдельно (Слой 2) и хранится в этой же записи.
 
-ANALYSIS_TTL_DAYS = 30
+ANALYSIS_TTL_DAYS = 7
 
 
 def _ts(dt: datetime) -> str:
@@ -1061,16 +1073,19 @@ def upsert_analysis(
     how_to_use=None,
     expectations=None,
     profile_snapshot: str = "{}",
+    ttl_days: int | None = ANALYSIS_TTL_DAYS,
 ) -> dict:
     """Сохранение СИСТЕМНОЙ проверки (Слой 1). Обновляет/создаёт одну запись на
     пару (user_id, product_id) и СБРАСЫВАЕТ описание (report=NULL): наличие
     процента НЕ означает наличие подробного описания. created_at/expires_at
-    обновляются при каждой повторной проверке — бесконечная история не копится."""
+    обновляются при каждой повторной проверке — бесконечная история не копится.
+
+    ttl_days=None означает «бесконечный» срок жизни (для товаров на полке)."""
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     existing = _find_analysis_row(cursor, user_id, product_id, slug)
     now = _now_ts()
-    expires = _expires_ts()
+    expires = _expires_ts(ttl_days) if ttl_days is not None else None
     safe_json = json.dumps(safe_ingredients or [], ensure_ascii=False)
     caution_json = json.dumps(caution_ingredients or [], ensure_ascii=False)
     active_json = json.dumps(active_ingredients, ensure_ascii=False) if active_ingredients is not None else None
@@ -1197,6 +1212,20 @@ def save_analysis_report(user_id: int, product_id: int | None, slug: str = "", r
     updated = cursor.rowcount
     conn.close()
     return updated > 0
+
+
+def set_analysis_expiry(user_id: int, product_id: int, days: int = ANALYSIS_TTL_DAYS) -> bool:
+    """Задаёт срок жизни Analysis после снятия товара с полки (по умолчанию 7 суток)."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE analysis SET expires_at = ? WHERE user_id = ? AND product_id = ?",
+        (_expires_ts(days), user_id, product_id),
+    )
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
 
 
 def delete_user_analyses(user_id: int) -> int:

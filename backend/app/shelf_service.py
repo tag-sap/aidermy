@@ -1105,6 +1105,7 @@ def _auto_recheck(
             summary=analysis.get("summary") or "",
             safe_ingredients=analysis.get("safe_ingredients") or [],
             caution_ingredients=analysis.get("caution_ingredients") or [],
+            ttl_days=None,  # на полке Analysis живёт бесконечно
         )
         return score, saved
     except Exception:
