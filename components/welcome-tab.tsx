@@ -28,7 +28,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
             muted
             playsInline
             loop
-            preload="auto"
+            preload="metadata"
             className="h-full w-full object-cover"
             aria-hidden
           />
