@@ -71,6 +71,9 @@ export function CatalogTab({
   const loadingRef = useRef(false)
   const requestIdRef = useRef(0)
 
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : undefined
+
   useEffect(() => {
     fetch('/api/catalog/letters')
       .then((r) => r.json())
@@ -111,7 +114,7 @@ export function CatalogTab({
     offsetRef.current = 0
     setHasMore(true)
 
-    fetch(`/api/catalog?${buildParams(0)}`)
+    fetch(`/api/catalog?${buildParams(0)}`, { headers: authHeaders })
       .then((r) => r.json())
       .then((data) => {
         if (requestId !== requestIdRef.current) return
@@ -134,7 +137,7 @@ export function CatalogTab({
   useEffect(() => {
     if (!refreshKey) return
     const requestId = ++requestIdRef.current
-    fetch(`/api/catalog?${buildParams(0)}`)
+    fetch(`/api/catalog?${buildParams(0)}`, { headers: authHeaders })
       .then((r) => r.json())
       .then((data) => {
         if (requestId !== requestIdRef.current) return
@@ -150,7 +153,7 @@ export function CatalogTab({
     loadingRef.current = true
     setLoadingMore(true)
 
-    fetch(`/api/catalog?${buildParams(offsetRef.current)}`)
+    fetch(`/api/catalog?${buildParams(offsetRef.current)}`, { headers: authHeaders })
       .then((r) => r.json())
       .then((data) => {
         const items = (data.products || []).map(normalize)

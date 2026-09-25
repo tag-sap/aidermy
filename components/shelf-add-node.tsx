@@ -5,16 +5,17 @@ import { X } from 'lucide-react'
 type Category = { key: string; title: string }
 
 // Полукруг справа от центральной точки (кнопки «Добавить»).
-// Центр overlay 300×260 → (150, 130); облачка выстраиваются дугой справа.
+// Центр overlay 300×260 → (150, 130); облачка выстраиваются дугой вправо.
 const ARC_RADIUS = 118
 
 function arcPosition(index: number, total: number): { x: number; y: number } {
   if (total <= 1) return { x: 265, y: 130 }
-  // Угол от -80° (верх) до +80° (низ) — правая дуга вокруг центра.
+  // Угол от -80° (верх) до +80° (низ) — дуга, повёрнутая по часовой стрелке на 90°,
+  // чтобы раскрытие смотрело вправо (раньше — вверх).
   const angleDeg = total === 1 ? 0 : -80 + (160 * index) / (total - 1)
   const rad = (angleDeg * Math.PI) / 180
-  const x = 150 + ARC_RADIUS * Math.sin(rad) + 14
-  const y = 130 - ARC_RADIUS * Math.cos(rad)
+  const x = 150 + ARC_RADIUS * Math.cos(rad) + 14
+  const y = 130 + ARC_RADIUS * Math.sin(rad)
   return { x, y }
 }
 

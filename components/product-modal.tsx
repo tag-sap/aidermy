@@ -223,9 +223,18 @@ export function ProductModal({
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
       <div
-        className="no-scrollbar max-h-[85dvh] w-full max-w-md md:max-w-xl max-w-[100vw] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 md:p-5 animate-modal-panel"
+        className="flex max-h-[85dvh] w-full max-w-md md:max-w-xl max-w-[100vw] flex-col overflow-hidden rounded-2xl bg-white animate-modal-panel"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Заголовок с крестиком — закреплён и виден при прокрутке */}
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-100 px-4 pt-4 pb-3 md:px-5">
+          <h2 className="text-base font-normal text-foreground">Продукт</h2>
+          <button type="button" onClick={onClose} className="shrink-0 text-muted-foreground hover:text-foreground">
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-3 md:px-5">
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <LoaderCircle className="size-6 animate-spin text-primary" />
@@ -234,12 +243,6 @@ export function ProductModal({
           <div className="py-10 text-center text-sm text-muted-foreground/60">{error}</div>
         ) : product ? (
           <>
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <h2 className="text-base font-normal text-foreground">Продукт</h2>
-              <button type="button" onClick={onClose} className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground">
-                <X className="size-4" />
-              </button>
-            </div>
 
             <div className="flex h-44 md:h-56 items-center justify-center overflow-hidden rounded-2xl border border-gray-100 bg-gray-50">
               {product.image_url ? (
@@ -393,6 +396,7 @@ export function ProductModal({
             />
           </>
         ) : null}
+        </div>
       </div>
     </div>
   )

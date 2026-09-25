@@ -64,6 +64,10 @@ export function ShelfTab({
   const processedSlugsRef = useRef<Set<string>>(new Set())
   const recheckCancelledRef = useRef(false)
 
+  // Умная адаптация полки: сколько карточек помещается в один ряд.
+  const [cardsPerShelf, setCardsPerShelf] = useState(5)
+  const shelfWrapRef = useRef<HTMLDivElement | null>(null)
+
   useScrollLock(!!confirm)
 
   const fetchShelf = useCallback(async (silent = false) => {
@@ -112,6 +116,43 @@ export function ShelfTab({
       (it) => checkingSlugs.has(it.slug) || (Boolean(it.needs_recheck) && !recheckErrors.has(it.slug)),
     )
   }, [currentItems, currentCabinet, checkingSlugs, recheckErrors])
+
+  // Плоский список карточек (для раскладки по нескольким полкам).
+  const cells = useMemo(() => {
+    if (!currentCabinet) return [] as { item: ShelfItem; catTitle: string; isFirstOfCategory: boolean }[]
+    const result: { item: ShelfItem; catTitle: string; isFirstOfCategory: boolean }[] = []
+    for (const cat of currentCabinet.categories) {
+      cat.items.forEach((item, i) => {
+        result.push({ item, catTitle: cat.title, isFirstOfCategory: i === 0 })
+      })
+    }
+    return result
+  }, [currentCabinet])
+
+  const shelves = useMemo(() => {
+    const out: { item: ShelfItem; catTitle: string; isFirstOfCategory: boolean }[][] = []
+    for (let i = 0; i < cells.length; i += cardsPerShelf) {
+      out.push(cells.slice(i, i + cardsPerShelf))
+    }
+    if (out.length === 0) out.push([])
+    return out
+  }, [cells, cardsPerShelf])
+
+  // Замер ширины полки → сколько карточек влезает в один ряд.
+  useEffect(() => {
+    const el = shelfWrapRef.current
+    if (!el) return
+    const measure = () => {
+      const CARD_W = 160
+      const GAP = 10
+      const available = Math.max(CARD_W, el.clientWidth - 32)
+      setCardsPerShelf(Math.max(1, Math.floor((available + GAP) / (CARD_W + GAP))))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const exitSelection = () => {
     setSelectionMode(false)
@@ -405,94 +446,93 @@ export function ShelfTab({
             </div>
           </div>
 
-          {/* Одна динамическая физическая полка на зону: ширина плавно растёт/сужается
-              вместе с содержимым, при переполнении flex-wrap переносит на новую строку. */}
-          <div className="relative mx-auto w-fit min-w-[280px] max-w-full transition-[width] duration-300 ease-out">
-            <div className={cn('flex flex-wrap gap-x-5 gap-y-6 px-4 pb-9 pt-3', currentItems.length === 0 && 'justify-center')}>
-                {currentCabinet.categories.map((cat) => {
-                  if (cat.items.length === 0) return null
-                  return (
-                    <div key={cat.key} className="relative">
-                      <span className="absolute -top-2.5 left-2 z-10 rounded-full bg-background px-2 text-[9px] font-medium uppercase tracking-[0.18em] text-muted-foreground/50">
-                        {cat.title}
-                      </span>
-                      <div className="flex flex-wrap gap-2.5 rounded-2xl border border-dashed border-gray-300/70 p-2">
-                        {cat.items.map((item, idx) => {
-                          const isSelected = selected.has(item.id)
-                          return (
-                            <div key={item.id} className="animate-shelf-card group relative w-[160px] shrink-0" style={{ animationDelay: `${idx * 35}ms` }}>
-                              <div className={cn('rounded-2xl transition-all', selectionMode && isSelected && 'ring-2 ring-primary/20')}>
-                                <ProductCard
-                                  name={item.name}
-                                  brand={item.brand}
-                                  imageUrl={item.image_url}
-                                  category={item.category}
-                                  score={item.score}
-                                  checking={checkingSlugs.has(item.slug) || (Boolean(item.needs_recheck) && !recheckErrors.has(item.slug))}
-                                  onOpen={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
-                                />
-                              </div>
+          {/* Умная адаптация полки: карточки раскладываются по рядам, каждый ряд — отдельная полка */}
+          <div ref={shelfWrapRef} className="mx-auto w-full max-w-full">
+            {shelves.map((shelf, si) => {
+              const isLastShelf = si === shelves.length - 1
+              return (
+                <div key={si} className="relative mb-9">
+                  <div className="flex flex-wrap gap-2.5 px-4 pb-9 pt-3">
+                    {shelf.map((cell, idx) => {
+                      const item = cell.item
+                      const isSelected = selected.has(item.id)
+                      return (
+                        <div key={item.id} className="animate-shelf-card group relative w-[160px] shrink-0" style={{ animationDelay: `${idx * 35}ms` }}>
+                          {cell.isFirstOfCategory && (
+                            <span className="absolute -top-2.5 left-2 z-10 rounded-full bg-background px-2 text-[9px] font-medium uppercase tracking-[0.18em] text-muted-foreground/50">
+                              {cell.catTitle}
+                            </span>
+                          )}
+                          <div className={cn('rounded-2xl transition-all', selectionMode && isSelected && 'ring-2 ring-primary/20')}>
+                            <ProductCard
+                              name={item.name}
+                              brand={item.brand}
+                              imageUrl={item.image_url}
+                              category={item.category}
+                              score={item.score}
+                              checking={checkingSlugs.has(item.slug) || (Boolean(item.needs_recheck) && !recheckErrors.has(item.slug))}
+                              onOpen={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
+                            />
+                          </div>
 
-                              {selectionMode && (
-                                <span
-                                  className={cn(
-                                    'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border bg-white/95 transition-colors',
-                                    isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-300 text-transparent',
-                                  )}
-                                >
-                                  <Check className="size-3" strokeWidth={3} />
-                                </span>
+                          {selectionMode && (
+                            <span
+                              className={cn(
+                                'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border bg-white/95 transition-colors',
+                                isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-300 text-transparent',
                               )}
+                            >
+                              <Check className="size-3" strokeWidth={3} />
+                            </span>
+                          )}
 
-                              {!selectionMode && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setRemovalTarget(item); setRemovalReason(''); setRemovalNote('')
-                                  }}
-                                  className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/60 hover:text-red-500"
-                                  aria-label="Удалить продукт"
-                                >
-                                  <X className="size-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          )
-                        })}
+                          {!selectionMode && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setRemovalTarget(item); setRemovalReason(''); setRemovalNote('')
+                              }}
+                              className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/60 hover:text-red-500"
+                              aria-label="Удалить продукт"
+                            >
+                              <X className="size-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+
+                    {/* Интерактивный узел «+» — последний пустой слот */}
+                    {isLastShelf && (
+                      <div data-shelf-add-node className="relative">
+                        <button
+                          onClick={() => setAddNodeOpen(true)}
+                          className="flex h-[180px] w-[130px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:text-primary"
+                          aria-label="Добавить продукт"
+                        >
+                          <Plus className={cn('size-6 transition-transform', addNodeOpen && 'animate-shelf-plus-collapse')} />
+                        </button>
+
+                        {addNodeOpen && (
+                          <ShelfAddNode
+                            categories={currentCabinet.categories}
+                            onClose={() => setAddNodeOpen(false)}
+                            onPick={(cat) => { setAddNodeOpen(false); setAddContext({ cabinet: currentCabinet.key, category: cat.key }) }}
+                          />
+                        )}
                       </div>
-                    </div>
-                  )
-                })}
-
-                {/* Интерактивный узел «+» — последний пустой слот */}
-                <div data-shelf-add-node className="relative">
-                  <div className="rounded-2xl border border-dashed border-gray-300/70 p-2">
-                    <button
-                      onClick={() => setAddNodeOpen(true)}
-                      className="flex h-[180px] w-[130px] items-center justify-center text-muted-foreground/40 transition-colors hover:text-primary"
-                      aria-label="Добавить продукт"
-                    >
-                      <Plus className={cn('size-6 transition-transform', addNodeOpen && 'animate-shelf-plus-collapse')} />
-                    </button>
+                    )}
                   </div>
 
-                  {/* Раскрытый узел: абсолютный overlay, не влияет на ширину полки */}
-                  {addNodeOpen && (
-                    <ShelfAddNode
-                      categories={currentCabinet.categories}
-                      onClose={() => setAddNodeOpen(false)}
-                      onPick={(cat) => { setAddNodeOpen(false); setAddContext({ cabinet: currentCabinet.key, category: cat.key }) }}
-                    />
-                  )}
+                  {/* Полка: [ левый торец ][ центр ][ правый торец ] */}
+                  <div className="shelf-plank pointer-events-none absolute inset-x-0 bottom-0 flex h-7 rounded-full">
+                    <div className="shelf-surface h-full rounded-l-full" style={{ width: SHELF_EDGE }} />
+                    <div className="shelf-surface h-full flex-1" />
+                    <div className="shelf-surface h-full rounded-r-full" style={{ width: SHELF_EDGE }} />
+                  </div>
                 </div>
-              </div>
-
-            {/* Полка: [ левый торец ][ центр ][ правый торец ] (без дублирующего названия зоны) */}
-            <div className="shelf-plank pointer-events-none absolute inset-x-0 bottom-0 flex h-7 rounded-full">
-              <div className="shelf-surface h-full rounded-l-full" style={{ width: SHELF_EDGE }} />
-              <div className="shelf-surface h-full flex-1" />
-              <div className="shelf-surface h-full rounded-r-full" style={{ width: SHELF_EDGE }} />
-            </div>
+              )
+            })}
           </div>
 
           {currentItems.length === 0 && (

@@ -55,7 +55,7 @@ export function ProductCard({
             {typeof score === 'number' && (
               <span
                 className={cn(
-                  'absolute right-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none',
+                  'absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none',
                   scoreBadge(score),
                 )}
               >

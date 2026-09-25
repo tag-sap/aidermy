@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Sparkles, Clock, AlertCircle, CheckCircle, FileText, LoaderCircle } from 'lucide-react'
+import { X, Sparkles, Clock, AlertCircle, CheckCircle, LoaderCircle } from 'lucide-react'
 import { ScrambleText } from '@/components/scramble-text'
 import { MarkupText } from '@/components/markup-text'
 import type { CheckResult, SkinProfile } from '@/lib/store'
@@ -161,6 +161,15 @@ export function ResultSheet({
     }
   }
 
+  // «Показать отчёт» сразу показывает подробности: если описания ещё нет —
+  // генерируем его автоматически при открытии (без отдельной кнопки).
+  useEffect(() => {
+    if (isOpen && result && !result.report && result.slug && !gettingDetails && !detailsError) {
+      handleGetDetails()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, result?.report])
+
   if (!isOpen) return null
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
@@ -225,11 +234,29 @@ export function ResultSheet({
               </div>
             </div>
 
-            {result.report ? (
-              <>
-                <Section icon={Sparkles} title="Общий вывод" className="border-primary/10">
+            <>
+              <Section icon={Sparkles} title="Общий вывод" className="border-primary/10">
+                {result.report ? (
                   <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.report} /></p>
-                </Section>
+                ) : gettingDetails ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground/70 font-light">
+                    <LoaderCircle className="size-4 animate-spin" />
+                    Готовим подробный анализ...
+                  </p>
+                ) : detailsError ? (
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-sm text-red-500">Не удалось подготовить подробный анализ</p>
+                    <button
+                      onClick={handleGetDetails}
+                      className="self-start rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-50"
+                    >
+                      Повторить
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground/60 font-light">Готовим подробный анализ...</p>
+                )}
+              </Section>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {result.active_ingredients && (
@@ -264,29 +291,7 @@ export function ResultSheet({
                     </Section>
                   )}
                 </div>
-              </>
-            ) : (
-              <div className="flex flex-col items-center gap-2 py-2">
-                {detailsError && <p className="text-center text-xs text-red-500">{detailsError}</p>}
-                <button
-                  onClick={handleGetDetails}
-                  disabled={gettingDetails}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-                >
-                  {gettingDetails ? (
-                    <>
-                      <LoaderCircle className="size-4 animate-spin" />
-                      Готовим подробный анализ...
-                    </>
-                  ) : (
-                    <>
-                      <FileText className="size-4" />
-                      Показать подробности
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
+            </>
 
 
             {showIngredientsInput && (
