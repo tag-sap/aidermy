@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X, LogIn, Compass, ClipboardList, Send, Mail } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
 import { useScrollLock } from '@/lib/use-scroll-lock'
@@ -54,14 +55,15 @@ export function AppHeader({
               <span className="text-sm font-normal">?</span>
             </button>
 
-            {/* === ПОПАП ПОМОЩИ — привязан к кнопке «?» === */}
-            {showHelp && (
+            {/* === ПОПАП ПОМОЩИ — рендерится через portal, чтобы не ограничиваться
+                stacking-контекстом header (z-20) и всегда быть поверх интерфейса === */}
+            {showHelp && typeof document !== 'undefined' && createPortal(
               <>
                 <div
-                  className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm animate-modal-backdrop"
+                  className="fixed inset-0 z-[95] bg-black/20 backdrop-blur-sm animate-modal-backdrop"
                   onClick={() => setShowHelp(false)}
                 />
-                <div className="absolute right-0 top-full z-50 mt-2 w-64 origin-top-right rounded-xl bg-white p-4 shadow-xl border border-primary/15 animate-help-popover">
+                <div className="fixed right-4 top-14 z-[96] w-64 origin-top-right rounded-xl bg-white p-4 shadow-xl border border-primary/15 animate-help-popover md:right-6">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-normal text-foreground">Помощь</h3>
                     <button
@@ -108,7 +110,8 @@ export function AppHeader({
                     </a>
                   </div>
                 </div>
-              </>
+              </>,
+              document.body,
             )}
           </div>
 

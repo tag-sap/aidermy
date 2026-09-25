@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Search, X, LoaderCircle, Sparkles, ArrowUp, SlidersHorizontal } from 'lucide-react'
 import { cn, capitalizeFirst } from '@/lib/utils'
 
-type Product = { name: string; brand: string; slug: string; image_url: string; category: string }
+type Product = { name: string; brand: string; slug: string; image_url: string; category: string; subcategory: string; rating: number | null; rating_count: number }
+type Taxonomy = { key: string; title: string; subcategories: { key: string; title: string }[] }
 
 const PAGE = 40
 
@@ -15,8 +16,23 @@ function normalize(p: any): Product {
     brand: capitalizeFirst(parts.length > 1 ? parts[0] : (p.brand || '')),
     slug: p.slug || '',
     image_url: p.image_url || '',
-    category: p.category || '',
+    category: p.subcategory || p.category || '',
+    subcategory: p.subcategory || '',
+    rating: typeof p.rating === 'number' ? p.rating : null,
+    rating_count: p.rating_count || 0,
   }
+}
+
+function Stars({ value }: { value: number }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 text-amber-400">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <svg key={i} viewBox="0 0 24 24" className="size-2.5" fill={i <= Math.round(value) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.5}>
+          <path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8L12 2z" />
+        </svg>
+      ))}
+    </span>
+  )
 }
 
 export function CatalogTab({
@@ -32,9 +48,10 @@ export function CatalogTab({
 }) {
   const [products, setProducts] = useState<Product[]>([])
   const [letters, setLetters] = useState<string[]>([])
-  const [categories, setCategories] = useState<string[]>([])
+  const [taxonomy, setTaxonomy] = useState<Taxonomy[]>([])
   const [activeLetter, setActiveLetter] = useState('')
-  const [category, setCategory] = useState('')
+  const [activeCategory, setActiveCategory] = useState('')
+  const [subcategory, setSubcategory] = useState('')
   const [brand, setBrand] = useState('')
   const [cat, setCat] = useState('')
   const [search, setSearch] = useState('')
@@ -57,13 +74,14 @@ export function CatalogTab({
       .catch(() => {})
     fetch('/api/categories')
       .then((r) => r.json())
-      .then((d) => setCategories(d.categories || []))
+      .then((d) => setTaxonomy(d.taxonomy || []))
       .catch(() => {})
   }, [])
 
   const buildParams = (offset: number) => {
     const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset), sort: 'alpha' })
-    if (category) params.append('category', category)
+    if (activeCategory) params.append('category', activeCategory)
+    if (subcategory) params.append('subcategory', subcategory)
     if (brand) params.append('brand', brand)
     if (cat) params.append('cat', cat)
     if (activeLetter) params.append('letter', activeLetter)
@@ -75,7 +93,8 @@ export function CatalogTab({
   useEffect(() => {
     setBrand(initialBrand || '')
     setCat(initialCat || '')
-    setCategory('')
+    setActiveCategory('')
+    setSubcategory('')
     setActiveLetter('')
     setSearch('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,7 +124,7 @@ export function CatalogTab({
         }
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLetter, category, search, brand, cat])
+  }, [activeLetter, activeCategory, subcategory, search, brand, cat])
 
   const loadMore = useCallback(() => {
     if (loadingRef.current || !hasMore) return
@@ -126,7 +145,7 @@ export function CatalogTab({
         setLoadingMore(false)
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLetter, category, search, hasMore, brand, cat])
+  }, [activeLetter, activeCategory, subcategory, search, hasMore, brand, cat])
 
   useEffect(() => {
     const el = sentinelRef.current
@@ -192,14 +211,14 @@ export function CatalogTab({
             onClick={() => setShowFilters(true)}
             className={cn(
               'flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
-              category || activeLetter || brand || cat
+              activeCategory || subcategory || activeLetter || brand || cat
                 ? 'border-primary bg-primary/10 text-primary'
                 : 'border-gray-200/60 bg-white/60 text-muted-foreground/70 hover:text-primary',
             )}
           >
             <SlidersHorizontal className="size-4" />
             Фильтр
-            {(category || activeLetter || brand || cat) && (
+            {(activeCategory || subcategory || activeLetter || brand || cat) && (
               <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
                 1
               </span>
@@ -207,7 +226,7 @@ export function CatalogTab({
           </button>
         </div>
 
-        {(category || activeLetter || brand || cat) && (
+        {(activeCategory || subcategory || activeLetter || brand || cat) && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {brand && (
               <button onClick={() => setBrand('')} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
@@ -219,9 +238,14 @@ export function CatalogTab({
                 {cat} <X className="size-3" />
               </button>
             )}
-            {category && (
-              <button onClick={() => setCategory('')} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
-                {category} <X className="size-3" />
+            {activeCategory && (
+              <button onClick={() => { setActiveCategory(''); setSubcategory('') }} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                {activeCategory} <X className="size-3" />
+              </button>
+            )}
+            {subcategory && (
+              <button onClick={() => setSubcategory('')} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+                {subcategory} <X className="size-3" />
               </button>
             )}
             {activeLetter && (
@@ -239,7 +263,7 @@ export function CatalogTab({
         </div>
       ) : products.length === 0 ? (
         <div className="py-16 text-center text-sm text-muted-foreground/50">
-          {search || activeLetter || category || brand || cat ? 'Ничего не найдено' : 'В каталоге пока нет продуктов'}
+          {search || activeLetter || activeCategory || subcategory || brand || cat ? 'Ничего не найдено' : 'В каталоге пока нет продуктов'}
         </div>
       ) : (
         <div className="pt-3">
@@ -264,6 +288,12 @@ export function CatalogTab({
                       {p.brand && <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground/50">{p.brand}</p>}
                       <p className="truncate text-sm font-normal text-foreground">{p.name}</p>
                       {p.category && <p className="truncate text-xs text-muted-foreground/50">{p.category}</p>}
+                      {p.rating != null && p.rating > 0 && (
+                        <span className="mt-0.5 inline-flex items-center gap-1">
+                          <Stars value={p.rating} />
+                          <span className="text-[10px] text-muted-foreground/60">{p.rating.toFixed(1)} · {p.rating_count} оценок</span>
+                        </span>
+                      )}
                     </div>
                   </button>
                 ))}
@@ -301,29 +331,60 @@ export function CatalogTab({
             </div>
 
             <p className="mb-1.5 text-xs font-medium text-muted-foreground/70">Категория</p>
-            <div className="mb-3 flex flex-wrap gap-1.5">
+            <div className="mb-1 flex flex-wrap gap-1.5">
               <button
-                onClick={() => setCategory('')}
+                onClick={() => { setActiveCategory(''); setSubcategory('') }}
                 className={cn(
                   'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                  category === '' ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                  !activeCategory ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
                 )}
               >
                 Все
               </button>
-              {categories.map((c) => (
+              {taxonomy.map((t) => (
                 <button
-                  key={c}
-                  onClick={() => setCategory(c)}
+                  key={t.key}
+                  onClick={() => { setActiveCategory(activeCategory === t.title ? '' : t.title); setSubcategory('') }}
                   className={cn(
                     'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                    category === c ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                    activeCategory === t.title ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
                   )}
                 >
-                  {c}
+                  {t.title}
                 </button>
               ))}
             </div>
+
+            {activeCategory && (
+              <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50/60 p-2.5">
+                <p className="mb-1.5 text-[11px] font-medium text-muted-foreground/60">Подкатегории</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setSubcategory('')}
+                    className={cn(
+                      'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                      !subcategory ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                    )}
+                  >
+                    Все товары категории
+                  </button>
+                  {taxonomy
+                    .find((t) => t.title === activeCategory)
+                    ?.subcategories.map((s) => (
+                      <button
+                        key={s.key}
+                        onClick={() => setSubcategory(s.title)}
+                        className={cn(
+                          'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                          subcategory === s.title ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                        )}
+                      >
+                        {s.title}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
 
             <p className="mb-1.5 text-xs font-medium text-muted-foreground/70">Буква</p>
             <div className="mb-3 flex flex-wrap gap-1.5">
@@ -353,8 +414,12 @@ export function CatalogTab({
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  setCategory('')
+                  setActiveCategory('')
+                  setSubcategory('')
                   setActiveLetter('')
+                  setBrand('')
+                  setCat('')
+                  setSearch('')
                   setShowFilters(false)
                 }}
                 className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-foreground/70 transition-colors hover:bg-gray-50"

@@ -24,8 +24,10 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     const [customText, setCustomText] = useState(profile.customText || '')
     const [saved, setSaved] = useState(true)
     const [showReset, setShowReset] = useState(false)
+    const [showConfirm, setShowConfirm] = useState(false)
 
     useScrollLock(showReset)
+    useScrollLock(showConfirm)
 
     useImperativeHandle(ref, () => ({
       getDraft: () => ({ name, skinType, age, concerns, allergies, customText }),
@@ -48,9 +50,25 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
       setSaved(false)
     }
 
-    const handleSave = () => {
+    // Изменения полей, влияющих на персональный анализ (scoring engine).
+    const analysisChanged =
+      skinType !== profile.skinType ||
+      age !== profile.age ||
+      JSON.stringify(concerns) !== JSON.stringify(profile.concerns) ||
+      JSON.stringify(allergies) !== JSON.stringify(profile.allergies)
+
+    const confirmSave = () => {
       onSave({ name, skinType, age, concerns, allergies, customText })
       setSaved(true)
+      setShowConfirm(false)
+    }
+
+    const handleSave = () => {
+      if (analysisChanged) {
+        setShowConfirm(true)
+      } else {
+        confirmSave()
+      }
     }
 
     const handleReset = () => {
@@ -245,6 +263,37 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                   className="flex-1 rounded-xl bg-red-500/20 backdrop-blur-sm border border-red-300/30 px-4 py-2.5 text-xs font-medium text-red-400 transition-all hover:bg-red-500/30"
                 >
                   Сбросить
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ПОДТВЕРЖДЕНИЕ СБРОСА ПОЛКИ ПРИ ИЗМЕНЕНИИ АНКЕТЫ */}
+        {showConfirm && (
+          <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setShowConfirm(false)}>
+            <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-base font-normal text-foreground">Изменения повлияют на анализ</h3>
+                <button onClick={() => setShowConfirm(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="size-4.5" />
+                </button>
+              </div>
+              <p className="text-sm text-muted-foreground/70 leading-relaxed">
+                Изменение анкеты повлияет на результаты анализа. Чтобы пересчитать совместимость товаров с новым профилем, текущая «Моя полка» будет сброшена.
+              </p>
+              <div className="mt-5 flex gap-2">
+                <button
+                  onClick={() => setShowConfirm(false)}
+                  className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-foreground/70 transition-colors hover:bg-gray-50"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={confirmSave}
+                  className="flex-1 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  Сохранить и сбросить полку
                 </button>
               </div>
             </div>

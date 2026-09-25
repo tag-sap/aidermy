@@ -274,6 +274,10 @@ def init_db():
     for column in ("image_url", "category", "brand"):
         if column not in product_columns:
             cursor.execute(f"ALTER TABLE products ADD COLUMN {column} TEXT")
+    # Таксономия каталога (категория + подкатегория), резолвится из названия/legacy-category.
+    for column in ("subcategory", "taxonomy_category"):
+        if column not in product_columns:
+            cursor.execute(f"ALTER TABLE products ADD COLUMN {column} TEXT")
     if "contributed_by" not in product_columns:
         cursor.execute("ALTER TABLE products ADD COLUMN contributed_by INTEGER")
     # Поля для дедупликации товаров и canonical-merge.
@@ -296,6 +300,40 @@ def init_db():
     conn.close()
     
     print("✅ Базы данных инициализированы")
+
+
+def backfill_catalog_taxonomy() -> int:
+    """Заполняет taxonomy_category/subcategory для продуктов без таксономии.
+
+    Использует catalog_taxonomy.resolve_taxonomy по названию + legacy-category.
+    Возвращает число обновлённых строк. Не трогает legacy-колонку category.
+    """
+    try:
+        from .catalog_taxonomy import resolve_taxonomy
+    except Exception:
+        return 0
+
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, name, category FROM products WHERE is_canonical = 1 "
+        "AND (subcategory IS NULL OR subcategory = '')"
+    )
+    rows = cursor.fetchall()
+    updated = 0
+    for row in rows:
+        try:
+            category, subcategory = resolve_taxonomy(row["name"], row["category"] or "")
+            cursor.execute(
+                "UPDATE products SET taxonomy_category = ?, subcategory = ? WHERE id = ?",
+                (category, subcategory, row["id"]),
+            )
+            updated += 1
+        except Exception:
+            continue
+    conn.commit()
+    conn.close()
+    return updated
 
 
 def upsert_imported_product(product: dict) -> dict:
@@ -330,6 +368,35 @@ def upsert_imported_product(product: dict) -> dict:
     }
 
     result = find_or_create_canonical_product(payload)
+
+    # Сразу резолвим таксономию каталога (category/subcategory), чтобы товар
+    # попадал в фильтры без ожидания следующего бэкфилла на старте.
+    try:
+        from .catalog_taxonomy import resolve_taxonomy
+        tax_cat, subcat = resolve_taxonomy(name, product.get("category") or "")
+    except Exception:
+        tax_cat, subcat = None, None
+
+    if tax_cat is not None:
+        conn = None
+        try:
+            conn = get_connection(PRODUCTS_DB)
+            cursor = conn.cursor()
+            cols = {r[1] for r in cursor.execute("PRAGMA table_info(products)").fetchall()}
+            if "subcategory" in cols and "taxonomy_category" in cols:
+                cursor.execute(
+                    "UPDATE products SET taxonomy_category = ?, subcategory = ? WHERE id = ?",
+                    (tax_cat, subcat, result.get("id")),
+                )
+                conn.commit()
+            result["taxonomy_category"] = tax_cat
+            result["subcategory"] = subcat
+        except Exception:
+            pass
+        finally:
+            if conn is not None:
+                conn.close()
+
     print(f"[PRODUCT] {'merged' if result.get('was_merged') else 'created'}: {name}")
     return result
 
@@ -531,6 +598,18 @@ def clear_user_check_history(user_id: int):
         'UPDATE check_history SET deleted_at = CURRENT_TIMESTAMP WHERE user_id = ? AND deleted_at IS NULL',
         (user_id,)
     )
+    conn.commit()
+    deleted = cursor.rowcount
+    conn.close()
+    return deleted
+
+
+def clear_user_shelf(user_id: int):
+    """Удаляет пользовательский контекст полки (User→Shelf→Product), НЕ трогая
+    глобальную Product DB / Static Product Model / Ingredient Knowledge."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM shelf_products WHERE user_id = ?', (user_id,))
     conn.commit()
     deleted = cursor.rowcount
     conn.close()

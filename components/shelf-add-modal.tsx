@@ -1,12 +1,59 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { X, Search, Link2, Wand2, LoaderCircle, Sparkles, ChevronLeft, ThumbsDown } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { X, Search, Link2, Wand2, LoaderCircle, Sparkles, ChevronLeft, ThumbsDown, Camera, ImagePlus, Trash2 } from 'lucide-react'
 import { CABINET_TITLES, CABINET_META } from '@/lib/shelf'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import { cn, capitalizeFirst } from '@/lib/utils'
 
-type Mode = 'menu' | 'base' | 'url' | 'recommend'
+type Mode = 'menu' | 'base' | 'url' | 'recommend' | 'photo'
+
+type PhotoMatch = {
+  slug: string
+  name: string
+  brand: string
+  image_url: string
+  category: string
+  match_percent: number
+  matched_count: number
+  total_recognized: number
+}
+
+function fileToResizedDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        try {
+          const maxDim = 1600
+          let { width, height } = img
+          if (width > maxDim || height > maxDim) {
+            const scale = Math.min(maxDim / width, maxDim / height)
+            width = Math.round(width * scale)
+            height = Math.round(height * scale)
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            resolve(reader.result as string)
+            return
+          }
+          ctx.drawImage(img, 0, 0, width, height)
+          resolve(canvas.toDataURL('image/jpeg', 0.85))
+        } catch {
+          resolve(reader.result as string)
+        }
+      }
+      img.onerror = () => resolve(reader.result as string)
+      img.src = reader.result as string
+    }
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'))
+    reader.readAsDataURL(file)
+  })
+}
 
 type SearchProduct = {
   slug: string
@@ -68,6 +115,12 @@ export function ShelfAddModal({
   const [submittingDislike, setSubmittingDislike] = useState(false)
   const [reviews, setReviews] = useState<Record<string, string>>({})
   const [reviewLoading, setReviewLoading] = useState<Set<string>>(new Set())
+
+  const [photos, setPhotos] = useState<string[]>([])
+  const [photoMatches, setPhotoMatches] = useState<PhotoMatch[]>([])
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [photoStatus, setPhotoStatus] = useState('')
+  const photoInputRef = useRef<HTMLInputElement | null>(null)
 
   useScrollLock(true)
 
@@ -189,6 +242,63 @@ export function ShelfAddModal({
     }
   }
 
+  const enterPhotoMode = () => {
+    setPhotos([])
+    setPhotoMatches([])
+    setPhotoStatus('')
+    setPhotoBusy(false)
+    setStatus('')
+    setMode('photo')
+  }
+
+  const handlePhotoFiles = async (files: FileList | null) => {
+    if (!files || !files.length) return
+    setPhotoStatus('')
+    try {
+      const dataUrls: string[] = []
+      for (const file of Array.from(files)) {
+        dataUrls.push(await fileToResizedDataUrl(file))
+      }
+      setPhotos((prev) => [...prev, ...dataUrls])
+      setPhotoMatches([])
+    } catch (e) {
+      setPhotoStatus(e instanceof Error ? e.message : 'Не удалось добавить фото')
+    }
+  }
+
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const recognizePhoto = async () => {
+    if (!photos.length || photoBusy) return
+    setPhotoBusy(true)
+    setPhotoStatus('')
+    setPhotoMatches([])
+    try {
+      const res = await fetch('/api/composition/recognize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ images: photos }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || 'Не удалось распознать состав')
+      setPhotoMatches(data.matches || [])
+      if (!(data.recognition && data.recognition.is_inci)) {
+        setPhotoStatus('На фото не удалось найти список ингредиентов (INCI). Попробуйте другой ракурс.')
+      } else if (!(data.matches || []).length) {
+        setPhotoStatus('Подходящий продукт не найден в базе. Попробуйте добавить по названию или ссылке.')
+      }
+    } catch (e) {
+      setPhotoStatus(e instanceof Error ? e.message : 'Не удалось распознать состав')
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
+
   const requestReview = async (slug: string) => {
     setReviewLoading((prev) => new Set(prev).add(slug))
     try {
@@ -249,7 +359,7 @@ export function ShelfAddModal({
               </button>
             )}
             <h2 className="text-base font-normal text-foreground">
-              {mode === 'menu' ? 'Добавить продукт' : mode === 'base' ? 'Выбрать из базы' : mode === 'url' ? 'Добавить по ссылке' : 'Подобрать автоматически'}
+              {mode === 'menu' ? 'Добавить продукт' : mode === 'base' ? 'Выбрать из базы' : mode === 'url' ? 'Добавить по ссылке' : mode === 'photo' ? 'Добавить по фото' : 'Подобрать автоматически'}
             </h2>
           </div>
           <button type="button" onClick={onClose} className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
@@ -271,6 +381,10 @@ export function ShelfAddModal({
             <button onClick={() => setMode('recommend')} className="flex w-full items-center gap-3 rounded-xl border border-gray-200 px-3 py-3 text-left transition-colors hover:bg-gray-50">
               <Wand2 className="size-4 text-primary" />
               <div><p className="text-sm text-foreground">Подобрать автоматически</p><p className="text-[10px] text-muted-foreground/60">Aidermy предложит 3 варианта</p></div>
+            </button>
+            <button onClick={enterPhotoMode} className="flex w-full items-center gap-3 rounded-xl border border-gray-200 px-3 py-3 text-left transition-colors hover:bg-gray-50">
+              <Camera className="size-4 text-primary" />
+              <div><p className="text-sm text-foreground">Добавить по фото</p><p className="text-[10px] text-muted-foreground/60">Распознать состав с фотографии</p></div>
             </button>
           </div>
         )}
@@ -306,6 +420,68 @@ export function ShelfAddModal({
             <button onClick={addByUrl} disabled={!url.trim() || busy} className="mt-2 w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
               {busy ? <LoaderCircle className="mx-auto size-4 animate-spin" /> : 'Импортировать'}
             </button>
+          </div>
+        )}
+
+        {mode === 'photo' && (
+          <div className="space-y-3">
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { handlePhotoFiles(e.target.files); e.target.value = '' }}
+            />
+            <button
+              onClick={() => photoInputRef.current?.click()}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/30 bg-primary/5 py-4 text-sm text-primary transition-colors hover:bg-primary/10"
+            >
+              <ImagePlus className="size-4" />
+              Добавить фото состава
+            </button>
+
+            {photos.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {photos.map((p, i) => (
+                  <div key={i} className="relative size-16 overflow-hidden rounded-lg border border-gray-200">
+                    <img src={p} alt="" className="h-full w-full object-cover" />
+                    <button onClick={() => removePhoto(i)} className="absolute right-0.5 top-0.5 rounded-full bg-black/50 p-0.5 text-white"><Trash2 className="size-3" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={recognizePhoto}
+              disabled={!photos.length || photoBusy}
+              className="w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+            >
+              {photoBusy ? <LoaderCircle className="mx-auto size-4 animate-spin" /> : 'Распознать и найти продукт'}
+            </button>
+
+            {photoStatus && <p className="text-[11px] text-muted-foreground/60">{photoStatus}</p>}
+
+            {photoMatches.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground/70">Найденные продукты</p>
+                {photoMatches.map((m) => (
+                  <div key={m.slug} className="flex items-center gap-2.5 rounded-xl border border-gray-200 p-2.5">
+                    <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-50">
+                      {m.image_url ? <img src={m.image_url} alt="" className="h-full w-full object-contain p-1" /> : <Sparkles className="size-4 text-muted-foreground/30" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {m.brand && <p className="text-[9px] uppercase tracking-wide text-muted-foreground/50">{m.brand}</p>}
+                      <p className="truncate text-xs text-foreground/90">{m.name}</p>
+                      {typeof m.match_percent === 'number' && <p className="text-[10px] text-muted-foreground/50">Совпадение: {m.match_percent}%</p>}
+                    </div>
+                    <button onClick={() => addBySlug(m.slug)} disabled={busy} className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40">
+                      Выбрать
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

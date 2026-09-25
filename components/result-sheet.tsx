@@ -153,17 +153,30 @@ export function ResultSheet({
   return (
     <div className={cn('fixed inset-0 z-[90] flex items-center justify-center p-3 transition-opacity duration-300', isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none')} style={{ backgroundColor: 'rgba(0,0,0,0.15)', transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
       <button type="button" onClick={handleClose} className="absolute inset-0" />
-      <div className={cn('relative w-full max-w-md md:max-w-2xl p-5 md:p-6 transition-all duration-300', isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0')} style={{
+      <div className={cn('relative flex max-h-[90dvh] w-full max-w-md md:max-w-3xl flex-col overflow-hidden transition-all duration-300', isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0')} style={{
         transform: isVisible ? 'scale(1) translateY(0)' : 'scale(0.96) translateY(14px)',
         transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
         opacity: isVisible ? 1 : 0,
         borderRadius: '20px',
-        background: 'rgba(255,255,255,0.72)',
+        background: 'rgba(255,255,255,0.9)',
         backdropFilter: 'blur(20px)',
         border: '1px solid rgba(255,255,255,0.5)',
         boxShadow: '0 8px 40px rgba(108,60,225,0.10)'
       }}>
-        <button type="button" onClick={handleClose} className="absolute right-3 top-3 text-foreground/40 hover:text-foreground/70 z-10"><X className="size-5" /></button>
+        {/* Sticky-заголовок с крестиком — доступен при прокрутке. */}
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-100/60 px-5 pt-5 pb-3 md:px-6">
+          {loading ? (
+            <p className="text-sm text-muted-foreground/70 font-light">Анализируем состав…</p>
+          ) : result ? (
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground/50 font-light">Результат проверки</p>
+              <ScrambleText as="h2" text={result.product} revealDelay={45} className="mt-0.5 block text-base md:text-lg font-light text-foreground" />
+            </div>
+          ) : (
+            <span />
+          )}
+          <button type="button" onClick={handleClose} className="shrink-0 rounded-md p-1 text-foreground/40 transition-colors hover:bg-gray-100 hover:text-foreground/70"><X className="size-5" /></button>
+        </div>
 
         {loading ? (
           <div className="flex flex-col items-center gap-3 py-10">
@@ -172,11 +185,8 @@ export function ResultSheet({
             <p className="max-w-[280px] text-center text-xs leading-relaxed text-muted-foreground/50 font-light">Уточняем данные по ингредиентам, чтобы расчёт был точнее</p>
           </div>
         ) : result ? (
-          <div className="flex flex-col gap-3">
-            <div className="pr-8">
-              <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground/50 font-light">Результат проверки</p>
-              <ScrambleText as="h2" text={result.product} revealDelay={45} className="mt-0.5 block text-base md:text-lg font-light text-foreground" />
-            </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 md:px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex flex-col gap-3">
 
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <div className="flex items-center gap-3">
@@ -256,6 +266,7 @@ export function ResultSheet({
 
             <div className="flex gap-2 pt-0.5">
               <button onClick={handleClose} className="flex-1 rounded-lg border border-gray-200/60 py-2.5 text-sm font-medium text-muted-foreground transition-all hover:bg-gray-50">Закрыть</button>
+            </div>
             </div>
           </div>
         ) : null}

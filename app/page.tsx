@@ -338,6 +338,13 @@ export default function Page() {
     saveProfile(mergedProfile)
     setProfileDirty(false)
 
+    // Поля, влияющие на персональный анализ (scoring engine).
+    const analysisChanged =
+      (p.skinType ?? '') !== (profile.skinType ?? '') ||
+      (p.age ?? '') !== (profile.age ?? '') ||
+      JSON.stringify(p.concerns ?? []) !== JSON.stringify(profile.concerns ?? []) ||
+      JSON.stringify(p.allergies ?? []) !== JSON.stringify(profile.allergies ?? [])
+
     const token = localStorage.getItem('token')
     if (token) {
       try {
@@ -362,6 +369,15 @@ export default function Page() {
         if (!res.ok) {
           const error = await res.json()
           throw new Error(error.detail || 'Ошибка сохранения')
+        }
+
+        // Сбрасываем пользовательскую полку (НЕ Static Product Model), т.к.
+        // старые User Analysis рассчитаны относительно старого профиля.
+        if (analysisChanged) {
+          await fetch('/api/shelf/reset', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {})
         }
 
         console.log('✅ Профиль сохранён на сервере')
@@ -882,7 +898,8 @@ export default function Page() {
               onClose={() => setCatalogSlug(null)}
               onChanged={() => {}}
               onCheck={(productName) => {
-                setCatalogSlug(null)
+                // Не закрываем карточку: после закрытия полного отчёта
+                // пользователь должен вернуться в эту же карточку товара.
                 handleCheck(productName, profile.skinType || 'Нормальная')
               }}
               onOpenBrand={(brand) => {

@@ -80,6 +80,30 @@ class CommunityIntelligenceService:
         average = round(float(row["avg"]), 2) if row["avg"] is not None else None
         return {"average": average, "count": count}
 
+    def get_products_community_rating(self, product_ids: list[int]) -> Dict[int, Dict[str, Any]]:
+        """Батч-рейтинг для превью каталога: {product_id: {average, count}}."""
+        if not product_ids:
+            return {}
+        ids = [int(i) for i in product_ids if i is not None]
+        if not ids:
+            return {}
+        conn = get_connection()
+        cursor = conn.cursor()
+        placeholders = ",".join(["?"] * len(ids))
+        cursor.execute(
+            f"SELECT product_id, COUNT(*) AS n, AVG(rating) AS avg FROM reviews "
+            f"WHERE product_id IN ({placeholders}) GROUP BY product_id",
+            ids,
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        result: Dict[int, Dict[str, Any]] = {}
+        for row in rows:
+            count = int(row["n"] or 0)
+            average = round(float(row["avg"]), 2) if row["avg"] is not None else None
+            result[int(row["product_id"])] = {"average": average, "count": count}
+        return result
+
     def get_personalized_community_rating(self, product_id: int, profile: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if not profile:
             return {"available": False, "count": 0, "average": None}

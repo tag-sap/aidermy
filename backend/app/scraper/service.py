@@ -3,12 +3,47 @@ import ipaddress
 import logging
 import os
 import socket
+import sys
 from urllib.parse import urlparse
 
 from .extractors import extract_product
 from .models import ProductImportResult
 
 logger = logging.getLogger(__name__)
+
+# Возможные пути к системному Chromium-браузеру для Patchright (если env не задан).
+_BROWSER_CANDIDATES = [
+    # Windows
+    os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
+    os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
+    os.path.expandvars(r"%PROGRAMFILES%\Microsoft\Edge\Application\msedge.exe"),
+    os.path.expandvars(r"%PROGRAMFILES(X86)%\Microsoft\Edge\Application\msedge.exe"),
+    os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    # macOS
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    # Linux
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+]
+
+
+def resolve_browser_executable() -> str | None:
+    """Возвращает путь к браузеру для headless-фетчеров.
+
+    Явный env имеет приоритет; иначе ищем системный Chrome/Edge, чтобы
+    DynamicFetcher/StealthyFetcher работали без ручной установки Patchright.
+    """
+    env_path = os.getenv("SCRAPLING_BROWSER_EXECUTABLE")
+    if env_path and os.path.exists(env_path):
+        return env_path
+    for candidate in _BROWSER_CANDIDATES:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
 
 
 class ProductImportError(Exception):
@@ -38,7 +73,7 @@ def validate_public_url(value: str) -> str:
 
 
 def _fetch(fetcher: str, url: str) -> object:
-    executable_path = os.getenv("SCRAPLING_BROWSER_EXECUTABLE")
+    executable_path = resolve_browser_executable()
     if fetcher == "basic":
         from scrapling.fetchers import Fetcher
         return Fetcher.get(url, timeout=20, impersonate="chrome")

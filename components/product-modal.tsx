@@ -85,8 +85,6 @@ export function ProductModal({
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
   const [showComposition, setShowComposition] = useState(false)
-  const [reportLoading, setReportLoading] = useState(false)
-  const [showReport, setShowReport] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
@@ -198,36 +196,6 @@ export function ProductModal({
       setAnalysisError(e instanceof Error ? e.message : 'Не удалось выполнить анализ')
     } finally {
       setChecking(false)
-    }
-  }
-
-  const loadReport = async () => {
-    if (!product || reportLoading) return
-    // Отчёт уже сгенерирован для этого актуального анализа — просто показать/скрыть.
-    if (data?.analysis?.report) {
-      setShowReport((v) => !v)
-      return
-    }
-    setReportLoading(true)
-    setError('')
-    try {
-      const res = await fetch('/api/shelf/review', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ slug: product.slug }),
-      })
-      const d = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(d.detail || 'Не удалось сформировать отчёт')
-      setData((prev) =>
-        prev && prev.analysis
-          ? { ...prev, analysis: { ...prev.analysis, report: d.review } }
-          : prev,
-      )
-      setShowReport(true)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось сформировать отчёт')
-    } finally {
-      setReportLoading(false)
     }
   }
 
@@ -361,9 +329,7 @@ export function ProductModal({
                   <ShieldCheck className="size-3.5 text-primary" />
                   <span className="text-xs font-medium text-foreground/80">{data?.analysis?.verdict || 'Проверено'}</span>
                 </div>
-                {showReport && data?.analysis?.report ? (
-                  <p className="mt-1 break-words text-[11px] leading-relaxed text-foreground/60">{data.analysis.report}</p>
-                ) : data?.analysis?.summary ? (
+                {data?.analysis?.summary ? (
                   <p className="mt-1 break-words text-[11px] leading-relaxed text-foreground/60"><MarkupText text={data.analysis.summary} /></p>
                 ) : null}
                 {(asList(data?.analysis?.safe_ingredients).length > 0 || asList(data?.analysis?.caution_ingredients).length > 0) && (
@@ -385,25 +351,15 @@ export function ProductModal({
               <div className="mt-3 rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">{ANALYSIS_LABELS.NOT_ANALYZED}</div>
             )}
 
-            {analysisState.kind === 'ANALYZED' && onOpenReport && (
-              <button
-                onClick={openFullReport}
-                className="mt-2 w-full rounded-xl border border-primary/20 bg-white py-2 text-xs text-primary transition-colors hover:bg-primary/5"
-              >
-                Открыть полный отчёт
-              </button>
-            )}
-
             {error && product && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
 
             <div className="mt-4 flex flex-col gap-2">
-              {analysisState.kind === 'ANALYZED' ? (
+              {analysisState.kind === 'ANALYZED' && onOpenReport ? (
                 <button
-                  onClick={loadReport}
-                  disabled={reportLoading}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+                  onClick={openFullReport}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10"
                 >
-                  {reportLoading ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                  <ShieldCheck className="size-4" />
                   {ANALYSIS_ACTIONS.SHOW_REPORT}
                 </button>
               ) : (

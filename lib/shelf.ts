@@ -36,4 +36,6 @@ export type ShelfItem = {
   slug: string
   ingredients: string
   score: number | null
+  rating?: number | null
+  rating_count?: number
 }

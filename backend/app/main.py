@@ -39,6 +39,13 @@ from .vision_service import (
 
 init_db()
 
+# Бэкфилл таксономии каталога (category/subcategory) по названию + legacy-category.
+try:
+    from .database import backfill_catalog_taxonomy
+    backfill_catalog_taxonomy()
+except Exception as exc:
+    print(f"[INIT] catalog taxonomy backfill failed: {exc!r}")
+
 # Фаза 4 — инициализация Knowledge Graph (таблицы + seed) НА СТАРТЕ,
 # чтобы первый /recommend не нёс seed-нагрузку. Идемпотентно.
 try:
@@ -552,6 +559,7 @@ TITLE_SQL = "REPLACE(TRIM(SUBSTR(name, INSTR(name, CHAR(10)) + 1), CHAR(10) || '
 @app.get("/api/catalog")
 async def get_catalog(
     category: Optional[str] = None,
+    subcategory: Optional[str] = None,
     brand: Optional[str] = None,
     cat: Optional[str] = None,
     search: Optional[str] = None,
@@ -566,9 +574,15 @@ async def get_catalog(
     where = ["is_canonical = 1"]
     params = []
 
+    # Категория (таксономия, верхний уровень) — точное совпадение по колонке.
     if category:
-        where.append("lower_ru(name) LIKE ?")
-        params.append(f"%{category.lower()}%")
+        where.append("taxonomy_category = ?")
+        params.append(category)
+    # Подкатегория (таксономия) — точное совпадение по колонке subcategory.
+    if subcategory:
+        where.append("subcategory = ?")
+        params.append(subcategory)
+    # Legacy-категория (старое поле category, «Сыворотка» и т.д.) — обратная совместимость.
     if cat:
         where.append("category = ?")
         params.append(cat)
@@ -588,7 +602,7 @@ async def get_catalog(
     order_sql = f"{TITLE_SQL} COLLATE NOCASE_RU ASC" if sort == "alpha" else "name ASC"
 
     cursor.execute(
-        f"SELECT name, slug, image_url, ingredients, category, brand FROM products WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
+        f"SELECT id, name, slug, image_url, ingredients, category, subcategory, taxonomy_category, brand FROM products WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
         params + [limit, offset],
     )
     rows = cursor.fetchall()
@@ -597,9 +611,20 @@ async def get_catalog(
     total = cursor.fetchone()[0]
     
     conn.close()
+
+    products = [dict(row) for row in rows]
+    try:
+        from .community_service import CommunityIntelligenceService
+        ratings = CommunityIntelligenceService().get_products_community_rating([p["id"] for p in products])
+    except Exception:
+        ratings = {}
+    for p in products:
+        r = ratings.get(p.get("id")) or {}
+        p["rating"] = r.get("average")
+        p["rating_count"] = r.get("count", 0)
     
     return {
-        "products": [dict(row) for row in rows],
+        "products": products,
         "total": total,
         "limit": limit,
         "offset": offset
@@ -631,7 +656,7 @@ CATEGORY_KEYWORDS = [
 
 @app.get("/api/categories")
 async def get_categories():
-    """Список категорий и брендов для фильтров"""
+    """Список категорий/подкатегорий (таксономия) и брендов для фильтров"""
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     
@@ -652,7 +677,19 @@ async def get_categories():
         brands.add(first_part)
     
     conn.close()
-    return {"categories": list(CATEGORY_KEYWORDS), "brands": sorted(brands)}
+
+    # Таксономия категорий/подкатегорий для каталога.
+    try:
+        from .catalog_taxonomy import taxonomy_payload
+        taxonomy = taxonomy_payload()
+    except Exception:
+        taxonomy = []
+
+    return {
+        "taxonomy": taxonomy,
+        "categories": list(CATEGORY_KEYWORDS),
+        "brands": sorted(brands),
+    }
 
 
 CATALOG_SECTIONS = [
@@ -923,6 +960,27 @@ async def get_shelf(current_user: dict = Depends(get_current_user)):
 
     shelf = get_user_shelf(current_user["id"])
     cabinets = build_cabinet_payload(current_user, shelf)
+
+    # Рейтинг сообщества для превью на полке (без отдельной системы рейтингов).
+    try:
+        from .community_service import CommunityIntelligenceService
+        ids = [
+            item.get("product_id")
+            for cab in cabinets
+            for cat in cab.get("categories", [])
+            for item in cat.get("items", [])
+            if item.get("product_id") is not None
+        ]
+        ratings = CommunityIntelligenceService().get_products_community_rating(ids)
+        for cab in cabinets:
+            for cat in cab.get("categories", []):
+                for item in cat.get("items", []):
+                    r = ratings.get(item.get("product_id")) or {}
+                    item["rating"] = r.get("average")
+                    item["rating_count"] = r.get("count", 0)
+    except Exception:
+        pass
+
     return {"cabinets": cabinets}
 
 
@@ -1201,6 +1259,15 @@ async def clear_shelf(request: ShelfClearRequest, current_user: dict = Depends(g
         ids.append(s["id"])
 
     deleted = remove_products_from_shelf(current_user["id"], ids)
+    return {"status": "ok", "deleted": deleted}
+
+
+@app.post("/api/shelf/reset")
+async def reset_shelf(current_user: dict = Depends(get_current_user)):
+    """Полный сброс пользовательского контекста полки (например, при изменении
+    анкеты, влияющей на анализ). НЕ удаляет Static Product Model / Product DB."""
+    from .database import clear_user_shelf
+    deleted = clear_user_shelf(current_user["id"])
     return {"status": "ok", "deleted": deleted}
 
 

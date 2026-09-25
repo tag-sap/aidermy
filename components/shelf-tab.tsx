@@ -35,6 +35,18 @@ function scoreBadge(s: number | null) {
   return 'bg-[#FF4D3D]/10 text-[#D63B2E]'
 }
 
+function Stars({ value }: { value: number }) {
+  return (
+    <span className="inline-flex items-center gap-px text-amber-400">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <svg key={i} viewBox="0 0 24 24" className="size-2.5" fill={i <= Math.round(value) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.5}>
+          <path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8L12 2z" />
+        </svg>
+      ))}
+    </span>
+  )
+}
+
 // Ширина фиксированного торца полки (левый/правый край).
 const SHELF_EDGE = 16
 
@@ -315,8 +327,26 @@ export function ShelfTab({
             </div>
           </div>
 
-          {/* Одна динамическая физическая полка на зону: ширина растёт/сужается вместе с содержимым */}
-          <div className="relative mx-auto w-fit min-w-[280px] max-w-full">
+          {currentItems.length === 0 && (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white/40 px-6 py-12 text-center">
+              <Sparkles className="size-8 text-primary/30" />
+              <p className="mt-3 text-base font-normal text-foreground/80">На полке пока нет продуктов</p>
+              <p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground/60">
+                Добавьте продукт из каталога, по названию, по ссылке или по фото — и он появится здесь.
+              </p>
+              <button
+                onClick={() => setAddContext({ cabinet: currentCabinet.key, category: '' })}
+                className="mt-4 flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                <Plus className="size-4" />
+                Добавить продукт
+              </button>
+            </div>
+          )}
+
+          {/* Одна динамическая физическая полка на зону: ширина плавно растёт/сужается
+              вместе с содержимым, при переполнении flex-wrap переносит на новую строку. */}
+          <div className="relative mx-auto w-fit min-w-[280px] max-w-full transition-[width] duration-300 ease-out">
             <div className={cn('flex flex-wrap gap-x-5 gap-y-6 px-4 pb-9 pt-3', currentItems.length === 0 && 'justify-center')}>
                 {currentCabinet.categories.map((cat) => {
                   if (cat.items.length === 0) return null
@@ -333,31 +363,37 @@ export function ShelfTab({
                               <button
                                 onClick={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
                                 className={cn(
-                                  'flex h-[180px] w-full flex-col overflow-hidden rounded-2xl border text-left transition-all',
+                                  'flex h-[188px] w-full flex-col overflow-hidden rounded-2xl border text-left transition-all',
                                   selectionMode && isSelected
                                     ? 'border-primary/70 bg-primary/5 ring-2 ring-primary/20'
                                     : 'border-white/40 bg-white/60',
                                   !selectionMode && 'hover:-translate-y-0.5',
                                 )}
                               >
-                                <div className="flex h-[110px] shrink-0 items-center justify-center bg-gray-50/60 p-2">
+                                <div className="flex h-[96px] shrink-0 items-center justify-center bg-gray-50/60 p-2">
                                   {item.image_url ? (
                                     <img src={item.image_url} alt="" className="h-full w-full object-contain" />
                                   ) : (
                                     <Sparkles className="size-5 text-muted-foreground/30" />
                                   )}
                                 </div>
-                                <div className="flex flex-1 flex-col p-2">
+                                <div className="flex flex-1 flex-col px-2 pt-1.5 pb-2">
                                   {item.brand && <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground/40">{item.brand}</p>}
                                   <p className="line-clamp-2 text-[11px] font-medium leading-tight text-foreground/80">{item.name}</p>
-                                  <div className="mt-auto">
+                                  {item.rating != null && item.rating > 0 && (
+                                    <span className="mt-0.5 inline-flex items-center gap-1">
+                                      <Stars value={item.rating} />
+                                      <span className="text-[9px] text-muted-foreground/60">{item.rating.toFixed(1)}</span>
+                                    </span>
+                                  )}
+                                  <div className="mt-auto pt-1">
                                     {currentCabinet.has_scoring &&
                                       (item.score != null ? (
-                                        <span className={cn('mt-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', scoreBadge(item.score))}>
+                                        <span className={cn('inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', scoreBadge(item.score))}>
                                           {item.score}%
                                         </span>
                                       ) : (
-                                        <span className="mt-1.5 inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] text-muted-foreground/50">
+                                        <span className="inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] text-muted-foreground/50">
                                           —
                                         </span>
                                       ))}

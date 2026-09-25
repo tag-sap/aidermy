@@ -1,14 +1,14 @@
 'use client'
 
-import { Search, History, User, Sparkles, LayoutGrid, Home } from 'lucide-react'
+import { Search, History, User, Sparkles, LayoutGrid, Home, QrCode } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type TabId = 'home' | 'catalog' | 'history' | 'shelf' | 'profile'
 
-const TABS: { id: TabId | 'check'; label: string; icon: typeof Search; circle?: boolean }[] = [
+const TABS: { id: TabId | 'check'; label: string; icon: typeof Search; circle?: boolean; primary?: boolean }[] = [
   { id: 'home', label: 'Главная', icon: Home, circle: true },
   { id: 'catalog', label: 'Каталог', icon: LayoutGrid, circle: true },
-  { id: 'check', label: 'Проверить', icon: Search, circle: true },
+  { id: 'check', label: 'Проверить продукт', icon: QrCode, circle: true, primary: true },
   { id: 'shelf', label: 'Моя полка', icon: Sparkles, circle: true },
   { id: 'profile', label: 'Профиль', icon: User, circle: true },
   { id: 'history', label: 'История', icon: History, circle: true },
@@ -38,8 +38,31 @@ export function TabBar({
       aria-label="Основная навигация"
     >
       <div className="mx-auto flex w-full max-w-md items-end justify-around px-2 pt-2 pb-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
-        {visibleTabs.map(({ id, label, icon: Icon, circle }) => {
+        {visibleTabs.map(({ id, label, icon: Icon, circle, primary }) => {
           const isActive = active === id
+
+          if (primary) {
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={onCheck}
+                aria-current={isActive ? 'page' : undefined}
+                data-active={isActive ? 'true' : 'false'}
+                data-tour={id}
+                className="relative -mt-9 flex flex-1 flex-col items-center gap-0.5"
+              >
+                <span
+                  className={cn(
+                    'flex size-16 items-center justify-center rounded-2xl border bg-primary text-primary-foreground border-primary/30 shadow-[0_10px_30px_rgba(108,60,225,0.4)] transition-transform hover:scale-[1.03]'
+                  )}
+                >
+                  <Icon className="size-7" strokeWidth={1.9} />
+                </span>
+                <span className="text-[9px] font-medium leading-none text-primary">{label}</span>
+              </button>
+            )
+          }
 
           if (circle) {
             return (
