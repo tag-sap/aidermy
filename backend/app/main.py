@@ -386,7 +386,8 @@ async def check_product(
             image_url=result.get("image_url"),
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
-            expectations=result.get("expectations")
+            expectations=result.get("expectations"),
+            report=result.get("report")
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
@@ -445,7 +446,8 @@ async def check_with_ingredients(
             image_url=result.get("image_url"),
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
-            expectations=result.get("expectations")
+            expectations=result.get("expectations"),
+            report=result.get("report")
         )
         
     except Exception as e:

@@ -143,55 +143,17 @@ def build_verdict(score: int) -> str:
     return "Не рекомендуется"
 
 
-def _top_factor(factors: List[Dict[str, Any]], direction: str) -> Optional[Dict[str, Any]]:
-    """Возвращает фактор (ингредиент + свойство) с наибольшим вкладом."""
-    best: Optional[Dict[str, Any]] = None
-    best_weight = -1.0
-    for f in factors:
-        if str(f.get("direction", "")).lower() != direction:
-            continue
-        w = float(f.get("strength", 0.0) or 0.0) * float(f.get("confidence", 0.0) or 0.0)
-        if w > best_weight:
-            best_weight = w
-            best = f
-    return best
-
-
-# Человекочитаемое описание эффекта ингредиента (canonical axes, без legacy-имён).
-_POSITIVE_EFFECT: Dict[str, str] = {
-    "hydration": "увлажнение кожи",
-    "barrier": "укрепление защитного барьера",
-    "irritation": "успокоение и снижение раздражения",
-    "sensitization": "снижение сенсибилизирующего потенциала",
-    "sebum": "контроль высыпаний",
-    "pigmentation": "выравнивание тона",
-}
-_NEGATIVE_EFFECT: Dict[str, str] = {
-    "hydration": "может подсушивать кожу",
-    "barrier": "может ослаблять защитный барьер",
-    "irritation": "может раздражать чувствительную кожу",
-    "sensitization": "может сенсибилизировать кожу",
-    "sebum": "может провоцировать высыпания",
-    "pigmentation": "может не способствовать выравниванию тона",
-}
-
-
-def _factor_ingredient(factor: Optional[Dict[str, Any]]) -> str:
-    return str((factor or {}).get("ingredient") or "").strip()
-
-
 def build_summary(
     analysis: Dict[str, Any],
     profile: Dict[str, Any],
     skin_type: str = "",
     score: Optional[int] = None,
 ) -> str:
-    """Детерминированное, персонализированное резюме, согласованное с анализом.
+    """Нейтральное детерминированное резюме (fallback, без причин).
 
-    Строится ТОЛЬКО из фактических результатов scoring engine (dimensions,
-    positive/negative factors, hard_flags) и реального профиля пользователя.
-    Не генерирует фразы вида «подходит для нормальной кожи», если в профиле
-    не указан нормальный тип.
+    Содержит ТОЛЬКО общий вердикт-парафраз, согласованный со score. НЕ содержит
+    названий ингредиентов и hardcoded-описаний эффектов — человеческое объяснение
+    причин полностью генерирует AI Report (generate_ai_report).
     """
     if score is None:
         score = int(analysis.get("score") or 0)
@@ -200,53 +162,20 @@ def build_summary(
 
     hard_flags = analysis.get("hard_flags") or []
     if hard_flags:
-        ing = str(hard_flags[0].get("ingredient") or "ингредиент")
-        return (
-            f"<bad>В составе есть ингредиент, на который у вас отмечена аллергия — {ing}.</bad> "
-            f"Оценка совместимости снижена до {score}%."
-        )
+        return f"Оценка совместимости снижена до {score}% из-за выявленного ограничения в составе."
 
     positive = analysis.get("positive_factors") or []
     negative = analysis.get("negative_factors") or []
     confidence = float(analysis.get("confidence") or 0.0)
 
     if confidence <= 0 and not positive and not negative:
-        return (
-            "Недостаточно данных об ингредиентах, чтобы дать уверенную оценку совместимости. "
-            "Попробуйте проверить состав повторно."
-        )
-
-    pos_factor = _top_factor(positive, "positive")
-    neg_factor = _top_factor(negative, "negative")
-    pos_ing = _factor_ingredient(pos_factor)
-    neg_ing = _factor_ingredient(neg_factor)
-
-    def _pos_effect(f: Optional[Dict[str, Any]]) -> str:
-        return _POSITIVE_EFFECT.get(str((f or {}).get("property") or ""), "") if f else ""
-
-    def _neg_effect(f: Optional[Dict[str, Any]]) -> str:
-        return _NEGATIVE_EFFECT.get(str((f or {}).get("property") or ""), "") if f else ""
+        return "Недостаточно данных об ингредиентах, чтобы дать уверенную оценку совместимости."
 
     if score >= VERDICT_GOOD:
-        core = f"Формула в целом подходит {phrase}."
-        if pos_ing and _pos_effect(pos_factor):
-            core += f" {pos_ing} поддерживает {_pos_effect(pos_factor)}."
-        if neg_ing:
-            core += f" <warning>Учтите: {neg_ing} {_neg_effect(neg_factor) or 'может не подойти чувствительной коже'}.</warning>"
-        return core
-
+        return f"Формула в целом подходит {phrase}."
     if score >= VERDICT_CAUTION:
-        core = f"Формула требует внимания применительно к {phrase}."
-        if neg_ing:
-            core += f" {neg_ing} {_neg_effect(neg_factor) or 'может не подойти вашей коже'}."
-        if pos_ing and _pos_effect(pos_factor):
-            core += f" <good>При этом {pos_ing} поддерживает {_pos_effect(pos_factor)}.</good>"
-        return core
-
-    core = f"Формула, скорее всего, не подходит {phrase}."
-    if neg_ing:
-        core += f" {neg_ing} {_neg_effect(neg_factor) or 'может конфликтовать с потребностями вашей кожи'}."
-    return core
+        return f"Формула требует внимания применительно к {phrase}."
+    return f"Формула, скорее всего, не подходит {phrase}."
 
 
 def ingredient_lists(analysis: Dict[str, Any]) -> Tuple[List[str], List[str]]:

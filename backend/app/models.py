@@ -26,18 +26,18 @@ class CheckRequest(BaseModel):
 class ActiveIngredient(BaseModel):
     name: str
     position: int
-    concentration: str  # "высокая", "средняя", "низкая"
-    effectiveness: str  # "рабочая", "средняя", "минимальная"
+    concentration: str  # "высокая" (позиция 1 в INCI = максимальная концентрация)
+    effectiveness: Optional[str] = None  # удалено: не оцениваем «эффективность» через AI
 
 class HowToUse(BaseModel):
-    application: str
-    time: str
+    application: Optional[str] = None
+    time: Optional[str] = None
     note: Optional[str] = None
 
 class Expectations(BaseModel):
-    when: str
-    normal: str
-    danger: str
+    when: Optional[str] = None
+    normal: Optional[str] = None
+    danger: Optional[str] = None
 
 class CheckResponse(BaseModel):
     score: int
@@ -54,6 +54,7 @@ class CheckResponse(BaseModel):
     active_ingredients: Optional[ActiveIngredient] = None
     how_to_use: Optional[HowToUse] = None
     expectations: Optional[Expectations] = None
+    report: Optional[str] = None
 
 class CheckWithIngredientsRequest(BaseModel):
     product_name: str

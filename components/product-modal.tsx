@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { X, Sparkles, LoaderCircle, Check, Trash2, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { MarkupText } from '@/components/markup-text'
 import { CABINET_TITLES } from '@/lib/shelf'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import { CommunitySection } from '@/components/community-section'
@@ -28,7 +27,7 @@ type ProductDetail = {
     score?: number
     safe_ingredients?: string[]
     caution_ingredients?: string[]
-    active_ingredients?: { name: string; position: number; concentration: 'высокая' | 'средняя' | 'низкая'; effectiveness: 'рабочая' | 'средняя' | 'минимальная' } | null
+    active_ingredients?: { name: string; position: number; concentration: 'высокая' | 'средняя' | 'низкая'; effectiveness?: 'рабочая' | 'средняя' | 'минимальная' } | null
     how_to_use?: { application: string; time: string; note: string } | null
     expectations?: { when: string; normal: string; danger: string } | null
     report?: string | null
@@ -217,6 +216,7 @@ export function ProductModal({
       active_ingredients: a.active_ingredients ?? undefined,
       how_to_use: a.how_to_use ?? undefined,
       expectations: a.expectations ?? undefined,
+      report: a.report ?? undefined,
     }
     onOpenReport(result)
   }
@@ -324,24 +324,9 @@ export function ProductModal({
             </div>
 
             {analysisState.kind === 'ANALYZED' ? (
-              <div className="mt-3 rounded-xl border border-primary/15 bg-primary/5 p-3">
-                <div className="flex items-center gap-1.5">
-                  <ShieldCheck className="size-3.5 text-primary" />
-                  <span className="text-xs font-medium text-foreground/80">{data?.analysis?.verdict || 'Проверено'}</span>
-                </div>
-                {data?.analysis?.summary ? (
-                  <p className="mt-1 break-words text-[11px] leading-relaxed text-foreground/60"><MarkupText text={data.analysis.summary} /></p>
-                ) : null}
-                {(asList(data?.analysis?.safe_ingredients).length > 0 || asList(data?.analysis?.caution_ingredients).length > 0) && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {asList(data?.analysis?.safe_ingredients).slice(0, 4).map((i) => (
-                      <span key={i} className="rounded-full bg-white/70 px-1.5 py-0.5 text-[9px] text-foreground/60">{i}</span>
-                    ))}
-                    {asList(data?.analysis?.caution_ingredients).slice(0, 4).map((i) => (
-                      <span key={i} className="rounded-full bg-red-50 px-1.5 py-0.5 text-[9px] text-red-500">{i}</span>
-                    ))}
-                  </div>
-                )}
+              <div className="mt-3 flex items-center gap-1.5">
+                <ShieldCheck className="size-3.5 text-primary" />
+                <span className="text-xs font-medium text-foreground/80">{data?.analysis?.verdict || 'Проверено'}</span>
               </div>
             ) : analysisState.kind === 'ANALYSIS_PENDING' ? (
               <div className="mt-3 rounded-xl border border-dashed border-gray-200/70 py-3 text-center text-[11px] text-muted-foreground/40">{ANALYSIS_LABELS.PENDING}</div>

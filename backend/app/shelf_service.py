@@ -622,26 +622,17 @@ _RANK_SHELF_WEIGHT = 0.25
 
 
 def _reason_from_analysis(analysis: Optional[Dict[str, Any]]) -> str:
+    """Нейтральная причина для превью подбора: только verdict/score, без
+    технических ингредиентов и hardcoded-объяснений (они генерируются AI Report)."""
     if not analysis:
         return ""
-    # deterministic-анализ: positive/negative/hard factors
-    if analysis.get("positive_factors") or analysis.get("negative_factors") or analysis.get("hard_flags"):
-        parts: List[str] = []
-        hard = analysis.get("hard_flags") or []
-        pos = [f.get("ingredient") for f in analysis.get("positive_factors", []) if f.get("ingredient")]
-        neg = [f.get("ingredient") for f in analysis.get("negative_factors", []) if f.get("ingredient")]
-        if hard:
-            parts.append("Содержит аллерген: " + str(hard[0].get("ingredient", "")))
-        if pos:
-            parts.append("Подходит: " + ", ".join(list(dict.fromkeys(pos))[:3]))
-        if neg:
-            parts.append("Требует внимания: " + ", ".join(list(dict.fromkeys(neg))[:2]))
-        if not parts:
-            parts.append("Состав не противоречит профилю.")
-        return " • ".join(parts)
-    # история проверки: используем summary AI
-    summary = (analysis.get("summary") or "").strip()
-    return summary[:200] if summary else ""
+    verdict = (analysis.get("verdict") or "").strip()
+    if verdict:
+        return verdict
+    score = analysis.get("score")
+    if score is not None:
+        return f"Совместимость {score}%"
+    return ""
 
 
 def _aggregate_scores(items: List[Dict[str, Any]]) -> Optional[int]:

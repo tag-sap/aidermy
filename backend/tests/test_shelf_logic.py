@@ -70,5 +70,7 @@ def test_summary_has_no_internal_factor_names():
         75,
     )
     assert "фактор" not in summary
-    assert "Glycerin" in summary
-    assert "увлажнение" in summary
+    # hardcoded-объяснения причин убраны: summary не содержит ингредиентов и эффектов.
+    assert "Glycerin" not in summary
+    assert "увлажнение" not in summary
+    assert "Alcohol" not in summary

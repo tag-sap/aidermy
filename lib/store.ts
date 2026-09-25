@@ -21,6 +21,7 @@ export type CheckResult = {
   summary: string
   safe_ingredients?: string[]
   caution_ingredients?: string[]
+  report?: string | null
   stats?: Record<string, number>
   skin_type_recommendation?: string
   slug?: string
@@ -30,7 +31,7 @@ export type CheckResult = {
     name: string
     position: number
     concentration: 'высокая' | 'средняя' | 'низкая'
-    effectiveness: 'рабочая' | 'средняя' | 'минимальная'
+    effectiveness?: 'рабочая' | 'средняя' | 'минимальная'
   }
   how_to_use?: {
     application: string

@@ -22,7 +22,7 @@ export type ProductAnalysis = {
     name: string
     position: number
     concentration: string
-    effectiveness: string
+    effectiveness?: string
   } | null
   how_to_use?: { application: string; time: string; note: string } | null
   expectations?: { when: string; normal: string; danger: string } | null

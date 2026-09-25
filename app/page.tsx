@@ -49,6 +49,7 @@ const normalizeHistoryItem = (item: any): CheckResult => ({
   active_ingredients: item?.active_ingredients ?? undefined,
   how_to_use: item?.how_to_use ?? undefined,
   expectations: item?.expectations ?? undefined,
+  report: item?.report ?? item?.ai_report ?? undefined,
 })
 
 export default function Page() {
@@ -588,6 +589,7 @@ export default function Page() {
         active_ingredients: data.active_ingredients,
         how_to_use: data.how_to_use,
         expectations: data.expectations,
+        report: data.report,
       }
 
       setResult(fullResult)

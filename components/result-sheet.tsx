@@ -85,10 +85,8 @@ export function ResultSheet({
   const [productNameInput, setProductNameInput] = useState('')
   const [ingredientsInput, setIngredientsInput] = useState('')
   const [isCheckingIngredients, setIsCheckingIngredients] = useState(false)
-  const [ingredientsModal, setIngredientsModal] = useState<{ title: string; items: string[] } | null>(null)
 
   useScrollLock(isOpen)
-  useScrollLock(!!ingredientsModal)
 
   useEffect(() => {
     if (isOpen) {
@@ -197,9 +195,9 @@ export function ResultSheet({
                   <p className="text-xs text-muted-foreground/50 font-light">на основе состава</p>
                 </div>
               </div>
-              {result.summary && (
+              {result.report && (
                 <div className="sm:flex-1 rounded-xl bg-primary/5 border border-primary/10 p-3">
-                  <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.summary} /></p>
+                  <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.report} /></p>
                 </div>
               )}
             </div>
@@ -211,7 +209,7 @@ export function ResultSheet({
                     <span className="text-sm font-medium text-foreground/80">{result.active_ingredients.name}</span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">#{result.active_ingredients.position}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground/60 font-light mt-1">{result.active_ingredients.concentration} · {result.active_ingredients.effectiveness}</p>
+                  <p className="text-xs text-muted-foreground/60 font-light mt-1">Первый в составе — высокая концентрация</p>
                 </Section>
               )}
 
@@ -236,24 +234,6 @@ export function ResultSheet({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              {result.safe_ingredients && result.safe_ingredients.length > 0 && (
-                <Section icon={CheckCircle} title="Безопасные" className="border-primary/30" onClick={() => setIngredientsModal({ title: 'Безопасные ингредиенты', items: result.safe_ingredients! })}>
-                  <div className="flex flex-wrap gap-1">
-                    {result.safe_ingredients.slice(0, 4).map((ing) => <span key={ing} className="text-[11px] px-2 py-0.5 bg-primary/5 text-primary/70 rounded-full">{ing}</span>)}
-                    {result.safe_ingredients.length > 4 && <span className="text-[11px] text-muted-foreground/50">+{result.safe_ingredients.length - 4}</span>}
-                  </div>
-                </Section>
-              )}
-              {result.caution_ingredients && result.caution_ingredients.length > 0 && (
-                <Section icon={AlertCircle} title="Требует внимания" className="border-red-100/50" onClick={() => setIngredientsModal({ title: 'Ингредиенты, требующие внимания', items: result.caution_ingredients! })}>
-                  <div className="flex flex-wrap gap-1">
-                    {result.caution_ingredients.slice(0, 4).map((ing) => <span key={ing} className="text-[11px] px-2 py-0.5 bg-red-50 text-red-500 rounded-full">{ing}</span>)}
-                    {result.caution_ingredients.length > 4 && <span className="text-[11px] text-muted-foreground/50">+{result.caution_ingredients.length - 4}</span>}
-                  </div>
-                </Section>
-              )}
-            </div>
 
             {showIngredientsInput && (
               <div className="rounded-xl bg-white/60 backdrop-blur-md p-3 border border-gray-100">
@@ -272,19 +252,6 @@ export function ResultSheet({
         ) : null}
       </div>
 
-      {ingredientsModal && (
-        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setIngredientsModal(null)}>
-          <div className="w-full max-w-sm max-h-[80vh] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl animate-modal-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-foreground">{ingredientsModal.title}</h3>
-              <button type="button" onClick={() => setIngredientsModal(null)} className="text-foreground/40 hover:text-foreground/70"><X className="size-4" /></button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {ingredientsModal.items.map((ing) => <span key={ing} className="rounded-full bg-primary/5 px-2 py-1 text-[10px] text-foreground/70">{ing}</span>)}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

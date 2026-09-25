@@ -219,34 +219,51 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 
     deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
 
-    # AI используется ТОЛЬКО для обогащения (active_ingredients / how_to_use /
-    # expectations / ingredient_claims). Финальный score/verdict всегда берётся
-    # из deterministic scoring engine.
-    enrichment = await _enrich_with_ai(product_name, ingredients, skin_type, profile) if DEEPSEEK_API_KEY else None
+    # 1) AI обогащает ТОЛЬКО базу знаний ингредиентов (ingredient_claims).
+    #    НЕ генерирует how_to_use / expectations / active_ingredients и НЕ оценивает
+    #    совместимость — это второй старый pipeline, который убран.
+    ingredient_claims = await _enrich_knowledge_with_ai(product_name, ingredients) if DEEPSEEK_API_KEY else None
 
-    if enrichment:
+    if ingredient_claims:
         from .shelf_service import enrich_ingredient_knowledge
-        added = enrich_ingredient_knowledge(enrichment.get("ingredient_claims") or [])
+        added = enrich_ingredient_knowledge(ingredient_claims)
         # Если движок ещё ничего не знал о составе, а AI пополнил базу знаний —
         # пересчитываем детерминированный скор на обогащённых данных.
         if float(deterministic.get("confidence") or 0.0) <= 0 and added > 0:
             deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
 
-    # Итоговое резюме — детерминированное (build_summary). AI-рецензия (summary) НЕ
-    # вызывается здесь автоматически: она доступна только по явному запросу через
-    # generate_ai_review() / эндпоинт /api/review. Процент всегда детерминированный.
+    # 2) AI-отчёт (report) — человеческое объяснение причин («Почему»).
+    #    Получает structured factors и НЕ переопределяет score/verdict.
+    report = None
+    if DEEPSEEK_API_KEY and (deterministic.get("positive_factors") or deterministic.get("negative_factors")):
+        report = await generate_ai_report(product_name, deterministic, profile)
+
+    # 3) AI-отчёт (how_to_use / expectations) — вторичное текстовое представление
+    #    УЖЕ ГОТОВОГО User Analysis. Получает score/verdict/factors/safe/caution и
+    #    НЕ имеет права переопределять совместимость.
+    sections = {"how_to_use": None, "expectations": None}
+    if DEEPSEEK_API_KEY and (deterministic.get("positive_factors") or deterministic.get("negative_factors")):
+        sections = await generate_ai_report_sections(product_name, deterministic, profile)
+
+    # active_ingredients — детерминированный факт о составе (первый ингредиент INCI),
+    # без спекулятивной «эффективности» из AI.
+    active_ingredients = build_active_ingredient(deterministic)
+
+    # Итоговое резюме — нейтральный детерминированный fallback (build_summary).
+    # Пользовательское объяснение причин — это поле report (AI).
     summary = deterministic.get('summary') or 'Не удалось получить рекомендацию.'
 
     return {
         'score': int(deterministic.get('score') or 0),
         'verdict': deterministic.get('verdict') or 'Требует внимания',
         'summary': summary,
+        'report': report or summary,
         'safe_ingredients': deterministic.get('safe_ingredients') or [],
         'caution_ingredients': deterministic.get('caution_ingredients') or [],
-        'active_ingredients': (enrichment or {}).get('active_ingredients'),
-        'how_to_use': (enrichment or {}).get('how_to_use'),
-        'expectations': (enrichment or {}).get('expectations'),
-        'ingredient_claims': (enrichment or {}).get('ingredient_claims') or [],
+        'active_ingredients': active_ingredients,
+        'how_to_use': sections.get('how_to_use'),
+        'expectations': sections.get('expectations'),
+        'ingredient_claims': ingredient_claims or [],
         'research_status': research_status,
     }
 
@@ -286,68 +303,41 @@ async def generate_ai_report(product_name: str, analysis: dict, profile: dict) -
     """AI-отчёт: человеческое объяснение УЖЕ СУЩЕСТВУЮЩЕГО User Analysis.
 
     Score НЕ пересчитывается — берётся из переданного analysis (история проверок).
-    AI пишет 2-3 предложения по готовым safe/caution ингредиентам.
+    AI получает исходные structured factors (ingredient + axis + direction) и
+    объясняет их человеческим языком, НЕ выводя технические идентификаторы.
     """
     from .ai_summary import summarize_with_ai
 
     analysis = analysis or {}
     score = int(analysis.get("score") or 0)
-    pos = [{"ingredient": i} for i in (analysis.get("safe_ingredients") or [])]
-    neg = [{"ingredient": i} for i in (analysis.get("caution_ingredients") or [])]
-    payload = {**analysis, "positive_factors": pos, "negative_factors": neg}
-    summary = await summarize_with_ai(product_name, score, payload, profile or {})
+    # Передаём исходные structured factors (с axis/direction), а НЕ ingredient-only списки.
+    summary = await summarize_with_ai(product_name, score, analysis, profile or {})
     return summary or (analysis.get("summary") or "")
 
-async def _enrich_with_ai(product_name: str, ingredients: str, skin_type: str, profile: dict) -> dict | None:
-    """AI-обогащение данных о составе.
+async def _enrich_knowledge_with_ai(product_name: str, ingredients: str) -> list | None:
+    """AI-обогащение ТОЛЬКО базы знаний ингредиентов (ingredient_claims).
 
-    Возвращает ТОЛЬКО вспомогательные поля (active_ingredients, how_to_use,
-    expectations, ingredient_claims). НЕ возвращает score/verdict/summary —
-    их всегда считает deterministic scoring engine.
+    НЕ генерирует how_to_use / expectations / active_ingredients и НЕ оценивает
+    совместимость продукта с профилем — это делает исключительно deterministic
+    scoring engine. Возвращает список claims для enrich_ingredient_knowledge.
     """
     prompt = f"""
-Ты — косметолог-технолог. Обогати данные о составе продукта для базы знаний Aidermy.
-
-### Контекст пользователя (только для понимания, НЕ для оценки):
-- Кожа: {skin_type}
-- Проблемы: {', '.join(profile.get('concerns', [])) or 'не указаны'}
-- Аллергии: {', '.join(profile.get('allergies', [])) or 'не указаны'}
+Ты — косметолог-технолог. Пополни базу знаний ингредиентов Aidermy.
 
 ### Продукт:
 - {product_name}
 - Состав (по убыванию концентрации): {ingredients}
 
-### Задачи:
-1. Определи один ключевой активный ингредиент: его позицию в составе, концентрацию и эффективность.
-2. Опиши, как применять, чего ожидать и когда стоит насторожиться.
-3. Перечисли 3–6 ингредиентов с их свойством для базы знаний.
-
-### Теги для цветовой маркировки (только в полях note, normal, danger):
-<good> — позитивный момент
-<warning> — предупреждение
-<bad> — негативный момент
+### Задача:
+Перечисли 3–6 ингредиентов с их атомарным свойством (axis-эффектом) для базы знаний.
 
 ### ВАЖНО:
-Верни ТОЛЬКО JSON без лишнего текста. Поля score, verdict, summary НЕ нужны.
+- Указывай ТОЛЬКО atomic effects, соответствующие осям: hydration, barrier_support, sensitivity, acne_control, brightening.
+- НЕ оценивай, подходит ли продукт какому-либо типу кожи. НЕ пиши вердикт и процент совместимости.
+- Верни ТОЛЬКО JSON.
 
 ### Формат:
 {{
-  "active_ingredients": {{
-    "name": "название",
-    "position": число,
-    "concentration": "высокая" | "средняя" | "низкая",
-    "effectiveness": "рабочая" | "средняя" | "минимальная"
-  }},
-  "how_to_use": {{
-    "application": "Тонкий слой" | "Точечно" | "Можно много",
-    "time": "Утром" | "Вечером" | "2 раза в день",
-    "note": "с <good>, <warning> или <bad>"
-  }},
-  "expectations": {{
-    "when": "через 1-2 недели" | "через месяц",
-    "normal": "с <good>, <warning> или <bad>",
-    "danger": "с <good>, <warning> или <bad>"
-  }},
   "ingredient_claims": [
     {{"ingredient": "ингредиент", "property": "hydration|barrier_support|sensitivity|acne_control|brightening", "direction": "positive|negative", "strength": 0.8, "confidence": 0.9}}
   ]
@@ -392,10 +382,8 @@ async def _enrich_with_ai(product_name: str, ingredients: str, skin_type: str, p
 
             try:
                 result = extract_json_from_response(content)
-                if isinstance(result, dict) and (
-                    result.get("active_ingredients") or result.get("ingredient_claims")
-                ):
-                    return result
+                if isinstance(result, dict) and result.get("ingredient_claims"):
+                    return result["ingredient_claims"]
             except Exception:
                 continue
 
@@ -403,6 +391,159 @@ async def _enrich_with_ai(product_name: str, ingredients: str, skin_type: str, p
             continue
 
     return None
+
+
+def build_active_ingredient(analysis: dict) -> dict | None:
+    """Детерминированный «ключевой активный ингредиент» из состава.
+
+    Первый ингредиент INCI = максимальная концентрация (конвенция INCI).
+    Это факт о составе, а НЕ оценка эффективности/совместимости — без скрытого
+    scoring pipeline. Возвращает None, если состава нет.
+    """
+    ingredients = analysis.get("normalized_ingredients") or []
+    if not ingredients:
+        return None
+    return {
+        "name": str(ingredients[0]),
+        "position": 1,
+        # «высокая» = позиция 1 в INCI (максимальная концентрация по конвенции).
+        "concentration": "высокая",
+    }
+
+
+def _factor_text(factor: dict) -> str:
+    ing = str(factor.get("ingredient") or "").strip()
+    prop = str(factor.get("property") or "").strip()
+    return f"{ing} → {prop}" if ing and prop else (ing or prop or "")
+
+
+def build_report_sections_prompt(product_name: str, analysis: dict, profile: dict) -> str:
+    """Собирает prompt для how_to_use/expectations ИЗ структурированного анализа.
+
+    AI получает уже готовый результат (score, verdict, factors, safe/caution, hard flags)
+    и НЕ имеет права переопределять совместимость или вердикт.
+    """
+    score = int(analysis.get("score") or 0)
+    verdict = analysis.get("verdict") or ""
+    summary = analysis.get("summary") or ""
+    pos = "; ".join(_factor_text(f) for f in (analysis.get("positive_factors") or [])[:6]) or "—"
+    neg = "; ".join(_factor_text(f) for f in (analysis.get("negative_factors") or [])[:6]) or "—"
+    safe = ", ".join(analysis.get("safe_ingredients") or []) or "—"
+    caution = ", ".join(analysis.get("caution_ingredients") or []) or "—"
+    hard = json.dumps(analysis.get("hard_flags") or analysis.get("hard_filters") or [], ensure_ascii=False) or "нет"
+    skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
+
+    return (
+        "Ты — помощник, который оформляет УЖЕ ГОТОВЫЙ результат анализа косметики в текст. "
+        "НЕ выполняй анализ сам и НЕ переоценивай совместимость.\n\n"
+        "### Результат анализа (источник истины — НЕ меняй):\n"
+        f"- Совместимость (зафиксирована алгоритмом): {score}%\n"
+        f"- Вердикт: {verdict}\n"
+        f"- Резюме: {summary}\n"
+        f"- Положительные факторы (ингредиент → эффект): {pos}\n"
+        f"- Отрицательные факторы: {neg}\n"
+        f"- Подходят профилю: {safe}\n"
+        f"- Требуют внимания: {caution}\n"
+        f"- Жёсткие ограничения: {hard}\n"
+        f"- Тип кожи: {skin or 'не указан'}\n\n"
+        "### Задачи (верни ТОЛЬКО JSON):\n"
+        "1. how_to_use: {{application, time, note}} — нейтральное описание применения, "
+        "следующее из состава. НЕ используй слова «подходит/не подходит/рекомендуется/противопоказан». "
+        "Если данных недостаточно — верни null.\n"
+        "2. expectations: {{when, normal, danger}} — "
+        "normal описывай ТОЛЬКО эффекты из положительных факторов; "
+        "danger описывай ТОЛЬКО из отрицательных факторов/«требуют внимания». "
+        "НЕ придумывай эффектов, которых нет в списках. Если факторов нет — null.\n"
+        "3. Теги: <good>, <warning>, <bad> только для разметки.\n\n"
+        "### ВАЖНО: не пересчитывай процент, не меняй вердикт, не делай выводов о "
+        "совместимости, которых нет в структурированном анализе.\n\n"
+        "### Формат:\n"
+        "{{\n"
+        "  \"how_to_use\": {{\"application\": \"...\", \"time\": \"...\", \"note\": \"...\"}} | null,\n"
+        "  \"expectations\": {{\"when\": \"...\", \"normal\": \"...\", \"danger\": \"...\"}} | null\n"
+        "}}\n"
+    )
+
+
+def sanitize_report_sections(verdict: str, sections: dict) -> dict:
+    """Защита от «скрытого второго вердикта».
+
+    Если детерминированный вердикт отрицательный («Не рекомендуется»), а AI написал
+    в секциях позитивное утверждение о совместимости («подходит»), нейтрализуем
+    соответствующее поле. Возвращает очищенный dict.
+    """
+    if not isinstance(sections, dict):
+        return {}
+    cleaned = dict(sections)
+    if "не рекоменд" not in str(verdict or "").lower():
+        return cleaned
+
+    positive_claim = re.compile(r"(?<!не\s)подходит", re.IGNORECASE)
+
+    for key in list(cleaned.keys()):
+        value = cleaned.get(key)
+        if isinstance(value, str) and positive_claim.search(value):
+            cleaned[key] = None
+        elif isinstance(value, dict):
+            for sub in list(value.keys()):
+                sub_value = value.get(sub)
+                if isinstance(sub_value, str) and positive_claim.search(sub_value):
+                    value[sub] = None
+
+    return cleaned
+
+
+async def generate_ai_report_sections(product_name: str, analysis: dict, profile: dict) -> dict:
+    """Генерирует how_to_use/expectations из СТРУКТУРИРОВАННОГО анализа.
+
+    Вторичное текстовое представление User Analysis, а НЕ второй анализ.
+    Возвращает {"how_to_use": ... | None, "expectations": ... | None}.
+    При недоступности AI или отсутствии structured evidence возвращает None-поля.
+    """
+    pos = analysis.get("positive_factors") or []
+    neg = analysis.get("negative_factors") or []
+    if not pos and not neg:
+        return {"how_to_use": None, "expectations": None}
+
+    prompt = build_report_sections_prompt(product_name, analysis, profile)
+
+    for model_name in DEEPSEEK_MODEL_FALLBACKS:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    DEEPSEEK_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model_name,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                        "max_tokens": 800,
+                    },
+                    timeout=30,
+                )
+            if response.status_code != 200:
+                continue
+            data = response.json()
+            content = (data["choices"][0]["message"]["content"] or "").strip()
+            if not content:
+                continue
+            parsed = extract_json_from_response(content)
+            if not isinstance(parsed, dict):
+                continue
+            parsed = sanitize_report_sections(analysis.get("verdict") or "", parsed)
+            return {
+                "how_to_use": parsed.get("how_to_use"),
+                "expectations": parsed.get("expectations"),
+            }
+        except Exception as exc:
+            print(f"[REPORT SECTIONS] AI failed: {exc!r}")
+            continue
+
+    return {"how_to_use": None, "expectations": None}
+
 
 def search_products(query: str) -> List[dict]:
     from .database import get_connection, PRODUCTS_DB

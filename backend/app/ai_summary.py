@@ -11,15 +11,31 @@ from typing import Any, Dict, List, Optional
 
 from .decision_engine import DIMENSION_LABELS
 
+# Нейтральные human-метки осей (без позитивной/негативной окраски), чтобы AI
+# корректно объяснял negative-факторы (например, «раздражение», а не «снижение раздражения»).
+_AXIS_NEUTRAL_LABELS: Dict[str, str] = {
+    "hydration": "увлажнение",
+    "barrier": "барьер кожи",
+    "irritation": "раздражение",
+    "sensitization": "сенсибилизация",
+    "sebum": "себум/жирность",
+    "pigmentation": "пигментация",
+}
+
 
 def _effect_label(property_name: str) -> str:
-    return DIMENSION_LABELS.get(str(property_name or ""), str(property_name or ""))
+    return _AXIS_NEUTRAL_LABELS.get(str(property_name or ""), DIMENSION_LABELS.get(str(property_name or ""), str(property_name or "")))
 
 
 def _factor_text(factor: Dict[str, Any]) -> str:
     ing = str(factor.get("ingredient") or "").strip()
     prop = _effect_label(factor.get("property"))
-    return f"{ing} ({prop})" if ing else prop
+    direction = str(factor.get("direction") or "").lower()
+    if ing and prop:
+        return f"{ing} (эффект «{prop}», {'негативный' if direction == 'negative' else 'позитивный'})"
+    if ing:
+        return ing
+    return prop
 
 
 def _prompt(
@@ -33,15 +49,17 @@ def _prompt(
     pos = "; ".join(_factor_text(f) for f in positive[:6]) or "—"
     neg = "; ".join(_factor_text(f) for f in negative[:6]) or "—"
     return (
-        "Ты — косметолог. Дай КРАТКОЕ объяснение результата подбора косметики.\n\n"
+        "Ты — косметолог. Объясни пользователю УЖЕ ГОТОВЫЙ результат подбора косметики "
+        "обычным человеческим языком.\n\n"
         f"Продукт: {product_name}\n"
         f"Тип кожи: {skin_type or 'не указан'}\n"
-        f"Итоговая совместимость (рассчитана алгоритмом, не меняй её): {score}%\n"
+        f"Итоговая совместимость (рассчитана алгоритмом, НЕ меняй её): {score}%\n"
         f"Положительные факторы: {pos}\n"
         f"Отрицательные факторы: {neg}\n\n"
-        "Напиши максимум 2-3 коротких предложения (до 280 символов). Только ключевые "
-        "причины результата: что дало основной положительный вклад и на что обратить "
-        "внимание. Без списков, без пересказа INCI, без маркдауна.\n"
+        "Напиши максимум 2-3 коротких предложения (до 280 символов). Только причины результата: "
+        "что дало основной вклад и на что обратить внимание. Объясняй причины, но НЕ выводи "
+        "технические INCI-названия (например, вместо «fragrance» напиши «парфюмерная композиция»). "
+        "Не выдумывай эффектов, которых нет в факторах. Без списков и маркдауна.\n"
         f"ВАЖНО: процент не пересчитывай, он зафиксирован и равен {score}%. Верни только текст."
     )
 
