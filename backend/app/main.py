@@ -1232,9 +1232,9 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     Score НЕ пересчитывается — AI только пишет человеческое объяснение
     уже рассчитанного результата. Отчёт кэшируется в check_history.ai_report.
     """
-    from .database import get_product_by_slug, save_ai_report, save_analysis_report
+    from .database import get_product_by_slug, save_ai_report, save_analysis_report, save_analysis_details
     from .shelf_service import score_product
-    from .services import generate_ai_report
+    from .services import generate_full_report
 
     product = get_product_by_slug(request.slug)
     if not product:
@@ -1247,22 +1247,47 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     if score is None:
         raise HTTPException(status_code=409, detail="Анализ ещё не выполнен — сначала проверьте совместимость.")
 
-    # Если описание уже сгенерировано для этого актуального анализа — возвращаем сохранённое.
-    if analysis and analysis.get("report"):
-        return {"score": score, "review": analysis["report"]}
+    # Если полный отчёт уже сгенерирован — возвращаем сохранённое (без повторного LLM).
+    if analysis and analysis.get("report") and analysis.get("active_ingredients") and analysis.get("how_to_use") and analysis.get("expectations"):
+        return {
+            "score": score,
+            "review": analysis["report"],
+            "active_ingredients": analysis.get("active_ingredients"),
+            "how_to_use": analysis.get("how_to_use"),
+            "expectations": analysis.get("expectations"),
+        }
 
+    # Иначе генерируем ВСЕ блоки отчёта (Общий вывод + Ключевой ингредиент +
+    # Как применять + Чего ожидать) по уже готовому результату scoring engine.
     profile = _profile_from_user(current_user)
+    skin_type = profile.get("skin_type") or "Нормальная"
     try:
-        review = await generate_ai_report(name, analysis, profile)
+        full = await generate_full_report(name, product.get("ingredients") or "", profile, skin_type)
     except Exception as exc:
         print(f"[REVIEW] failed: {exc!r}")
         raise HTTPException(status_code=502, detail="Не удалось сформировать отчёт") from exc
 
-    # Сохраняем описание к актуальному User Analysis (и в legacy history для совместимости).
+    review = full.get("report") or analysis.get("summary") or ""
+
+    save_analysis_details(
+        current_user["id"],
+        product.get("id"),
+        product.get("slug") or request.slug,
+        report=review,
+        active_ingredients=full.get("active_ingredients"),
+        how_to_use=full.get("how_to_use"),
+        expectations=full.get("expectations"),
+    )
     save_analysis_report(current_user["id"], product.get("id"), product.get("slug") or request.slug, review)
     save_ai_report(current_user["id"], product.get("slug") or request.slug, review)
 
-    return {"score": score, "review": review}
+    return {
+        "score": score,
+        "review": review,
+        "active_ingredients": full.get("active_ingredients"),
+        "how_to_use": full.get("how_to_use"),
+        "expectations": full.get("expectations"),
+    }
 
 
 @app.post("/api/analysis/report")

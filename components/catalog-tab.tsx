@@ -134,8 +134,12 @@ export function CatalogTab({
   }, [activeLetter, activeCategory, subcategory, search, brand, cat])
 
   // Обновление карточек после изменения анализа (проверка/описание) из ProductModal.
+  // Пропускаем первый рендер, чтобы не гонять повторный запрос при повторном заходе
+  // на вкладку и не «съедать» loading у первичной загрузки.
+  const prevRefreshKeyRef = useRef(refreshKey)
   useEffect(() => {
-    if (!refreshKey) return
+    if (refreshKey === prevRefreshKeyRef.current) return
+    prevRefreshKeyRef.current = refreshKey
     const requestId = ++requestIdRef.current
     fetch(`/api/catalog?${buildParams(0)}`, { headers: authHeaders })
       .then((r) => r.json())

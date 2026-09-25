@@ -1214,6 +1214,40 @@ def save_analysis_report(user_id: int, product_id: int | None, slug: str = "", r
     return updated > 0
 
 
+def save_analysis_details(
+    user_id: int,
+    product_id: int | None,
+    slug: str = "",
+    report: str = "",
+    active_ingredients=None,
+    how_to_use=None,
+    expectations=None,
+) -> bool:
+    """Сохраняет ВСЕ блоки отчёта (Общий вывод + Ключевой ингредиент + Как применять
+    + Чего ожидать) к актуальному User Analysis. Score/verdict не трогает."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    active_json = json.dumps(active_ingredients, ensure_ascii=False) if active_ingredients is not None else None
+    how_json = json.dumps(how_to_use, ensure_ascii=False) if how_to_use is not None else None
+    exp_json = json.dumps(expectations, ensure_ascii=False) if expectations is not None else None
+    if product_id is not None:
+        cursor.execute(
+            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ? "
+            "WHERE user_id = ? AND product_id = ?",
+            (report or None, active_json, how_json, exp_json, user_id, product_id),
+        )
+    else:
+        cursor.execute(
+            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ? "
+            "WHERE user_id = ? AND slug = ?",
+            (report or None, active_json, how_json, exp_json, user_id, slug),
+        )
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
+
+
 def set_analysis_expiry(user_id: int, product_id: int, days: int = ANALYSIS_TTL_DAYS) -> bool:
     """Задаёт срок жизни Analysis после снятия товара с полки (по умолчанию 7 суток)."""
     conn = get_connection(AIDERMY_DB)

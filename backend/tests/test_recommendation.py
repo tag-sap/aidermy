@@ -121,8 +121,9 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual([r["slug"] for r in recs], ["prepared"])
         self.assertEqual(recs[0]["score"], 80)
 
-    def test_recommendation_skips_all_without_model(self):
-        # Ни один кандидат не имеет Static Product Model → пустая выдача.
+    def test_recommendation_uses_history_without_model(self):
+        # Static Product Model отсутствует, но история есть → продукт НЕ исключается:
+        # персональный score берётся из истории, модель — лишь кэш.
         candidates = [
             _product("Очищение", "A", "a", "Aqua, Glycerin, UnknownX"),
             _product("Очищение", "B", "b", "Aqua, Glycerin"),
@@ -132,7 +133,7 @@ class RecommendationTests(unittest.TestCase):
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=False), \
              patch("app.shelf_service._find_history_score", return_value=(80, None)):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
-        self.assertEqual(len(recs), 0)
+        self.assertEqual(len(recs), 2)
 
     def test_recommendation_returns_fewer_than_three_when_not_enough_prepared(self):
         # Подготовленных (с моделью) меньше трёх → показываем только реально готовые.
@@ -169,16 +170,17 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual(recs[0]["slug"], "serum")
         self.assertEqual(recs[0]["score"], 61)
 
-    def test_history_alone_does_not_make_product_prepared(self):
-        # История есть, но Static Product Model отсутствует → продукт НЕ попадает в подбор.
-        # (История НЕ является source of truth для «подготовленности» продукта.)
+    def test_history_alone_includes_product(self):
+        # История есть (даже без Static Product Model) → продукт попадает в подбор
+        # со score из истории. Модель больше не является жёстким фильтром.
         candidates = [_product("Очищение", "Serum", "serum", "Aqua, Glycerin")]
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=False), \
              patch("app.shelf_service._find_history_score", return_value=(80, None)):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
-        self.assertEqual(len(recs), 0)
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0]["score"], 80)
 
     def test_compute_product_compatibility_uses_history(self):
         # История проверок — приоритетный источник (тот же, что в подборе).

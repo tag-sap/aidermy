@@ -153,7 +153,13 @@ export function ResultSheet({
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.detail || 'Не удалось подготовить подробный анализ')
-      onResultUpdate({ ...result, report: d.review ?? result.report })
+      onResultUpdate({
+        ...result,
+        report: d.review ?? result.report,
+        active_ingredients: d.active_ingredients ?? result.active_ingredients,
+        how_to_use: d.how_to_use ?? result.how_to_use,
+        expectations: d.expectations ?? result.expectations,
+      })
     } catch {
       setDetailsError('Не удалось подготовить подробный анализ')
     } finally {

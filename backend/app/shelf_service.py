@@ -947,23 +947,10 @@ async def recommend_products(
             "_ingredients": product.get("ingredients") or "",
         }
         if scored:
-            # Продукт «подготовлен» глобально ТОЛЬКО при наличии актуальной
-            # Static Product Model (product_models), НЕЗАВИСИМО от истории пользователя.
-            # Удаление check_history не должно скрывать продукт из подбора.
-            has_model = False
-            if repo is not None and pid is not None:
-                try:
-                    from .product_model import composition_hash
-                    has_model = repo.has_current_product_model(
-                        pid, composition_hash(product.get("ingredients") or "")
-                    )
-                except Exception:
-                    has_model = False
-            if not has_model:
-                continue
-
             # Персональный score: история (кэш текущего пользователя) → детерминированный
-            # расчёт из Static Product Model / knowledge map относительно профиля.
+            # расчёт из knowledge map относительно профиля. Static Product Model — это лишь
+            # кэш, он НЕ должен скрывать товар из подбора: если модели нет, скор всё равно
+            # можно рассчитать детерминированно из состава + knowledge map.
             history_score, history_analysis = _find_history_score(user, product, history=user_history, current_skin=current_skin)
             if history_score is not None:
                 rec["score"] = history_score

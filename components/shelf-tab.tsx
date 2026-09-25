@@ -395,7 +395,7 @@ export function ShelfTab({
                       <Info className="size-3.5" />
                       {compatInfoOpen && currentCabinet.compatibility_details && (
                         <div
-                          className="absolute right-0 top-5 z-30 w-64 rounded-xl border border-gray-200 bg-white p-3 text-left shadow-xl animate-modal-panel"
+                          className="absolute right-0 top-full z-30 mt-1 w-64 max-w-[calc(100vw-2rem)] origin-top-right rounded-xl border border-gray-200 bg-white p-3 text-left shadow-xl animate-modal-panel"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <p className="text-[11px] font-medium text-foreground">Совместимость ухода</p>
@@ -446,12 +446,13 @@ export function ShelfTab({
             </div>
           </div>
 
-          {/* Умная адаптация полки: карточки раскладываются по рядам, каждый ряд — отдельная полка */}
-          <div ref={shelfWrapRef} className="mx-auto w-full max-w-full">
+          {/* Умная адаптация полки: каждая полка динамически расширяется под товары,
+              а при нехватке места создаётся следующая полка ниже. */}
+          <div ref={shelfWrapRef} className="w-full">
             {shelves.map((shelf, si) => {
               const isLastShelf = si === shelves.length - 1
               return (
-                <div key={si} className="relative mb-9">
+                <div key={si} className="relative mx-auto mb-9 w-fit min-w-[280px] max-w-full">
                   <div className="flex flex-wrap gap-2.5 px-4 pb-9 pt-3">
                     {shelf.map((cell, idx) => {
                       const item = cell.item

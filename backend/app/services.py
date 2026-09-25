@@ -245,9 +245,20 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     if DEEPSEEK_API_KEY and (deterministic.get("positive_factors") or deterministic.get("negative_factors")):
         sections = await generate_ai_report_sections(product_name, deterministic, profile)
 
-    # active_ingredients — детерминированный факт о составе (первый ингредиент INCI),
-    # без спекулятивной «эффективности» из AI.
+    # Ключевой ингредиент: сначала детерминированный fallback, затем ИИ определяет
+    # реальный актив (Retinol, Niacinamide и т.п.), не путая его с базой (glycerin).
     active_ingredients = build_active_ingredient(deterministic)
+    if DEEPSEEK_API_KEY:
+        try:
+            ai_key = await identify_key_ingredient_with_ai(product_name, ingredients)
+            if ai_key and ai_key.get("name"):
+                active_ingredients = {
+                    "name": ai_key["name"],
+                    "position": ai_key.get("position") or 1,
+                    "concentration": (active_ingredients or {}).get("concentration", "в составе"),
+                }
+        except Exception as exc:
+            print(f"[CHECK] key ingredient AI failed: {exc!r}")
 
     # Итоговое резюме — нейтральный детерминированный fallback (build_summary).
     # Пользовательское объяснение причин — это поле report (AI).
@@ -265,6 +276,53 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'expectations': sections.get('expectations'),
         'ingredient_claims': ingredient_claims or [],
         'research_status': research_status,
+    }
+
+
+async def generate_full_report(
+    product_name: str,
+    ingredients: str,
+    profile: dict,
+    skin_type: str = "Нормальная",
+) -> dict:
+    """Генерирует ВСЕ блоки отчёта по готовому результату scoring engine.
+
+    Возвращает {report, active_ingredients, how_to_use, expectations}.
+    Процент/verdict НЕ пересчитываются — LLM только объясняет готовый результат
+    и определяет ключевой ингредиент.
+    """
+    from .decision_engine import DecisionEngine
+
+    engine = DecisionEngine()
+    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+    has_factors = bool(deterministic.get("positive_factors") or deterministic.get("negative_factors"))
+
+    report = None
+    if DEEPSEEK_API_KEY and has_factors:
+        report = await generate_ai_report(product_name, deterministic, profile)
+
+    sections = {"how_to_use": None, "expectations": None}
+    if DEEPSEEK_API_KEY and has_factors:
+        sections = await generate_ai_report_sections(product_name, deterministic, profile)
+
+    active_ingredients = build_active_ingredient(deterministic)
+    if DEEPSEEK_API_KEY:
+        try:
+            ai_key = await identify_key_ingredient_with_ai(product_name, ingredients)
+            if ai_key and ai_key.get("name"):
+                active_ingredients = {
+                    "name": ai_key["name"],
+                    "position": ai_key.get("position") or 1,
+                    "concentration": (active_ingredients or {}).get("concentration", "в составе"),
+                }
+        except Exception as exc:
+            print(f"[REPORT] key ingredient AI failed: {exc!r}")
+
+    return {
+        "report": report,
+        "active_ingredients": active_ingredients,
+        "how_to_use": sections.get("how_to_use"),
+        "expectations": sections.get("expectations"),
     }
 
 
@@ -459,6 +517,78 @@ def build_active_ingredient(analysis: dict) -> dict | None:
         "position": position or 1,
         "concentration": group,
     }
+
+
+async def identify_key_ingredient_with_ai(product_name: str, ingredients: str | list) -> dict | None:
+    """AI определяет КЛЮЧЕВОЙ (активный) ингредиент продукта.
+
+    Детерминированный build_active_ingredient опирается на вклад в scoring и может
+    выбрать «базовый» ингредиент (glycerin) вместо реального актива (Retinol).
+    LLM смотрит на название продукта + состав и называет актив. Возвращает
+    {name, position} или None. НЕ пересчитывает score/verdict.
+    """
+    if not DEEPSEEK_API_KEY:
+        return None
+
+    if isinstance(ingredients, str):
+        ing_list = [i.strip() for i in re.split(r'[,;\n]+', ingredients) if i.strip()]
+    else:
+        ing_list = [str(i).strip() for i in ingredients if str(i).strip()]
+    if not ing_list:
+        return None
+    ing_text = ", ".join(ing_list)
+
+    prompt = (
+        "Ты — косметолог-технолог. Определи КЛЮЧЕВОЙ (активный) ингредиент косметического продукта.\n\n"
+        f"Продукт: {product_name}\n"
+        f"Состав (INCI, по убыванию концентрации): {ing_text}\n\n"
+        "Ключевой — это активный компонент, определяющий назначение средства "
+        "(Retinol, Retinal, Niacinamide, Salicylic Acid, Glycolic Acid, Vitamin C, "
+        "Peptide, Ceramide, Panthenol, Azelaic Acid, Bakuchiol и т.п.), а НЕ база/носитель "
+        "(Water/Aqua, Glycerin, Butylene Glycol, Propanediol, Hexanediol, Dipropylene Glycol и т.п.).\n"
+        "Верни ТОЛЬКО JSON:\n"
+        '{"name": "каноническое INCI-название", "position": номер_позиции_в_списке}\n'
+        'Если очевидного актива нет — {"name": null, "position": null}.\n'
+    )
+
+    for model_name in DEEPSEEK_MODEL_FALLBACKS:
+        try:
+            from .instrumentation import METRICS
+            METRICS.increment("ai_call_count")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    DEEPSEEK_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model_name,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.2,
+                        "max_tokens": 200,
+                    },
+                    timeout=30,
+                )
+            if response.status_code != 200:
+                continue
+            data = response.json()
+            content = (data["choices"][0]["message"]["content"] or "").strip()
+            if not content:
+                continue
+            try:
+                parsed = extract_json_from_response(content)
+                if isinstance(parsed, dict) and parsed.get("name"):
+                    name = str(parsed["name"]).strip()
+                    position_raw = str(parsed.get("position") or "")
+                    position = int(position_raw) if position_raw.isdigit() else 1
+                    return {"name": name, "position": position}
+            except Exception:
+                continue
+        except Exception:
+            continue
+
+    return None
 
 
 def _factor_text(factor: dict) -> str:
