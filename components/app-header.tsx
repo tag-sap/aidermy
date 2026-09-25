@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, LogIn, Compass, ClipboardList, Send, Mail } from 'lucide-react'
 import { AidermyLogo } from '@/components/aidermy-logo'
@@ -26,8 +26,26 @@ export function AppHeader({
   onReplayQuiz
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
+  const [helpPos, setHelpPos] = useState<{ top: number; right: number } | null>(null)
+  const helpBtnRef = useRef<HTMLButtonElement | null>(null)
 
   useScrollLock(showHelp)
+
+  const toggleHelp = () => {
+    if (showHelp) {
+      setShowHelp(false)
+      setHelpPos(null)
+      return
+    }
+    const btn = helpBtnRef.current
+    if (btn) {
+      const rect = btn.getBoundingClientRect()
+      setHelpPos({ top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) })
+    } else {
+      setHelpPos({ top: 56, right: 16 })
+    }
+    setShowHelp(true)
+  }
 
   const handleProfileClick = () => {
     if (isAuthenticated) {
@@ -47,9 +65,10 @@ export function AppHeader({
         <div className="absolute right-4 top-3 flex items-center gap-2 md:right-6 md:top-4">
           <div className="relative">
             <button
+              ref={helpBtnRef}
               type="button"
               aria-label="Помощь"
-              onClick={() => setShowHelp(!showHelp)}
+              onClick={toggleHelp}
               className="relative z-50 flex size-9 items-center justify-center rounded-md border border-primary/20 bg-white/5 text-primary transition-colors hover:bg-primary/10"
             >
               <span className="text-sm font-normal">?</span>
@@ -63,7 +82,10 @@ export function AppHeader({
                   className="fixed inset-0 z-[95] bg-black/20 backdrop-blur-sm animate-modal-backdrop"
                   onClick={() => setShowHelp(false)}
                 />
-                <div className="fixed right-4 top-14 z-[96] w-64 origin-top-right rounded-xl bg-white p-4 shadow-xl border border-primary/15 animate-help-popover md:right-6">
+                <div
+                  className="fixed z-[96] w-64 max-w-[calc(100vw-2rem)] origin-top-right rounded-xl bg-white p-4 shadow-xl border border-primary/15 animate-help-popover"
+                  style={{ top: helpPos?.top ?? 56, right: helpPos?.right ?? 16 }}
+                >
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-normal text-foreground">Помощь</h3>
                     <button

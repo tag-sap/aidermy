@@ -108,6 +108,18 @@ export function CatalogTab({
   }, [filterKey])
 
   useEffect(() => {
+    // Режим «Категории»: без фильтров/поиска не грузим весь каталог — показываем
+    // сетку категорий, а товары запрашиваем только после выбора категории.
+    const browsing = !activeCategory && !subcategory && !search.trim() && !brand && !cat && !activeLetter
+    if (browsing) {
+      loadingRef.current = false
+      setLoading(false)
+      setProducts([])
+      offsetRef.current = 0
+      setHasMore(false)
+      return
+    }
+
     const requestId = ++requestIdRef.current
     loadingRef.current = true
     setLoading(true)
@@ -214,6 +226,10 @@ export function CatalogTab({
     }
   }
 
+  // Режим «Категории» — показываем сетку категорий, пока не выбран фильтр/поиск.
+  const isBrowsing = !activeCategory && !subcategory && !search.trim() && !brand && !cat && !activeLetter
+  const activeTaxonomy = taxonomy.find((t) => t.title === activeCategory)
+
   return (
     <div ref={rootRef} className="relative">
       {/* Поиск + алфавит — фиксированы под заголовком «Каталог» */}
@@ -283,35 +299,88 @@ export function CatalogTab({
         )}
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <LoaderCircle className="size-6 animate-spin text-primary" />
-        </div>
-      ) : products.length === 0 ? (
-        <div className="py-16 text-center text-sm text-muted-foreground/50">
-          {search || activeLetter || activeCategory || subcategory || brand || cat ? 'Ничего не найдено' : 'В каталоге пока нет продуктов'}
+      {isBrowsing ? (
+        <div className="pt-4">
+          <div className="grid grid-cols-2 gap-2.5">
+            {taxonomy.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => { setActiveCategory(t.title); setSubcategory(''); setLoading(true); setProducts([]) }}
+                className="group flex flex-col items-start gap-1.5 rounded-2xl border border-gray-100 bg-white p-4 text-left transition-all hover:border-primary/30 hover:shadow-sm"
+              >
+                <span className="text-sm font-medium leading-snug text-foreground/90">{t.title}</span>
+                <span className="text-[11px] text-muted-foreground/50">
+                  {t.subcategories.filter((s) => s.key !== 'all').length} направлений
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       ) : (
-        <div className="pt-3">
-          {grouped.map((group) => (
-            <div key={group.letter}>
-              <div className="px-2 py-1 text-xs font-semibold text-primary">{group.letter}</div>
-              <div className="grid grid-cols-2 gap-2 pb-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                {group.items.map((p) => (
-                  <ProductCard
-                    key={p.slug}
-                    name={p.name}
-                    brand={p.brand}
-                    imageUrl={p.image_url}
-                    category={p.category}
-                    score={p.score}
-                    onOpen={() => onOpenProduct(p.slug)}
-                  />
-                ))}
-              </div>
+        <>
+          {activeTaxonomy && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <button
+                onClick={() => { setActiveCategory(''); setSubcategory(''); setLoading(true); setProducts([]) }}
+                className="flex items-center gap-1 rounded-full border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+              >
+                <X className="size-3" /> Все категории
+              </button>
+              <button
+                onClick={() => setSubcategory('')}
+                className={cn(
+                  'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  !subcategory ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                )}
+              >
+                Все товары категории
+              </button>
+              {activeTaxonomy.subcategories.filter((s) => s.key !== 'all').map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => setSubcategory(s.title)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                    subcategory === s.title ? 'border-primary bg-primary/10 text-primary' : 'border-gray-200 text-muted-foreground hover:border-primary/40',
+                  )}
+                >
+                  {s.title}
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <LoaderCircle className="size-6 animate-spin text-primary" />
+            </div>
+          ) : products.length === 0 ? (
+            <div className="py-16 text-center text-sm text-muted-foreground/50">
+              {search || activeLetter || activeCategory || subcategory || brand || cat ? 'Ничего не найдено' : 'В каталоге пока нет продуктов'}
+            </div>
+          ) : (
+            <div className="pt-3">
+              {grouped.map((group) => (
+                <div key={group.letter}>
+                  <div className="px-2 py-1 text-xs font-semibold text-primary">{group.letter}</div>
+                  <div className="grid grid-cols-2 gap-2 pb-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                    {group.items.map((p) => (
+                      <ProductCard
+                        key={p.slug}
+                        name={p.name}
+                        brand={p.brand}
+                        imageUrl={p.image_url}
+                        category={p.category}
+                        score={p.score}
+                        onOpen={() => onOpenProduct(p.slug)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <div ref={sentinelRef} className="h-4" />

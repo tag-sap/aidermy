@@ -1,5 +1,6 @@
 # services.py
 
+import asyncio
 import httpx
 import os
 import json
@@ -14,6 +15,15 @@ load_dotenv()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
 DEEPSEEK_MODEL_FALLBACKS = ["deepseek-chat", "deepseek-v4-flash", "deepseek-flash"]
+
+# Лимиты на вспомогательные AI-шаги при проверке продукта. Детерминированный скор
+# считается ДО них и возвращается всегда; AI-обогащение/отчёт — best effort и не
+# должен блокировать ответ дольше этих таймаутов (иначе nginx рвёт соединение).
+RESEARCH_STEP_TIMEOUT = 12.0
+ENRICH_STEP_TIMEOUT = 15.0
+REPORT_STEP_TIMEOUT = 20.0
+SECTIONS_STEP_TIMEOUT = 20.0
+KEY_INGREDIENT_STEP_TIMEOUT = 12.0
 
 def generate_slug(name: str) -> str:
     slug = re.sub(r'[^a-zA-Z0-9\s-]', '', name)
@@ -202,8 +212,14 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 
     engine = DecisionEngine()
 
+    # Детерминированный скор считается ДО любых AI-шагов и возвращается всегда.
+    # AI-обогащение/отчёт — best effort: каждый шаг ограничен таймаутом, чтобы
+    # медленный DeepSeek или холодный research не ронял проверку (nginx 504).
+    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+
     # Фаза 9 — Research Queue: неизвестные ингредиенты дожидаются batch research.
-    # Анализ НЕ отдаёт предварительный score, а ждёт завершения Research.
+    # Это глобальное пополнение базы знаний, а НЕ блокирующая зависимость проверки:
+    # текущий скор уже рассчитан, research лишь улучшает будущие проверки.
     research_status = None
     if DEEPSEEK_API_KEY:
         try:
@@ -212,45 +228,75 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
             prepared = engine.analysis_service.prepare_product_ingredients(ingredients)
             unknown = find_unknown_ingredients(prepared)
             if unknown:
-                research_status = await run_research(unknown_ingredients=unknown)
+                research_status = await asyncio.wait_for(
+                    run_research(unknown_ingredients=unknown),
+                    timeout=RESEARCH_STEP_TIMEOUT,
+                )
+        except asyncio.TimeoutError:
+            print("[CHECK] research timed out — using current knowledge")
+            research_status = "timeout"
         except Exception as exc:
             print(f"[CHECK] research failed: {exc!r}")
             research_status = "failed"
 
-    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
-
     # 1) AI обогащает ТОЛЬКО базу знаний ингредиентов (ingredient_claims).
     #    НЕ генерирует how_to_use / expectations / active_ingredients и НЕ оценивает
     #    совместимость — это второй старый pipeline, который убран.
-    ingredient_claims = await _enrich_knowledge_with_ai(product_name, ingredients) if DEEPSEEK_API_KEY else None
+    ingredient_claims = None
+    if DEEPSEEK_API_KEY:
+        try:
+            ingredient_claims = await asyncio.wait_for(
+                _enrich_knowledge_with_ai(product_name, ingredients),
+                timeout=ENRICH_STEP_TIMEOUT,
+            )
+        except Exception as exc:
+            print(f"[CHECK] enrichment failed: {exc!r}")
 
     if ingredient_claims:
-        from .shelf_service import enrich_ingredient_knowledge
-        added = enrich_ingredient_knowledge(ingredient_claims)
-        # Если движок ещё ничего не знал о составе, а AI пополнил базу знаний —
-        # пересчитываем детерминированный скор на обогащённых данных.
-        if float(deterministic.get("confidence") or 0.0) <= 0 and added > 0:
-            deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+        try:
+            from .shelf_service import enrich_ingredient_knowledge
+            added = enrich_ingredient_knowledge(ingredient_claims)
+            # Если движок ещё ничего не знал о составе, а AI пополнил базу знаний —
+            # пересчитываем детерминированный скор на обогащённых данных.
+            if float(deterministic.get("confidence") or 0.0) <= 0 and added > 0:
+                deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+        except Exception as exc:
+            print(f"[CHECK] enrichment apply failed: {exc!r}")
 
     # 2) AI-отчёт (report) — человеческое объяснение причин («Почему»).
     #    Получает structured factors и НЕ переопределяет score/verdict.
     report = None
     if DEEPSEEK_API_KEY and (deterministic.get("positive_factors") or deterministic.get("negative_factors")):
-        report = await generate_ai_report(product_name, deterministic, profile)
+        try:
+            report = await asyncio.wait_for(
+                generate_ai_report(product_name, deterministic, profile),
+                timeout=REPORT_STEP_TIMEOUT,
+            )
+        except Exception as exc:
+            print(f"[CHECK] report failed: {exc!r}")
 
     # 3) AI-отчёт (how_to_use / expectations) — вторичное текстовое представление
     #    УЖЕ ГОТОВОГО User Analysis. Получает score/verdict/factors/safe/caution и
     #    НЕ имеет права переопределять совместимость.
     sections = {"how_to_use": None, "expectations": None}
     if DEEPSEEK_API_KEY and (deterministic.get("positive_factors") or deterministic.get("negative_factors")):
-        sections = await generate_ai_report_sections(product_name, deterministic, profile)
+        try:
+            sections = await asyncio.wait_for(
+                generate_ai_report_sections(product_name, deterministic, profile),
+                timeout=SECTIONS_STEP_TIMEOUT,
+            )
+        except Exception as exc:
+            print(f"[CHECK] report sections failed: {exc!r}")
 
     # Ключевой ингредиент: сначала детерминированный fallback, затем ИИ определяет
     # реальный актив (Retinol, Niacinamide и т.п.), не путая его с базой (glycerin).
     active_ingredients = build_active_ingredient(deterministic)
     if DEEPSEEK_API_KEY:
         try:
-            ai_key = await identify_key_ingredient_with_ai(product_name, ingredients)
+            ai_key = await asyncio.wait_for(
+                identify_key_ingredient_with_ai(product_name, ingredients),
+                timeout=KEY_INGREDIENT_STEP_TIMEOUT,
+            )
             if ai_key and ai_key.get("name"):
                 active_ingredients = {
                     "name": ai_key["name"],

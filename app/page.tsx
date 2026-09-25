@@ -340,13 +340,6 @@ export default function Page() {
     saveProfile(mergedProfile)
     setProfileDirty(false)
 
-    // Поля, влияющие на персональный анализ (scoring engine).
-    const analysisChanged =
-      (p.skinType ?? '') !== (profile.skinType ?? '') ||
-      (p.age ?? '') !== (profile.age ?? '') ||
-      JSON.stringify(p.concerns ?? []) !== JSON.stringify(profile.concerns ?? []) ||
-      JSON.stringify(p.allergies ?? []) !== JSON.stringify(profile.allergies ?? [])
-
     const token = localStorage.getItem('token')
     if (token) {
       try {
@@ -373,15 +366,9 @@ export default function Page() {
           throw new Error(error.detail || 'Ошибка сохранения')
         }
 
-        // Сбрасываем пользовательскую полку (НЕ Static Product Model), т.к.
-        // старые User Analysis рассчитаны относительно старого профиля.
-        if (analysisChanged) {
-          await fetch('/api/shelf/reset', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-          }).catch(() => {})
-        }
-
+        // НЕ сбрасываем полку: бэкенд инвалидирует старые User Analysis
+        // (analysis.created_at < profile_updated_at), и полка помечается как
+        // требующая пересчёта (needs_recheck) — ShelfTab пересчитает её в фоне.
         console.log('✅ Профиль сохранён на сервере')
       } catch (error) {
         console.error('Ошибка сохранения профиля:', error)

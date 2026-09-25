@@ -280,7 +280,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                 </button>
               </div>
               <p className="text-sm text-muted-foreground/70 leading-relaxed">
-                Изменение анкеты повлияет на результаты анализа. Чтобы пересчитать совместимость товаров с новым профилем, текущая «Моя полка» будет сброшена.
+                Изменение анкеты повлияет на результаты анализа. Совместимость товаров на «Моей полке» будет автоматически пересчитана по новому профилю.
               </p>
               <div className="mt-5 flex gap-2">
                 <button
@@ -293,7 +293,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
                   onClick={confirmSave}
                   className="flex-1 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
                 >
-                  Сохранить и сбросить полку
+                  Сохранить и пересчитать
                 </button>
               </div>
             </div>

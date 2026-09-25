@@ -73,11 +73,11 @@ export function ProductCard({
         </button>
       </div>
 
-      {/* Overlay «Проверяем...» (только во время автоматической перепроверки полки) */}
+      {/* Overlay «На проверке» (только во время автоматической перепроверки полки) */}
       {checking && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/60">
           <LoaderCircle className="size-5 animate-spin text-primary" />
-          <span className="text-xs font-medium text-foreground/70">Проверяем...</span>
+          <span className="text-xs font-medium text-foreground/70">На проверке</span>
         </div>
       )}
     </div>
