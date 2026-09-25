@@ -371,10 +371,20 @@ async def check_product(
         existing_product = cursor_products.fetchone()
         conn_products.close()
         
-        # История сохраняется только через /api/auth/history, чтобы избежать дублей.
-        # Здесь не пишем в БД повторно: это отдельный, единственный путь записи для профиля пользователя.
         user_id = current_user.get('id') if current_user else None
-        
+        product_id = existing_product['id'] if existing_product else None
+
+        # Сохраняем СИСТЕМНУЮ проверку (Слой 1) в актуальный User Analysis.
+        # Описание (report) НЕ сохраняется здесь — оно запрашивается отдельно.
+        if user_id:
+            _save_system_analysis(
+                current_user,
+                product_id=product_id,
+                slug=slug or "",
+                result=result,
+                profile_snapshot=request.profile.dict(),
+            )
+
         return CheckResponse(
             score=result.get("score", 50),
             verdict=result.get("verdict", "Нейтрально"),
@@ -568,7 +578,8 @@ async def get_catalog(
     letter: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
-    sort: str = "popular"
+    sort: str = "popular",
+    current_user: dict = Depends(get_current_user_optional),
 ):
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
@@ -624,7 +635,22 @@ async def get_catalog(
         r = ratings.get(p.get("id")) or {}
         p["rating"] = r.get("average")
         p["rating_count"] = r.get("count", 0)
-    
+
+    # Персональное состояние анализа для авторизованного пользователя (единая карточка).
+    # Отсутствие User Analysis НЕ скрывает продукт из каталога (#19).
+    if current_user:
+        try:
+            from .database import get_current_analyses_map
+            analyses = get_current_analyses_map(current_user["id"], [p["id"] for p in products])
+            for p in products:
+                a = analyses.get(p.get("id"))
+                p["score"] = a.get("score") if a else None
+                p["analysis"] = a
+        except Exception:
+            for p in products:
+                p["score"] = None
+                p["analysis"] = None
+
     return {
         "products": products,
         "total": total,
@@ -797,6 +823,40 @@ def _profile_from_user(user: dict) -> dict:
         "allergies": [a.strip() for a in (profile.get("allergies") or "").split(",") if a.strip()],
         "custom_text": profile.get("custom_text") or "",
     }
+
+
+def _save_system_analysis(user: dict, product_id: int | None, slug: str, result: dict, profile_snapshot: dict | None = None) -> dict | None:
+    """Сохраняет СИСТЕМНУЮ проверку (Слой 1) в актуальный User Analysis.
+
+    Score/verdict приходят из scoring engine; описание (report) НЕ сохраняется
+    здесь — оно запрашивается отдельно («Получить описание»). Возвращает
+    сохранённый analysis или None (если score не валиден / сохранение не удалось).
+    """
+    import json as _json
+    from .database import upsert_analysis
+
+    score = int(result.get("score") or 0)
+    if score <= 0:
+        return None
+
+    try:
+        return upsert_analysis(
+            user_id=user["id"],
+            product_id=product_id,
+            slug=slug or "",
+            score=score,
+            verdict=result.get("verdict") or "",
+            summary=result.get("summary") or "",
+            safe_ingredients=result.get("safe_ingredients") or [],
+            caution_ingredients=result.get("caution_ingredients") or [],
+            active_ingredients=result.get("active_ingredients"),
+            how_to_use=result.get("how_to_use"),
+            expectations=result.get("expectations"),
+            profile_snapshot=_json.dumps(profile_snapshot or {}, ensure_ascii=False),
+        )
+    except Exception as exc:
+        print(f"[ANALYSIS] save failed: {exc!r}")
+        return None
 
 
 def _checked_score_for_product(user_id: int, slug: str, name: str):
@@ -1050,6 +1110,33 @@ async def recommend_for_shelf(request: ShelfRecommendRequest, current_user: dict
     return {"cabinet": cabinet, "category": category, "recommendations": recommendations}
 
 
+@app.post("/api/shelf/recheck/{product_id}")
+async def recheck_shelf_product(product_id: int, current_user: dict = Depends(get_current_user)):
+    """Перепроверка одного продукта полки (детерминированный scoring, БЕЗ LLM).
+
+    Используется фронтендом для поэлементной перепроверки неактуальных Analysis.
+    Score/verdict пересчитываются движком, report сбрасывается в NULL — карточка
+    после перепроверки показывает «Получить описание», а не старый report.
+    """
+    from .database import get_product_by_id, get_user_shelf
+    from .shelf_service import recheck_product
+
+    product = get_product_by_id(product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Продукт не найден")
+
+    # Перепроверяем только товары, которые реально лежат на полке пользователя.
+    on_shelf = any(s["product_id"] == product_id for s in get_user_shelf(current_user["id"]))
+    if not on_shelf:
+        raise HTTPException(status_code=404, detail="Продукт не найден на полке")
+
+    score, analysis = recheck_product(current_user, product)
+    if score is None:
+        raise HTTPException(status_code=422, detail="Не удалось перепроверить продукт")
+
+    return {"score": score, "analysis": analysis}
+
+
 @app.post("/api/shelf/analyze")
 async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict = Depends(get_current_user)):
     """Запускает анализ продукта (существующий pipeline) и сохраняет результат в историю.
@@ -1114,6 +1201,15 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     # Обогащение базы знаний ингредиентов уже выполнено внутри
     # check_product_with_ai -> check_product_with_ingredients (не дублируем).
 
+    # Сохраняем СИСТЕМНУЮ проверку (Слой 1) в актуальный User Analysis.
+    saved = _save_system_analysis(
+        current_user,
+        product_id=product.get("id"),
+        slug=product.get("slug") or request.slug,
+        result=result,
+        profile_snapshot=profile,
+    )
+
     analysis = {
         "verdict": result.get("verdict") or "",
         "summary": result.get("summary") or "",
@@ -1123,6 +1219,7 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
         "active_ingredients": result.get("active_ingredients"),
         "how_to_use": result.get("how_to_use"),
         "expectations": result.get("expectations"),
+        "report": (saved or {}).get("report"),
     }
     return {"status": "ok", "cached": False, "score": int(result.get("score") or 0), "analysis": analysis}
 
@@ -1135,7 +1232,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     Score НЕ пересчитывается — AI только пишет человеческое объяснение
     уже рассчитанного результата. Отчёт кэшируется в check_history.ai_report.
     """
-    from .database import get_product_by_slug, save_ai_report
+    from .database import get_product_by_slug, save_ai_report, save_analysis_report
     from .shelf_service import score_product
     from .services import generate_ai_report
 
@@ -1145,12 +1242,12 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
 
     name = (product.get("name") or "").replace("\n", " ").strip()
 
-    # Источник — актуальный User Analysis (история проверок).
+    # Источник — актуальный User Analysis.
     score, analysis = score_product(current_user, product)
     if score is None:
         raise HTTPException(status_code=409, detail="Анализ ещё не выполнен — сначала проверьте совместимость.")
 
-    # Если отчёт уже сгенерирован для этого актуального анализа — возвращаем сохранённый.
+    # Если описание уже сгенерировано для этого актуального анализа — возвращаем сохранённое.
     if analysis and analysis.get("report"):
         return {"score": score, "review": analysis["report"]}
 
@@ -1161,9 +1258,18 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         print(f"[REVIEW] failed: {exc!r}")
         raise HTTPException(status_code=502, detail="Не удалось сформировать отчёт") from exc
 
+    # Сохраняем описание к актуальному User Analysis (и в legacy history для совместимости).
+    save_analysis_report(current_user["id"], product.get("id"), product.get("slug") or request.slug, review)
     save_ai_report(current_user["id"], product.get("slug") or request.slug, review)
 
     return {"score": score, "review": review}
+
+
+@app.post("/api/analysis/report")
+async def generate_analysis_report(request: ShelfAnalyzeRequest, current_user: dict = Depends(get_current_user)):
+    """Слой 2 — «Получить описание»: генерирует и сохраняет подробное описание
+    к актуальному User Analysis. Score/verdict не пересчитываются."""
+    return await review_shelf_product(request, current_user)
 
 
 @app.patch("/api/shelf/{shelf_id}")

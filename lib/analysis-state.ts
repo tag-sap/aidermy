@@ -33,11 +33,12 @@ export type AnalysisState =
   | { kind: 'NOT_ANALYZED' }
   | { kind: 'ANALYSIS_PENDING' }
   | { kind: 'ANALYSIS_FAILED'; error: string }
-  | { kind: 'ANALYZED'; score: number; analysis: ProductAnalysis }
+  | { kind: 'ANALYZED'; score: number; analysis: ProductAnalysis; hasReport: boolean }
 
 /**
  * Выводит единое состояние из данных бэкенда.
  * Score считается валидным ТОЛЬКО при наличии актуального User Analysis (analysis).
+ * Наличие процента НЕ означает наличие подробного описания (report).
  */
 export function deriveAnalysisState(args: {
   analysis: ProductAnalysis | null | undefined
@@ -51,7 +52,12 @@ export function deriveAnalysisState(args: {
   const hasAnalysis = args.analysis != null
   const score = typeof args.score === 'number' ? args.score : args.analysis?.score ?? null
   if (hasAnalysis && score != null) {
-    return { kind: 'ANALYZED', score, analysis: args.analysis as ProductAnalysis }
+    return {
+      kind: 'ANALYZED',
+      score,
+      analysis: args.analysis as ProductAnalysis,
+      hasReport: Boolean(args.analysis?.report),
+    }
   }
   return { kind: 'NOT_ANALYZED' }
 }
@@ -64,6 +70,8 @@ export const ANALYSIS_LABELS = {
 
 export const ANALYSIS_ACTIONS = {
   CHECK: 'Проверить совместимость',
+  GET_DESCRIPTION: 'Получить описание',
+  VIEW_ANALYSIS: 'Посмотреть анализ',
   SHOW_REPORT: 'Показать отчёт',
   RETRY: 'Повторить анализ',
   VIEW_REPORT: 'Посмотреть отчёт',

@@ -393,21 +393,71 @@ async def _enrich_knowledge_with_ai(product_name: str, ingredients: str) -> list
     return None
 
 
-def build_active_ingredient(analysis: dict) -> dict | None:
-    """Детерминированный «ключевой активный ингредиент» из состава.
+# Растворители/носители, которые не считаются «ключевым ингредиентом» отчёта.
+_SOLVENT_INGREDIENTS = {"water", "aqua", "eau"}
 
-    Первый ингредиент INCI = максимальная концентрация (конвенция INCI).
-    Это факт о составе, а НЕ оценка эффективности/совместимости — без скрытого
-    scoring pipeline. Возвращает None, если состава нет.
+
+def build_active_ingredient(analysis: dict) -> dict | None:
+    """Ключевой ингредиент — тот, который РЕАЛЬНО повлиял на персональный scoring.
+
+    Первый ингредиент INCI (чаще всего вода/aqua) НЕ считается «главным».
+    Выбирается фактор с наибольшим вкладом в результат (|strength·confidence·position_weight|),
+    исключая растворители. Концентрация НЕ утверждается как точная — даётся лишь
+    условная группа по позиции INCI (конвенция «раньше в списке = выше»).
     """
     ingredients = analysis.get("normalized_ingredients") or []
     if not ingredients:
         return None
+
+    def _is_solvent(name: str) -> bool:
+        return name.strip().lower() in _SOLVENT_INGREDIENTS
+
+    # 1) Ингредиент, который существенно повлиял на scoring (по модулю вклада).
+    scored: list = []
+    for f in list(analysis.get("negative_factors") or []) + list(analysis.get("positive_factors") or []):
+        if not isinstance(f, dict):
+            continue
+        name = str(f.get("ingredient") or "").strip()
+        if not name or _is_solvent(name):
+            continue
+        impact = abs(
+            float(f.get("strength") or 0)
+            * float(f.get("confidence") or 0)
+            * float(f.get("position_weight") or 0)
+        )
+        scored.append((name, impact))
+    if scored:
+        scored.sort(key=lambda x: -x[1])
+        name = scored[0][0]
+    else:
+        # 2) Fallback: первый значимый ингредиент состава (не растворитель).
+        name = next((ing for ing in ingredients if not _is_solvent(ing)), None)
+        if not name:
+            return None
+
+    # INCI-позиция выбранного ингредиента.
+    total = len(ingredients)
+    position = 0
+    for idx, ing in enumerate(ingredients, start=1):
+        if str(ing).strip().lower() == str(name).strip().lower():
+            position = idx
+            break
+
+    # Условная группа концентрации по позиции INCI (НЕ точное значение).
+    if total and position:
+        if position <= max(1, total // 3):
+            group = "высокая"
+        elif position <= max(1, (total * 2) // 3):
+            group = "средняя"
+        else:
+            group = "низкая"
+    else:
+        group = "в составе"
+
     return {
-        "name": str(ingredients[0]),
-        "position": 1,
-        # «высокая» = позиция 1 в INCI (максимальная концентрация по конвенции).
-        "concentration": "высокая",
+        "name": str(name),
+        "position": position or 1,
+        "concentration": group,
     }
 
 

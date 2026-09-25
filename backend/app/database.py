@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # === ДВЕ БАЗЫ ===
 AIDERMY_DB = os.path.join(os.path.dirname(__file__), '..', 'aidermy.db')
@@ -183,12 +183,47 @@ def init_db():
     if 'ai_report' not in columns:
         cursor.execute('ALTER TABLE check_history ADD COLUMN ai_report TEXT')
 
+    # === ПЕРСОНАЛЬНЫЙ АНАЛИЗ (Analysis: User × Product) ===
+    # Отдельная сущность «текущего» анализа: ровно одна актуальная запись на
+    # пару (user_id, product_id). НЕ история и НЕ хранение внутри Product.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS analysis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            product_id INTEGER,
+            slug TEXT DEFAULT '',
+            score INTEGER NOT NULL,
+            verdict TEXT NOT NULL,
+            summary TEXT DEFAULT '',
+            report TEXT,
+            safe_ingredients TEXT,
+            caution_ingredients TEXT,
+            active_ingredients TEXT,
+            how_to_use TEXT,
+            expectations TEXT,
+            profile_snapshot TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_analysis_user_product ON analysis (user_id, product_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_analysis_user_slug ON analysis (user_id, slug)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_analysis_expires ON analysis (expires_at)')
+    # Частичный unique-index гарантирует одну запись на пару (user_id, product_id)
+    # для каталоговых продуктов. Для не-каталоговых (product_id NULL) дедупликация
+    # выполняется в application-логике (upsert_analysis по slug).
+    cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_unique_user_product ON analysis (user_id, product_id) WHERE product_id IS NOT NULL')
+
     # Аватар и имя пользователя (личный кабинет)
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
     if cursor.fetchone():
         user_columns = [col[1] for col in cursor.execute("PRAGMA table_info(users)").fetchall()]
         if 'avatar_url' not in user_columns:
             cursor.execute('ALTER TABLE users ADD COLUMN avatar_url TEXT')
+        # Актуальность User Analysis определяется сравнением
+        # analysis.created_at >= users.profile_updated_at (а не по каждому полю анкеты).
+        if 'profile_updated_at' not in user_columns:
+            cursor.execute('ALTER TABLE users ADD COLUMN profile_updated_at TIMESTAMP')
     
     # === COMMUNITY INTELLIGENCE ===
     cursor.execute('''
@@ -910,4 +945,278 @@ def get_user_disliked_slugs(user_id: int) -> set:
     )
     result = {row["slug"] for row in cursor.fetchall()}
     conn.close()
+
+
+# === ПЕРСОНАЛЬНЫЙ АНАЛИЗ (Analysis: User × Product) ===
+# Отдельная сущность «текущего» анализа. Score/verdict рассчитывает scoring engine,
+# описание (report) запрашивается отдельно (Слой 2) и хранится в этой же записи.
+
+ANALYSIS_TTL_DAYS = 30
+
+
+def _ts(dt: datetime) -> str:
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _now_ts() -> str:
+    return _ts(datetime.utcnow())
+
+
+def _expires_ts(days: int = ANALYSIS_TTL_DAYS) -> str:
+    return _ts(datetime.utcnow() + timedelta(days=days))
+
+
+def _analysis_json_list(value) -> list:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(x) for x in parsed]
+        except Exception:
+            pass
+        return [value] if value.strip() else []
+    return [str(value)]
+
+
+def _analysis_json_obj(value):
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return None
+    return None
+
+
+def _analysis_to_dict(row) -> dict:
+    d = dict(row)
+    return {
+        "id": d.get("id"),
+        "verdict": d.get("verdict") or "",
+        "summary": d.get("summary") or "",
+        "score": int(d.get("score") or 0) if d.get("score") is not None else None,
+        "safe_ingredients": _analysis_json_list(d.get("safe_ingredients")),
+        "caution_ingredients": _analysis_json_list(d.get("caution_ingredients")),
+        "active_ingredients": _analysis_json_obj(d.get("active_ingredients")),
+        "how_to_use": _analysis_json_obj(d.get("how_to_use")),
+        "expectations": _analysis_json_obj(d.get("expectations")),
+        "report": d.get("report") or None,
+        "created_at": d.get("created_at"),
+        "expires_at": d.get("expires_at"),
+    }
+
     return result
+
+
+def touch_user_profile_updated_at(user_id: int) -> bool:
+    """Обновляет users.profile_updated_at = NOW() при сохранении анкеты."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
+
+
+def get_user_profile_updated_at(user_id: int):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT profile_updated_at FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row["profile_updated_at"] if row else None
+
+
+def _find_analysis_row(cursor, user_id: int, product_id: int | None, slug: str = ""):
+    if product_id is not None:
+        return cursor.execute(
+            "SELECT * FROM analysis WHERE user_id = ? AND product_id = ?", (user_id, product_id)
+        ).fetchone()
+    if slug:
+        return cursor.execute(
+            "SELECT * FROM analysis WHERE user_id = ? AND slug = ? AND product_id IS NULL ORDER BY id DESC LIMIT 1",
+            (user_id, slug),
+        ).fetchone()
+    return None
+
+
+def upsert_analysis(
+    user_id: int,
+    product_id: int | None,
+    slug: str = "",
+    score: int = 0,
+    verdict: str = "",
+    summary: str = "",
+    safe_ingredients=None,
+    caution_ingredients=None,
+    active_ingredients=None,
+    how_to_use=None,
+    expectations=None,
+    profile_snapshot: str = "{}",
+) -> dict:
+    """Сохранение СИСТЕМНОЙ проверки (Слой 1). Обновляет/создаёт одну запись на
+    пару (user_id, product_id) и СБРАСЫВАЕТ описание (report=NULL): наличие
+    процента НЕ означает наличие подробного описания. created_at/expires_at
+    обновляются при каждой повторной проверке — бесконечная история не копится."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    existing = _find_analysis_row(cursor, user_id, product_id, slug)
+    now = _now_ts()
+    expires = _expires_ts()
+    safe_json = json.dumps(safe_ingredients or [], ensure_ascii=False)
+    caution_json = json.dumps(caution_ingredients or [], ensure_ascii=False)
+    active_json = json.dumps(active_ingredients, ensure_ascii=False) if active_ingredients is not None else None
+    how_json = json.dumps(how_to_use, ensure_ascii=False) if how_to_use is not None else None
+    exp_json = json.dumps(expectations, ensure_ascii=False) if expectations is not None else None
+
+    if existing:
+        cursor.execute(
+            """UPDATE analysis SET
+                slug = ?, score = ?, verdict = ?, summary = ?, report = NULL,
+                safe_ingredients = ?, caution_ingredients = ?,
+                active_ingredients = ?, how_to_use = ?, expectations = ?,
+                profile_snapshot = ?, created_at = ?, expires_at = ?
+               WHERE id = ?""",
+            (
+                slug, int(score), verdict, summary,
+                safe_json, caution_json,
+                active_json, how_json, exp_json,
+                profile_snapshot or "{}", now, expires, existing["id"],
+            ),
+        )
+        analysis_id = existing["id"]
+    else:
+        cursor.execute(
+            """INSERT INTO analysis (
+                user_id, product_id, slug, score, verdict, summary, report,
+                safe_ingredients, caution_ingredients, active_ingredients,
+                how_to_use, expectations, profile_snapshot, created_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                user_id, product_id, slug, int(score), verdict, summary,
+                safe_json, caution_json, active_json, how_json, exp_json,
+                profile_snapshot or "{}", now, expires,
+            ),
+        )
+        analysis_id = cursor.lastrowid
+    conn.commit()
+
+    row = cursor.execute("SELECT * FROM analysis WHERE id = ?", (analysis_id,)).fetchone()
+    conn.close()
+    return _analysis_to_dict(row) if row else {}
+
+
+def get_current_analysis(user_id: int, product_id: int | None = None, slug: str = ""):
+    """Возвращает АКТУАЛЬНЫЙ User Analysis или None.
+
+    Актуален, если одновременно: (1) запись существует, (2) TTL не истёк,
+    (3) analysis.created_at >= users.profile_updated_at. Иначе — None.
+    """
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    row = _find_analysis_row(cursor, user_id, product_id, slug)
+    if not row:
+        conn.close()
+        return None
+
+    expires_at = row["expires_at"]
+    if expires_at and expires_at < _now_ts():
+        conn.close()
+        return None
+
+    pua_row = cursor.execute("SELECT profile_updated_at FROM users WHERE id = ?", (user_id,)).fetchone()
+    profile_updated_at = pua_row["profile_updated_at"] if pua_row else None
+    conn.close()
+    if profile_updated_at and row["created_at"] and row["created_at"] < profile_updated_at:
+        return None
+
+    return _analysis_to_dict(row)
+
+
+def get_current_analyses_map(user_id: int, product_ids: list) -> dict:
+    """Актуальные анализы для списка product_id (одним запросом) — для каталога/полки."""
+    if not product_ids:
+        return {}
+    ids = []
+    for pid in product_ids:
+        try:
+            ids.append(int(pid))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return {}
+
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    placeholders = ",".join(["?"] * len(ids))
+    rows = cursor.execute(
+        f"SELECT * FROM analysis WHERE user_id = ? AND product_id IN ({placeholders})",
+        (user_id, *ids),
+    ).fetchall()
+    pua_row = cursor.execute("SELECT profile_updated_at FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+
+    profile_updated_at = pua_row["profile_updated_at"] if pua_row else None
+    now = _now_ts()
+    result = {}
+    for row in rows:
+        expires_at = row["expires_at"]
+        if expires_at and expires_at < now:
+            continue
+        if profile_updated_at and row["created_at"] and row["created_at"] < profile_updated_at:
+            continue
+        result[row["product_id"]] = _analysis_to_dict(row)
+    return result
+
+
+def save_analysis_report(user_id: int, product_id: int | None, slug: str = "", report: str = "") -> bool:
+    """Сохраняет подробное описание (Слой 2) к АКТУАЛЬНОМУ User Analysis."""
+    if not report:
+        return False
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    if product_id is not None:
+        cursor.execute(
+            "UPDATE analysis SET report = ? WHERE user_id = ? AND product_id = ?",
+            (report, user_id, product_id),
+        )
+    else:
+        cursor.execute(
+            "UPDATE analysis SET report = ? WHERE user_id = ? AND slug = ?",
+            (report, user_id, slug),
+        )
+    conn.commit()
+    updated = cursor.rowcount
+    conn.close()
+    return updated > 0
+
+
+def delete_user_analyses(user_id: int) -> int:
+    """Инвалидирует все персональные анализы пользователя (при изменении анкеты).
+    НЕ трогает Product DB / Static Product Model / Ingredient DB / shelf_products."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM analysis WHERE user_id = ?", (user_id,))
+    conn.commit()
+    deleted = cursor.rowcount
+    conn.close()
+    return deleted
+
+
+def delete_expired_analyses() -> int:
+    """Фоновая очистка: удаляет истёкшие User Analysis (не Product/Ingredient)."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM analysis WHERE expires_at IS NOT NULL AND expires_at < ?", (_now_ts(),))
+    conn.commit()
+    deleted = cursor.rowcount
+    conn.close()
+    return deleted

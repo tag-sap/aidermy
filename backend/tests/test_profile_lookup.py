@@ -21,7 +21,8 @@ class ProfileLookupTests(unittest.TestCase):
         cur = conn.cursor()
         cur.execute(
             "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, name TEXT, "
-            "skin_type TEXT, age TEXT, concerns TEXT, allergies TEXT, custom_text TEXT)"
+            "skin_type TEXT, age TEXT, concerns TEXT, allergies TEXT, custom_text TEXT, "
+            "profile_updated_at TEXT)"
         )
         cur.execute(
             "CREATE TABLE user_profiles (id INTEGER PRIMARY KEY, user_id INTEGER, name TEXT, "
@@ -73,19 +74,17 @@ class ProfileLookupTests(unittest.TestCase):
         profile = get_user_profile(2)
         self.assertEqual(profile["skin_type"], "Нормальная")
 
-    def test_history_score_skips_stale_skin_type(self):
+    def test_history_score_skips_stale_after_profile_change(self):
+        # Актуальность теперь определяется users.profile_updated_at, а НЕ сравнением
+        # каждого поля анкеты (skin_type). Анализ, созданный ДО изменения профиля,
+        # больше не используется.
         self._seed()
         conn = database.get_connection(database.AIDERMY_DB)
         cur = conn.cursor()
-        # Устаревшая запись под «Нормальная» (не должна вернуться).
+        cur.execute("UPDATE users SET profile_updated_at = '2026-01-10 00:00:00' WHERE id = 1")
         cur.execute(
-            "INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, slug) "
-            "VALUES (1, 'Крем', 'Нормальная', 100, 'Подходит', 'нормальной кожи', 'cream')"
-        )
-        # Актуальная запись под «Чувствительная».
-        cur.execute(
-            "INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, slug) "
-            "VALUES (1, 'Крем', 'Чувствительная', 60, 'Требует внимания', 'чувствительной кожи', 'cream')"
+            "INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, slug, created_at) "
+            "VALUES (1, 'Крем', 'Нормальная', 100, 'Подходит', 'нормальной кожи', 'cream', '2026-01-01 00:00:00')"
         )
         conn.commit()
         conn.close()
@@ -93,8 +92,8 @@ class ProfileLookupTests(unittest.TestCase):
         user = {"id": 1}
         product = {"id": 1, "name": "Крем", "slug": "cream"}
         score, analysis = _find_history_score(user, product)
-        self.assertEqual(score, 60)
-        self.assertIn("чувствительной", analysis.get("summary", ""))
+        self.assertIsNone(score)
+        self.assertIsNone(analysis)
 
 
 if __name__ == "__main__":

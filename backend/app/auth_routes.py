@@ -465,7 +465,17 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
     
     conn.commit()
     conn.close()
-    
+
+    # Изменение анкеты: users.profile_updated_at = NOW() → старые User Analysis
+    # больше не актуальны (analysis.created_at < profile_updated_at).
+    # Старые анализы инвалидируются (удаляются); Product DB / полка НЕ трогаются.
+    try:
+        from .database import touch_user_profile_updated_at, delete_user_analyses
+        touch_user_profile_updated_at(user_id)
+        delete_user_analyses(user_id)
+    except Exception as exc:
+        print(f"[PROFILE] analysis invalidation failed: {exc!r}")
+
     return {"status": "ok"}
 
 # === МОЙ ПРОФИЛЬ ===

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, LoaderCircle, Sparkles, X, Check, ListChecks, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ShelfItem } from '@/lib/shelf'
@@ -8,6 +8,7 @@ import type { CheckResult } from '@/lib/store'
 import { ShelfAddModal } from '@/components/shelf-add-modal'
 import { ShelfAddNode } from '@/components/shelf-add-node'
 import { ProductModal } from '@/components/product-modal'
+import { ProductCard } from '@/components/product-card'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
 type Category = { key: string; title: string; items: ShelfItem[]; compatibility?: number | null }
@@ -26,26 +27,6 @@ type Cabinet = {
 }
 
 type ConfirmState = { title: string; message: string; confirmLabel?: string; onConfirm: () => void }
-
-function scoreBadge(s: number | null) {
-  if (s == null) return ''
-  if (s >= 80) return 'bg-[#F5C900]/25 text-[#7A5E00]'
-  if (s >= 60) return 'bg-[#F5C900]/15 text-[#7A5E00]'
-  if (s >= 40) return 'bg-[#8B5CF6]/10 text-[#6D28D9]'
-  return 'bg-[#FF4D3D]/10 text-[#D63B2E]'
-}
-
-function Stars({ value }: { value: number }) {
-  return (
-    <span className="inline-flex items-center gap-px text-amber-400">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <svg key={i} viewBox="0 0 24 24" className="size-2.5" fill={i <= Math.round(value) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.5}>
-          <path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8L12 2z" />
-        </svg>
-      ))}
-    </span>
-  )
-}
 
 // Ширина фиксированного торца полки (левый/правый край).
 const SHELF_EDGE = 16
@@ -75,8 +56,13 @@ export function ShelfTab({
   const [removing, setRemoving] = useState(false)
   const [compatInfoOpen, setCompatInfoOpen] = useState(false)
   const [addNodeOpen, setAddNodeOpen] = useState(false)
+  const [checkingSlugs, setCheckingSlugs] = useState<Set<string>>(new Set())
+  const [recheckErrors, setRecheckErrors] = useState<Map<string, string>>(new Map())
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+
+  const processedSlugsRef = useRef<Set<string>>(new Set())
+  const recheckCancelledRef = useRef(false)
 
   useScrollLock(!!confirm)
 
@@ -119,6 +105,13 @@ export function ShelfTab({
     if (!currentCabinet) return []
     return currentCabinet.categories.flatMap((c) => c.items)
   }, [currentCabinet])
+
+  const isRecheckingActive = useMemo(() => {
+    if (!currentCabinet?.has_scoring) return false
+    return currentItems.some(
+      (it) => checkingSlugs.has(it.slug) || (Boolean(it.needs_recheck) && !recheckErrors.has(it.slug)),
+    )
+  }, [currentItems, currentCabinet, checkingSlugs, recheckErrors])
 
   const exitSelection = () => {
     setSelectionMode(false)
@@ -198,6 +191,129 @@ export function ShelfTab({
     setDetailContext({ cabinet, category })
     setDetailSlug(slug)
   }
+
+  const checkShelfProduct = async (slug: string) => {
+    setCheckingSlugs((prev) => new Set(prev).add(slug))
+    try {
+      const res = await fetch('/api/shelf/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug }),
+      })
+      if (res.ok) {
+        await refreshShelf()
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setCheckingSlugs((prev) => {
+        const next = new Set(prev)
+        next.delete(slug)
+        return next
+      })
+    }
+  }
+
+  const getDescription = async (slug: string) => {
+    try {
+      const res = await fetch('/api/analysis/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug }),
+      })
+      if (res.ok) {
+        await refreshShelf()
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // ===== АВТОМАТИЧЕСКАЯ ПЕРЕПРОВЕРКА ПОЛКИ (без LLM) =====
+  const collectStaleItems = (cabinets: Cabinet[]): ShelfItem[] =>
+    cabinets.flatMap((cab) => cab.categories.flatMap((cat) => cat.items.filter((it) => it.needs_recheck)))
+
+  const updateItemBySlug = (cabinets: Cabinet[], slug: string, patch: Partial<ShelfItem>): Cabinet[] =>
+    cabinets.map((cab) => ({
+      ...cab,
+      categories: cab.categories.map((cat) => ({
+        ...cat,
+        items: cat.items.map((it) => (it.slug === slug ? { ...it, ...patch } : it)),
+      })),
+    }))
+
+  const recheckProduct = async (item: ShelfItem) => {
+    setCheckingSlugs((prev) => new Set(prev).add(item.slug))
+    try {
+      const res = await fetch(`/api/shelf/recheck/${item.product_id}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || typeof d.score !== 'number') {
+        setRecheckErrors((prev) => new Map(prev).set(item.slug, d.detail || 'Не удалось перепроверить'))
+        return
+      }
+      setCabinets((prev) =>
+        updateItemBySlug(prev, item.slug, {
+          score: d.score,
+          has_report: Boolean(d.analysis?.report),
+          needs_recheck: false,
+        }),
+      )
+      setRecheckErrors((prev) => {
+        const next = new Map(prev)
+        next.delete(item.slug)
+        return next
+      })
+    } catch {
+      setRecheckErrors((prev) => new Map(prev).set(item.slug, 'Не удалось перепроверить'))
+    } finally {
+      setCheckingSlugs((prev) => {
+        const next = new Set(prev)
+        next.delete(item.slug)
+        return next
+      })
+    }
+  }
+
+  const retryRecheck = async (item: ShelfItem) => {
+    setRecheckErrors((prev) => {
+      const next = new Map(prev)
+      next.delete(item.slug)
+      return next
+    })
+    await recheckProduct(item)
+    await fetchShelf(true)
+  }
+
+  // Запускаем перепроверку неактуальных Analysis после первой загрузки полки.
+  useEffect(() => {
+    recheckCancelledRef.current = false
+    return () => {
+      recheckCancelledRef.current = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (loading) return
+    const stale = collectStaleItems(cabinets).filter((it) => !processedSlugsRef.current.has(it.slug))
+    if (stale.length === 0) return
+    stale.forEach((it) => processedSlugsRef.current.add(it.slug))
+
+    const run = async () => {
+      for (const item of stale) {
+        if (recheckCancelledRef.current) return
+        await recheckProduct(item)
+      }
+      if (!recheckCancelledRef.current) {
+        // После завершения всех проверок пересчитываем общий процент полки.
+        await fetchShelf(true)
+      }
+    }
+    run()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cabinets, loading])
 
   if (loading) {
     return (
@@ -310,18 +426,27 @@ export function ShelfTab({
                       )}
                     </button>
                   </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200/60">
-                      <div
-                        className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
-                        style={{ width: `${currentCabinet.compatibility ?? 0}%` }}
-                      />
+                  {isRecheckingActive ? (
+                    <div className="mt-1 flex items-center justify-end gap-1.5">
+                      <LoaderCircle className="size-3.5 animate-spin text-primary" />
+                      <span className="text-xs text-muted-foreground/70">Обновляем анализ полки...</span>
                     </div>
-                    <span className={cn('text-lg font-light tabular-nums', currentCabinet.compatibility != null ? 'text-primary' : 'text-muted-foreground/40')}>
-                      {currentCabinet.compatibility != null ? `${currentCabinet.compatibility}%` : '—'}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-right text-[9px] text-muted-foreground/40">Как сочетаются между собой</p>
+                  ) : (
+                    <>
+                      <div className="mt-1 flex items-center gap-2">
+                        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200/60">
+                          <div
+                            className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+                            style={{ width: `${currentCabinet.compatibility ?? 0}%` }}
+                          />
+                        </div>
+                        <span className={cn('text-lg font-light tabular-nums', currentCabinet.compatibility != null ? 'text-primary' : 'text-muted-foreground/40')}>
+                          {currentCabinet.compatibility != null ? `${currentCabinet.compatibility}%` : '—'}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-right text-[9px] text-muted-foreground/40">Как сочетаются между собой</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -359,47 +484,25 @@ export function ShelfTab({
                         {cat.items.map((item, idx) => {
                           const isSelected = selected.has(item.id)
                           return (
-                            <div key={item.id} className="animate-shelf-card group relative w-[130px] shrink-0" style={{ animationDelay: `${idx * 35}ms` }}>
-                              <button
-                                onClick={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
-                                className={cn(
-                                  'flex h-[188px] w-full flex-col overflow-hidden rounded-2xl border text-left transition-all',
-                                  selectionMode && isSelected
-                                    ? 'border-primary/70 bg-primary/5 ring-2 ring-primary/20'
-                                    : 'border-white/40 bg-white/60',
-                                  !selectionMode && 'hover:-translate-y-0.5',
-                                )}
-                              >
-                                <div className="flex h-[96px] shrink-0 items-center justify-center bg-gray-50/60 p-2">
-                                  {item.image_url ? (
-                                    <img src={item.image_url} alt="" className="h-full w-full object-contain" />
-                                  ) : (
-                                    <Sparkles className="size-5 text-muted-foreground/30" />
-                                  )}
-                                </div>
-                                <div className="flex flex-1 flex-col px-2 pt-1.5 pb-2">
-                                  {item.brand && <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground/40">{item.brand}</p>}
-                                  <p className="line-clamp-2 text-[11px] font-medium leading-tight text-foreground/80">{item.name}</p>
-                                  {item.rating != null && item.rating > 0 && (
-                                    <span className="mt-0.5 inline-flex items-center gap-1">
-                                      <Stars value={item.rating} />
-                                      <span className="text-[9px] text-muted-foreground/60">{item.rating.toFixed(1)}</span>
-                                    </span>
-                                  )}
-                                  <div className="mt-auto pt-1">
-                                    {currentCabinet.has_scoring &&
-                                      (item.score != null ? (
-                                        <span className={cn('inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', scoreBadge(item.score))}>
-                                          {item.score}%
-                                        </span>
-                                      ) : (
-                                        <span className="inline-block rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px] text-muted-foreground/50">
-                                          —
-                                        </span>
-                                      ))}
-                                  </div>
-                                </div>
-                              </button>
+                            <div key={item.id} className="animate-shelf-card group relative w-[160px] shrink-0" style={{ animationDelay: `${idx * 35}ms` }}>
+                              <div className={cn('rounded-2xl transition-all', selectionMode && isSelected && 'ring-2 ring-primary/20')}>
+                                <ProductCard
+                                  name={item.name}
+                                  brand={item.brand}
+                                  imageUrl={item.image_url}
+                                  category={item.category}
+                                  score={item.score}
+                                  hasReport={item.has_report}
+                                  scoring={currentCabinet.has_scoring}
+                                  checking={checkingSlugs.has(item.slug) || (Boolean(item.needs_recheck) && !recheckErrors.has(item.slug))}
+                                  error={recheckErrors.get(item.slug)}
+                                  onOpen={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
+                                  onCheck={() => checkShelfProduct(item.slug)}
+                                  onGetDescription={() => getDescription(item.slug)}
+                                  onViewAnalysis={() => openDetail(item.slug, item.cabinet, item.category)}
+                                  onRetry={() => retryRecheck(item)}
+                                />
+                              </div>
 
                               {selectionMode && (
                                 <span
@@ -418,7 +521,7 @@ export function ShelfTab({
                                     e.stopPropagation()
                                     setRemovalTarget(item); setRemovalReason(''); setRemovalNote('')
                                   }}
-                                  className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-500"
+                                  className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/60 hover:text-red-500"
                                   aria-label="Удалить продукт"
                                 >
                                   <X className="size-3.5" />

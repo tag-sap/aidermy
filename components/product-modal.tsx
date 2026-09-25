@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, Sparkles, LoaderCircle, Check, Trash2, ShieldCheck } from 'lucide-react'
+import { X, Sparkles, LoaderCircle, Check, Trash2, ShieldCheck, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CABINET_TITLES } from '@/lib/shelf'
 import { useScrollLock } from '@/lib/use-scroll-lock'
@@ -83,6 +83,7 @@ export function ProductModal({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [gettingDescription, setGettingDescription] = useState(false)
   const [showComposition, setShowComposition] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
 
@@ -195,6 +196,32 @@ export function ProductModal({
       setAnalysisError(e instanceof Error ? e.message : 'Не удалось выполнить анализ')
     } finally {
       setChecking(false)
+    }
+  }
+
+  const getDescription = async () => {
+    if (!product || gettingDescription) return
+    setGettingDescription(true)
+    setAnalysisError('')
+    setError('')
+    try {
+      const res = await fetch('/api/analysis/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug: product.slug }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(d.detail || 'Не удалось сформировать описание')
+      setData((prev) =>
+        prev && prev.analysis
+          ? { ...prev, analysis: { ...prev.analysis, report: d.review ?? prev.analysis.report } }
+          : prev,
+      )
+      onChanged()
+    } catch (e) {
+      setAnalysisError(e instanceof Error ? e.message : 'Не удалось сформировать описание')
+    } finally {
+      setGettingDescription(false)
     }
   }
 
@@ -339,14 +366,25 @@ export function ProductModal({
             {error && product && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
 
             <div className="mt-4 flex flex-col gap-2">
-              {analysisState.kind === 'ANALYZED' && onOpenReport ? (
-                <button
-                  onClick={openFullReport}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10"
-                >
-                  <ShieldCheck className="size-4" />
-                  {ANALYSIS_ACTIONS.SHOW_REPORT}
-                </button>
+              {analysisState.kind === 'ANALYZED' ? (
+                analysisState.hasReport && onOpenReport ? (
+                  <button
+                    onClick={openFullReport}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    <ShieldCheck className="size-4" />
+                    {ANALYSIS_ACTIONS.VIEW_ANALYSIS}
+                  </button>
+                ) : (
+                  <button
+                    onClick={getDescription}
+                    disabled={gettingDescription}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/5 py-2.5 text-sm text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+                  >
+                    {gettingDescription ? <LoaderCircle className="size-4 animate-spin" /> : <FileText className="size-4" />}
+                    {ANALYSIS_ACTIONS.GET_DESCRIPTION}
+                  </button>
+                )
               ) : (
                 <button
                   onClick={checkCompatibility}

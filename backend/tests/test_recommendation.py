@@ -204,27 +204,15 @@ class RecommendationTests(unittest.TestCase):
         with patch("app.shelf_service._find_history_score", return_value=(82, None)):
             self.assertEqual(get_personalized_score(USER, product), 82)
 
-    def test_get_personalized_analysis_recomputes_without_history(self):
-        # Истории нет, но продукт «подготовлен» (есть Static Product Model) →
-        # анализ пересчитывается детерминированно, а НЕ исчезает.
+    def test_get_personalized_analysis_none_without_analysis(self):
+        # Без актуального User Analysis → (None, None). Score НЕ пересчитывается
+        # «на лету»: карточка показывает «Проверить совместимость», а не процент.
         product = {"id": 1, "ingredients": "Aqua, Glycerin"}
-        computed = {
-            "verdict": "Подходит",
-            "summary": "ок",
-            "score": 61,
-            "safe_ingredients": ["glycerin"],
-            "caution_ingredients": [],
-            "active_ingredients": None,
-            "how_to_use": None,
-            "expectations": None,
-            "report": None,
-        }
-        with patch("app.shelf_service._find_history_score", return_value=(None, None)), \
-             patch("app.shelf_service._compute_analysis_if_prepared", return_value=computed):
+        with patch("app.shelf_service._analysis_from_analysis_table", return_value=(None, None)), \
+             patch("app.shelf_service._find_history_score", return_value=(None, None)):
             score, analysis = get_personalized_analysis(USER, product)
-        self.assertEqual(score, 61)
-        self.assertEqual(analysis["score"], 61)
-        self.assertEqual(analysis["verdict"], "Подходит")
+        self.assertIsNone(score)
+        self.assertIsNone(analysis)
 
     def test_get_personalized_analysis_none_when_not_prepared(self):
         # Нет истории и нет модели → (None, None).

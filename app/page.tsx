@@ -75,6 +75,7 @@ export default function Page() {
   const [catalogSlug, setCatalogSlug] = useState<string | null>(null)
   const [catalogFilter, setCatalogFilter] = useState<{ brand?: string; cat?: string }>({})
   const [catalogFilterKey, setCatalogFilterKey] = useState(0)
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0)
 
   const profileTabRef = useRef<{ getDraft: () => SkinProfile } | null>(null)
   const lastHistoryMutationRef = useRef(0)
@@ -597,6 +598,8 @@ export default function Page() {
       setLoading(false)
 
       await persistHistory(fullResult, skinType)
+      // Обновляем карточки каталога без перезагрузки страницы (#17).
+      setCatalogRefreshKey((k) => k + 1)
 
     } catch (error) {
       console.error('Ошибка проверки:', error)
@@ -664,6 +667,7 @@ export default function Page() {
     setLoading(false)
     setIsSheetOpen(true)
     persistHistory(data, data.skinType)
+    setCatalogRefreshKey((k) => k + 1)
   }
 
   const closeSheet = () => {
@@ -823,6 +827,7 @@ export default function Page() {
                       initialBrand={catalogFilter.brand}
                       initialCat={catalogFilter.cat}
                       filterKey={catalogFilterKey}
+                      refreshKey={catalogRefreshKey}
                     />
                   )}
                   {tab === 'history' && (
@@ -898,7 +903,7 @@ export default function Page() {
             <ProductModal
               slug={catalogSlug}
               onClose={() => setCatalogSlug(null)}
-              onChanged={() => {}}
+              onChanged={() => setCatalogRefreshKey((k) => k + 1)}
               onCheck={(productName) => {
                 // Не закрываем карточку: после закрытия полного отчёта
                 // пользователь должен вернуться в эту же карточку товара.

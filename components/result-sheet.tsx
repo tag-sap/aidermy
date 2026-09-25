@@ -204,12 +204,14 @@ export function ResultSheet({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {result.active_ingredients && (
-                <Section icon={Sparkles} title="Активный ингредиент" className="border-purple-100/50">
+                <Section icon={Sparkles} title="Ключевой ингредиент" className="border-purple-100/50">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-sm font-medium text-foreground/80">{result.active_ingredients.name}</span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">#{result.active_ingredients.position}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground/60 font-light mt-1">Первый в составе — высокая концентрация</p>
+                  <p className="text-xs text-muted-foreground/60 font-light mt-1">
+                    Значимый для вашего анализа компонент
+                  </p>
                 </Section>
               )}
 

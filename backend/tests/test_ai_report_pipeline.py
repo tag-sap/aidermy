@@ -76,11 +76,23 @@ class BuildReportPromptTests(unittest.TestCase):
 
 
 class ActiveIngredientTests(unittest.TestCase):
-    def test_active_ingredient_is_deterministic_first_ingredient(self):
+    def test_active_ingredient_skips_water_solvent(self):
+        # Первый INCI-ингредиент (вода) НЕ считается ключевым ингредиентом отчёта.
         ai = build_active_ingredient({"normalized_ingredients": ["aqua", "glycerin", "fragrance"]})
-        self.assertEqual(ai["name"], "aqua")
-        self.assertEqual(ai["position"], 1)
+        self.assertEqual(ai["name"], "glycerin")
+        self.assertEqual(ai["position"], 2)
         self.assertNotIn("effectiveness", ai)  # нет скрытого scoring factor
+
+    def test_active_ingredient_prefers_scoring_impact(self):
+        # Ключевой = ингредиент, который существенно повлиял на scoring, а не позиция INCI.
+        ai = build_active_ingredient({
+            "normalized_ingredients": ["aqua", "glycerin", "fragrance", "niacinamide"],
+            "positive_factors": [
+                {"ingredient": "glycerin", "strength": 0.5, "confidence": 0.9, "position_weight": 0.9},
+                {"ingredient": "niacinamide", "strength": 0.9, "confidence": 0.9, "position_weight": 0.7},
+            ],
+        })
+        self.assertEqual(ai["name"], "niacinamide")
 
     def test_active_ingredient_none_without_composition(self):
         self.assertIsNone(build_active_ingredient({"normalized_ingredients": []}))
@@ -161,17 +173,18 @@ class ReportCachingTests(unittest.TestCase):
         self.assertEqual(score, 14)
         self.assertEqual(analysis["report"], "готовый отчёт")
 
-    def test_stale_analysis_skipped_when_skin_changed(self):
+    def test_stale_analysis_skipped_after_profile_change(self):
         # User Analysis стал неактуальным после смены профиля — старый отчёт не используется.
+        # Актуальность = analysis.created_at >= users.profile_updated_at (а не сравнение skin_type).
         from app.shelf_service import _find_history_score
         product = {"name": "Мусс", "slug": "mousse"}
         history = [{
-            "id": 1, "product_name": "Мусс", "slug": "mousse", "skin_type": "нормальная",
+            "id": 1, "product_name": "Мусс", "slug": "mousse",
             "score": 80, "verdict": "Рекомендуется", "summary": "x", "ai_report": "старый отчёт",
+            "created_at": "2026-01-01 00:00:00",
         }]
-        score, analysis = _find_history_score(
-            {"id": 1}, product, history=history, current_skin="чувствительная"
-        )
+        with patch("app.database.get_user_profile_updated_at", return_value="2026-01-10 00:00:00"):
+            score, analysis = _find_history_score({"id": 1}, product, history=history)
         self.assertIsNone(score)
         self.assertIsNone(analysis)
 

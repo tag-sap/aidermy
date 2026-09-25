@@ -433,35 +433,74 @@ def _current_skin_type(user: Dict[str, Any]) -> str:
         return (user.get("skin_type") or "").strip().lower()
 
 
+def _analysis_from_analysis_table(
+    user: Dict[str, Any],
+    product: Dict[str, Any],
+) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+    """Актуальный User Analysis из таблицы `analysis` (основной источник истины).
+
+    Возвращает (score, analysis) или (None, None), если анализа нет / TTL истёк /
+    профиль изменён после анализа.
+    """
+    try:
+        from .database import get_current_analysis
+    except Exception:
+        return None, None
+
+    product_id = product.get("id")
+    slug = (product.get("slug") or "").strip()
+    analysis = get_current_analysis(user["id"], product_id=product_id, slug=slug)
+    if not analysis:
+        return None, None
+    return analysis.get("score"), analysis
+
+
 def _find_history_score(
     user: Dict[str, Any],
     product: Dict[str, Any],
     history: Optional[List[Dict[str, Any]]] = None,
     current_skin: str = "",
 ) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
-    from .database import get_user_check_history
+    """LEGACY-фолбэк: скор из check_history (история проверок).
+
+    Актуальность определяется НЕ сравнением каждого поля анкеты, а только:
+    (1) TTL не истёк, (2) analysis.created_at >= users.profile_updated_at.
+    """
+    from .database import get_user_check_history, get_user_profile_updated_at, ANALYSIS_TTL_DAYS
+    from datetime import datetime, timedelta
+
     cleaned_name = (product.get("name") or "").replace("\n", " ").strip().lower()
     slug = (product.get("slug") or "").strip()
-    if not current_skin:
-        current_skin = _current_skin_type(user)
     records = history if history is not None else get_user_check_history(user["id"], limit=200)
+
+    try:
+        profile_updated_at = get_user_profile_updated_at(user["id"])
+    except Exception:
+        profile_updated_at = None
+    ttl_cutoff = (datetime.utcnow() - timedelta(days=ANALYSIS_TTL_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
+
     for h in records:
-        # Пропускаем устаревшие записи, сделанные под другой тип кожи —
-        # чтобы не показывать «нормальной кожи», если сейчас «чувствительная».
-        h_skin = (h.get("skin_type") or "").strip().lower()
-        if current_skin and h_skin and h_skin != current_skin:
-            continue
         h_slug = (h.get("slug") or "").strip()
         h_name = (h.get("product_name") or "").replace("\n", " ").strip().lower()
-        if slug and h_slug and h_slug == slug:
-            return int(h.get("score") or 0), normalize_history_analysis(h)
-        if cleaned_name and h_name and (h_name == cleaned_name or h_name in cleaned_name or cleaned_name in h_name):
-            return int(h.get("score") or 0), normalize_history_analysis(h)
+        matches = (bool(slug) and bool(h_slug) and h_slug == slug) or (
+            bool(cleaned_name) and bool(h_name) and (h_name == cleaned_name or h_name in cleaned_name or cleaned_name in h_name)
+        )
+        if not matches:
+            continue
+        created_at = h.get("created_at") or ""
+        if profile_updated_at and created_at and created_at < profile_updated_at:
+            continue
+        if created_at and created_at < ttl_cutoff:
+            continue
+        return int(h.get("score") or 0), normalize_history_analysis(h)
     return None, None
 
 
 def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
-    """Скор продукта ТОЛЬКО из реальной проверки пользователя (история). Без fake-фолбэков."""
+    """Скор продукта ТОЛЬКО из актуального User Analysis (analysis → legacy history)."""
+    score, analysis = _analysis_from_analysis_table(user, product)
+    if score is not None:
+        return score, analysis
     return _find_history_score(user, product)
 
 
@@ -521,12 +560,13 @@ def get_personalized_score(
     knowledge=None,
     history: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[int]:
-    """Персональный score: история (snapshot) → детерминированный пересчёт из модели."""
-    score, _ = _find_history_score(user, product, history=history)
-    if score is not None:
-        return score
-    analysis = _compute_analysis_if_prepared(user, product, knowledge=knowledge)
-    return analysis["score"] if analysis else None
+    """Персональный score ТОЛЬКО из актуального User Analysis (анализ → история).
+
+    Без актуального Analysis возвращает None — карточка показывает
+    «Проверить совместимость», а не пересчитанный «на лету» процент.
+    """
+    score, _ = score_product(user, product)
+    return score
 
 
 def get_personalized_analysis(
@@ -535,18 +575,12 @@ def get_personalized_analysis(
     knowledge=None,
     history: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
-    """Персональный анализ: история (snapshot) → детерминированный пересчёт из модели.
+    """Персональный анализ ТОЛЬКО из актуального User Analysis (анализ → история).
 
-    История — snapshot, НЕ source of truth: если записи нет, но продукт «подготовлен»
-    (есть актуальная Static Product Model), анализ пересчитывается под пользователя.
+    Наличие процента НЕ означает наличие описания: report возвращается отдельно
+    и заполняется только после явного запроса «Получить описание».
     """
-    score, analysis = _find_history_score(user, product, history=history)
-    if score is not None:
-        return score, analysis
-    computed = _compute_analysis_if_prepared(user, product, knowledge=knowledge)
-    if computed is None:
-        return None, None
-    return computed["score"], computed
+    return score_product(user, product)
 
 
 def compute_product_compatibility(
@@ -555,12 +589,7 @@ def compute_product_compatibility(
     knowledge=None,
     history: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[int]:
-    """Итоговый Product Compatibility % для полки.
-
-    История — snapshot: сначала берём score из неё, затем (если продукт «подготовлен»
-    — есть актуальная Static Product Model) пересчитываем персональный score.
-    Без Static Product Model и без истории → None («Анализ ещё не выполнен»).
-    """
+    """Итоговый Product Compatibility % для полки = актуальный User Analysis."""
     return get_personalized_score(user, product, knowledge=knowledge, history=history)
 
 
@@ -1048,6 +1077,58 @@ async def recommend_products(
 # СБОРКА ОТВЕТА ПОЛКИ
 # ---------------------------------------------------------------------------
 
+def _auto_recheck(
+    user: Dict[str, Any],
+    product: Dict[str, Any],
+    knowledge=None,
+) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+    """Автоматическая перепроверка продукта полки без актуального Analysis.
+
+    Пересчитывает score по текущему профилю детерминированным движком и сохраняет
+    Analysis (report=None — описание запрашивается отдельно). НЕ трогает Product/полку.
+    """
+    ingredients = product.get("ingredients") or ""
+    if not ingredients or not str(ingredients).strip():
+        return None, None
+    try:
+        analysis = _deterministic_analysis(_build_user_profile(user), ingredients, knowledge=knowledge)
+        score = _meaningful_score(analysis)
+        if score is None:
+            return None, None
+        from .database import upsert_analysis
+        saved = upsert_analysis(
+            user_id=user["id"],
+            product_id=product.get("id"),
+            slug=product.get("slug") or "",
+            score=score,
+            verdict=analysis.get("verdict") or "",
+            summary=analysis.get("summary") or "",
+            safe_ingredients=analysis.get("safe_ingredients") or [],
+            caution_ingredients=analysis.get("caution_ingredients") or [],
+        )
+        return score, saved
+    except Exception:
+        return None, None
+
+
+def recheck_product(
+    user: Dict[str, Any],
+    product: Dict[str, Any],
+) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+    """Перепроверка ОДНОГО продукта полки (без LLM).
+
+    Использует существующий deterministic scoring engine. Score/verdict рассчитываются
+    движком, описание (report) НЕ генерируется (Слой 2 отдельно). Возвращает
+    (score, analysis) или (None, None), если пересчитать не удалось.
+    """
+    try:
+        from .ingredient_repository import IngredientRepository
+        knowledge = IngredientRepository().get_canonical_knowledge_map()
+    except Exception:
+        knowledge = None
+    return _auto_recheck(user, product, knowledge=knowledge)
+
+
 def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Группирует записи полки по шкафам и категориям, считает совместимость."""
     from .database import get_product_by_id, get_user_check_history
@@ -1059,6 +1140,7 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         user_history = get_user_check_history(user["id"], limit=200)
     except Exception:
         user_history = []
+
     enriched: List[Dict[str, Any]] = []
     for s in shelf_items:
         p = get_product_by_id(s["product_id"])
@@ -1066,10 +1148,17 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             continue
         cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
         score = None
+        has_report = False
+        needs_recheck = False
         if cabinet_applies_scoring(cabinet):
-            # score ТОЛЬКО из актуального User Analysis (история проверок).
-            # Продукт на полке без анализа → score None («Анализ ещё не выполнен»).
-            score = get_personalized_score(user, p, history=user_history)
+            # score ТОЛЬКО из актуального User Analysis.
+            score, analysis = get_personalized_analysis(user, p, history=user_history)
+            if score is None:
+                # Нет актуального Analysis (нет / TTL / профиль изменён). Если есть состав —
+                # помечаем как требующий перепроверки: фронтенд инициирует её отдельно
+                # (POST /api/shelf/recheck/{product_id}), НЕ внутри этого GET.
+                needs_recheck = bool((p.get("ingredients") or "").strip())
+            has_report = bool(analysis and analysis.get("report"))
         enriched.append({
             "id": s["id"],
             "shelf_id": s["id"],
@@ -1083,6 +1172,8 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             "slug": p.get("slug") or "",
             "ingredients": p.get("ingredients") or "",
             "score": score,
+            "has_report": has_report,
+            "needs_recheck": needs_recheck,
         })
 
     cabinets: List[Dict[str, Any]] = []

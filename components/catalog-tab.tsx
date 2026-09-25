@@ -1,10 +1,24 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Search, X, LoaderCircle, Sparkles, ArrowUp, SlidersHorizontal } from 'lucide-react'
+import { Search, X, LoaderCircle, ArrowUp, SlidersHorizontal } from 'lucide-react'
 import { cn, capitalizeFirst } from '@/lib/utils'
+import { ProductCard } from '@/components/product-card'
 
-type Product = { name: string; brand: string; slug: string; image_url: string; category: string; subcategory: string; rating: number | null; rating_count: number }
+type Product = {
+  id: number
+  name: string
+  brand: string
+  slug: string
+  image_url: string
+  category: string
+  subcategory: string
+  rating: number | null
+  rating_count: number
+  score: number | null
+  hasReport: boolean
+  checking?: boolean
+}
 type Taxonomy = { key: string; title: string; subcategories: { key: string; title: string }[] }
 
 const PAGE = 40
@@ -12,6 +26,7 @@ const PAGE = 40
 function normalize(p: any): Product {
   const parts = (p.name || '').split('\n').filter((x: string) => x.trim())
   return {
+    id: p.id,
     name: capitalizeFirst(parts.length > 1 ? parts.slice(1).join(' ') : (p.name || '').trim()),
     brand: capitalizeFirst(parts.length > 1 ? parts[0] : (p.brand || '')),
     slug: p.slug || '',
@@ -20,19 +35,9 @@ function normalize(p: any): Product {
     subcategory: p.subcategory || '',
     rating: typeof p.rating === 'number' ? p.rating : null,
     rating_count: p.rating_count || 0,
+    score: typeof p.score === 'number' ? p.score : null,
+    hasReport: Boolean(p.analysis?.report),
   }
-}
-
-function Stars({ value }: { value: number }) {
-  return (
-    <span className="inline-flex items-center gap-0.5 text-amber-400">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <svg key={i} viewBox="0 0 24 24" className="size-2.5" fill={i <= Math.round(value) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={1.5}>
-          <path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8L12 2z" />
-        </svg>
-      ))}
-    </span>
-  )
 }
 
 export function CatalogTab({
@@ -40,11 +45,13 @@ export function CatalogTab({
   initialBrand,
   initialCat,
   filterKey,
+  refreshKey,
 }: {
   onOpenProduct: (slug: string) => void
   initialBrand?: string
   initialCat?: string
   filterKey?: number
+  refreshKey?: number
 }) {
   const [products, setProducts] = useState<Product[]>([])
   const [letters, setLetters] = useState<string[]>([])
@@ -125,6 +132,68 @@ export function CatalogTab({
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLetter, activeCategory, subcategory, search, brand, cat])
+
+  // Обновление карточек после изменения анализа (проверка/описание) из ProductModal.
+  useEffect(() => {
+    if (!refreshKey) return
+    const requestId = ++requestIdRef.current
+    fetch(`/api/catalog?${buildParams(0)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (requestId !== requestIdRef.current) return
+        setProducts((data.products || []).map(normalize))
+        offsetRef.current = (data.products || []).length
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey])
+
+  const checkProduct = async (slug: string) => {
+    const token = localStorage.getItem('token')
+    // Без авторизации делегируем в карточку товара (там проверка работает без токена).
+    if (!token) {
+      onOpenProduct(slug)
+      return
+    }
+    setProducts((prev) => prev.map((p) => (p.slug === slug ? { ...p, checking: true } : p)))
+    try {
+      const res = await fetch('/api/shelf/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (res.ok && typeof d.score === 'number') {
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.slug === slug
+              ? { ...p, score: d.score, hasReport: Boolean(d.analysis?.report), checking: false }
+              : p,
+          ),
+        )
+      } else {
+        setProducts((prev) => prev.map((p) => (p.slug === slug ? { ...p, checking: false } : p)))
+      }
+    } catch {
+      setProducts((prev) => prev.map((p) => (p.slug === slug ? { ...p, checking: false } : p)))
+    }
+  }
+
+  const getDescription = async (slug: string) => {
+    const token = localStorage.getItem('token')
+    try {
+      const res = await fetch('/api/analysis/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug }),
+      })
+      if (res.ok) {
+        setProducts((prev) => prev.map((p) => (p.slug === slug ? { ...p, hasReport: true } : p)))
+      }
+    } catch {
+      /* ignore */
+    }
+  }
 
   const loadMore = useCallback(() => {
     if (loadingRef.current || !hasMore) return
@@ -270,32 +339,22 @@ export function CatalogTab({
           {grouped.map((group) => (
             <div key={group.letter}>
               <div className="px-2 py-1 text-xs font-semibold text-primary">{group.letter}</div>
-              <div className="grid grid-cols-1 gap-2 pb-3 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-2 gap-2 pb-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                 {group.items.map((p) => (
-                  <button
+                  <ProductCard
                     key={p.slug}
-                    onClick={() => onOpenProduct(p.slug)}
-                    className="flex w-full min-w-0 items-center gap-3 rounded-2xl border border-gray-100 bg-white p-2.5 text-left transition-colors hover:border-primary/30 hover:bg-primary/5"
-                  >
-                    <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-50">
-                      {p.image_url ? (
-                        <img src={p.image_url} alt="" className="h-full w-full object-contain p-1" />
-                      ) : (
-                        <Sparkles className="size-5 text-muted-foreground/30" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      {p.brand && <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground/50">{p.brand}</p>}
-                      <p className="truncate text-sm font-normal text-foreground">{p.name}</p>
-                      {p.category && <p className="truncate text-xs text-muted-foreground/50">{p.category}</p>}
-                      {p.rating != null && p.rating > 0 && (
-                        <span className="mt-0.5 inline-flex items-center gap-1">
-                          <Stars value={p.rating} />
-                          <span className="text-[10px] text-muted-foreground/60">{p.rating.toFixed(1)} · {p.rating_count} оценок</span>
-                        </span>
-                      )}
-                    </div>
-                  </button>
+                    name={p.name}
+                    brand={p.brand}
+                    imageUrl={p.image_url}
+                    category={p.category}
+                    score={p.score}
+                    hasReport={p.hasReport}
+                    checking={p.checking}
+                    onOpen={() => onOpenProduct(p.slug)}
+                    onCheck={() => checkProduct(p.slug)}
+                    onGetDescription={() => getDescription(p.slug)}
+                    onViewAnalysis={() => onOpenProduct(p.slug)}
+                  />
                 ))}
               </div>
             </div>
