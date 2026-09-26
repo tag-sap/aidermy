@@ -18,9 +18,7 @@ from .axes import AXES
 from .ingredient_normalizer import normalize_ingredient_name
 from .ingredient_repository import IngredientRepository
 from .instrumentation import METRICS
-
-# Порог достаточности знания (конфигурируемый, а не захардкоженный в lookup'ах).
-DEFAULT_CONFIDENCE_THRESHOLD = 0.5
+from .scoring_config import DEFAULT_CONFIDENCE_THRESHOLD
 
 
 class EffectState:

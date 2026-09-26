@@ -19,58 +19,16 @@ from typing import Any, Dict, List, Optional, Tuple
 from .analysis_service import AnalysisService
 from .scoring_engine import score_product_against_profile  # noqa: F401  (явная зависимость)
 
-# Измерения, которые понимает существующий scoring engine.
-DIMENSIONS: Tuple[str, ...] = (
-    "hydration",
-    "barrier_support",
-    "sensitivity",
-    "acne_control",
-    "brightening",
+# Измерения и веса вынесены в scoring_config.py — единственный versioned источник истины.
+from .scoring_config import (
+    CONCERN_WEIGHTS,
+    DEFAULT_PRIORITIES,
+    SKIN_TYPE_WEIGHTS,
+    VERDICT_CAUTION,
+    VERDICT_GOOD,
+    AXIS_LABELS as DIMENSION_LABELS,
+    DIMENSIONS,
 )
-
-# Базовые приоритеты (совпадают с прежним фолбэком в services.py).
-DEFAULT_PRIORITIES: Dict[str, float] = {
-    "hydration": 0.35,
-    "barrier_support": 0.25,
-    "sensitivity": 0.2,
-    "acne_control": 0.1,
-    "brightening": 0.1,
-}
-
-# Вклад типа кожи в веса измерений (детерминированно, без LLM).
-SKIN_TYPE_WEIGHTS: Dict[str, Dict[str, float]] = {
-    "сухая": {"hydration": 0.5, "barrier_support": 0.3},
-    "жирная": {"acne_control": 0.4, "sensitivity": 0.15},
-    "комбинирован": {"hydration": 0.3, "acne_control": 0.3},
-    "чувствительн": {"sensitivity": 0.5, "barrier_support": 0.25},
-    "нормальн": {"hydration": 0.3, "barrier_support": 0.3},
-    "обезвожен": {"hydration": 0.55},
-}
-
-# Вклад concern'а в веса измерений.
-CONCERN_WEIGHTS: Dict[str, Dict[str, float]] = {
-    "акне": {"acne_control": 0.4, "sensitivity": 0.15},
-    "пигментаци": {"brightening": 0.4},
-    "морщин": {"barrier_support": 0.3, "brightening": 0.2},
-    "покраснен": {"sensitivity": 0.4, "barrier_support": 0.2},
-    "пор": {"acne_control": 0.3},
-    "тускл": {"brightening": 0.3},
-    "обезвожен": {"hydration": 0.5},
-    "купероз": {"sensitivity": 0.4, "barrier_support": 0.2},
-}
-
-# Человекочитаемые названия измерений для summary (canonical axes).
-DIMENSION_LABELS: Dict[str, str] = {
-    "hydration": "увлажнение",
-    "barrier": "поддержку барьера кожи",
-    "irritation": "снижение раздражения",
-    "sensitization": "снижение сенсибилизации",
-    "sebum": "контроль себума",
-    "pigmentation": "выравнивание тона",
-}
-
-VERDICT_GOOD = 70
-VERDICT_CAUTION = 40
 
 
 def _effective_skin_type(profile: Dict[str, Any], skin_type: str = "") -> str:

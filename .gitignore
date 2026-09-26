@@ -19,3 +19,6 @@ nohup.out
 *.db-shm
 backups/
 *.MP4
+
+# Calibration export (сгенерированный датасет — не код, версионируется отдельно)
+calibration/

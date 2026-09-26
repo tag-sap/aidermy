@@ -22,21 +22,26 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .axes import AXES, AXIS_HARM
 
-# Единая версия правил interaction contribution. Входит в идентичность score.
-INTERACTION_SCORING_VERSION = "v1"
+# Правила interaction contribution вынесены в scoring_config.py (versioned источник истины).
+from .scoring_config import (
+    INTERACTION_CONFIDENCE_DEFAULT,
+    INTERACTION_SCORING_ENABLED_DEFAULT,
+    INTERACTION_SCORING_VERSION,
+    INTERACTION_STRENGTH_MAP,
+    INTERACTION_STRENGTH_UNKNOWN_DEFAULT,
+    NEGATIVE_DIRECTIONS,
+    POSITIVE_DIRECTIONS,
+)
 
 # Feature flag: False = legacy score бит-в-бит (регрессия). True = + interaction contribution.
-INTERACTION_SCORING_ENABLED = False
+# Хранится как МУТАБЕЛЬНЫЙ runtime-флаг (тесты переключают его напрямую), а не в конфиге.
+INTERACTION_SCORING_ENABLED = bool(INTERACTION_SCORING_ENABLED_DEFAULT)
 
 # Строковый strength → вес (детерминированно). Числовой strength проходит clamp(0,1).
-_STRENGTH_MAP: Dict[str, float] = {
-    "strong": 1.0, "high": 1.0,
-    "moderate": 0.6, "medium": 0.6,
-    "weak": 0.3, "low": 0.3,
-}
+_STRENGTH_MAP: Dict[str, float] = dict(INTERACTION_STRENGTH_MAP)
 
-_POSITIVE_DIRECTIONS = frozenset({"positive", "+", "increase", "increases"})
-_NEGATIVE_DIRECTIONS = frozenset({"negative", "-", "decrease", "decreases"})
+_POSITIVE_DIRECTIONS = frozenset(POSITIVE_DIRECTIONS)
+_NEGATIVE_DIRECTIONS = frozenset(NEGATIVE_DIRECTIONS)
 
 
 def strength_weight(strength: Any) -> float:
@@ -46,15 +51,15 @@ def strength_weight(strength: Any) -> float:
     if isinstance(strength, (int, float)):
         return max(0.0, min(1.0, float(strength)))
     key = str(strength or "").strip().lower()
-    return _STRENGTH_MAP.get(key, 0.5)
+    return _STRENGTH_MAP.get(key, INTERACTION_STRENGTH_UNKNOWN_DEFAULT)
 
 
 def confidence_policy(confidence: Any) -> float:
     """Надёжность знания → вес [0,1]. Линейная (по умолчанию v1)."""
     try:
-        return max(0.0, min(1.0, float(confidence or 0.0)))
+        return max(0.0, min(1.0, float(confidence or INTERACTION_CONFIDENCE_DEFAULT)))
     except (TypeError, ValueError):
-        return 0.0
+        return INTERACTION_CONFIDENCE_DEFAULT
 
 
 def interaction_sign(axis: str, direction: str) -> float:

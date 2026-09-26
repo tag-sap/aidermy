@@ -4,17 +4,27 @@ import math
 from typing import Any, Dict, List, Tuple
 
 from .ingredient_normalizer import normalize_ingredient_name
+from .scoring_config import (
+    CLAMP_MAX,
+    CLAMP_MIN,
+    HARD_FLAG_SCORE_CAP,
+    INTOLERANCE_PENALTY,
+    POSITION_WEIGHT_DECAY,
+    POSITION_WEIGHT_MAX,
+    POSITION_WEIGHT_SINGLE,
+    UNKNOWN_SCORE_FLOOR,
+)
 
 
-def clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
+def clamp(value: float, minimum: float = CLAMP_MIN, maximum: float = CLAMP_MAX) -> float:
     return max(minimum, min(maximum, value))
 
 
 def calculate_position_weight(position: int, total: int) -> float:
     if total <= 1:
-        return 1.0
+        return POSITION_WEIGHT_SINGLE
     normalized = position / max(total, 1)
-    return clamp(1.2 - normalized * 0.7)
+    return clamp(POSITION_WEIGHT_MAX - normalized * POSITION_WEIGHT_DECAY)
 
 
 def _ingredient_matches(item: str, ingredients: List[str]) -> bool:
@@ -184,15 +194,16 @@ def score_product_against_profile_canonical(
                 matched = True
                 break
         if matched:
+            penalty_axis = INTOLERANCE_PENALTY["axis"]
             negative_factors.append({
                 'ingredient': item,
-                'property': 'irritation',
+                'property': penalty_axis,
                 'direction': 'negative',
-                'strength': 0.7,
-                'confidence': 0.7,
-                'position_weight': 1.0,
+                'strength': INTOLERANCE_PENALTY["strength"],
+                'confidence': INTOLERANCE_PENALTY["confidence"],
+                'position_weight': INTOLERANCE_PENALTY["position_weight"],
             })
-            dimensions['irritation'] -= 0.7
+            dimensions[penalty_axis] -= INTOLERANCE_PENALTY["dimension_delta"]
 
     interaction_breakdown: List[Dict[str, Any]] = []
     if interactions:
@@ -211,9 +222,9 @@ def score_product_against_profile_canonical(
     final_score = int(round(safe_score * 100))
 
     if unknown_factors and not positive_factors and not negative_factors and not hard_flags:
-        final_score = max(final_score, 40)
+        final_score = max(final_score, UNKNOWN_SCORE_FLOOR)
     if hard_flags:
-        final_score = min(final_score, 35)
+        final_score = min(final_score, HARD_FLAG_SCORE_CAP)
 
     return {
         'score': int(final_score),
