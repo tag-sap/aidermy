@@ -65,7 +65,7 @@ def main() -> int:
         by_id[pid]["before"].append(before_map[k]["scoring"]["final_score"])
         by_id[pid]["after"].append(after_map[k]["scoring"]["final_score"])
 
-    # most changed products
+    # most changed products + delta buckets
     deltas = []
     for k in common:
         b = before_map[k]["scoring"]["final_score"]
@@ -75,10 +75,26 @@ def main() -> int:
                            after_map[k]["profile"]["label"], b, a))
     deltas.sort(key=lambda x: -x[0])
 
+    # количество УНИКАЛЬНЫХ продуктов, чей score изменился (макс. delta по профилям)
+    prod_max_delta = defaultdict(int)
+    for k in common:
+        b = before_map[k]["scoring"]["final_score"]
+        a = after_map[k]["scoring"]["final_score"]
+        diff = abs(a - b)
+        pid = after_map[k]["product"]["id"]
+        prod_max_delta[pid] = max(prod_max_delta[pid], diff)
+    delta_buckets = {
+        "products_changed": sum(1 for v in prod_max_delta.values() if v > 0),
+        "delta_gt_5": sum(1 for v in prod_max_delta.values() if v > 5),
+        "delta_gt_10": sum(1 for v in prod_max_delta.values() if v > 10),
+        "delta_gt_20": sum(1 for v in prod_max_delta.values() if v > 20),
+    }
+
     report = {
         "matched_records": len(common),
         "overall": {"before": _stats(b_scores), "after": _stats(a_scores)},
         "histogram": {"before": _hist(b_scores), "after": _hist(a_scores)},
+        "delta_buckets": delta_buckets,
         "by_skin_type": {
             k: {"before": _stats(v["before"]), "after": _stats(v["after"])}
             for k, v in sorted(by_skin.items())
@@ -108,6 +124,7 @@ def main() -> int:
     print("by profile id (mean before -> after):")
     for k, v in report["by_profile_id"].items():
         print(f"  {k}: {v['before']['mean']} -> {v['after']['mean']}")
+    print(f"delta buckets: {report['delta_buckets']}")
     print(f"wrote: {out / 'comparison_before_after.json'}")
     return 0
 
