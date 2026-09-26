@@ -6,7 +6,6 @@ import { ParticleField } from '@/components/particle-field'
 import { AppHeader } from '@/components/app-header'
 import { AuthModal } from '@/components/auth-modal'
 import { TabBar, type TabId } from '@/components/tab-bar'
-import { HistoryTab } from '@/components/history-tab'
 import { ProfileTab } from '@/components/profile-tab'
 import { ResultSheet } from '@/components/result-sheet'
 import { SplashScreen } from '@/components/splash-screen'
@@ -697,14 +696,6 @@ export default function Page() {
     setTab('profile')
   }
 
-  const handleGoToHistory = () => {
-    if (!isAuthenticated) {
-      setIsAuthModalOpen(true)
-      return
-    }
-    setTab('history')
-  }
-
   const handleTabChange = (newTab: TabId) => {
     if (newTab === tab) return
 
@@ -742,11 +733,9 @@ export default function Page() {
 
   useScrollLock(!!pendingTab)
 
-  // Возвращаем скролл контента наверх при смене вкладки (кроме «Истории»)
+  // Возвращаем скролл контента наверх при смене вкладки.
   useEffect(() => {
-    if (tab !== 'history') {
-      mainRef.current?.scrollTo({ top: 0 })
-    }
+    mainRef.current?.scrollTo({ top: 0 })
   }, [tab])
 
   // ===== RENDER =====
@@ -783,7 +772,7 @@ export default function Page() {
               {tab !== 'home' && (
                 <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-gray-200/50 bg-background/85 px-4 py-2.5 backdrop-blur-sm">
                   <h1 className="text-xl font-light text-foreground">
-                    {tab === 'history' ? 'История' : tab === 'profile' ? 'Профиль' : tab === 'catalog' ? 'Каталог' : 'Моя полка'}
+                    {tab === 'profile' ? 'Профиль' : tab === 'catalog' ? 'Каталог' : 'Моя полка'}
                   </h1>
                 </div>
               )}
@@ -815,20 +804,6 @@ export default function Page() {
                       initialCat={catalogFilter.cat}
                       filterKey={catalogFilterKey}
                       refreshKey={catalogRefreshKey}
-                    />
-                  )}
-                  {tab === 'history' && (
-                    <HistoryTab
-                      history={history}
-                      onClear={handleClearHistory}
-                      onDeleteItem={handleDeleteHistoryItem}
-                      onDeleteSelected={handleDeleteSelectedHistory}
-                      onSelect={(item) => {
-                        setIsSheetOpen(true)
-                        setResult(item)
-                        setLoading(false)
-                      }}
-                      onOpenProduct={(slug) => setCatalogSlug(slug)}
                     />
                   )}
                   {tab === 'profile' && (

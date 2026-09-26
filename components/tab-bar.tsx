@@ -1,17 +1,15 @@
 'use client'
 
-import { Search, History, User, Sparkles, LayoutGrid, Home, QrCode } from 'lucide-react'
+import { Search, User, Sparkles, LayoutGrid, Home, QrCode } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-export type TabId = 'home' | 'catalog' | 'history' | 'shelf' | 'profile'
+export type TabId = 'home' | 'catalog' | 'shelf' | 'profile'
 
-const TABS: { id: TabId | 'check'; label: string; icon: typeof Search; circle?: boolean; primary?: boolean }[] = [
+const TABS: { id: TabId; label: string; icon: typeof Search; circle?: boolean }[] = [
   { id: 'home', label: 'Главная', icon: Home, circle: true },
   { id: 'catalog', label: 'Каталог', icon: LayoutGrid, circle: true },
-  { id: 'check', label: 'Проверить продукт', icon: QrCode, circle: true, primary: true },
   { id: 'shelf', label: 'Моя полка', icon: Sparkles, circle: true },
   { id: 'profile', label: 'Профиль', icon: User, circle: true },
-  { id: 'history', label: 'История', icon: History, circle: true },
 ]
 
 export function TabBar({
@@ -37,39 +35,31 @@ export function TabBar({
       className="fixed bottom-0 left-0 right-0 z-30 bg-background/80 backdrop-blur-sm border-t border-gray-200/50 pb-[env(safe-area-inset-bottom,0px)]"
       aria-label="Основная навигация"
     >
-      <div className="mx-auto flex w-full max-w-md items-end justify-around px-2 pt-2 pb-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
-        {visibleTabs.map(({ id, label, icon: Icon, circle, primary }) => {
-          const isActive = active === id
+      {/* Плавающая кнопка «Проверить продукт» — по центру, над вкладкой «Моя полка» */}
+      {isAuthenticated && (
+        <button
+          type="button"
+          onClick={onCheck}
+          aria-label="Проверить продукт"
+          className="group absolute -top-9 left-1/2 z-40 flex size-14 -translate-x-1/2 items-center justify-center rounded-full border border-primary/20 bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105"
+        >
+          <QrCode className="size-6" strokeWidth={1.9} />
+          <span className="pointer-events-none absolute -top-9 whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-[10px] text-background opacity-0 shadow transition-opacity group-hover:opacity-100">
+            Проверить продукт
+          </span>
+        </button>
+      )}
 
-          if (primary) {
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={onCheck}
-                aria-current={isActive ? 'page' : undefined}
-                data-active={isActive ? 'true' : 'false'}
-                data-tour={id}
-                className="relative -mt-9 flex flex-1 flex-col items-center gap-0.5"
-              >
-                <span
-                  className={cn(
-                    'flex size-16 items-center justify-center rounded-2xl border bg-primary text-primary-foreground border-primary/30 shadow-[0_10px_30px_rgba(108,60,225,0.4)] transition-transform hover:scale-[1.03]'
-                  )}
-                >
-                  <Icon className="size-7" strokeWidth={1.9} />
-                </span>
-                <span className="text-[9px] font-medium leading-none text-primary">{label}</span>
-              </button>
-            )
-          }
+      <div className="mx-auto flex w-full max-w-md items-end justify-around px-2 pt-2 pb-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
+        {visibleTabs.map(({ id, label, icon: Icon, circle }) => {
+          const isActive = active === id
 
           if (circle) {
             return (
               <button
                 key={id}
                 type="button"
-                onClick={() => (id === 'check' ? onCheck() : onChange(id as TabId))}
+                onClick={() => onChange(id)}
                 aria-current={isActive ? 'page' : undefined}
                 data-active={isActive ? 'true' : 'false'}
                 data-tour={id}
@@ -96,7 +86,7 @@ export function TabBar({
             <button
               key={id}
               type="button"
-              onClick={() => onChange(id as TabId)}
+              onClick={() => onChange(id)}
               aria-current={isActive ? 'page' : undefined}
               data-active={isActive ? 'true' : 'false'}
               data-tour={id}

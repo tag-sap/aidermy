@@ -199,7 +199,7 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         print(f"[SCRAPER] Import failed unexpectedly: {exc!r}")
-        raise HTTPException(status_code=502, detail="Не удалось автоматически получить данные товара. Проверьте ссылку или добавьте состав вручную.") from exc
+        raise HTTPException(status_code=502, detail="Не удалось автоматически получить данные товара. Проверьте ссылку или найдите товар по названию.") from exc
 
 @app.post("/api/composition/recognize")
 async def recognize_composition_endpoint(request: RecognizeCompositionRequest):
@@ -385,10 +385,11 @@ async def check_product(
                 profile_snapshot=request.profile.dict(),
             )
 
+        pending = bool(result.get("pending"))
         return CheckResponse(
-            score=result.get("score", 50),
-            verdict=result.get("verdict", "Нейтрально"),
-            summary=result.get("summary", "Не удалось получить рекомендацию."),
+            score=0 if pending else result.get("score", 50),
+            verdict="Требуется время" if pending else result.get("verdict", "Нейтрально"),
+            summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else result.get("summary", "Не удалось получить рекомендацию.")),
             safe_ingredients=result.get("safe_ingredients", []),
             caution_ingredients=result.get("caution_ingredients", []),
             cached=False,
@@ -397,7 +398,8 @@ async def check_product(
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
-            report=result.get("report")
+            report=result.get("report"),
+            pending=pending,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
@@ -445,10 +447,11 @@ async def check_with_ingredients(
         # История сохраняется только через /api/auth/history, чтобы избежать дублей.
         # Здесь не пишем в БД повторно: результат уже будет сохранён в пользовательской истории после проверки.
         
+        pending = bool(result.get("pending"))
         return CheckResponse(
-            score=result.get("score", 50),
-            verdict=result.get("verdict", "Нейтрально"),
-            summary=result.get("summary", "Не удалось получить рекомендацию."),
+            score=0 if pending else result.get("score", 50),
+            verdict="Требуется время" if pending else result.get("verdict", "Нейтрально"),
+            summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else result.get("summary", "Не удалось получить рекомендацию.")),
             safe_ingredients=result.get("safe_ingredients", []),
             caution_ingredients=result.get("caution_ingredients", []),
             cached=False,
@@ -457,7 +460,8 @@ async def check_with_ingredients(
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
-            report=result.get("report")
+            report=result.get("report"),
+            pending=pending,
         )
         
     except Exception as e:
@@ -576,6 +580,8 @@ async def get_catalog(
     cat: Optional[str] = None,
     search: Optional[str] = None,
     letter: Optional[str] = None,
+    shelf_category: Optional[str] = None,
+    cabinet: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
     sort: str = "popular",
@@ -599,6 +605,25 @@ async def get_catalog(
     if cat:
         where.append("category = ?")
         params.append(cat)
+    # Категория полки (шкаф + категория) — фильтр «из базы» по правилам подбора.
+    if shelf_category and cabinet:
+        from .shelf_service import RECOMMEND_RULES
+        rule = (RECOMMEND_RULES.get(cabinet) or {}).get(shelf_category) or {}
+        shelf_cats = rule.get("categories") or []
+        shelf_kws = rule.get("keywords") or []
+        shelf_conds = []
+        if shelf_cats:
+            ph = ",".join(["?"] * len(shelf_cats))
+            shelf_conds.append(f"category IN ({ph})")
+            params.extend(shelf_cats)
+        if shelf_kws:
+            kw_conds = []
+            for kw in shelf_kws:
+                kw_conds.append("lower_ru(name) LIKE ?")
+                params.append(f"%{kw.lower()}%")
+            shelf_conds.append("(" + " OR ".join(kw_conds) + ")")
+        if shelf_conds:
+            where.append("(" + " OR ".join(shelf_conds) + ")")
     if brand:
         # бренд хранится первой строкой в name (до переноса строки)
         where.append("lower_ru(name) LIKE ?")
@@ -1164,6 +1189,9 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     except Exception as exc:
         print(f"[ANALYZE] failed: {exc!r}")
         raise HTTPException(status_code=502, detail="Не удалось выполнить анализ") from exc
+
+    if result and result.get("pending"):
+        return {"status": "pending", "cached": False, "score": None, "analysis": None, "detail": "Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже."}
 
     if not result or not result.get("score"):
         return {"status": "error", "cached": False, "score": None, "analysis": None, "detail": "Состав продукта неизвестен"}

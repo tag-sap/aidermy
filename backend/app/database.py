@@ -306,9 +306,10 @@ def init_db():
         )
     ''')
     product_columns = [col[1] for col in cursor.execute("PRAGMA table_info(products)").fetchall()]
-    for column in ("image_url", "category", "brand"):
+    for column in ("image_url", "category", "brand", "incidecoder_url"):
         if column not in product_columns:
             cursor.execute(f"ALTER TABLE products ADD COLUMN {column} TEXT")
+            product_columns.append(column)
     # Таксономия каталога (категория + подкатегория), резолвится из названия/legacy-category.
     for column in ("subcategory", "taxonomy_category"):
         if column not in product_columns:

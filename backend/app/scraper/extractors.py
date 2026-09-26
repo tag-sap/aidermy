@@ -12,6 +12,12 @@ _INGREDIENT_LABELS = re.compile(
 _INCI_VALUE = re.compile(r"\b(?:aqua|water)\b\s*,\s*[^.]{8,}", re.IGNORECASE)
 _INCI_START = re.compile(r"\b(?:deionized\s+water|aqua|water)\s*,", re.IGNORECASE)
 _VOLUME = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:ml|мл|g|гр|г|oz|fl\.?\s*oz)\b", re.IGNORECASE)
+# Next.js/SPA: состав часто лежит в JSON-объекте {"name":"Состав","value":"Water, ..."}.
+# value экранируется как \"value\":\"...\", поэтому допускаем необязательный бэкслэш.
+_JSON_INCI = re.compile(
+    r'\\?"?value\\?"?\s*:\s*\\?"((?:Deionized Water|Aqua|Water)[^"\\]{8,})',
+    re.IGNORECASE,
+)
 
 
 def _first(value: Any) -> Any:
@@ -57,6 +63,18 @@ def _clean_product_name(value: str | None) -> str | None:
     value = _text(_ACCOUNT_NOISE.sub(" ", value))
     # Убираем знаки/скобки/кавычки/невидимые символы в начале названия.
     value = _strip_leading_symbols(value)
+    # Хвостовая цена (… 1 116 ₽) и дублированное название («X X») — типичный мусор карточек.
+    while True:
+        stripped = re.sub(r"\s+\d[\d\s\u00A0\u202F]*[₽$€£]\s*$", "", value)
+        if stripped == value:
+            break
+        value = stripped
+    value = value.strip()
+    half = len(value) // 2
+    if half > 0:
+        left, right = value[:half].strip(), value[half:].strip()
+        if left and left == right:
+            value = left
     return value or None
 
 
@@ -135,6 +153,12 @@ def _ingredient_text(page: Any, body_text: str) -> str | None:
             candidate = re.split(r"\.\s*[^.]{0,80}?перейти в каталог бренда", candidate, maxsplit=1, flags=re.IGNORECASE)[0]
             if "," in candidate and len(candidate) >= 20:
                 return _text(candidate)
+
+    # Состав в JSON-структуре (Next.js/SPA): {"name":"Состав","value":"Water, ..."}.
+    for m in _JSON_INCI.finditer(body_text):
+        candidate = _text(m.group(1))
+        if candidate and "," in candidate and len(candidate) >= 20:
+            return candidate
 
     match = _INGREDIENT_LABELS.search(body_text)
     if match:

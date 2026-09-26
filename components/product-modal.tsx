@@ -177,6 +177,10 @@ export function ProductModal({
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.detail || 'Не удалось проверить совместимость')
+      if (d.status === 'pending') {
+        setAnalysisError(d.detail || 'Это займёт больше времени — возвращайтесь позже')
+        return
+      }
       // Обновляем локальное состояние напрямую из ответа API (не через refreshKey).
       setData((prev) =>
         prev

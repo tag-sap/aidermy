@@ -212,14 +212,10 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 
     engine = DecisionEngine()
 
-    # Детерминированный скор считается ДО любых AI-шагов и возвращается всегда.
-    # AI-обогащение/отчёт — best effort: каждый шаг ограничен таймаутом, чтобы
-    # медленный DeepSeek или холодный research не ронял проверку (nginx 504).
-    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
-
-    # Фаза 9 — Research Queue: неизвестные ингредиенты дожидаются batch research.
-    # Это глобальное пополнение базы знаний, а НЕ блокирующая зависимость проверки:
-    # текущий скор уже рассчитан, research лишь улучшает будущие проверки.
+    # Порядок важен: research → enrichment → deterministic score. Скор нельзя
+    # считать по неполной базе ингредиентов, поэтому research/enrichment идут ДО
+    # него. Если research не успевает (AI долгий / холодная очередь) — возвращаем
+    # «pending»: фронтенд покажет «Это займёт больше времени, возвращайтесь позже».
     research_status = None
     if DEEPSEEK_API_KEY:
         try:
@@ -228,20 +224,21 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
             prepared = engine.analysis_service.prepare_product_ingredients(ingredients)
             unknown = find_unknown_ingredients(prepared)
             if unknown:
-                research_status = await asyncio.wait_for(
-                    run_research(unknown_ingredients=unknown),
-                    timeout=RESEARCH_STEP_TIMEOUT,
-                )
-        except asyncio.TimeoutError:
-            print("[CHECK] research timed out — using current knowledge")
-            research_status = "timeout"
+                try:
+                    research_status = await asyncio.wait_for(
+                        run_research(unknown_ingredients=unknown),
+                        timeout=RESEARCH_STEP_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    print("[CHECK] research timed out — product pending")
+                    return {"pending": True, "research_status": "timeout"}
         except Exception as exc:
             print(f"[CHECK] research failed: {exc!r}")
             research_status = "failed"
 
-    # 1) AI обогащает ТОЛЬКО базу знаний ингредиентов (ingredient_claims).
+    # 1) AI обогащает ТОЛЬКО базу знаний ингредиентов (ingredient_claims) ДО скоринга.
     #    НЕ генерирует how_to_use / expectations / active_ingredients и НЕ оценивает
-    #    совместимость — это второй старый pipeline, который убран.
+    #    совместимость — это делает детерминированный движок на обогащённых данных.
     ingredient_claims = None
     if DEEPSEEK_API_KEY:
         try:
@@ -255,15 +252,14 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     if ingredient_claims:
         try:
             from .shelf_service import enrich_ingredient_knowledge
-            added = enrich_ingredient_knowledge(ingredient_claims)
-            # Если движок ещё ничего не знал о составе, а AI пополнил базу знаний —
-            # пересчитываем детерминированный скор на обогащённых данных.
-            if float(deterministic.get("confidence") or 0.0) <= 0 and added > 0:
-                deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+            enrich_ingredient_knowledge(ingredient_claims)
         except Exception as exc:
             print(f"[CHECK] enrichment apply failed: {exc!r}")
 
-    # 2) AI-отчёт (report) — человеческое объяснение причин («Почему»).
+    # 2) Детерминированный скор — теперь на полной базе знаний (после research/enrichment).
+    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+
+    # 3) AI-отчёт (report) — человеческое объяснение причин («Почему»).
     #    Получает structured factors и НЕ переопределяет score/verdict.
     report = None
     if DEEPSEEK_API_KEY and (deterministic.get("positive_factors") or deterministic.get("negative_factors")):
@@ -275,7 +271,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         except Exception as exc:
             print(f"[CHECK] report failed: {exc!r}")
 
-    # 3) AI-отчёт (how_to_use / expectations) — вторичное текстовое представление
+    # 4) AI-отчёт (how_to_use / expectations) — вторичное текстовое представление
     #    УЖЕ ГОТОВОГО User Analysis. Получает score/verdict/factors/safe/caution и
     #    НЕ имеет права переопределять совместимость.
     sections = {"how_to_use": None, "expectations": None}

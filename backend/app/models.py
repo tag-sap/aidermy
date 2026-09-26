@@ -43,6 +43,7 @@ class CheckResponse(BaseModel):
     score: int
     verdict: str
     summary: str
+    pending: Optional[bool] = None
     stats: Optional[Dict[str, int]] = Field(default_factory=dict)
     skin_type_recommendation: Optional[str] = None
     safe_ingredients: List[str] = []

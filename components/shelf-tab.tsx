@@ -139,6 +139,7 @@ export function ShelfTab({
   }, [cells, cardsPerShelf])
 
   // Замер ширины полки → сколько карточек влезает в один ряд.
+  // Повторяем замер после загрузки (иначе ref ещё не смонтирован при первом рендере).
   useEffect(() => {
     const el = shelfWrapRef.current
     if (!el) return
@@ -152,7 +153,7 @@ export function ShelfTab({
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [loading, currentCabinet?.key])
 
   const exitSelection = () => {
     setSelectionMode(false)
@@ -452,8 +453,8 @@ export function ShelfTab({
             {shelves.map((shelf, si) => {
               const isLastShelf = si === shelves.length - 1
               return (
-                <div key={si} className="relative mx-auto mb-9 w-fit min-w-[280px] max-w-full">
-                  <div className="flex flex-wrap gap-2.5 px-4 pb-9 pt-3">
+                <div key={si} className="relative mx-auto mb-9 w-fit max-w-full">
+                  <div className="flex flex-wrap justify-center gap-2.5 rounded-2xl border border-dashed border-gray-300/70 px-2.5 pb-10 pt-2.5">
                     {shelf.map((cell, idx) => {
                       const item = cell.item
                       const isSelected = selected.has(item.id)

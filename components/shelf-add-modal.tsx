@@ -135,7 +135,12 @@ export function ShelfAddModal({
     }
     setSearching(true)
     try {
-      const res = await fetch(`/api/catalog?search=${encodeURIComponent(q.trim())}&limit=10`)
+      // Фильтруем автокомплит по выбранной категории полки (шкаф + категория),
+      // чтобы «из базы» предлагало только товары этой категории, а не всю косметику.
+      const params = new URLSearchParams({ search: q.trim(), limit: '10' })
+      if (category) params.append('shelf_category', category)
+      if (cabinet) params.append('cabinet', cabinet)
+      const res = await fetch(`/api/catalog?${params}`)
       const data = await res.json()
       setResults(
         (data.products || []).map((p: any) => {
