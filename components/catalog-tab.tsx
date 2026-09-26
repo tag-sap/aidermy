@@ -402,7 +402,7 @@ export function CatalogTab({
 
       {showFilters && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setShowFilters(false)}>
-          <div className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/50 bg-white/75 p-4 backdrop-blur-xl animate-modal-panel" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-base font-normal text-foreground">Фильтр</h3>
               <button onClick={() => setShowFilters(false)} className="text-muted-foreground hover:text-foreground">

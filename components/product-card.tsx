@@ -33,7 +33,7 @@ export function ProductCard({
   return (
     <div
       className={cn(
-        'relative flex w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left',
+        'relative flex w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/60 bg-white/55 text-left shadow-sm backdrop-blur-xl',
         className,
       )}
     >
@@ -45,7 +45,7 @@ export function ProductCard({
           className="flex w-full min-w-0 flex-col text-left focus:outline-none"
           aria-label={name}
         >
-          <div className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-gray-50/60 p-2">
+          <div className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-white/20 p-2">
             {imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={imageUrl} alt="" className="h-full w-full object-contain" />
@@ -55,7 +55,7 @@ export function ProductCard({
             {typeof score === 'number' && (
               <span
                 className={cn(
-                  'absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none',
+                  'absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none backdrop-blur-sm',
                   scoreBadge(score),
                 )}
               >
@@ -63,19 +63,21 @@ export function ProductCard({
               </span>
             )}
           </div>
-          <div className="w-full min-w-0 px-3 pb-3 pt-2">
-            {brand ? (
-              <p className="truncate text-[10px] uppercase tracking-wide text-muted-foreground/50">{brand}</p>
-            ) : null}
-            <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground/90">{name}</p>
-            {category ? <p className="mt-0.5 truncate text-[11px] text-muted-foreground/50">{category}</p> : null}
+          <div className="flex w-full min-w-0 flex-col px-3 pb-3 pt-2">
+            <p className="h-[13px] truncate text-[10px] uppercase tracking-wide text-muted-foreground/50">
+              {brand || '\u00A0'}
+            </p>
+            <p className="line-clamp-2 min-h-[2.5rem] text-sm font-medium leading-snug text-foreground/90">{name}</p>
+            <p className="mt-0.5 h-[15px] truncate text-[11px] text-muted-foreground/50">
+              {category || '\u00A0'}
+            </p>
           </div>
         </button>
       </div>
 
       {/* Overlay «На проверке» (только во время автоматической перепроверки полки) */}
       {checking && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/60">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/60 backdrop-blur-sm">
           <LoaderCircle className="size-5 animate-spin text-primary" />
           <span className="text-xs font-medium text-foreground/70">На проверке</span>
         </div>

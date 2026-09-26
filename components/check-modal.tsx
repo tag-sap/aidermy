@@ -395,7 +395,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
   return (
     <>
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
-      <div className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/75 backdrop-blur-xl animate-modal-panel" onClick={(e) => e.stopPropagation()}>
         {/* Заголовок закреплён при прокрутке (как в отчёте и карточках) */}
         <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 pt-4 pb-3">
           <h2 className="text-base font-normal text-foreground">Проверить продукт</h2>

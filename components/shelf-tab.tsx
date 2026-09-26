@@ -134,7 +134,12 @@ export function ShelfTab({
     for (let i = 0; i < cells.length; i += cardsPerShelf) {
       out.push(cells.slice(i, i + cardsPerShelf))
     }
-    if (out.length === 0) out.push([])
+    if (out.length === 0) {
+      out.push([])
+    } else if (out[out.length - 1].length >= cardsPerShelf) {
+      // Последняя полка полностью заполнена — «+» уходит на новую пустую полку.
+      out.push([])
+    }
     return out
   }, [cells, cardsPerShelf])
 
@@ -506,10 +511,10 @@ export function ShelfTab({
 
                     {/* Интерактивный узел «+» — последний пустой слот */}
                     {isLastShelf && (
-                      <div data-shelf-add-node className="relative">
+                      <div data-shelf-add-node className="relative self-stretch">
                         <button
                           onClick={() => setAddNodeOpen(true)}
-                          className="flex h-[180px] w-[130px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:text-primary"
+                          className="flex h-full min-h-[180px] w-[130px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:text-primary"
                           aria-label="Добавить продукт"
                         >
                           <Plus className={cn('size-6 transition-transform', addNodeOpen && 'animate-shelf-plus-collapse')} />

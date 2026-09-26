@@ -41,10 +41,10 @@ export function TabBar({
           type="button"
           onClick={onCheck}
           aria-label="Проверить продукт"
-          className="group absolute -top-9 left-1/2 z-40 flex size-14 -translate-x-1/2 items-center justify-center rounded-full border border-primary/20 bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105"
+          className="group absolute -top-16 left-1/2 z-40 flex size-16 -translate-x-1/2 items-center justify-center rounded-2xl border border-white/30 bg-primary/90 text-primary-foreground shadow-lg backdrop-blur-md transition-transform hover:scale-105"
         >
-          <QrCode className="size-6" strokeWidth={1.9} />
-          <span className="pointer-events-none absolute -top-9 whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-[10px] text-background opacity-0 shadow transition-opacity group-hover:opacity-100">
+          <QrCode className="size-7" strokeWidth={1.9} />
+          <span className="pointer-events-none absolute -top-9 whitespace-nowrap rounded-lg bg-foreground/90 px-2 py-1 text-[10px] text-background opacity-0 shadow backdrop-blur-sm transition-opacity group-hover:opacity-100">
             Проверить продукт
           </span>
         </button>

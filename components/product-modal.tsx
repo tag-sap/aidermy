@@ -227,7 +227,7 @@ export function ProductModal({
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
       <div
-        className="flex max-h-[85dvh] w-full max-w-md md:max-w-xl max-w-[100vw] flex-col overflow-hidden rounded-2xl bg-white animate-modal-panel"
+        className="flex max-h-[85dvh] w-full max-w-md md:max-w-xl max-w-[100vw] flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/75 backdrop-blur-xl animate-modal-panel"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Заголовок с крестиком — закреплён и виден при прокрутке */}
