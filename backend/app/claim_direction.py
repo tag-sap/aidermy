@@ -83,7 +83,7 @@ _BENEFIT_BENEFIT = {
     ),
     "barrier": (
         ("barrier repair", "restore barrier", "support barrier", "improve barrier",
-         "repair barrier", "strengthen"),
+         "repair barrier", "strengthen", "support"),
         ("disrupt", "weaken", "impair"),
     ),
 }
