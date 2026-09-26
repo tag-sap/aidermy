@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AidermyLogo } from './aidermy-logo'
 
 export function SplashScreen() {
   const [isVisible, setIsVisible] = useState(true)
@@ -28,16 +27,13 @@ export function SplashScreen() {
 
   return (
     <div
-      className={`fixed inset-0 z-[999] flex flex-col items-center justify-center bg-[#FAF9F6] transition-opacity duration-500 ${
+      className={`fixed inset-0 z-[999] flex items-center justify-center bg-[#FAF9F6] transition-opacity duration-500 ${
         fadeOut ? 'opacity-0' : 'opacity-100'
       }`}
     >
-      <div className="animate-pulse">
-        <AidermyLogo />
-      </div>
-      <p className="mt-4 text-sm text-muted-foreground animate-pulse">
-        Загрузка...
-      </p>
+      {/* Гифка с прозрачным фоном — показываем как есть, без дополнительной подложки */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/loading.gif" alt="Загрузка" className="h-auto w-40" />
     </div>
   )
 }

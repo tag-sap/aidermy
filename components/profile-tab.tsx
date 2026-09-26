@@ -88,8 +88,6 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     const glassCardStyle = cn(
       'bg-white/20 backdrop-blur-xl',
       'border border-white/20',
-      'shadow-[0_8px_32px_rgba(108,60,225,0.06)]',
-      'hover:shadow-[0_12px_48px_rgba(108,60,225,0.1)]',
       'transition-all duration-500',
       'rounded-2xl p-4',
       'hover:bg-white/30 hover:border-primary/20'
@@ -98,7 +96,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     return (
       <div className="w-full flex flex-col pb-24 space-y-3 pr-1 md:max-w-2xl md:mx-auto" data-tour="quiz">
         {/* КАРТОЧКА ТИП КОЖИ */}
-        <div className={cn(glassCardStyle, 'card-enter-2')}>
+        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '0ms' }}>
           <div className="flex items-center gap-2 mb-3">
             <Droplets className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -118,7 +116,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* КАРТОЧКА ВОЗРАСТ */}
-        <div className={cn(glassCardStyle, 'card-enter-3')}>
+        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '35ms' }}>
           <div className="flex items-center gap-2 mb-3">
             <Calendar className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -138,7 +136,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* КАРТОЧКА ПРОБЛЕМЫ */}
-        <div className={cn(glassCardStyle, 'card-enter-4')}>
+        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '70ms' }}>
           <div className="flex items-center gap-2 mb-3">
             <AlertCircle className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -158,7 +156,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* КАРТОЧКА АЛЛЕРГИИ */}
-        <div className={cn(glassCardStyle, 'card-enter-5')}>
+        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '105ms' }}>
           <div className="flex items-center gap-2 mb-3">
             <AlertCircle className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
@@ -178,7 +176,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
         </div>
 
         {/* КАРТОЧКА ОПИСАНИЕ */}
-        <div className={cn(glassCardStyle, 'card-enter-6')}>
+        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '140ms' }}>
           <div className="flex items-center gap-2 mb-3">
             <Sparkles className="size-4 text-primary/60" strokeWidth={1.5} />
             <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">

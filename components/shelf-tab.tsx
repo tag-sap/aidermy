@@ -143,6 +143,23 @@ export function ShelfTab({
     return out
   }, [cells, cardsPerShelf])
 
+  // Каждая полка разбита на группы по категориям — каждая категория в своей
+  // пунктирной рамке (обособление по категориям, как было изначально).
+  const groupedShelves = useMemo(() => {
+    return shelves.map((shelf) => {
+      const groups: { catTitle: string; cells: typeof shelf }[] = []
+      for (const cell of shelf) {
+        const last = groups[groups.length - 1]
+        if (last && last.catTitle === cell.catTitle) {
+          last.cells.push(cell)
+        } else {
+          groups.push({ catTitle: cell.catTitle, cells: [cell] })
+        }
+      }
+      return groups
+    })
+  }, [shelves])
+
   // Замер ширины полки → сколько карточек влезает в один ряд.
   // Повторяем замер после загрузки (иначе ref ещё не смонтирован при первом рендере).
   useEffect(() => {
@@ -383,10 +400,10 @@ export function ShelfTab({
             <div className="flex items-center gap-3">
               {currentItems.length > 0 && (
                 <button
-                  onClick={() => setConfirm({ title: `Очистить шкаф «${currentCabinet.title}»?`, message: 'Удалить все продукты из этого шкафа?', confirmLabel: 'Очистить', onConfirm: () => clearShelf(currentCabinet.key, '') })}
+                  onClick={() => setConfirm({ title: `Очистить полки «${currentCabinet.title}»?`, message: 'Удалить все продукты с полок этого шкафа?', confirmLabel: 'Очистить', onConfirm: () => clearShelf(currentCabinet.key, '') })}
                   className="text-[11px] text-muted-foreground/50 transition-colors hover:text-red-500"
                 >
-                  Очистить шкаф
+                  Очистить полки
                 </button>
               )}
               {currentCabinet.has_scoring && (
@@ -455,59 +472,63 @@ export function ShelfTab({
           {/* Умная адаптация полки: каждая полка динамически расширяется под товары,
               а при нехватке места создаётся следующая полка ниже. */}
           <div ref={shelfWrapRef} className="w-full">
-            {shelves.map((shelf, si) => {
-              const isLastShelf = si === shelves.length - 1
+            {groupedShelves.map((groups, si) => {
+              const isLastShelf = si === groupedShelves.length - 1
               return (
                 <div key={si} className="relative mx-auto mb-9 w-fit max-w-full">
-                  <div className="flex flex-wrap justify-center gap-2.5 rounded-2xl border border-dashed border-gray-300/70 px-2.5 pb-10 pt-2.5">
-                    {shelf.map((cell, idx) => {
-                      const item = cell.item
-                      const isSelected = selected.has(item.id)
-                      return (
-                        <div key={item.id} className="animate-shelf-card group relative w-[160px] shrink-0" style={{ animationDelay: `${idx * 35}ms` }}>
-                          {cell.isFirstOfCategory && (
-                            <span className="absolute -top-2.5 left-2 z-10 rounded-full bg-background px-2 text-[9px] font-medium uppercase tracking-[0.18em] text-muted-foreground/50">
-                              {cell.catTitle}
-                            </span>
-                          )}
-                          <div className={cn('rounded-2xl transition-all', selectionMode && isSelected && 'ring-2 ring-primary/20')}>
-                            <ProductCard
-                              name={item.name}
-                              brand={item.brand}
-                              imageUrl={item.image_url}
-                              category={item.category}
-                              score={item.score}
-                              checking={checkingSlugs.has(item.slug) || (Boolean(item.needs_recheck) && !recheckErrors.has(item.slug))}
-                              onOpen={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
-                            />
-                          </div>
+                  <div className="flex flex-wrap justify-center gap-2.5 px-2.5 pb-10 pt-2.5">
+                    {groups.map((group) => (
+                      <div key={group.catTitle} className="flex flex-col gap-1.5">
+                        <span className="px-1 text-[9px] font-medium uppercase tracking-[0.18em] text-muted-foreground/50">
+                          {group.catTitle}
+                        </span>
+                        <div className="flex flex-wrap gap-2.5 rounded-2xl border border-dashed border-gray-300/70 p-2.5">
+                          {group.cells.map((cell, idx) => {
+                            const item = cell.item
+                            const isSelected = selected.has(item.id)
+                            return (
+                              <div key={item.id} className="animate-shelf-card group relative w-[160px] shrink-0" style={{ animationDelay: `${idx * 35}ms` }}>
+                                <div className={cn('rounded-2xl transition-all', selectionMode && isSelected && 'ring-2 ring-primary/20')}>
+                                  <ProductCard
+                                    name={item.name}
+                                    brand={item.brand}
+                                    imageUrl={item.image_url}
+                                    category={item.category}
+                                    score={item.score}
+                                    checking={checkingSlugs.has(item.slug) || (Boolean(item.needs_recheck) && !recheckErrors.has(item.slug))}
+                                    onOpen={() => (selectionMode ? toggleSelect(item.id) : openDetail(item.slug, item.cabinet, item.category))}
+                                  />
+                                </div>
 
-                          {selectionMode && (
-                            <span
-                              className={cn(
-                                'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border bg-white/95 transition-colors',
-                                isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-300 text-transparent',
-                              )}
-                            >
-                              <Check className="size-3" strokeWidth={3} />
-                            </span>
-                          )}
+                                {selectionMode && (
+                                  <span
+                                    className={cn(
+                                      'absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border bg-white/95 transition-colors',
+                                      isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-300 text-transparent',
+                                    )}
+                                  >
+                                    <Check className="size-3" strokeWidth={3} />
+                                  </span>
+                                )}
 
-                          {!selectionMode && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setRemovalTarget(item); setRemovalReason(''); setRemovalNote('')
-                              }}
-                              className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/60 hover:text-red-500"
-                              aria-label="Удалить продукт"
-                            >
-                              <X className="size-3.5" />
-                            </button>
-                          )}
+                                {!selectionMode && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setRemovalTarget(item); setRemovalReason(''); setRemovalNote('')
+                                    }}
+                                    className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border border-gray-200/60 bg-white/80 text-muted-foreground/60 hover:text-red-500"
+                                    aria-label="Удалить продукт"
+                                  >
+                                    <X className="size-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          })}
                         </div>
-                      )
-                    })}
+                      </div>
+                    ))}
 
                     {/* Интерактивный узел «+» — последний пустой слот */}
                     {isLastShelf && (

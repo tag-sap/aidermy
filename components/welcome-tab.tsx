@@ -1,6 +1,7 @@
 'use client'
 
 import { ArrowRight } from 'lucide-react'
+import { TrialCheck } from '@/components/trial-check'
 
 interface WelcomeTabProps {
   onAuth: () => void
@@ -33,17 +34,22 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
             aria-hidden
           />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
-          {/* Текст поверх видео */}
+          {/* Текст поверх видео + пробный подбор анализа справа */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-24 md:px-12 md:pb-28">
-            <div className="mx-auto w-full max-w-md md:max-w-5xl">
-              <h1 className="font-[family-name:var(--font-playfair)] text-[44px] font-normal leading-[1.02] tracking-tight text-white md:text-[76px]">
-                Состав решает.
-                <br />
-                Остальное — детали.
-              </h1>
-              <p className="mt-4 max-w-md text-sm leading-relaxed text-white/80 md:text-base">
-                Aidermy переводит INCI-список на язык вашей кожи и показывает, что действительно сработает, а что нет.
-              </p>
+            <div className="mx-auto flex w-full max-w-md flex-col gap-6 md:max-w-5xl md:flex-row md:items-end md:justify-between">
+              <div>
+                <h1 className="font-[family-name:var(--font-playfair)] text-[44px] font-normal leading-[1.02] tracking-tight text-white md:text-[76px]">
+                  Состав решает.
+                  <br />
+                  Остальное — детали.
+                </h1>
+                <p className="mt-4 max-w-md text-sm leading-relaxed text-white/80 md:text-base">
+                  Aidermy переводит INCI-список на язык вашей кожи и показывает, что действительно сработает, а что нет.
+                </p>
+              </div>
+              <div className="pointer-events-auto w-full md:w-[380px] md:shrink-0">
+                <TrialCheck onAuth={onAuth} />
+              </div>
             </div>
           </div>
         </div>
