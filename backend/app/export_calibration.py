@@ -24,7 +24,7 @@ import sqlite3
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .analysis_service import AnalysisService
 from .axes import canonicalize_weights
@@ -114,17 +114,63 @@ def _ingredient_count(raw: Any) -> int:
 # ---------------------------------------------------------------------------
 # Загрузка продуктов
 # ---------------------------------------------------------------------------
-def load_canonical_products() -> List[Dict[str, Any]]:
-    """Все canonical продукты из products.db."""
+def _checked_slugs_and_ids() -> Tuple[set, set]:
+    """(slugs, product_ids) продуктов, которые когда-либо проверял пользователь.
+
+    Источники «проверки» (все, включая мягко удалённые записи истории):
+      - check_history.slug       — история проверок пользователей;
+      - analysis.product_id      — кэш персонального анализа (результат проверки);
+      - shelf_products.product_id — продукты на полках пользователей.
+    """
+    conn = get_connection(AIDERMY_DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        slugs = {
+            r["slug"]
+            for r in conn.execute(
+                "SELECT DISTINCT slug FROM check_history WHERE slug IS NOT NULL AND slug != ''"
+            ).fetchall()
+        }
+        ids = {
+            r["product_id"]
+            for r in conn.execute(
+                "SELECT DISTINCT product_id FROM analysis WHERE product_id IS NOT NULL"
+            ).fetchall()
+        }
+        ids |= {
+            r["product_id"]
+            for r in conn.execute(
+                "SELECT DISTINCT product_id FROM shelf_products"
+            ).fetchall()
+        }
+    finally:
+        conn.close()
+    return slugs, ids
+
+
+def load_canonical_products(only_checked: bool = False) -> List[Dict[str, Any]]:
+    """Все canonical продукты из products.db.
+
+    При only_checked=True — только продукты, которые когда-либо проверял
+    пользователь (по slug из check_history или product_id из analysis/shelf).
+    """
     conn = get_connection(PRODUCTS_DB)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
             "SELECT * FROM products WHERE is_canonical = 1"
         ).fetchall()
-        return [dict(r) for r in rows]
+        products = [dict(r) for r in rows]
     finally:
         conn.close()
+
+    if only_checked:
+        slugs, ids = _checked_slugs_and_ids()
+        products = [
+            p for p in products
+            if (p.get("slug") in slugs) or (p.get("id") in ids)
+        ]
+    return products
 
 
 def _allocate_quotas(group_sizes: Dict[str, int], total: int) -> Dict[str, int]:
@@ -515,11 +561,11 @@ def _export_stats(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def run_export(count: int, seed: int, out_dir: str, fmt: str) -> int:
+def run_export(count: int, seed: int, out_dir: str, fmt: str, only_checked: bool = False) -> int:
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    products = load_canonical_products()
+    products = load_canonical_products(only_checked=only_checked)
     sample = sample_products(products, count, seed)
 
     # Анализ реальным движком (AnalysisService реплицирует production-путь).
@@ -561,6 +607,7 @@ def run_export(count: int, seed: int, out_dir: str, fmt: str) -> int:
         "analysis_count": len(records),
         "random_seed": seed,
         "git_commit": _git_commit(),
+        "only_checked_products": only_checked,
         "knowledge_base": _knowledge_base_stats(),
         "axis_labels": AXIS_LABELS,
         "unavailable_data": _unavailable_data_notes(),
@@ -619,12 +666,16 @@ def _parse_args() -> argparse.Namespace:
                         help="Output directory (default calibration)")
     parser.add_argument("--format", choices=["json", "jsonl"], default="json",
                         help="Dataset format (default json)")
+    parser.add_argument("--only-checked", action="store_true",
+                        help="Export only products that were ever checked by users "
+                             "(check_history / analysis / shelf_products)")
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
-    return run_export(args.count, args.seed, args.out, args.format)
+    return run_export(args.count, args.seed, args.out, args.format,
+                      only_checked=args.only_checked)
 
 
 if __name__ == "__main__":
