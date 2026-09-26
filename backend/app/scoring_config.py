@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 # Версия конфига. Меняется при ЛЮБОМ изменении числовых правил скоринга.
 # Входит в snapshot calibration-экспорта и в идентичность результата скоринга.
 # ---------------------------------------------------------------------------
-SCORING_CONFIG_VERSION = "1.0.0"
+SCORING_CONFIG_VERSION = "1.1.0"
 
 # ===========================================================================
 # 1. КАНОНИЧЕСКИЕ ПАРАМЕТРЫ (оси индивидуальных эффектов ингредиента)
@@ -168,9 +168,13 @@ DEFAULT_PRIORITIES: Dict[str, float] = {
 
 # Вклад типа кожи в веса измерений (детерминированно, без LLM).
 # Это «modifiers для разных типов кожи».
+#
+# v1.1.0: снижен вес acne_control (→ sebum) для жирной кожи, т.к. ось sebum
+# заполнена лишь в ~16% случаев (production calibration). Часть веса перенесена
+# на sensitivity (→ irritation) и barrier_support (заполнены ~95-98%).
 SKIN_TYPE_WEIGHTS: Dict[str, Dict[str, float]] = {
     "сухая": {"hydration": 0.5, "barrier_support": 0.3},
-    "жирная": {"acne_control": 0.4, "sensitivity": 0.15},
+    "жирная": {"acne_control": 0.25, "sensitivity": 0.2},
     "комбинирован": {"hydration": 0.3, "acne_control": 0.3},
     "чувствительн": {"sensitivity": 0.5, "barrier_support": 0.25},
     "нормальн": {"hydration": 0.3, "barrier_support": 0.3},
@@ -179,11 +183,11 @@ SKIN_TYPE_WEIGHTS: Dict[str, Dict[str, float]] = {
 
 # Вклад concern'а в веса измерений.
 CONCERN_WEIGHTS: Dict[str, Dict[str, float]] = {
-    "акне": {"acne_control": 0.4, "sensitivity": 0.15},
+    "акне": {"acne_control": 0.25, "sensitivity": 0.15, "barrier_support": 0.1},
     "пигментаци": {"brightening": 0.4},
     "морщин": {"barrier_support": 0.3, "brightening": 0.2},
     "покраснен": {"sensitivity": 0.4, "barrier_support": 0.2},
-    "пор": {"acne_control": 0.3},
+    "пор": {"acne_control": 0.15, "sensitivity": 0.05},
     "тускл": {"brightening": 0.3},
     "обезвожен": {"hydration": 0.5},
     "купероз": {"sensitivity": 0.4, "barrier_support": 0.2},
