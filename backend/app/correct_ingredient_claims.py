@@ -68,28 +68,9 @@ VITC_SENSITIVITY_STRENGTH = 0.15
 
 
 # ---------------------------------------------------------------------------
-# Аудит direction: эвристики «evidence-текст противоречит direction».
+# Аудит direction: эвристика «evidence-текст противоречит direction»
+# (индикаторы встроены в _suspicion, property-aware).
 # ---------------------------------------------------------------------------
-# benefit-индикаторы (для harm-осей означают «ослабляет вред» -> direction должен быть negative).
-_BENEFIT_HINTS = (
-    "anti-inflammatory", "anti inflammatory", "sooth", "calm", "anti-irritat",
-    "reduce irritation", "reduce erythema", "reduce redness", "reduce inflammation",
-    "anti-inflammat", "skin conditioning",
-)
-# harm-индикаторы (для harm-осей означают «усиливает вред» -> direction positive).
-_HARM_HINTS = (
-    "contact dermatitis", "sensitiz", "allerg", "may cause irritation", "irritat",
-    "sting", "potential sensitizer", "eugenol", "linalool", "can cause", "risk of",
-)
-# осветление (для pigmentation: «снижает пигментацию» -> negative; для brightening -> positive).
-_LIGHTEN_HINTS = ("tyrosinase", "melanogenesis", "brighten", "whiten", "lighten",
-                  "reduce hyperpigmentation", "reduce pigmentation", "anti-pigment")
-# sebum control (для sebum -> negative; для oil_control -> positive).
-_SEBUM_CONTROL_HINTS = ("sebum", "oil control", "oil-control", "mattif", "anti-acne", "regulate sebum")
-# дегидратация (для hydration -> negative = вред).
-_DEHYDRATE_HINTS = ("dehydrat", "drying", "reduces hydration", "transepidermal water loss")
-
-
 def _affected_products() -> Dict[str, int]:
     """normalized_name -> количество продуктов, содержащих этот ингредиент (в INCI)."""
     from .ingredient_normalizer import normalize_ingredient_name
@@ -112,50 +93,69 @@ def _affected_products() -> Dict[str, int]:
 
 
 def _suspicion(name: str, prop: str, direction: str, evidence: str, affected: int) -> Tuple[str, Optional[str]]:
-    """(level, reason) — есть ли противоречие direction vs evidence."""
+    """(level, reason) — есть ли противоречие direction vs evidence.
+
+    Семантика по property_name (не по canonical axis):
+      harm-oriented property (irritation, irritation_risk, sensitization,
+                             pigmentation, sebum): positive=вред, negative=польза.
+      benefit-oriented property (soothing, brightening, oil_control,
+                                 hydration, barrier): positive=польза, negative=вред.
+    """
     ev = (evidence or "").lower()
     d = (direction or "").strip().lower()
-    prop_key = prop.lower().replace(" ", "_")
+    pk = prop.lower().replace(" ", "_")
 
-    # --- irritation (и aliases soothing/sensitivity) ---
-    if prop_key in ("irritation", "soothing", "sensitivity", "irritation_risk"):
-        if any(h in ev for h in _BENEFIT_HINTS) and d == "positive":
-            return ("HIGH", f"evidence='{evidence}' (benefit) но direction=positive")
-        if any(h in ev for h in _HARM_HINTS) and d == "negative":
-            return ("HIGH", f"evidence='{evidence}' (harm) но direction=negative")
+    benefit = any(h in ev for h in ("anti-inflammatory", "anti inflammatory", "sooth",
+                                    "calm", "anti-irritat", "reduce irritation",
+                                    "reduce erythema", "reduce redness", "reduce inflammation"))
+    harm_sensit = any(h in ev for h in ("contact dermatitis", "sensitiz", "allerg",
+                                        "potential sensitizer", "eugenol", "linalool",
+                                        "can cause"))
+    lighten = any(h in ev for h in ("tyrosinase", "melanogenesis", "brighten", "whiten",
+                                    "lighten", "reduce hyperpigmentation", "reduce pigmentation"))
+    sebum_ctrl = any(h in ev for h in ("sebum", "oil control", "mattif", "anti-acne"))
 
-    # --- sensitization ---
-    if prop_key in ("sensitization", "sensitizer", "allergen"):
-        if any(h in ev for h in _HARM_HINTS) and d == "negative":
-            return ("HIGH", f"evidence='{evidence}' (сенсибилизирующий) но direction=negative")
-        if "hypoallergenic" in ev and d == "positive":
-            return ("HIGH", f"evidence='{evidence}' (гипоаллергенный) но direction=positive")
+    # irritation / irritation_risk: positive=вред, negative=польза
+    if pk in ("irritation", "irritation_risk"):
+        if benefit and d == "positive":
+            return ("HIGH", f"benefit evidence '{evidence}' при direction=positive (должно быть negative)")
+        if harm_sensit and d == "negative":
+            return ("HIGH", f"harm evidence '{evidence}' при direction=negative (должно быть positive)")
 
-    # --- pigmentation / brightening ---
-    if prop_key in ("pigmentation", "hyperpigmentation"):
-        if any(h in ev for h in _LIGHTEN_HINTS) and d == "positive":
-            return ("HIGH", f"evidence='{evidence}' (осветляет) но direction=positive")
-    if prop_key in ("brightening", "whitening", "lightening"):
-        if any(h in ev for h in _LIGHTEN_HINTS) and d == "negative":
-            return ("HIGH", f"evidence='{evidence}' (осветляет) но direction=negative")
+    # soothing: positive=польза (flip-alias irritation)
+    if pk == "soothing":
+        if benefit and d == "negative":
+            return ("HIGH", f"benefit evidence '{evidence}' при direction=negative (soothing должно быть positive)")
 
-    # --- sebum / oil_control ---
-    if prop_key in ("sebum", "sebum_production"):
-        if any(h in ev for h in _SEBUM_CONTROL_HINTS) and d == "positive":
-            return ("HIGH", f"evidence='{evidence}' (контроль себума) но direction=positive")
-    if prop_key in ("oil_control", "sebum_control", "sebum_regulating", "mattifying"):
-        if any(h in ev for h in _SEBUM_CONTROL_HINTS) and d == "negative":
-            return ("HIGH", f"evidence='{evidence}' (контроль себума) но direction=negative")
+    # sensitization: positive=вред, negative=польза
+    if pk in ("sensitization", "sensitizer", "allergen"):
+        if harm_sensit and d == "negative":
+            return ("HIGH", f"harm evidence '{evidence}' при direction=negative (должно быть positive)")
 
-    # --- hydration ---
-    if prop_key == "hydration":
-        if any(h in ev for h in _DEHYDRATE_HINTS) and d == "positive":
-            return ("MEDIUM", f"evidence='{evidence}' (дегидратация) но direction=positive")
+    # pigmentation: positive=вред, negative=польза
+    if pk in ("pigmentation", "hyperpigmentation"):
+        if lighten and d == "positive":
+            return ("HIGH", f"lighten evidence '{evidence}' при direction=positive (должно быть negative)")
 
-    # --- barrier ---
-    if prop_key in ("barrier", "barrier_support"):
+    # brightening: positive=польза (flip-alias pigmentation)
+    if pk in ("brightening", "whitening", "lightening"):
+        if lighten and d == "negative":
+            return ("HIGH", f"lighten evidence '{evidence}' при direction=negative (brightening должно быть positive)")
+
+    # sebum: positive=вред, negative=польза
+    if pk in ("sebum", "sebum_production"):
+        if sebum_ctrl and d == "positive":
+            return ("HIGH", f"sebum-control evidence '{evidence}' при direction=positive (должно быть negative)")
+
+    # oil_control: positive=польза (flip-alias sebum)
+    if pk in ("oil_control", "sebum_control", "sebum_regulating", "mattifying"):
+        if sebum_ctrl and d == "negative":
+            return ("HIGH", f"sebum-control evidence '{evidence}' при direction=negative (oil_control должно быть positive)")
+
+    # barrier: positive=польза, negative=вред
+    if pk in ("barrier", "barrier_support"):
         if ("barrier" in ev and ("repair" in ev or "strengthen" in ev or "restore" in ev or "improve" in ev)) and d == "negative":
-            return ("HIGH", f"evidence='{evidence}' (укрепляет барьер) но direction=negative")
+            return ("HIGH", f"barrier-repair evidence '{evidence}' при direction=negative (должно быть positive)")
 
     return ("CLEAN", None)
 
