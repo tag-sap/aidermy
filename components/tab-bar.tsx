@@ -1,15 +1,41 @@
 'use client'
 
-import { Search, User, Sparkles, LayoutGrid, Home, QrCode } from 'lucide-react'
+import { useState } from 'react'
+import { Search, Home, QrCode } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AnimatedTabIcon } from '@/components/animated-tab-icon'
 
 export type TabId = 'home' | 'catalog' | 'shelf' | 'profile'
 
-const TABS: { id: TabId; label: string; icon: typeof Search; circle?: boolean }[] = [
+interface TabItem {
+  id: TabId
+  label: string
+  icon?: typeof Search
+  idle?: string
+  hover?: string
+  circle?: boolean
+}
+
+const TABS: TabItem[] = [
   { id: 'home', label: 'Главная', icon: Home, circle: true },
-  { id: 'catalog', label: 'Каталог', icon: LayoutGrid, circle: true },
-  { id: 'shelf', label: 'Моя полка', icon: Sparkles, circle: true },
-  { id: 'profile', label: 'Профиль', icon: User, circle: true },
+  {
+    id: 'catalog',
+    label: 'Каталог',
+    idle: '/icons/catalog_idle.png',
+    hover: '/icons/catalog_hover.gif',
+  },
+  {
+    id: 'shelf',
+    label: 'Моя полка',
+    idle: '/icons/my_shelf_idle.png',
+    hover: '/icons/my_shelf_hover.gif',
+  },
+  {
+    id: 'profile',
+    label: 'Профиль',
+    idle: '/icons/profile_idle.png',
+    hover: '/icons/profile_hover.gif',
+  },
 ]
 
 export function TabBar({
@@ -23,6 +49,8 @@ export function TabBar({
   onCheck: () => void
   isAuthenticated?: boolean
 }) {
+  const [hoveredId, setHoveredId] = useState<TabId | null>(null)
+
   const visibleTabs = TABS.filter(tab => {
     // Гостям доступна только «Главная» (лендинг) — каталог, проверка и полка скрыты.
     if (!isAuthenticated) return tab.id === 'home'
@@ -51,18 +79,48 @@ export function TabBar({
       )}
 
       <div className="mx-auto flex w-full max-w-md items-end justify-around px-2 pt-2 pb-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
-        {visibleTabs.map(({ id, label, icon: Icon, circle }) => {
-          const isActive = active === id
+        {visibleTabs.map(tab => {
+          const isActive = active === tab.id
 
-          if (circle) {
+          // Вкладки-изображения: каталог / полка / профиль (название уже в картинке).
+          if (tab.idle && tab.hover) {
             return (
               <button
-                key={id}
+                key={tab.id}
                 type="button"
-                onClick={() => onChange(id)}
+                onClick={() => onChange(tab.id)}
+                aria-label={tab.label}
                 aria-current={isActive ? 'page' : undefined}
                 data-active={isActive ? 'true' : 'false'}
-                data-tour={id}
+                data-tour={tab.id}
+                onPointerEnter={e => {
+                  if (e.pointerType === 'mouse') setHoveredId(tab.id)
+                }}
+                onPointerLeave={() => setHoveredId(cur => (cur === tab.id ? null : cur))}
+                className="relative flex flex-1 flex-col items-center justify-center px-1 py-2"
+              >
+                <AnimatedTabIcon
+                  idleSrc={tab.idle}
+                  gifSrc={tab.hover}
+                  active={isActive}
+                  hovered={hoveredId === tab.id}
+                  className="block h-auto w-full max-w-[128px]"
+                />
+              </button>
+            )
+          }
+
+          const Icon = tab.icon!
+
+          if (tab.circle) {
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onChange(tab.id)}
+                aria-current={isActive ? 'page' : undefined}
+                data-active={isActive ? 'true' : 'false'}
+                data-tour={tab.id}
                 className="relative -mt-6 flex flex-1 flex-col items-center gap-0.5"
               >
                 <span
@@ -76,7 +134,7 @@ export function TabBar({
                   <Icon className="tab-circle-icon size-6" strokeWidth={2} />
                 </span>
                 <span className={cn('text-[9px] font-normal leading-none', isActive ? 'text-primary' : 'text-muted-foreground')}>
-                  {label}
+                  {tab.label}
                 </span>
               </button>
             )
@@ -84,12 +142,12 @@ export function TabBar({
 
           return (
             <button
-              key={id}
+              key={tab.id}
               type="button"
-              onClick={() => onChange(id)}
+              onClick={() => onChange(tab.id)}
               aria-current={isActive ? 'page' : undefined}
               data-active={isActive ? 'true' : 'false'}
-              data-tour={id}
+              data-tour={tab.id}
               className={cn(
                 'nav-link-animated flex flex-1 flex-col items-center gap-0.5 rounded-md px-2 py-1.5 transition-colors',
                 isActive ? 'text-primary' : 'text-muted-foreground'
@@ -99,7 +157,7 @@ export function TabBar({
                 className={cn('size-4.5', isActive && 'drop-shadow-[0_0_8px_rgba(108,60,225,0.3)]')}
                 strokeWidth={2}
               />
-              <span className="text-[9px] font-normal leading-none">{label}</span>
+              <span className="text-[9px] font-normal leading-none">{tab.label}</span>
             </button>
           )
         })}
