@@ -1023,3 +1023,84 @@ body.modal-open main {
 .animate-shelf-line {
   animation: shelf-line-in 0.3s ease both;
 }
+
+/* ======================================================================
+   EXPERIMENTAL — precision neon accents (violet + lime)
+   ----------------------------------------------------------------------
+   Включается параметром ?neon=1 (layout.tsx ставит data-neon="true" на <html>).
+   По умолчанию токены нейтральные (спокойный дизайн), при data-neon — неон.
+   Эстетика: тонкая лазерная линия / точка / indicator. БЕЗ glow и blur.
+   ====================================================================== */
+:root {
+  --neon-violet: #cfcbc1;
+  --neon-lime: #c9c5ba;
+}
+
+html[data-neon='true'] {
+  --neon-violet: #a855f7;
+  --neon-lime: #a3e635;
+}
+
+/* Wordmark «Aidermy» — Swis721 BlkEx BT (только экспериментальная версия).
+   Файл шрифта не входит в репозиторий; при его отсутствии используется
+   Arial Black (ближайший системный аналог). */
+@font-face {
+  font-family: 'Swis721 BlkEx BT';
+  src: url('/fonts/Swis721-BlkEx-BT.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+html[data-neon='true'] .neon-wordmark {
+  font-family: 'Swis721 BlkEx BT', 'Arial Black', 'Arial', sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 0.95;
+}
+
+/* Precision-neon primitives (цвет берётся из токенов). */
+.neon-hairline {
+  height: 1px;
+  background: var(--neon-violet);
+}
+
+.neon-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--neon-violet);
+  transition: background-color 0.3s ease;
+}
+
+.neon-dot--lime {
+  background: var(--neon-lime);
+}
+
+.neon-dot--muted {
+  background: rgba(21, 21, 21, 0.15);
+}
+
+
+/* Tab-bar active state — точёчный neon indicator в экспериментальной версии. */
+html[data-neon='true'] [data-active='true'] .tab-circle {
+  box-shadow: none !important;
+  border-color: var(--neon-violet) !important;
+}
+
+html[data-neon='true'] [data-active='true'] .tab-circle-icon {
+  filter: drop-shadow(0 0 0 transparent);
+}
+
+/* Тонкий неоновый контур выбранного элемента (без тени). */
+.neon-ring {
+  box-shadow: 0 0 0 1px var(--neon-violet) !important;
+  border-color: var(--neon-violet) !important;
+}
+
+/* Тонкая неоновая черта под результатом. */
+.neon-score-underline {
+  height: 1px;
+  background: var(--neon-lime);
+}
+

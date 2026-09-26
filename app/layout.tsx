@@ -47,6 +47,12 @@ export default function RootLayout({
         <link rel="icon" href="/favicon.ico" sizes="32x32" />
         <link rel="icon" href="/icon-192.png" type="image/png" />
         <link rel="apple-touch-icon" href="/apple-icon.png" />
+        {/* Экспериментальная неоновая версия: ?neon=1 (или localStorage aidermy:neon=1). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var p=new URLSearchParams(location.search);var v=p.get('neon');if(v!==null){try{localStorage.setItem('aidermy:neon', v==='1'||v==='true'?'1':'0')}catch(e){}}else{try{v=localStorage.getItem('aidermy:neon')}catch(e){v=null}}if(v==='1'||v==='true'){document.documentElement.setAttribute('data-neon','true')}}catch(e){}})();`,
+          }}
+        />
       </head>
       <body className="font-sans antialiased">
         <div id="__next" className="min-h-dvh bg-background w-full">

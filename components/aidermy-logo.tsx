@@ -9,7 +9,7 @@ export function AidermyLogo({ isCompact = false }: AidermyLogoProps) {
     <div className={`logo-enter group flex flex-col items-center md:items-start transition-all duration-300 ${isCompact ? 'scale-75 origin-top-left' : ''
       }`}>
       <span>
-        <span className={`font-[family-name:var(--font-playfair)] font-normal tracking-[0.04em] select-none ${isCompact ? 'text-2xl' : 'text-4xl'
+        <span className={`neon-wordmark font-[family-name:var(--font-playfair)] font-normal tracking-[0.04em] select-none ${isCompact ? 'text-2xl' : 'text-4xl'
           }`}>
           aidermy
         </span>
