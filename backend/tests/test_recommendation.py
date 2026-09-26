@@ -136,7 +136,9 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual(len(recs), 2)
 
     def test_recommendation_returns_fewer_than_three_when_not_enough_prepared(self):
-        # Подготовленных (с моделью) меньше трёх → показываем только реально готовые.
+        # Подготовленных (с историей/meaningful deterministic-скором) меньше трёх →
+        # показываем только реально готовые. Продукты без истории и без meaningful
+        # deterministic-анализа (confidence == 0) в выдачу не попадают.
         candidates = [
             _product("Очищение", "A", "a", "Aqua, Glycerin"),
             _product("Очищение", "B", "b", "Aqua, Betaine"),
@@ -152,7 +154,8 @@ class RecommendationTests(unittest.TestCase):
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", side_effect=has_model), \
-             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)):
+             patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)), \
+             patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0, "score": 0}):
             recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
         self.assertEqual(sorted([r["slug"] for r in recs]), ["a", "c"])
 
