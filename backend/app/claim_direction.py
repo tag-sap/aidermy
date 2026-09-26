@@ -82,9 +82,9 @@ _BENEFIT_BENEFIT = {
         ("dehydrat", "drying", "reduce hydration", "decreases hydration"),
     ),
     "barrier": (
-        ("barrier repair", "strengthen barrier", "restore barrier", "support barrier",
-         "improve barrier", "barrier function", "repair barrier"),
-        ("disrupt barrier", "weaken barrier", "impair barrier"),
+        ("barrier repair", "restore barrier", "support barrier", "improve barrier",
+         "repair barrier", "strengthen"),
+        ("disrupt", "weaken", "impair"),
     ),
 }
 
