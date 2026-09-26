@@ -13,6 +13,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from .axes import AXES
+from .claim_direction import prompt_instruction, validate_claim
 from .ingredient_normalizer import normalize_ingredient_name
 from .ingredient_repository import IngredientRepository
 from .instrumentation import METRICS
@@ -155,6 +156,8 @@ async def _process_batch(repo: IngredientRepository) -> int:
 # ---------------------------------------------------------------------------
 # Ingredient research (canonical 6 axes)
 # ---------------------------------------------------------------------------
+_DIRECTION_INSTRUCTION = prompt_instruction()
+
 _INGREDIENT_RESEARCH_PROMPT = (
     "Ты — косметический химик. Для каждого INCI-ингредиента из списка составь "
     "запись, используя ТОЛЬКО канонические оси эффектов.\n\n"
@@ -165,6 +168,7 @@ _INGREDIENT_RESEARCH_PROMPT = (
     '"effects": [{{"axis": "hydration|barrier|irritation|sensitization|sebum|pigmentation", '
     '"direction": "positive|negative", "effect_magnitude": "weak|moderate|strong", '
     '"confidence": 0..1, "evidence": "...", "source": "..."}}]}}]\n\n'
+    + _DIRECTION_INSTRUCTION + "\n"
     "ВАЖНО: не выводи hydration из barrier и наоборот; stinging/burning → irritation, "
     "аллерген/сенсибилизация → sensitization; sebum — только прямое влияние на себум; "
     "pigmentation — только прямое влияние на пигментацию; механизмы (humectant, exfoliant, "

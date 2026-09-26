@@ -41,6 +41,8 @@ def find_unknown_ingredients(
 
 
 def _prompt(unknown: List[str]) -> str:
+    from .claim_direction import prompt_instruction
+
     return (
         "Ты — косметический химик. Для каждого из перечисленных INCI-ингредиентов "
         "составь структурированную запись для базы знаний.\n\n"
@@ -52,10 +54,13 @@ def _prompt(unknown: List[str]) -> str:
         '"oil_control": 0..1, "brightening": 0..1, '
         '"irritation_risk": 0..1, "comedogenicity": 0..5, "sensitization": 0..1, '
         '"evidence_level": "low|moderate|high", "confidence": 0..1, '
-        '"claims": [{"property": "hydration|barrier_support|sensitivity|acne_control|brightening", '
-        '"direction": "positive|negative", "strength": 0..1, "confidence": 0..1}], '
+        '"claims": [{"property": "hydration|barrier|irritation|sensitization|sebum|pigmentation", '
+        '"direction": "positive|negative", "strength": 0..1, "confidence": 0..1, '
+        '"evidence": "..."}], '
         '"allergen": {"is_allergen": true|false, "is_sensitizer": true|false, '
         '"allergen_level": "none|low|moderate|high|known", "sensitization_potential": 0..1}}]\n\n'
+        "claims используй ТОЛЬКО канонические оси (см. выше).\n"
+        + prompt_instruction() + "\n"
         "claims используй только для известных свойств; неизвестные свойства не выдумывай "
         "(confidence низкий). Если ингредиент не является аллергеном/сенсибилизатором, "
         'allergen = {"is_allergen": false, "is_sensitizer": false}. Верни ТОЛЬКО JSON.'
@@ -192,7 +197,10 @@ async def enrich_unknown_ingredients(
                         "direction": claim.get("direction") or "neutral",
                         "strength": claim.get("strength") or 0.0,
                         "confidence": claim.get("confidence") or 0.0,
-                        "evidence_level": claim.get("evidence_level") or record.get("evidence_level") or "moderate",
+                        "evidence_level": (claim.get("evidence")
+                                          or claim.get("evidence_level")
+                                          or record.get("evidence_level")
+                                          or "moderate"),
                     })
                 record["claims"] = claims
 

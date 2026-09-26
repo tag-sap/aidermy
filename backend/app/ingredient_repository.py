@@ -907,11 +907,28 @@ class IngredientRepository:
         ingredient_id = int(row['id']) if row else 0
 
         # Claims (для scoring engine: property/direction/strength/confidence).
+        # Safety net: перед сохранением сверяем evidence с direction и при явном
+        # противоречии исправляем (flip) или пропускаем (reject).
+        try:
+            from .claim_direction import validate_claim as _validate_claim
+        except Exception:
+            _validate_claim = None
+
         for claim in data.get('claims') or []:
             prop = str(claim.get('property_name') or claim.get('property') or '').strip()
             direction = str(claim.get('direction') or 'neutral').strip().lower()
             if not prop:
                 continue
+            if _validate_claim is not None:
+                verdict, corrected, _reason = _validate_claim(
+                    prop, direction,
+                    str(claim.get('evidence_level') or evidence_level),
+                    _num(claim.get('confidence')),
+                )
+                if verdict == 'reject':
+                    continue
+                if verdict == 'flip':
+                    direction = corrected
             cursor.execute(
                 '''
                 INSERT INTO ingredient_claims (
