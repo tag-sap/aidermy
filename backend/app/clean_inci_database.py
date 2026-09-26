@@ -28,8 +28,6 @@ _HTML_ENTITY_RE = re.compile(r"&(?:nbsp|amp|lt|gt|quot|apos|#\d+);", re.I)
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.I)
 _EMAIL_RE = re.compile(r"\S+@\S+")
 _PHONE_RE = re.compile(r"\+?\d[\d\s().\-]{7,}\d")
-_JSON_BRACKET_RE = re.compile(r"\[[^\[\]]*\]")
-_JSON_BRACE_RE = re.compile(r"\{[^{}]*\}")
 _WS_RE = re.compile(r"\s+")
 
 
@@ -69,9 +67,6 @@ def clean_token(token: str) -> str | None:
     t = t.strip(" ,;.")
     if not t:
         return None
-    # Токен с пробелами длиннее 80 символов и >=6 слов — почти наверняка не INCI.
-    if len(t) > 80 and t.count(" ") >= 6:
-        return None
     return t
 
 
@@ -87,8 +82,6 @@ def clean_ingredients(raw) -> Tuple[str, int]:
     s = _URL_RE.sub(" ", s)
     s = _EMAIL_RE.sub(" ", s)
     s = _PHONE_RE.sub(" ", s)
-    s = _JSON_BRACKET_RE.sub(" ", s)
-    s = _JSON_BRACE_RE.sub(" ", s)
 
     # Разделяем по запятой/;/\n, НО не по запятой между цифрами
     # (напр. "1,2-Hexanediol" — позиционная запятая в химическом имени).
