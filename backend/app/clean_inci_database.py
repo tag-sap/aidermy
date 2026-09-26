@@ -64,7 +64,9 @@ def clean_token(token: str) -> str | None:
     # После удаления русских скобок осталась кириллица → русский текст/описание.
     if _CYR_RE.search(t):
         return None
-    t = t.strip(" ,;.()[]{}")
+    # Стрипаем только граничные пунктуационные символы, НЕ скобки:
+    # () — легитимная часть INCI (напр. "Water (Eau)").
+    t = t.strip(" ,;.")
     if not t:
         return None
     # Токен с пробелами длиннее 80 символов и >=6 слов — почти наверняка не INCI.
@@ -88,7 +90,9 @@ def clean_ingredients(raw) -> Tuple[str, int]:
     s = _JSON_BRACKET_RE.sub(" ", s)
     s = _JSON_BRACE_RE.sub(" ", s)
 
-    tokens = [p for p in re.split(r"[,;\n]+", s)]
+    # Разделяем по запятой/;/\n, НО не по запятой между цифрами
+    # (напр. "1,2-Hexanediol" — позиционная запятая в химическом имени).
+    tokens = [p for p in re.split(r"(?<!\d),(?!\d)|[;\n]+", s)]
     seen: Set[str] = set()
     kept: List[str] = []
     removed = 0
@@ -188,7 +192,7 @@ def run(apply: bool, limit: int | None) -> int:
         if _still_suspicious(cleaned):
             suspicious += 1
 
-        cleaned_tokens = [t.strip() for t in re.split(r"[,;]+", cleaned) if t.strip()]
+        cleaned_tokens = [t.strip() for t in re.split(r"(?<!\d),(?!\d)|[;]+", cleaned) if t.strip()]
         for tok in cleaned_tokens:
             key = normalize_ingredient_name(tok)
             if key and key not in known and key not in {"water", "aqua"}:
