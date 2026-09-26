@@ -24,6 +24,7 @@ type Direction = 1 | -1 | 0
  */
 export function AnimatedTabIcon({ idleSrc, gifSrc, active, hovered, className }: AnimatedTabIconProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const offscreenRef = useRef<HTMLCanvasElement | null>(null)
   const idleImgRef = useRef<HTMLImageElement | null>(null)
   const gifRef = useRef<DecodedGif | null>(null)
   const animRef = useRef<{ frame: number; direction: Direction; timer: number }>({
@@ -71,7 +72,7 @@ export function AnimatedTabIcon({ idleSrc, gifSrc, active, hovered, className }:
     if (!ctx) return
     const { bbox } = gif
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.drawImage(img, bbox.left, bbox.top, bbox.width, bbox.height, 0, 0, bbox.width, bbox.height)
+    ctx.drawImage(img, bbox.left, bbox.top, bbox.width, bbox.height, 0, 0, canvas.width, canvas.height)
   }, [])
 
   const drawFrame = useCallback((index: number) => {
@@ -80,9 +81,23 @@ export function AnimatedTabIcon({ idleSrc, gifSrc, active, hovered, className }:
     if (!canvas || !gif || index < 0 || index >= gif.frames.length) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+
+    // Кадр рисуем на полноразмерный offscreen-canvas, а затем кадрируем через
+    // drawImage (надёжнее, чем putImageData с dirty-rect).
+    let off = offscreenRef.current
+    if (!off) {
+      off = document.createElement('canvas')
+      off.width = gif.width
+      off.height = gif.height
+      offscreenRef.current = off
+    }
+    const offCtx = off.getContext('2d')
+    if (!offCtx) return
+    offCtx.putImageData(gif.frames[index].imageData, 0, 0)
+
     const { bbox } = gif
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.putImageData(gif.frames[index].imageData, 0, 0, bbox.left, bbox.top, bbox.width, bbox.height)
+    ctx.drawImage(off, bbox.left, bbox.top, bbox.width, bbox.height, 0, 0, canvas.width, canvas.height)
   }, [])
 
   const stopAnim = useCallback(() => {
@@ -135,6 +150,7 @@ export function AnimatedTabIcon({ idleSrc, gifSrc, active, hovered, className }:
 
     canvas.width = gif.bbox.width
     canvas.height = gif.bbox.height
+    canvas.style.aspectRatio = `${gif.bbox.width} / ${gif.bbox.height}`
 
     if (!initializedRef.current) {
       initializedRef.current = true
@@ -173,5 +189,5 @@ export function AnimatedTabIcon({ idleSrc, gifSrc, active, hovered, className }:
     }
   }, [])
 
-  return <canvas ref={canvasRef} className={className ?? 'block h-auto w-full'} aria-hidden="true" />
+  return <canvas ref={canvasRef} className={className ?? 'block w-full'} aria-hidden="true" />
 }

@@ -104,7 +104,7 @@ export function TabBar({
                   gifSrc={tab.hover}
                   active={isActive}
                   hovered={hoveredId === tab.id}
-                  className="block h-auto w-full max-w-[128px]"
+                  className="block w-full max-w-[128px]"
                 />
               </button>
             )
