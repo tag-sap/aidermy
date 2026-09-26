@@ -47,32 +47,39 @@ def prompt_instruction() -> str:
 # Safety validation: evidence -> expected endpoint direction.
 # ---------------------------------------------------------------------------
 # (ось, ожидаемый direction) по ключевым словам evidence.
+# Ключевые слова подобраны так, чтобы не путать benefit/harm и учитывать отрицание:
+#   "non-irritating" -> benefit (не harm), "reduces X" -> benefit, "increase X" -> harm.
 _HARM_BENEFIT = {
     "irritation": (
         ("anti-inflammatory", "anti inflammatory", "sooth", "calm", "anti-irritat",
-         "reduce irritation", "reduce erythema", "reduce redness", "reduce inflammation"),
-        ("irritat", "sting", "burn", "may cause irritation", "may irritate"),
+         "reduce irritation", "reduce erythema", "reduce redness", "reduce inflammation",
+         "non-irritating", "non irritating"),
+        ("irritating", "irritant", "irritates", "sting", "burn",
+         "may irritate", "can irritate", "increase irritation", "increases irritation",
+         "irritation potential", "causes irritation"),
     ),
     "sensitization": (
-        ("hypoallergenic", "non-sensitizing", "low sensitization"),
-        ("contact dermatitis", "sensitiz", "allerg", "potential sensitizer",
-         "eugenol", "linalool", "can cause sensitization"),
+        ("hypoallergenic", "non-sensitizing", "non sensitizing", "low sensitization"),
+        ("contact dermatitis", "sensitizing", "sensitizer", "allergen", "allergic",
+         "potential sensitizer", "eugenol", "linalool", "can cause sensitization",
+         "increase sensitization"),
     ),
     "sebum": (
-        ("mattif", "absorb oil", "absorbs oil", "sebum control", "reduce sebum",
-         "oil control", "oil-control", "regulat sebum", "anti-acne", "excess sebum"),
+        ("mattif", "absorb", "sebum control", "reduce sebum", "oil control",
+         "oil-control", "regulat sebum", "anti-acne", "sebum regulat", "sebum absorb"),
         ("increase sebum", "sebum production", "stimulat sebum"),
     ),
     "pigmentation": (
         ("tyrosinase", "melanogenesis", "brighten", "whiten", "lighten",
-         "reduce pigmentation", "reduce hyperpigmentation", "melanin synthesis"),
+         "reduce pigmentation", "reduce hyperpigmentation", "melanin synthesis",
+         "inhibit melanin"),
         ("increase pigmentation", "stimulat melanin", "darken"),
     ),
 }
 _BENEFIT_BENEFIT = {
     "hydration": (
         ("moisturiz", "humectant", "hydrat", "water-binding", "water binding"),
-        ("dehydrat", "drying", "reduce hydration", "transepidermal water loss"),
+        ("dehydrat", "drying", "reduce hydration", "decreases hydration"),
     ),
     "barrier": (
         ("barrier repair", "strengthen barrier", "restore barrier", "support barrier",
