@@ -51,7 +51,7 @@ class FindProductInDbTests(unittest.TestCase):
         )
         cur.execute(
             "INSERT INTO products (name, slug, brand, ingredients, is_canonical) "
-            "VALUES ('The Ordinary\\nNiacinamide 10%', 'the-ordinary-niacinamide', 'The Ordinary', 'Aqua, Niacinamide, Zinc', 1)"
+            "VALUES ('The Ordinary\nNiacinamide 10%', 'the-ordinary-niacinamide', 'The Ordinary', 'Aqua, Niacinamide, Zinc', 1)"
         )
         conn.commit()
         conn.close()
@@ -76,6 +76,57 @@ class FindProductInDbTests(unittest.TestCase):
 
     def test_no_identity_returns_none(self):
         self.assertIsNone(find_product_in_db("", ""))
+
+
+class CosrxLookupTests(unittest.TestCase):
+    """Сценарий бага: Vision верно определил COSRX, но поиск в БД не находил товар.
+
+    Бренд хранится только в имени (первая строка), колонка brand пустая — как в
+    реальном каталоге. Если товар найден и INCI надёжный — Web Search вызывать не нужно.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mktemp(suffix=".db")
+        self._old = database.PRODUCTS_DB
+        database.PRODUCTS_DB = self.tmp
+        conn = database.get_connection(database.PRODUCTS_DB)
+        cur = conn.cursor()
+        cur.execute(
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, slug TEXT, brand TEXT, "
+            "image_url TEXT, category TEXT, ingredients TEXT, is_canonical INTEGER DEFAULT 1, source_url TEXT)"
+        )
+        # Бренд в имени (первая строка), brand-колонка пустая — воспроизводит реальный каталог.
+        cur.execute(
+            "INSERT INTO products (name, slug, brand, ingredients, is_canonical) "
+            "VALUES ('COSRX\nLow pH Good Morning Gel Cleanser', 'cosrx-low-ph-good-morning-gel-cleanser', '', "
+            "'Water, Glycerin, Betaine, Sodium Cocoyl Isethionate, Citric Acid', 1)"
+        )
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        database.PRODUCTS_DB = self._old
+        try:
+            if os.path.exists(self.tmp):
+                os.remove(self.tmp)
+        except PermissionError:
+            pass
+
+    def test_cosrx_found_by_brand_and_name_with_reliable_inci(self):
+        p = find_product_in_db("COSRX", "Low pH Good Morning Gel Cleanser")
+        self.assertIsNotNone(p)
+        # INCI надёжный -> Web Search НЕ нужен, используем существующий товар.
+        self.assertTrue(has_reliable_inci(p))
+        self.assertIn("Glycerin", p["ingredients"])
+
+    def test_cosrx_case_and_spacing_variation(self):
+        p = find_product_in_db("cosrx", "  low pH   good morning gel cleanser  ")
+        self.assertIsNotNone(p)
+        self.assertTrue(has_reliable_inci(p))
+
+    def test_cosrx_hyphen_and_punctuation_variation(self):
+        p = find_product_in_db("COSRX", "Low-pH Good Morning Gel Cleanser")
+        self.assertIsNotNone(p)
 
 
 class IsMatchingProductTests(unittest.TestCase):

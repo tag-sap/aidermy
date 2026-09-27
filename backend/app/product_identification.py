@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 from . import database
+from .product_dedup import _MATCH_THRESHOLD, match_score
 
 
 def _normalize(s: str) -> str:
@@ -16,15 +17,17 @@ def _normalize(s: str) -> str:
 
 
 def find_product_in_db(brand: str, name: str) -> Optional[Dict[str, Any]]:
-    """Ищет продукт в Product DB по нормализованному бренду + названию.
+    """Ищет продукт в Product DB тем же механизмом, что и каталог (product_dedup.match_score).
 
-    Не считает продукт найденным только по совпадению названия: проверяет
-    соответствие бренда и названия.
+    Переиспользует нормализацию каталога (normalize_name/normalize_brand внутри
+    match_score): регистр, пробелы, дефисы, пунктуацию, транслитерацию, бренд + название.
+    Не создаёт отдельный независимый алгоритм поиска.
     """
     if not brand and not name:
         return None
-    b = _normalize(brand)
-    n = _normalize(name)
+
+    query = {"brand": brand or "", "name": name or ""}
+
     conn = database.get_connection(database.PRODUCTS_DB)
     cursor = conn.cursor()
     rows = cursor.execute(
@@ -33,23 +36,30 @@ def find_product_in_db(brand: str, name: str) -> Optional[Dict[str, Any]]:
     ).fetchall()
     conn.close()
 
+    best: Optional[Dict[str, Any]] = None
+    best_score = 0.0
     for row in rows:
-        row_brand = _normalize(str(row["brand"] or ""))
-        row_name = _normalize(str(row["name"] or "").replace("\n", " "))
-        brand_ok = (not b) or (b and b in row_brand) or (b and row_brand and row_brand in b)
-        name_ok = n and (n in row_name or row_name in n)
-        if brand_ok and name_ok:
-            return {
-                "id": row["id"],
-                "slug": row["slug"] or "",
-                "name": row["name"] or "",
-                "brand": row["brand"] or "",
-                "image_url": row["image_url"] or "",
-                "category": row["category"] or "",
-                "ingredients": row["ingredients"] or "",
-                "source_url": "",
-            }
-    return None
+        row_dict = dict(row)
+        score = match_score(query, row_dict)
+        if score is None:
+            continue
+        if score > best_score:
+            best_score = score
+            best = row_dict
+
+    if best is None or best_score < _MATCH_THRESHOLD:
+        return None
+
+    return {
+        "id": best["id"],
+        "slug": best["slug"] or "",
+        "name": best["name"] or "",
+        "brand": best["brand"] or "",
+        "image_url": best["image_url"] or "",
+        "category": best["category"] or "",
+        "ingredients": best["ingredients"] or "",
+        "source_url": "",
+    }
 
 
 def has_reliable_inci(product: Optional[Dict[str, Any]]) -> bool:
