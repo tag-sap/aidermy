@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, LogIn, Compass, ClipboardList, Send, Mail } from 'lucide-react'
 import { useScrollLock } from '@/lib/use-scroll-lock'
+import { ParticleField } from '@/components/particle-field'
 
 interface AppHeaderProps {
   onOpenAccount: () => void
@@ -60,20 +61,22 @@ export function AppHeader({
 
   return (
     <>
-      <header className="relative z-20 w-full" style={{ backgroundColor: '#D6F264' }}>
-        <div className="mx-auto w-full max-w-md px-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl md:px-6">
+      <header className="relative z-20 w-full overflow-hidden" style={{ backgroundColor: '#D6F264' }}>
+        <ParticleField />
+        <div className="relative mx-auto w-full max-w-md px-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl md:px-6">
           <div className="flex items-center justify-between gap-3 py-3">
-            <img src="/main_logo.png" alt="aidermy" className="h-9 w-auto pixelated md:h-10" draggable={false} />
+            <img src="/main_logo.png?v=2" alt="aidermy" className="h-9 w-auto pixelated md:h-10" draggable={false} />
 
             <div className="flex items-center gap-2">
             {onCheck && (
               <button
                 type="button"
                 onClick={onCheck}
-                className="hidden items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-md transition-transform hover:scale-[1.03] active:scale-95 md:inline-flex"
+                className="hidden items-center gap-2 md:inline-flex"
+                aria-label="Проверить продукт"
               >
-                <img src="/QRCODE.png" alt="" className="size-5 pixelated" draggable={false} />
-                Проверить продукт
+                <img src="/QRCODE.png?v=2" alt="" className="size-10 pixelated" draggable={false} />
+                <span className="font-advaken text-xs text-foreground">проверить продукт</span>
               </button>
             )}
             <div className="relative">
@@ -176,7 +179,7 @@ export function AppHeader({
           </div>
         </div>
         {title && (
-          <h1 className="font-advaken text-2xl leading-none text-foreground pb-3 -mt-0.5">{title}</h1>
+          <h1 className="font-advaken text-2xl leading-none text-foreground pb-4">{title}</h1>
         )}
         </div>
       </header>

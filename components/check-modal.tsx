@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { X, Link2, Search, Camera, LoaderCircle, Trash2, Check, ChevronLeft, Sparkles, AlertCircle, Keyboard } from 'lucide-react'
 import { cn, capitalizeFirst } from '@/lib/utils'
 import { useScrollLock } from '@/lib/use-scroll-lock'
@@ -100,9 +99,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
   const [status, setStatus] = useState('')
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const inputWrapRef = useRef<HTMLDivElement | null>(null)
 
   // ===== Фото-распознавание состава =====
   const [photos, setPhotos] = useState<string[]>([])
@@ -129,15 +126,6 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
   const productFileRef = useRef<HTMLInputElement | null>(null)
 
   useScrollLock(isOpen)
-
-  useEffect(() => {
-    if (!showSuggestions || !inputWrapRef.current) {
-      setDropdownPos(null)
-      return
-    }
-    const rect = inputWrapRef.current.getBoundingClientRect()
-    setDropdownPos({ top: rect.bottom + 4, left: rect.left, width: rect.width })
-  }, [showSuggestions, suggestions])
 
   useEffect(() => {
     if (!isOpen) return
@@ -512,6 +500,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
             <button
               key={m.id}
               onClick={() => {
+                setShowSuggestions(false)
                 if (m.id === 'product') { enterProductMode(); return }
                 if (m.id === 'photo') enterPhotoMode()
                 else { setMode(m.id as any); setStatus('') }
@@ -527,67 +516,69 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
           ))}
         </div>
 
+        <div key={mode} className="check-tab-bounce">
         {mode === 'product' && (
-          <div className="flex flex-col gap-4">
+          <div className="space-y-3">
             {productStage === 'idle' && (
-              <div className="flex flex-col items-center justify-center gap-5 py-8 text-center">
-                <Camera className="size-10 text-muted-foreground/30" />
-                <h3 className="text-lg font-medium text-foreground">Сфотографируйте продукт</h3>
-                <p className="max-w-xs text-sm text-muted-foreground">Мы определим бренд и название, найдём состав и проверим совместимость.</p>
-                <button onClick={() => productFileRef.current?.click()} className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
-                  СФОТОГРАФИРОВАТЬ ПРОДУКТ
+              <>
+                <button
+                  onClick={() => productFileRef.current?.click()}
+                  className="flex w-full flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 py-8 text-center transition-colors hover:bg-gray-100"
+                >
+                  <Camera className="mb-2 size-7 text-muted-foreground/40" />
+                  <p className="text-xs text-muted-foreground/70">Сфотографируйте продукт</p>
+                  <p className="mt-1 px-4 text-[10px] text-muted-foreground/40">Мы определим бренд и название, найдём состав и проверим совместимость</p>
                 </button>
                 <input ref={productFileRef} type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => handleProductFiles(e.target.files)} />
-              </div>
+              </>
             )}
 
             {(productStage === 'identifying' || productStage === 'searching') && (
-              <div className="flex flex-col items-center justify-center gap-4 py-10 text-center">
-                <LoaderCircle className="size-10 animate-spin text-primary" />
-                <p className="text-base font-medium text-foreground">{productStatus}</p>
-                <p className="text-xs text-muted-foreground">Это займёт несколько секунд</p>
+              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50 py-8 text-center">
+                <LoaderCircle className="size-6 animate-spin text-primary" />
+                <p className="text-xs text-muted-foreground/70">{productStatus}</p>
               </div>
             )}
 
             {productStage === 'found' && foundProduct && (
-              <div className="flex flex-col gap-4">
-                <div className="rounded-2xl border border-gray-200/60 p-4">
-                  <p className="text-xs text-muted-foreground">Найден продукт</p>
-                  {foundProduct.brand && <p className="mt-1 font-advaken text-lg text-foreground">{foundProduct.brand}</p>}
+              <div className="space-y-3">
+                <div className="rounded-xl border border-gray-200 p-3">
+                  <p className="text-[11px] text-muted-foreground/60">Найден продукт</p>
+                  {foundProduct.brand && <p className="mt-0.5 text-sm font-medium text-foreground">{foundProduct.brand}</p>}
                   <p className="text-sm text-foreground/80">{foundProduct.name}</p>
                 </div>
-                <button onClick={() => handleProductCheck(foundProduct)} className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
-                  ПРОВЕРИТЬ СОВМЕСТИМОСТЬ
+                <button onClick={() => handleProductCheck(foundProduct)} className="w-full rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90">
+                  Проверить совместимость
                 </button>
-                <button onClick={() => setProductStage('fallback')} className="w-full text-sm text-muted-foreground/70">
+                <button onClick={() => setProductStage('fallback')} className="w-full text-xs text-muted-foreground/70">
                   Это не тот продукт
                 </button>
               </div>
             )}
 
             {productStage === 'fallback' && (
-              <div className="flex flex-col items-center justify-center gap-4 py-6 text-center">
-                <h3 className="text-lg font-medium text-foreground">Не удалось найти состав</h3>
-                {identified?.brand && <p className="text-sm text-muted-foreground">Определено: {identified.brand} {identified.name}</p>}
-                <p className="max-w-xs text-sm text-muted-foreground">Сфотографируйте состав на упаковке или введите его вручную.</p>
-                <button onClick={gotoComposition} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
-                  <Camera className="size-4" /> СФОТОГРАФИРОВАТЬ СОСТАВ
+              <div className="space-y-3 text-center">
+                <h3 className="text-sm font-medium text-foreground">Не удалось найти состав</h3>
+                {identified?.brand && <p className="text-xs text-muted-foreground">Определено: {identified.brand} {identified.name}</p>}
+                <p className="text-xs text-muted-foreground/70">Сфотографируйте состав на упаковке или введите его вручную.</p>
+                <button onClick={gotoComposition} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90">
+                  <Camera className="size-4" /> Сфотографировать состав
                 </button>
-                <button onClick={gotoComposition} className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 py-3 text-sm font-medium text-foreground transition-colors hover:bg-gray-50">
-                  <Keyboard className="size-4" /> ВВЕСТИ ВРУЧНУЮ
+                <button onClick={gotoComposition} className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 py-2.5 text-sm text-foreground transition-colors hover:bg-gray-50">
+                  <Keyboard className="size-4" /> Ввести вручную
                 </button>
               </div>
             )}
 
             {productStage === 'error' && (
-              <div className="flex flex-col items-center justify-center gap-4 py-6 text-center">
-                <p className="text-base font-medium text-foreground">{productStatus}</p>
-                <div className="flex w-full flex-col gap-3">
-                  <button onClick={() => setProductStage('idle')} className="rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground">
-                    ПОВТОРИТЬ ФОТО
+              <div className="space-y-3 text-center">
+                <p className="text-sm font-medium text-foreground">{productStatus}</p>
+                <div className="flex w-full flex-col gap-2">
+                  <button onClick={() => setProductStage('idle')} className="rounded-xl bg-primary py-2.5 text-sm text-primary-foreground">
+                    Повторить фото
                   </button>
-                  <button onClick={gotoComposition} className="rounded-xl border border-gray-300 py-3 text-sm font-medium text-foreground">
-                    ВВЕСТИ ВРУЧНУЮ
+                  <button onClick={gotoComposition} className="rounded-xl border border-gray-300 py-2.5 text-sm text-foreground">
+                    Ввести вручную
                   </button>
                 </div>
               </div>
@@ -596,7 +587,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
         )}
 
         {mode === 'name' && (
-          <div className="relative" ref={inputWrapRef}>
+          <div>
             <div className="flex gap-2">
               <input
                 value={name}
@@ -610,6 +601,45 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
                 Проверить
               </button>
             </div>
+
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="mt-2 max-h-60 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={`${s.name}-${i}`}
+                    onClick={() => selectSuggestion(s)}
+                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-primary/5"
+                  >
+                    <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-50">
+                      {s.image_url ? (
+                        <img src={s.image_url} alt="" className="h-full w-full object-contain p-1" />
+                      ) : (
+                        <Search className="size-4 text-muted-foreground/30" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {s.brand && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{s.brand}</p>}
+                      <p className="truncate text-sm text-foreground">{s.title || s.brand}</p>
+                    </div>
+                  </button>
+                ))}
+
+                {onOpenCatalog && (
+                  <button
+                    onClick={() => {
+                      onOpenCatalog(name.trim())
+                      setShowSuggestions(false)
+                      setName('')
+                      onClose()
+                    }}
+                    className="flex w-full items-center justify-between gap-2 border-t border-gray-100 px-3 py-2.5 text-left text-xs text-primary transition-colors hover:bg-primary/5"
+                  >
+                    <span className="truncate">Посмотреть больше в каталоге → {name.trim()}</span>
+                    <Search className="size-3.5 shrink-0" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -802,52 +832,9 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
           </div>
         )}
         </div>
+        </div>
       </div>
     </div>
-
-    {showSuggestions && suggestions.length > 0 && dropdownPos && typeof document !== 'undefined' &&
-      createPortal(
-        <div
-          className="fixed z-[100] max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg"
-          style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
-        >
-          {suggestions.map((s, i) => (
-            <button
-              key={`${s.name}-${i}`}
-              onClick={() => selectSuggestion(s)}
-              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-primary/5"
-            >
-              <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-50">
-                {s.image_url ? (
-                  <img src={s.image_url} alt="" className="h-full w-full object-contain p-1" />
-                ) : (
-                  <Search className="size-4 text-muted-foreground/30" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                {s.brand && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50">{s.brand}</p>}
-                <p className="truncate text-sm text-foreground">{s.title || s.brand}</p>
-              </div>
-            </button>
-          ))}
-
-          {onOpenCatalog && (
-            <button
-              onClick={() => {
-                onOpenCatalog(name.trim())
-                setShowSuggestions(false)
-                setName('')
-                onClose()
-              }}
-              className="flex w-full items-center justify-between gap-2 border-t border-gray-100 px-3 py-2.5 text-left text-xs text-primary transition-colors hover:bg-primary/5"
-            >
-              <span className="truncate">Посмотреть больше в каталоге → {name.trim()}</span>
-              <Search className="size-3.5 shrink-0" />
-            </button>
-          )}
-        </div>,
-        document.body,
-      )}
     </>
   )
 }

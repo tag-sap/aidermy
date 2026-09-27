@@ -18,7 +18,7 @@ export function ParticleField() {
     return initField(cv, ctx)
   }, [])
 
-  return <canvas ref={canvasRef} aria-hidden="true" className="pointer-events-none fixed inset-0 z-0" />
+  return <canvas ref={canvasRef} aria-hidden="true" className="pointer-events-none absolute inset-0 z-0" />
 }
 
 function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
@@ -34,8 +34,9 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
 
   function size() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    W = window.innerWidth
-    H = window.innerHeight
+    const parent = cv.parentElement
+    W = parent ? parent.clientWidth : window.innerWidth
+    H = parent ? parent.clientHeight : window.innerHeight
     cv.width = Math.round(W * dpr)
     cv.height = Math.round(H * dpr)
     cv.style.width = W + 'px'
@@ -64,8 +65,9 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
   }
 
   const onMove = (e: PointerEvent) => {
-    m.x = e.clientX
-    m.y = e.clientY
+    const rect = cv.getBoundingClientRect()
+    m.x = e.clientX - rect.left
+    m.y = e.clientY - rect.top
   }
   const onLeave = () => {
     m.x = -9e4
@@ -110,7 +112,7 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
         if (dd < MESH * MESH) {
           const dist = Math.sqrt(dd)
           const k = 1 - dist / MESH
-          ctx.strokeStyle = 'rgba(62,87,76,' + (k * 0.05).toFixed(3) + ')'
+          ctx.strokeStyle = 'rgba(20,16,19,' + (k * 0.14).toFixed(3) + ')'
           ctx.beginPath()
           ctx.moveTo(A.x, A.y)
           ctx.lineTo(B.x, B.y)
@@ -125,7 +127,7 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
       const qy = q.y - m.y
       const qd = Math.sqrt(qx * qx + qy * qy)
       if (qd < PUSH * 0.9) {
-        ctx.strokeStyle = 'rgba(192,112,63,' + ((1 - qd / (PUSH * 0.9)) * 0.09).toFixed(3) + ')'
+        ctx.strokeStyle = 'rgba(20,16,19,' + ((1 - qd / (PUSH * 0.9)) * 0.16).toFixed(3) + ')'
         ctx.beginPath()
         ctx.moveTo(m.x, m.y)
         ctx.lineTo(q.x, q.y)
@@ -136,12 +138,7 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     for (let e = 0; e < pts.length; e++) {
       const t = pts[e]
       const near = Math.max(0, 1 - Math.hypot(t.x - m.x, t.y - m.y) / 210)
-      ctx.fillStyle =
-        'rgba(' +
-        (124 + (near * 68) | 0) + ',' +
-        (151 - (near * 39) | 0) + ',' +
-        (138 - (near * 60) | 0) + ',' +
-        (t.a * 0.15 + near * 0.2).toFixed(3) + ')'
+      ctx.fillStyle = 'rgba(20,16,19,' + (0.32 + near * 0.18).toFixed(3) + ')'
       ctx.beginPath()
       ctx.arc(t.x, t.y, t.r + near * 1.5, 0, 6.283)
       ctx.fill()

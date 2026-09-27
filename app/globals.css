@@ -96,6 +96,17 @@
   transform-origin: bottom center;
 }
 
+@keyframes check-tab-bounce {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.04); }
+  70% { transform: scale(0.98); }
+  100% { transform: scale(1); }
+}
+
+.check-tab-bounce {
+  animation: check-tab-bounce 0.22s ease-out;
+}
+
 
 @keyframes spin-slow {
   from {

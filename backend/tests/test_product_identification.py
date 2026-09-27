@@ -181,5 +181,65 @@ class WebSearchProductTests(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class WebSearchSaveAndReuseTests(unittest.TestCase):
+    """Сценарий: Vision → Web Search → URL → scraper → сохранение → повторный поиск из БД."""
+
+    def setUp(self):
+        self.tmp = tempfile.mktemp(suffix=".db")
+        self._old = database.PRODUCTS_DB
+        database.PRODUCTS_DB = self.tmp
+        conn = database.get_connection(database.PRODUCTS_DB)
+        cur = conn.cursor()
+        cur.execute(
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, slug TEXT UNIQUE, brand TEXT, "
+            "ingredients TEXT, url TEXT, incidecoder_url TEXT, image_url TEXT, category TEXT, volume TEXT, "
+            "description TEXT, sku TEXT, price REAL, currency TEXT, source_type TEXT, contributed_by INTEGER, "
+            "normalized_name TEXT, is_canonical INTEGER DEFAULT 1, canonical_id INTEGER, saved_at TEXT)"
+        )
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        database.PRODUCTS_DB = self._old
+        try:
+            if os.path.exists(self.tmp):
+                os.remove(self.tmp)
+        except PermissionError:
+            pass
+
+    def test_new_product_saved_and_reused_without_web_search(self):
+        from app.product_dedup import find_or_create_canonical_product
+
+        imported = ProductImportResult(name="Anthelios 50+", brand="La Roche-Posay", ingredients_raw="Aqua, Glycerin, Homosalate")
+        with patch("app.product_identification._search_product_url", new=AsyncMock(return_value="https://example.com/p")), \
+             patch("app.scraper.import_product", new=AsyncMock(return_value=imported)):
+            found = asyncio.run(web_search_product("La Roche-Posay", "Anthelios", "50+"))
+        self.assertIsNotNone(found)
+
+        # Эндпоинт /api/product/web-search сохраняет продукт через find_or_create_canonical_product.
+        saved = find_or_create_canonical_product({
+            "name": found["name"],
+            "brand": found["brand"],
+            "ingredients": found["ingredients"],
+            "url": found.get("source_url") or "",
+            "source_type": "web_search",
+        })
+        self.assertIsNotNone(saved)
+        self.assertTrue(saved.get("ingredients"))
+
+        # Повторный поиск находит продукт из БД (Web Search не вызывается).
+        p = find_product_in_db("La Roche-Posay", "Anthelios")
+        self.assertIsNotNone(p)
+        self.assertTrue(has_reliable_inci(p))
+
+    def test_wrong_variant_not_accepted_by_web_search(self):
+        # Vision определил variant "50+", но scraper вернул "Anthelios 30" — другой вариант.
+        imported = ProductImportResult(name="Anthelios 30", brand="La Roche-Posay", ingredients_raw="Aqua, Glycerin, Homosalate")
+        with patch("app.product_identification._search_product_url", new=AsyncMock(return_value="https://example.com/p")), \
+             patch("app.scraper.import_product", new=AsyncMock(return_value=imported)):
+            result = asyncio.run(web_search_product("La Roche-Posay", "Anthelios", "50+"))
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

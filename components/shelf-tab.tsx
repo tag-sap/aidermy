@@ -532,10 +532,10 @@ export function ShelfTab({
 
                     {/* Интерактивный узел «+» — последний пустой слот */}
                     {isLastShelf && (
-                      <div data-shelf-add-node className="relative self-stretch">
+                      <div data-shelf-add-node className="relative">
                         <button
                           onClick={() => setAddNodeOpen(true)}
-                          className="flex h-full w-[160px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:text-primary"
+                          className="flex h-[210px] w-[160px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:text-primary"
                           aria-label="Добавить продукт"
                         >
                           <Plus className={cn('size-6 transition-transform', addNodeOpen && 'animate-shelf-plus-collapse')} />
