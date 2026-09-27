@@ -166,6 +166,14 @@ export function ProfileQuestionnaire({ initial, onSave, onCancel }: Props) {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
       <section className="rounded-xl border border-gray-100 p-3">
         <h3 className="mb-2 text-sm font-medium text-foreground">Используете сейчас лечение или активные средства?</h3>
         <div className="mb-2 flex gap-2">
