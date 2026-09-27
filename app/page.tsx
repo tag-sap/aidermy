@@ -90,6 +90,7 @@ export default function Page() {
   const [accountModalOpen, setAccountModalOpen] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [checkModalOpen, setCheckModalOpen] = useState(false)
+  const [quizLeaveTab, setQuizLeaveTab] = useState<TabId | null>(null)
 
   // ===== ЗАГРУЗКА С СЕРВЕРА =====
   const loadProfileFromServer = async (token: string) => {
@@ -717,6 +718,12 @@ export default function Page() {
   const handleTabChange = (newTab: TabId) => {
     if (newTab === tab) return
 
+    // Во время опроса переход на другую вкладку требует подтверждения.
+    if (showQuiz && (newTab === 'catalog' || newTab === 'shelf')) {
+      setQuizLeaveTab(newTab)
+      return
+    }
+
     if ((newTab === 'profile' || newTab === 'shelf') && !isAuthenticated) {
       setIsAuthModalOpen(true)
       return
@@ -774,6 +781,7 @@ export default function Page() {
                 isAuthenticated={isAuthenticated}
                 userName={userName}
                 avatarUrl={avatarUrl}
+                onCheck={() => setCheckModalOpen(true)}
                 onReplayGuide={() => {
                   if (!isAuthenticated) { setIsAuthModalOpen(true); return }
                   setOnboardingStep('profile')
@@ -857,6 +865,26 @@ export default function Page() {
             onRecognized={handleRecognized}
             onOpenCatalog={(query) => openCatalogWithBrand(query)}
           />
+
+          {quizLeaveTab && (
+            <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setQuizLeaveTab(null)}>
+              <div className="w-full max-w-sm rounded-2xl bg-white p-5 animate-modal-panel" onClick={(e) => e.stopPropagation()}>
+                <h2 className="font-advaken text-lg text-foreground">Отклонить прохождение опроса?</h2>
+                <p className="mt-1.5 text-sm text-muted-foreground/70">Вы уверены, что хотите прервать опрос и перейти на другую вкладку?</p>
+                <div className="mt-4 flex gap-2">
+                  <button onClick={() => setQuizLeaveTab(null)} className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-foreground/70 transition-colors hover:bg-gray-50">
+                    Продолжить опрос
+                  </button>
+                  <button
+                    onClick={() => { const t = quizLeaveTab; setQuizLeaveTab(null); setShowQuiz(false); setTab(t) }}
+                    className="flex-1 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    Отклонить
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <ResultSheet
             isOpen={isSheetOpen}

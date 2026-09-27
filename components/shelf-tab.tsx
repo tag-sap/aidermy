@@ -342,26 +342,13 @@ export function ShelfTab({
 
   return (
     <div className="px-1 py-2 pb-28" data-tour="shelves">
-      <div className="mb-4 flex items-center justify-end">
-        <button
-          onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
-          className={cn(
-            'flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors',
-            selectionMode ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground/70 hover:border-primary/40 hover:text-primary',
-          )}
-        >
-          <ListChecks className="size-3.5" />
-          {selectionMode ? 'Готово' : 'Управление'}
-        </button>
-      </div>
-
-      <div className="no-scrollbar -mx-1 mb-4 flex gap-1.5 overflow-x-auto border-b border-gray-200/60 px-1">
+      <div className="no-scrollbar -mx-1 mb-4 flex items-center gap-1.5 overflow-x-auto border-b border-gray-200/60 px-1">
         {cabinets.map((cab) => (
           <button
             key={cab.key}
             onClick={() => switchCabinet(cab.key)}
             className={cn(
-              'shrink-0 whitespace-nowrap border-b-2 px-3 py-2 font-advaken text-sm transition-colors',
+              'shrink-0 whitespace-nowrap border-b-2 px-3 py-2 font-advaken text-base transition-colors',
               activeCabinet === cab.key
                 ? 'border-primary font-medium text-primary'
                 : 'border-transparent text-muted-foreground/60 hover:text-foreground',
@@ -370,6 +357,16 @@ export function ShelfTab({
             {cab.title.toLowerCase()}
           </button>
         ))}
+        <button
+          onClick={() => (selectionMode ? exitSelection() : setSelectionMode(true))}
+          className={cn(
+            'ml-auto flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors',
+            selectionMode ? 'border-primary bg-primary text-primary-foreground' : 'border-gray-200 text-muted-foreground/70 hover:border-primary/40 hover:text-primary',
+          )}
+        >
+          <ListChecks className="size-3.5" />
+          {selectionMode ? 'Готово' : 'Управление'}
+        </button>
       </div>
 
       {selectionMode && (
@@ -451,13 +448,16 @@ export function ShelfTab({
                   ) : (
                     <>
                       <div className="mt-1 flex items-center gap-2">
-                        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200/60">
+                        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
                           <div
-                            className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
-                            style={{ width: `${currentCabinet.compatibility ?? 0}%` }}
+                            className="h-full rounded-full transition-[width] duration-500 ease-out"
+                            style={{
+                              width: `${currentCabinet.compatibility ?? 0}%`,
+                              background: 'linear-gradient(90deg, #6C3CE1 0%, #8B5CF6 45%, #D6F264 100%)',
+                            }}
                           />
                         </div>
-                        <span className={cn('text-lg font-light tabular-nums', currentCabinet.compatibility != null ? 'text-primary' : 'text-muted-foreground/40')}>
+                        <span className={cn('font-advaken text-lg leading-none', currentCabinet.compatibility != null ? 'text-primary' : 'text-muted-foreground/40')}>
                           {currentCabinet.compatibility != null ? `${currentCabinet.compatibility}%` : '—'}
                         </span>
                       </div>
@@ -535,7 +535,7 @@ export function ShelfTab({
                       <div data-shelf-add-node className="relative self-stretch">
                         <button
                           onClick={() => setAddNodeOpen(true)}
-                          className="flex h-full min-h-[180px] w-[130px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:text-primary"
+                          className="flex h-full w-[160px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:text-primary"
                           aria-label="Добавить продукт"
                         >
                           <Plus className={cn('size-6 transition-transform', addNodeOpen && 'animate-shelf-plus-collapse')} />

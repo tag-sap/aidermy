@@ -147,6 +147,13 @@
   font-family: 'Advaken Sans', 'Gerhaus-Regular', sans-serif;
 }
 
+/* Пиксель-арт: nearest-neighbour, чётко при любом разрешении. */
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
 @keyframes wave {
 
   0%,
@@ -885,12 +892,17 @@ body.modal-open main {
 }
 
 @keyframes modal-panel-in {
-  from {
+  0% {
     opacity: 0;
     transform: translateY(16px) scale(0.96);
   }
 
-  to {
+  60% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.015);
+  }
+
+  100% {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
@@ -952,7 +964,7 @@ body.modal-open main {
 /* Поверхность полки: общая для левого/правого торца и центра,
    поэтому стыки между тремя частями визуально не читаются. */
 .shelf-surface {
-  background: linear-gradient(180deg, #ffffff 0%, #f4f6ec 48%, #ecefd9 100%);
+  background: #f4f6ec;
   border-top: 1px solid rgba(255, 255, 255, 0.9);
   border-bottom: 1px solid rgba(20, 16, 19, 0.06);
 }

@@ -68,13 +68,27 @@ export function AnimatedTabIcon({ frames, idleSrc, active, hovered, className }:
     [cancelAnim, apply]
   )
 
-  // Предзагрузка всех кадров + idle-картинки, чтобы анимация не спотыкалась о загрузку.
+  // Предзагрузка всех кадров + idle-картинки; повторяется при возврате на вкладку
+  // (после долгого бездействия браузер может выгрузить изображения из памяти).
   useEffect(() => {
-    const urls = [...frames]
-    if (idleSrc) urls.push(idleSrc)
-    for (const u of urls) {
-      const img = new Image()
-      img.src = u
+    const preload = () => {
+      const urls = [...frames]
+      if (idleSrc) urls.push(idleSrc)
+      for (const u of urls) {
+        const img = new Image()
+        img.src = u
+      }
+    }
+    preload()
+    const onVisible = () => { if (document.visibilityState === 'visible') preload() }
+    const onPageShow = () => preload()
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('focus', preload)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('focus', preload)
     }
   }, [frames, idleSrc])
 
@@ -103,20 +117,18 @@ export function AnimatedTabIcon({ frames, idleSrc, active, hovered, className }:
     const was = prevActiveRef.current
     prevActiveRef.current = active
     if (active && !was) {
-      if (frameRef.current >= last) {
-        // Уже на последнем кадре (hover довёл) — только bounce, без повтора кадров.
+      // Bounce (scale-up) — на десктопе при клике даже если hover-анимация ещё не доиграла.
+      if (hovered || frameRef.current >= last) {
         setBounce(true)
         if (bounceTimerRef.current) window.clearTimeout(bounceTimerRef.current)
         bounceTimerRef.current = window.setTimeout(() => setBounce(false), 560)
-      } else {
-        playTo(last)
       }
+      if (frameRef.current < last) playTo(last)
     } else if (!active && was) {
-      // Предыдущая вкладка возвращается в исходное состояние.
-      cancelAnim()
-      apply(0)
+      // Предыдущая вкладка играет анимацию в обратную сторону (reverse).
+      playTo(0)
     }
-  }, [active, playTo, apply, cancelAnim, last])
+  }, [active, hovered, playTo, last])
 
   return (
     <img

@@ -3,7 +3,6 @@
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, LogIn, Compass, ClipboardList, Send, Mail } from 'lucide-react'
-import { AidermyLogo } from '@/components/aidermy-logo'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
 interface AppHeaderProps {
@@ -14,6 +13,7 @@ interface AppHeaderProps {
   avatarUrl?: string
   onReplayGuide?: () => void
   onReplayQuiz?: () => void
+  onCheck?: () => void
 }
 
 export function AppHeader({
@@ -23,7 +23,8 @@ export function AppHeader({
   userName = '',
   avatarUrl = '',
   onReplayGuide,
-  onReplayQuiz
+  onReplayQuiz,
+  onCheck
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
   const [helpPos, setHelpPos] = useState<{ top: number; right: number } | null>(null)
@@ -57,13 +58,25 @@ export function AppHeader({
 
   return (
     <>
-      <header className="relative z-20 flex w-full flex-col items-center pt-8 pb-1 md:pt-8">
-        <div className="w-full flex justify-center md:justify-start md:pl-6 transition-all duration-300">
-          <AidermyLogo />
-        </div>
+      <header className="relative z-20 w-full">
+        <div
+          className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 md:px-5"
+          style={{ backgroundColor: '#D6F264' }}
+        >
+          <img src="/main_logo.png" alt="aidermy" className="h-9 w-auto pixelated md:h-10" draggable={false} />
 
-        <div className="absolute right-4 top-3 flex items-center gap-2 md:right-6 md:top-4">
-          <div className="relative">
+          <div className="flex items-center gap-2">
+            {onCheck && (
+              <button
+                type="button"
+                onClick={onCheck}
+                className="hidden items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-md transition-transform hover:scale-[1.03] active:scale-95 md:inline-flex"
+              >
+                <img src="/QRCODE.png" alt="" className="size-5 pixelated" draggable={false} />
+                Проверить продукт
+              </button>
+            )}
+            <div className="relative">
             <button
               ref={helpBtnRef}
               type="button"
@@ -160,6 +173,7 @@ export function AppHeader({
               <LogIn className="size-5" />
             </button>
           )}
+          </div>
         </div>
       </header>
     </>

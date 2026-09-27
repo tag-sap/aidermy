@@ -23,12 +23,14 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
     }, [structured, profile.skinType])
 
     const concerns = useMemo(() => {
+      // Без контекста непонятно, к чему относятся ответы «Не знаю»/«Нет» — скрываем их.
+      const noContext = /не знаю|^нет$|затрудняюсь|в целом/i
       const ids = new Set(structured?.concerns ?? [])
       const rows: string[] = []
       for (const card of CONCERN_CARDS) {
-        const opts = card.questions.flatMap(q => q.options).filter(o => ids.has(o.id))
+        const opts = card.questions.flatMap(q => q.options).filter(o => ids.has(o.id) && !noContext.test(o.label))
         if (opts.length) rows.push(`${card.shortLabel}: ${opts.map(o => o.label).join(', ')}`)
-        else if (ids.has(card.id)) rows.push(card.shortLabel)
+        else if (ids.has(card.id) && !noContext.test(card.label)) rows.push(card.shortLabel)
       }
       return rows
     }, [structured])

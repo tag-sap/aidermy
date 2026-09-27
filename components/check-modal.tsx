@@ -506,7 +506,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
         </div>
 
-        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+        <div className="no-scrollbar min-h-[320px] flex-1 overflow-y-auto px-4 pb-4 pt-3">
         <div className="mb-3 flex rounded-xl bg-gray-100 p-1">
           {modes.map((m) => (
             <button
