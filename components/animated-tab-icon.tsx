@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 
 interface AnimatedTabIconProps {
   frames: string[]
+  idleSrc?: string
   active: boolean
   hovered: boolean
   className?: string
@@ -21,7 +22,7 @@ const FRAME_MS = 55
  * - Mobile (hover нет): выбор вкладки проигрывает 0 → последний, без bounce.
  * - Переключение вкладки корректно возвращает предыдущую в frame 0.
  */
-export function AnimatedTabIcon({ frames, active, hovered, className }: AnimatedTabIconProps) {
+export function AnimatedTabIcon({ frames, idleSrc, active, hovered, className }: AnimatedTabIconProps) {
   const [frame, setFrame] = useState(0)
   const [bounce, setBounce] = useState(false)
   const timerRef = useRef<number>(0)
@@ -99,7 +100,7 @@ export function AnimatedTabIcon({ frames, active, hovered, className }: Animated
 
   return (
     <img
-      src={frames[Math.min(frame, last)] ?? frames[0]}
+      src={frame === 0 && idleSrc ? idleSrc : (frames[Math.min(frame, last)] ?? frames[0])}
       alt=""
       aria-hidden="true"
       draggable={false}

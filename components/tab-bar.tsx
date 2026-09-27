@@ -12,16 +12,18 @@ interface TabItem {
   label: string
   icon?: typeof Search
   frames?: string[]
+  idle?: string
   circle?: boolean
 }
 
 const FRAMES = (name: string) => Array.from({ length: 7 }, (_, i) => `/icons/${name}/${i}.gif`)
+const IDLE = (name: string) => `/icons/${name}_idle.png`
 
 const TABS: TabItem[] = [
   { id: 'home', label: 'главная', icon: Home, circle: true },
-  { id: 'catalog', label: 'Каталог', frames: FRAMES('catalog') },
-  { id: 'shelf', label: 'Моя полка', frames: FRAMES('my_shelf') },
-  { id: 'profile', label: 'Профиль', frames: FRAMES('profile') },
+  { id: 'catalog', label: 'Каталог', frames: FRAMES('catalog'), idle: IDLE('catalog') },
+  { id: 'shelf', label: 'Моя полка', frames: FRAMES('my_shelf'), idle: IDLE('my_shelf') },
+  { id: 'profile', label: 'Профиль', frames: FRAMES('profile'), idle: IDLE('profile') },
 ]
 
 export function TabBar({
@@ -87,6 +89,7 @@ export function TabBar({
               >
                 <AnimatedTabIcon
                   frames={tab.frames}
+                  idleSrc={tab.idle}
                   active={isActive}
                   hovered={hoveredId === tab.id}
                   className="block w-full max-w-[128px]"

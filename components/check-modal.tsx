@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Link2, Search, Camera, LoaderCircle, Trash2, Check, ChevronLeft, Sparkles, AlertCircle } from 'lucide-react'
+import { X, Link2, Search, Camera, LoaderCircle, Trash2, Check, ChevronLeft, Sparkles, AlertCircle, Keyboard } from 'lucide-react'
 import { cn, capitalizeFirst } from '@/lib/utils'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import type { CheckResult, SkinProfile } from '@/lib/store'
@@ -27,6 +27,8 @@ type ProductMatch = {
   matched_count: number
   total_recognized: number
 }
+type Identified = { brand: string; name: string; variant: string | null; type: string | null; confidence: number }
+type FoundProduct = { slug: string; name: string; brand: string; ingredients: string }
 
 function splitName(raw: string): { brand: string; title: string } {
   const parts = (raw || '').split('\n').filter((x) => x.trim())
@@ -83,18 +85,15 @@ function buildProfileBody(profile: SkinProfile) {
   }
 }
 
-export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, onOpenCatalog, onOpenProductIdentify, prefill, initialMode = 'name' }: {
+export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, onOpenCatalog }: {
   isOpen: boolean
   onClose: () => void
   onCheck: (product: string, skinType: string) => void
   profile: SkinProfile
   onRecognized: (result: CheckResult) => void
   onOpenCatalog?: (query: string) => void
-  onOpenProductIdentify?: () => void
-  prefill?: { brand?: string; name?: string } | null
-  initialMode?: 'name' | 'link' | 'photo'
 }) {
-  const [mode, setMode] = useState<'name' | 'link' | 'photo'>('name')
+  const [mode, setMode] = useState<'name' | 'link' | 'photo' | 'product'>('name')
   const [name, setName] = useState('')
   const [link, setLink] = useState('')
   const [loading, setLoading] = useState(false)
@@ -121,6 +120,13 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
   const [analyzing, setAnalyzing] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const brandDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ===== Определение продукта (фото → Vision → БД → Web Search) =====
+  const [productStage, setProductStage] = useState<'idle' | 'identifying' | 'searching' | 'found' | 'fallback' | 'error'>('idle')
+  const [productStatus, setProductStatus] = useState('')
+  const [identified, setIdentified] = useState<Identified | null>(null)
+  const [foundProduct, setFoundProduct] = useState<FoundProduct | null>(null)
+  const productFileRef = useRef<HTMLInputElement | null>(null)
 
   useScrollLock(isOpen)
 
@@ -183,25 +189,14 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
     }
   }, [brandInput, mode, showManualForm])
 
-  // Сбрасываем флоу при закрытии и применяем prefill/стартовый режим при открытии.
-  const prevOpenRef = useRef(isOpen)
+  // Сбрасываем флоу при закрытии модалки.
   useEffect(() => {
-    const wasOpen = prevOpenRef.current
-    prevOpenRef.current = isOpen
     if (!isOpen) {
       resetPhotoFlow()
-      return
-    }
-    if (wasOpen) return
-    if (prefill) {
-      setBrandInput(prefill.brand || '')
-      setNameInput(prefill.name || '')
-    }
-    if (initialMode === 'photo') {
-      setMode('photo')
+      resetProductFlow()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, prefill, initialMode])
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -267,6 +262,18 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
   const enterPhotoMode = () => {
     resetPhotoFlow()
     setMode('photo')
+  }
+
+  function resetProductFlow() {
+    setProductStage('idle')
+    setProductStatus('')
+    setIdentified(null)
+    setFoundProduct(null)
+  }
+
+  const enterProductMode = () => {
+    resetProductFlow()
+    setMode('product')
   }
 
   const handleAddPhotos = async (files: FileList | null) => {
@@ -408,6 +415,80 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
     }
   }
 
+  // ===== Определение продукта =====
+  const runProductIdentify = async (images: string[]) => {
+    setProductStage('identifying')
+    setProductStatus('Определяем продукт…')
+    try {
+      const res = await fetch('/api/product/identify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images }),
+      })
+      if (!res.ok) throw new Error()
+      const data = await res.json()
+      setIdentified(data.identified)
+
+      if (data.product && data.has_inci) {
+        setFoundProduct(data.product)
+        setProductStage('found')
+        return
+      }
+
+      setProductStage('searching')
+      setProductStatus('Ищем продукт в интернете…')
+      const ws = await fetch('/api/product/web-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brand: data.identified?.brand || '',
+          name: data.identified?.name || '',
+          variant: data.identified?.variant || null,
+        }),
+      })
+      if (ws.ok) {
+        const wsData = await ws.json()
+        if (wsData.found && wsData.product) {
+          setFoundProduct(wsData.product)
+          setProductStage('found')
+          return
+        }
+      }
+      setProductStage('fallback')
+    } catch {
+      setProductStage('error')
+      setProductStatus('Не удалось определить продукт. Попробуйте ещё раз или введите вручную.')
+    }
+  }
+
+  const handleProductFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const imgs: string[] = []
+    for (const f of Array.from(files)) imgs.push(await fileToResizedDataUrl(f))
+    if (imgs.length) await runProductIdentify(imgs)
+  }
+
+  const handleProductCheck = (p: FoundProduct) => {
+    const brand = (p.brand || '').trim()
+    const name = (p.name || '').trim()
+    const productStr = brand && name && name.toLowerCase().startsWith(brand.toLowerCase())
+      ? name
+      : brand && name
+        ? `${brand}\n${name}`
+        : name
+    onCheck(productStr, 'Нормальная')
+    onClose()
+  }
+
+  const gotoComposition = () => {
+    const brand = identified?.brand || ''
+    const name = identified?.name || ''
+    resetPhotoFlow()
+    setMode('photo')
+    setBrandInput(brand)
+    setNameInput(name)
+  }
+
   const modes = [
     { id: 'product', label: 'Продукт', icon: Camera },
     { id: 'photo', label: 'Состав', icon: Sparkles },
@@ -431,13 +512,13 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
             <button
               key={m.id}
               onClick={() => {
-                if (m.id === 'product') { onOpenProductIdentify?.(); return }
+                if (m.id === 'product') { enterProductMode(); return }
                 if (m.id === 'photo') enterPhotoMode()
                 else { setMode(m.id as any); setStatus('') }
               }}
               className={cn(
                 'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium transition-colors',
-                mode === m.id ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground/60'
+                mode === m.id ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground/60 hover:bg-white/50 hover:text-foreground'
               )}
             >
               <m.icon className="size-3.5" />
@@ -445,6 +526,74 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
             </button>
           ))}
         </div>
+
+        {mode === 'product' && (
+          <div className="flex flex-col gap-4">
+            {productStage === 'idle' && (
+              <div className="flex flex-col items-center justify-center gap-5 py-8 text-center">
+                <Camera className="size-10 text-muted-foreground/30" />
+                <h3 className="text-lg font-medium text-foreground">Сфотографируйте продукт</h3>
+                <p className="max-w-xs text-sm text-muted-foreground">Мы определим бренд и название, найдём состав и проверим совместимость.</p>
+                <button onClick={() => productFileRef.current?.click()} className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+                  СФОТОГРАФИРОВАТЬ ПРОДУКТ
+                </button>
+                <input ref={productFileRef} type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => handleProductFiles(e.target.files)} />
+              </div>
+            )}
+
+            {(productStage === 'identifying' || productStage === 'searching') && (
+              <div className="flex flex-col items-center justify-center gap-4 py-10 text-center">
+                <LoaderCircle className="size-10 animate-spin text-primary" />
+                <p className="text-base font-medium text-foreground">{productStatus}</p>
+                <p className="text-xs text-muted-foreground">Это займёт несколько секунд</p>
+              </div>
+            )}
+
+            {productStage === 'found' && foundProduct && (
+              <div className="flex flex-col gap-4">
+                <div className="rounded-2xl border border-gray-200/60 p-4">
+                  <p className="text-xs text-muted-foreground">Найден продукт</p>
+                  {foundProduct.brand && <p className="mt-1 font-advaken text-lg text-foreground">{foundProduct.brand}</p>}
+                  <p className="text-sm text-foreground/80">{foundProduct.name}</p>
+                </div>
+                <button onClick={() => handleProductCheck(foundProduct)} className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+                  ПРОВЕРИТЬ СОВМЕСТИМОСТЬ
+                </button>
+                <button onClick={() => setProductStage('fallback')} className="w-full text-sm text-muted-foreground/70">
+                  Это не тот продукт
+                </button>
+              </div>
+            )}
+
+            {productStage === 'fallback' && (
+              <div className="flex flex-col items-center justify-center gap-4 py-6 text-center">
+                <h3 className="text-lg font-medium text-foreground">Не удалось найти состав</h3>
+                {identified?.brand && <p className="text-sm text-muted-foreground">Определено: {identified.brand} {identified.name}</p>}
+                <p className="max-w-xs text-sm text-muted-foreground">Сфотографируйте состав на упаковке или введите его вручную.</p>
+                <button onClick={gotoComposition} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+                  <Camera className="size-4" /> СФОТОГРАФИРОВАТЬ СОСТАВ
+                </button>
+                <button onClick={gotoComposition} className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 py-3 text-sm font-medium text-foreground transition-colors hover:bg-gray-50">
+                  <Keyboard className="size-4" /> ВВЕСТИ ВРУЧНУЮ
+                </button>
+              </div>
+            )}
+
+            {productStage === 'error' && (
+              <div className="flex flex-col items-center justify-center gap-4 py-6 text-center">
+                <p className="text-base font-medium text-foreground">{productStatus}</p>
+                <div className="flex w-full flex-col gap-3">
+                  <button onClick={() => setProductStage('idle')} className="rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground">
+                    ПОВТОРИТЬ ФОТО
+                  </button>
+                  <button onClick={gotoComposition} className="rounded-xl border border-gray-300 py-3 text-sm font-medium text-foreground">
+                    ВВЕСТИ ВРУЧНУЮ
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {mode === 'name' && (
           <div className="relative" ref={inputWrapRef}>
