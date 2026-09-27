@@ -10,6 +10,24 @@ export type SkinProfile = {
   // Новые поля для опросника
   quizAnswers?: Record<string, string>  // Ответы на опросник
   skinTypeDetermined?: string           // Определенный тип кожи
+  // Структурированный профиль (canonical IDs -> PROFILE_MATRIX)
+  structured?: StructuredProfile
+}
+
+export type TherapyItem = { id: string; active: boolean; started_at?: string; last_used_at?: string }
+export type ProcedureItem = { id: string; period: string }
+export type IntoleranceItem = string | { type: string; ingredient_id?: string; ingredient?: string }
+
+export type StructuredProfile = {
+  skin_type: string | null
+  concerns: string[]
+  imperfections: string[]
+  states: string[]
+  therapy: TherapyItem[]
+  procedures: ProcedureItem[]
+  goals: string[]
+  intolerances: IntoleranceItem[]
+  allergies: string[]
 }
 
 export type CheckResult = {

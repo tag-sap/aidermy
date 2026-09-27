@@ -24,7 +24,7 @@ from .auth import (
     resend_verification,
 )
 from .services import generate_slug
-from .profile_structuring import structure_profile_with_ai, serialize_structured
+from .profile_structuring import structure_profile_with_ai, serialize_structured, deserialize_structured
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -399,20 +399,25 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
     if "structured_profile" not in _profile_cols:
         cursor.execute("ALTER TABLE user_profiles ADD COLUMN structured_profile TEXT")
     
-    # AI #1 — Profile Structuring: анкета -> Structured User Profile -> БД.
-    struct_input = {
-        "skin_type": profile.get("skinType"),
-        "skin_type_determined": profile.get("skinTypeDetermined"),
-        "concerns": profile.get("concerns") or [],
-        "allergies": profile.get("allergies") or [],
-        "custom_text": profile.get("customText"),
-    }
-    try:
-        structured = await structure_profile_with_ai(struct_input)
-    except Exception as exc:
-        print(f"[PROFILE] structuring failed: {exc!r}")
-        structured = None
-    structured_json = serialize_structured(structured) if structured else None
+    # Structured profile: если фронтенд прислал канонические ID (анкета v1.2),
+    # сохраняем их напрямую. Иначе — AI #1 (legacy: анкета -> Structured User Profile).
+    provided_structured = profile.get("structured")
+    if isinstance(provided_structured, dict) and provided_structured:
+        structured_json = serialize_structured(provided_structured)
+    else:
+        struct_input = {
+            "skin_type": profile.get("skinType"),
+            "skin_type_determined": profile.get("skinTypeDetermined"),
+            "concerns": profile.get("concerns") or [],
+            "allergies": profile.get("allergies") or [],
+            "custom_text": profile.get("customText"),
+        }
+        try:
+            structured = await structure_profile_with_ai(struct_input)
+        except Exception as exc:
+            print(f"[PROFILE] structuring failed: {exc!r}")
+            structured = None
+        structured_json = serialize_structured(structured) if structured else None
 
     # Сначала проверяем, есть ли запись
     cursor.execute("SELECT id FROM user_profiles WHERE user_id = ?", (user_id,))
@@ -503,6 +508,16 @@ async def get_my_profile(request: Request):
     ''', (user['id'],))
     
     row = cursor.fetchone()
+
+    # structured_profile (канонические ID анкеты) — опциональная колонка.
+    structured_profile = None
+    _profile_cols = {r[1] for r in cursor.execute("PRAGMA table_info(user_profiles)").fetchall()}
+    if "structured_profile" in _profile_cols:
+        _row = cursor.execute(
+            "SELECT structured_profile FROM user_profiles WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
+            (user['id'],),
+        ).fetchone()
+        structured_profile = deserialize_structured(_row["structured_profile"]) if _row else None
     conn.close()
     
     if not row:
@@ -517,7 +532,8 @@ async def get_my_profile(request: Request):
             "allergies": row[4].split(',') if row[4] else [],
             "customText": row[5],
             "quizAnswers": json.loads(row[6]) if row[6] else {},
-            "skinTypeDetermined": row[7]
+            "skinTypeDetermined": row[7],
+            "structuredProfile": structured_profile,
         }
     }
 

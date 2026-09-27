@@ -35,6 +35,7 @@ class AnalysisService:
         priorities: Dict[str, float],
         knowledge: Dict[str, Dict[str, Dict[str, float]]] | None = None,
         interactions: List[Dict[str, Any]] | None = None,
+        priorities_are_canonical: bool = False,
     ):
         from .axes import canonicalize_weights
 
@@ -45,11 +46,13 @@ class AnalysisService:
         # Hard filters выполняются ДО скоринга: если есть нарушения — товар исключён.
         hard_filters = apply_hard_filters(user_profile, normalized_ingredients)
 
+        canonical_weights = priorities if priorities_are_canonical else canonicalize_weights(priorities)
+
         result = score_product_against_profile_canonical(
             ingredients=normalized_ingredients,
             canonical_knowledge=knowledge,
             user_profile=user_profile,
-            canonical_weights=canonicalize_weights(priorities),
+            canonical_weights=canonical_weights,
             interactions=interactions,
         )
         result['product_name'] = product_name

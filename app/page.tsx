@@ -9,7 +9,7 @@ import { TabBar, type TabId } from '@/components/tab-bar'
 import { ProfileTab } from '@/components/profile-tab'
 import { ResultSheet } from '@/components/result-sheet'
 import { SplashScreen } from '@/components/splash-screen'
-import { SkinQuiz } from '@/components/skin-quiz'
+import { ProfileQuestionnaire } from '@/components/profile-questionnaire'
 import { ShelfOnboarding, type OnboardingStepId } from '@/components/shelf-onboarding'
 import { InfoModal } from '@/components/info-modal'
 import { ShelfTab } from '@/components/shelf-tab'
@@ -19,6 +19,7 @@ import { ProductModal } from '@/components/product-modal'
 import { CheckModal } from '@/components/check-modal'
 import { AccountModal } from '@/components/account-modal'
 import { useScrollLock } from '@/lib/use-scroll-lock'
+import { SKIN_TYPE_OPTIONS } from '@/lib/profile-questionnaire'
 
 import {
   emptyProfile,
@@ -29,6 +30,7 @@ import {
   determineSkinTypeFromAnswers,
   type CheckResult,
   type SkinProfile,
+  type StructuredProfile,
 } from '@/lib/store'
 
 const normalizeHistoryItem = (item: any): CheckResult => ({
@@ -98,7 +100,13 @@ export default function Page() {
       if (res.ok) {
         const data = await res.json()
         if (data.profile) {
-          const mergedProfile = { ...emptyProfile, ...loadProfile(), ...data.profile }
+          const { structuredProfile, ...rest } = data.profile
+          const mergedProfile = {
+            ...emptyProfile,
+            ...loadProfile(),
+            ...rest,
+            ...(structuredProfile ? { structured: structuredProfile as StructuredProfile } : {}),
+          }
           setProfile(mergedProfile)
           saveProfile(mergedProfile)
         }
@@ -211,7 +219,8 @@ export default function Page() {
     if (localStorage.getItem('aidermy:quizAttempted')) return
     const hasSkinType = Boolean(profile.skinType)
     const hasQuiz = Boolean(profile.quizAnswers && Object.keys(profile.quizAnswers).length > 0)
-    if (!hasSkinType && !hasQuiz) {
+    const hasStructured = Boolean(profile.structured)
+    if (!hasSkinType && !hasQuiz && !hasStructured) {
       localStorage.setItem('aidermy:quizAttempted', '1')
       setShowQuiz(true)
     }
@@ -356,7 +365,10 @@ export default function Page() {
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            profile: p
+            profile: {
+              ...p,
+              structured: mergedProfile.structured || null,
+            }
           })
         })
 
@@ -466,42 +478,47 @@ export default function Page() {
     }
   }
 
-  // ===== КВИЗ =====
-  const handleQuizComplete = (answers: Record<string, string>, skinType: string) => {
+  // ===== АНКЕТА (PROFILE MATRIX questionnaire → structured_profile) =====
+  const handleQuestionnaireSave = async (structured: StructuredProfile) => {
+    // Синхронизируем legacy skinType (RU label) для совместимости со старыми экранами.
+    const ruSkinType = SKIN_TYPE_OPTIONS.find(o => o.id === structured.skin_type)?.label ?? ''
     const updatedProfile = {
       ...emptyProfile,
       ...profile,
-      quizAnswers: answers,
-      skinType: skinType,
-      skinTypeDetermined: skinType,
+      structured,
+      ...(ruSkinType ? { skinType: ruSkinType, skinTypeDetermined: ruSkinType } : {}),
     }
     setProfile(updatedProfile)
     saveProfile(updatedProfile)
     setShowQuiz(false)
-    setTab('shelf')
 
-    // Сохраняем результат квиза на сервер, чтобы тип кожи не потерялся при следующем входе.
     const token = localStorage.getItem('token')
     if (token) {
-      fetch('/api/auth/profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          profile: {
-            name: updatedProfile.name || '',
-            skinType: skinType,
-            age: updatedProfile.age || '',
-            concerns: updatedProfile.concerns || [],
-            allergies: updatedProfile.allergies || [],
-            customText: updatedProfile.customText || '',
-            quizAnswers: answers,
-            skinTypeDetermined: skinType,
-          },
-        }),
-      }).catch(() => {})
+      try {
+        const res = await fetch('/api/auth/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            profile: {
+              name: updatedProfile.name || '',
+              skinType: ruSkinType || updatedProfile.skinType || '',
+              age: updatedProfile.age || '',
+              concerns: updatedProfile.concerns || [],
+              allergies: updatedProfile.allergies || [],
+              customText: updatedProfile.customText || '',
+              quizAnswers: updatedProfile.quizAnswers || {},
+              skinTypeDetermined: ruSkinType || updatedProfile.skinTypeDetermined || '',
+              structured,
+            },
+          }),
+        })
+        if (!res.ok) console.error('Ошибка сохранения анкеты:', await res.text())
+      } catch (e) {
+        console.error('Ошибка сохранения анкеты:', e)
+      }
     }
 
-    // Первый раз после квиза показываем онбординг «Моя полка».
+    // Первый раз после анкеты показываем онбординг «Моя полка».
     if (!localStorage.getItem('aidermy:shelfOnboarded')) {
       setShowShelfOnboarding(true)
     }
@@ -540,6 +557,7 @@ export default function Page() {
             custom_text: currentProfile.customText || '',
             quiz_answers: currentProfile.quizAnswers || {},
             skin_type_determined: currentProfile.skinTypeDetermined || '',
+            structured: currentProfile.structured || null,
           },
         }),
       })
@@ -779,15 +797,10 @@ export default function Page() {
 
               {showQuiz ? (
                 <div className="py-4">
-                  <SkinQuiz
-                    onComplete={handleQuizComplete}
+                  <ProfileQuestionnaire
+                    initial={profile.structured ?? null}
+                    onSave={handleQuestionnaireSave}
                     onCancel={() => setShowQuiz(false)}
-                    onRegister={() => {
-                      setShowQuiz(false)
-                      setIsAuthModalOpen(true)
-                    }}
-                    initialAnswers={profile.quizAnswers || {}}
-                    isAuthenticated={isAuthenticated}
                   />
                 </div>
               ) : (

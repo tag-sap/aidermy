@@ -92,6 +92,45 @@ def priorities_for_profile(profile: Dict[str, Any], skin_type: str = "") -> Dict
     return {k: round(v / total, 4) for k, v in weights.items()}
 
 
+def profile_weights(profile: Dict[str, Any], skin_type: str = "") -> Dict[str, float]:
+    """6 canonical weights (нормализованы) для scoring engine.
+
+    Принимает НОВЫЙ structured profile (English IDs) либо legacy RU-поля —
+    в этом случае сначала прогоняет legacy -> structured mapper.
+    """
+    from .profile_matrix import PROFILE_MATRIX
+    from .profile_resolver import legacy_profile_to_structured, resolve_personal_profile
+
+    profile = profile or {}
+
+    # Явный structured-профиль (новый формат) — используем напрямую.
+    if isinstance(profile.get("structured"), dict):
+        return resolve_personal_profile(profile["structured"])["weights"]
+
+    st = _effective_skin_type(profile, skin_type).lower()
+
+    concerns = profile.get("concerns") or []
+    if isinstance(concerns, str):
+        concerns = [c.strip() for c in concerns.split(",") if c.strip()]
+
+    is_structured = (
+        st in PROFILE_MATRIX
+        or any((str(c).strip().lower() in PROFILE_MATRIX) for c in concerns)
+        or any(k in profile for k in ("imperfections", "states", "therapy", "procedures", "selected"))
+    )
+
+    if is_structured:
+        p = dict(profile)
+        if not p.get("skin_type") and st:
+            p["skin_type"] = st
+        return resolve_personal_profile(p)["weights"]
+
+    structured = legacy_profile_to_structured(profile)
+    if st and not structured["skin_type"]:
+        structured["skin_type"] = st
+    return resolve_personal_profile(structured)["weights"]
+
+
 def build_verdict(score: int) -> str:
     """Детерминированный verdict, согласованный со score."""
     if score >= VERDICT_GOOD:
@@ -169,7 +208,7 @@ class DecisionEngine:
         knowledge: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
         interactions: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        priorities = priorities_for_profile(profile, skin_type)
+        priorities = profile_weights(profile, skin_type)
         result = self.analysis_service.analyze(
             product_name,
             ingredients,
@@ -177,6 +216,7 @@ class DecisionEngine:
             priorities,
             knowledge=knowledge,
             interactions=interactions,
+            priorities_are_canonical=True,
         )
         score = int(result.get("score") or 0)
         safe, caution = ingredient_lists(result)

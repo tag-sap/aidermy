@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 
 class Profile(BaseModel):
     name: Optional[str] = Field(default="", description="Имя пользователя")
@@ -15,6 +15,10 @@ class Profile(BaseModel):
     skin_type_determined: Optional[str] = Field(
         default=None, 
         description="Тип кожи, определенный автоматически"
+    )
+    structured: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Структурированный профиль (canonical IDs -> PROFILE_MATRIX)",
     )
 
 class CheckRequest(BaseModel):
