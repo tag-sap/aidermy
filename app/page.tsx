@@ -774,35 +774,28 @@ export default function Page() {
 
         <div className="relative z-20 flex h-dvh flex-col">
           <main ref={mainRef} className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+            <AppHeader
+              onOpenAccount={() => setAccountModalOpen(true)}
+              onAuth={() => setIsAuthModalOpen(true)}
+              isAuthenticated={isAuthenticated}
+              userName={userName}
+              avatarUrl={avatarUrl}
+              onCheck={() => setCheckModalOpen(true)}
+              title={tab === 'home' ? undefined : tab === 'profile' ? 'профиль' : tab === 'catalog' ? 'каталог' : 'моя полка'}
+              onReplayGuide={() => {
+                if (!isAuthenticated) { setIsAuthModalOpen(true); return }
+                setOnboardingStep('profile')
+                localStorage.removeItem('aidermy:shelfOnboarded')
+                localStorage.removeItem('aidermy:onboardingStep')
+                setShowShelfOnboarding(true)
+              }}
+              onReplayQuiz={() => {
+                if (!isAuthenticated) { setIsAuthModalOpen(true); return }
+                setShowQuiz(true)
+              }}
+            />
+
             <div className="mx-auto w-full max-w-md px-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
-              <AppHeader
-                onOpenAccount={() => setAccountModalOpen(true)}
-                onAuth={() => setIsAuthModalOpen(true)}
-                isAuthenticated={isAuthenticated}
-                userName={userName}
-                avatarUrl={avatarUrl}
-                onCheck={() => setCheckModalOpen(true)}
-                onReplayGuide={() => {
-                  if (!isAuthenticated) { setIsAuthModalOpen(true); return }
-                  setOnboardingStep('profile')
-                  localStorage.removeItem('aidermy:shelfOnboarded')
-                  localStorage.removeItem('aidermy:onboardingStep')
-                  setShowShelfOnboarding(true)
-                }}
-                onReplayQuiz={() => {
-                  if (!isAuthenticated) { setIsAuthModalOpen(true); return }
-                  setShowQuiz(true)
-                }}
-              />
-
-              {tab !== 'home' && (
-                <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-gray-200/50 bg-background/85 px-4 py-2.5 backdrop-blur-sm">
-                  <h1 className="font-advaken text-xl text-foreground">
-                    {tab === 'profile' ? 'профиль' : tab === 'catalog' ? 'каталог' : 'моя полка'}
-                  </h1>
-                </div>
-              )}
-
               {showQuiz ? (
                 <div className="py-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))]">
                   <ProfileQuestionnaire

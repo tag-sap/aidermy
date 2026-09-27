@@ -14,6 +14,7 @@ interface AppHeaderProps {
   onReplayGuide?: () => void
   onReplayQuiz?: () => void
   onCheck?: () => void
+  title?: string
 }
 
 export function AppHeader({
@@ -24,7 +25,8 @@ export function AppHeader({
   avatarUrl = '',
   onReplayGuide,
   onReplayQuiz,
-  onCheck
+  onCheck,
+  title
 }: AppHeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
   const [helpPos, setHelpPos] = useState<{ top: number; right: number } | null>(null)
@@ -58,14 +60,12 @@ export function AppHeader({
 
   return (
     <>
-      <header className="relative z-20 w-full">
-        <div
-          className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 md:px-5"
-          style={{ backgroundColor: '#D6F264' }}
-        >
-          <img src="/main_logo.png" alt="aidermy" className="h-9 w-auto pixelated md:h-10" draggable={false} />
+      <header className="relative z-20 w-full" style={{ backgroundColor: '#D6F264' }}>
+        <div className="mx-auto w-full max-w-md px-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl md:px-6">
+          <div className="flex items-center justify-between gap-3 py-3">
+            <img src="/main_logo.png" alt="aidermy" className="h-9 w-auto pixelated md:h-10" draggable={false} />
 
-          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
             {onCheck && (
               <button
                 type="button"
@@ -174,6 +174,10 @@ export function AppHeader({
             </button>
           )}
           </div>
+        </div>
+        {title && (
+          <h1 className="font-advaken text-2xl leading-none text-foreground pb-3 -mt-0.5">{title}</h1>
+        )}
         </div>
       </header>
     </>
