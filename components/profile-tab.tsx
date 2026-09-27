@@ -1,12 +1,9 @@
 'use client'
 
-import { forwardRef, useState, useImperativeHandle } from 'react'
-import { Check, X, Droplets, Calendar, AlertCircle, Sparkles, Trash2 } from 'lucide-react'
-import { Chip } from '@/components/chip'
-import { AGE_GROUPS, ALLERGIES, SKIN_CONCERNS, SKIN_TYPES } from '@/lib/products'
+import { forwardRef, useImperativeHandle, useMemo } from 'react'
+import { RotateCcw } from 'lucide-react'
 import type { SkinProfile } from '@/lib/store'
-import { cn } from '@/lib/utils'
-import { useScrollLock } from '@/lib/use-scroll-lock'
+import { SKIN_TYPE_OPTIONS, CONCERN_CARDS, INTOLERANCE_OPTIONS, THERAPY_OPTIONS } from '@/lib/profile-questionnaire'
 
 interface ProfileTabProps {
   profile: SkinProfile
@@ -16,286 +13,94 @@ interface ProfileTabProps {
 
 export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTabProps>(
   ({ profile, onSave, onStartQuiz }, ref) => {
-    const [name, setName] = useState(profile.name || '')
-    const [skinType, setSkinType] = useState(profile.skinType || '')
-    const [age, setAge] = useState(profile.age || '')
-    const [concerns, setConcerns] = useState<string[]>(profile.concerns || [])
-    const [allergies, setAllergies] = useState<string[]>(profile.allergies || [])
-    const [customText, setCustomText] = useState(profile.customText || '')
-    const [saved, setSaved] = useState(true)
-    const [showReset, setShowReset] = useState(false)
-    const [showConfirm, setShowConfirm] = useState(false)
+    useImperativeHandle(ref, () => ({ getDraft: () => profile }), [profile])
 
-    useScrollLock(showReset)
-    useScrollLock(showConfirm)
+    const structured = profile.structured
 
-    useImperativeHandle(ref, () => ({
-      getDraft: () => ({ name, skinType, age, concerns, allergies, customText }),
-    }))
+    const skinLabel = useMemo(() => {
+      const id = structured?.skin_type
+      return SKIN_TYPE_OPTIONS.find(o => o.id === id)?.label ?? profile.skinType || 'Не указан'
+    }, [structured, profile.skinType])
 
-    const hasChanges = 
-      name !== profile.name ||
-      skinType !== profile.skinType ||
-      age !== profile.age ||
-      JSON.stringify(concerns) !== JSON.stringify(profile.concerns) ||
-      JSON.stringify(allergies) !== JSON.stringify(profile.allergies) ||
-      customText !== profile.customText
-
-    const toggle = (key: 'concerns' | 'allergies', value: string) => {
-      if (key === 'concerns') {
-        setConcerns(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value])
-      } else {
-        setAllergies(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value])
+    const concerns = useMemo(() => {
+      const ids = new Set(structured?.concerns ?? [])
+      const rows: string[] = []
+      for (const card of CONCERN_CARDS) {
+        const opts = card.questions.flatMap(q => q.options).filter(o => ids.has(o.id))
+        if (opts.length) rows.push(`${card.shortLabel}: ${opts.map(o => o.label).join(', ')}`)
+        else if (ids.has(card.id)) rows.push(card.shortLabel)
       }
-      setSaved(false)
-    }
+      return rows
+    }, [structured])
 
-    // Изменения полей, влияющих на персональный анализ (scoring engine).
-    const analysisChanged =
-      skinType !== profile.skinType ||
-      age !== profile.age ||
-      JSON.stringify(concerns) !== JSON.stringify(profile.concerns) ||
-      JSON.stringify(allergies) !== JSON.stringify(profile.allergies)
+    const intolerances = useMemo(() => {
+      return (structured?.intolerances ?? [])
+        .map(id => (typeof id === 'string' ? (INTOLERANCE_OPTIONS.find(o => o.id === id)?.label ?? id) : ''))
+        .filter(Boolean)
+    }, [structured])
 
-    const confirmSave = () => {
-      onSave({ name, skinType, age, concerns, allergies, customText })
-      setSaved(true)
-      setShowConfirm(false)
-    }
+    const therapy = useMemo(() => {
+      return (structured?.therapy ?? []).map(t => THERAPY_OPTIONS.find(o => o.id === t.id)?.label ?? t.id)
+    }, [structured])
 
-    const handleSave = () => {
-      if (analysisChanged) {
-        setShowConfirm(true)
-      } else {
-        confirmSave()
-      }
-    }
-
-    const handleReset = () => {
-      setName('')
-      setSkinType('')
-      setAge('')
-      setConcerns([])
-      setAllergies([])
-      setCustomText('')
-      onSave({ name: '', skinType: '', age: '', concerns: [], allergies: [], customText: '' })
-      setSaved(true)
-      setShowReset(false)
-    }
-
-    const isEmpty = !name && !skinType && !age && concerns.length === 0 && allergies.length === 0 && !customText
-
-    const glassCardStyle = cn(
-      'bg-white/20 backdrop-blur-xl',
-      'border border-white/20',
-      'transition-all duration-500',
-      'rounded-2xl p-4',
-      'hover:bg-white/30 hover:border-primary/20'
-    )
+    const hasData = Boolean(structured || profile.skinType)
 
     return (
-      <div className="w-full flex flex-col pb-24 space-y-3 pr-1 md:max-w-2xl md:mx-auto" data-tour="quiz">
-        {/* КАРТОЧКА ТИП КОЖИ */}
-        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '0ms' }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Droplets className="size-4 text-primary/60" strokeWidth={1.5} />
-            <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-              Тип кожи
-            </h2>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {SKIN_TYPES.map((t) => (
-              <Chip 
-                key={t} 
-                label={t} 
-                active={skinType === t} 
-                onClick={() => { setSkinType(t); setSaved(false) }} 
-              />
-            ))}
-          </div>
-        </div>
+      <div className="w-full space-y-6">
+        <div className="space-y-4">
+          {hasData ? (
+            <>
+              <div className="rounded-2xl border border-gray-200/60 p-4">
+                <p className="text-xs text-muted-foreground">Тип кожи</p>
+                <p className="mt-1 text-lg font-advaken text-foreground">{skinLabel}</p>
+              </div>
 
-        {/* КАРТОЧКА ВОЗРАСТ */}
-        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '35ms' }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Calendar className="size-4 text-primary/60" strokeWidth={1.5} />
-            <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-              Возраст
-            </h2>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {AGE_GROUPS.map((a) => (
-              <Chip 
-                key={a} 
-                label={a} 
-                active={age === a} 
-                onClick={() => { setAge(a); setSaved(false) }} 
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* КАРТОЧКА ПРОБЛЕМЫ */}
-        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '70ms' }}>
-          <div className="flex items-center gap-2 mb-3">
-            <AlertCircle className="size-4 text-primary/60" strokeWidth={1.5} />
-            <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-              Что беспокоит
-            </h2>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {SKIN_CONCERNS.map((c) => (
-              <Chip 
-                key={c} 
-                label={c} 
-                active={concerns.includes(c)} 
-                onClick={() => toggle('concerns', c)} 
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* КАРТОЧКА АЛЛЕРГИИ */}
-        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '105ms' }}>
-          <div className="flex items-center gap-2 mb-3">
-            <AlertCircle className="size-4 text-primary/60" strokeWidth={1.5} />
-            <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-              Аллергии
-            </h2>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {ALLERGIES.map((a) => (
-              <Chip 
-                key={a} 
-                label={a} 
-                active={allergies.includes(a)} 
-                onClick={() => toggle('allergies', a)} 
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* КАРТОЧКА ОПИСАНИЕ */}
-        <div className={cn(glassCardStyle, 'animate-shelf-card')} style={{ animationDelay: '140ms' }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles className="size-4 text-primary/60" strokeWidth={1.5} />
-            <h2 className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-              Опишите проблему
-            </h2>
-          </div>
-          <p className="text-[10px] text-muted-foreground/50 font-light mb-2">
-            Коротко, 1 предложение (до 100 символов)
-          </p>
-          <textarea
-            value={customText}
-            onChange={(e) => { 
-              const text = e.target.value
-              if (text.length <= 100) {
-                setCustomText(text)
-                setSaved(false)
-              }
-            }}
-            placeholder="Например: кожа стягивается после умывания..."
-            className="w-full bg-transparent text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:outline-none resize-none"
-            rows={2}
-          />
-          <div className={`mt-1 text-right text-[10px] ${customText.length >= 100 ? 'text-orange-400' : 'text-muted-foreground/40'}`}>
-            {customText.length}/100
-          </div>
-        </div>
-
-        {/* КНОПКИ */}
-        {!isEmpty && (
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={() => setShowReset(true)}
-              className="px-4 py-2.5 rounded-xl border border-red-200/50 bg-white/10 backdrop-blur-sm text-xs font-medium text-red-400 transition-all hover:bg-red-500/10"
-            >
-              <Trash2 className="size-3.5 inline mr-1.5" />
-              Сбросить
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={!hasChanges || saved}
-              className={cn(
-                'flex-1 px-6 py-2.5 rounded-xl text-xs font-medium uppercase tracking-wider transition-all',
-                !hasChanges || saved
-                  ? 'bg-white/10 backdrop-blur-sm text-muted-foreground/40 cursor-default border border-white/10'
-                  : 'cta-btn bg-primary/20 backdrop-blur-sm border border-primary/30 text-primary hover:bg-primary/30 hover:shadow-[0_0_30px_rgba(108,60,225,0.15)] active:scale-[0.97]'
+              {concerns.length > 0 && (
+                <div className="rounded-2xl border border-gray-200/60 p-4">
+                  <p className="text-xs text-muted-foreground">Беспокойства</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {concerns.map((c, i) => (
+                      <span key={i} className="rounded-full bg-muted px-3 py-1 text-xs text-foreground/80">{c}</span>
+                    ))}
+                  </div>
+                </div>
               )}
-            >
-              {saved ? (
-                <>
-                  <Check className="size-3.5 inline mr-1.5" />
-                  Сохранено
-                </>
-              ) : (
-                'Сохранить'
+
+              {intolerances.length > 0 && (
+                <div className="rounded-2xl border border-gray-200/60 p-4">
+                  <p className="text-xs text-muted-foreground">Избегаю ингредиенты</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {intolerances.map((x, i) => (
+                      <span key={i} className="rounded-full bg-muted px-3 py-1 text-xs text-foreground/80">{x}</span>
+                    ))}
+                  </div>
+                </div>
               )}
-            </button>
-          </div>
-        )}
 
-        {/* ПОПАП СБРОСА */}
-        {showReset && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setShowReset(false)}>
-            <div className="w-80 max-w-full rounded-2xl bg-white/90 backdrop-blur-xl border border-white/30 p-6 shadow-2xl animate-modal-panel" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-light text-foreground">Сбросить анкету?</h3>
-                <button onClick={() => setShowReset(false)} className="text-muted-foreground/60 hover:text-foreground">
-                  <X className="size-4.5" />
-                </button>
-              </div>
-              <p className="text-sm text-muted-foreground/70 font-light mb-6">
-                Все данные анкеты будут удалены. Это действие нельзя отменить.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowReset(false)}
-                  className="flex-1 rounded-xl border border-gray-200/50 px-4 py-2.5 text-xs font-medium text-muted-foreground transition-all hover:bg-gray-50/50"
-                >
-                  Отмена
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="flex-1 rounded-xl bg-red-500/20 backdrop-blur-sm border border-red-300/30 px-4 py-2.5 text-xs font-medium text-red-400 transition-all hover:bg-red-500/30"
-                >
-                  Сбросить
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+              {therapy.length > 0 && (
+                <div className="rounded-2xl border border-gray-200/60 p-4">
+                  <p className="text-xs text-muted-foreground">Активное лечение</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {therapy.map((x, i) => (
+                      <span key={i} className="rounded-full bg-muted px-3 py-1 text-xs text-foreground/80">{x}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Анкета ещё не пройдена. Пройдите опрос, чтобы подобрать уход под вашу кожу.</p>
+          )}
+        </div>
 
-        {/* ПОДТВЕРЖДЕНИЕ СБРОСА ПОЛКИ ПРИ ИЗМЕНЕНИИ АНКЕТЫ */}
-        {showConfirm && (
-          <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={() => setShowConfirm(false)}>
-            <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl animate-modal-panel" onClick={(e) => e.stopPropagation()}>
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-base font-normal text-foreground">Изменения повлияют на анализ</h3>
-                <button onClick={() => setShowConfirm(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-4.5" />
-                </button>
-              </div>
-              <p className="text-sm text-muted-foreground/70 leading-relaxed">
-                Изменение анкеты повлияет на результаты анализа. Совместимость товаров на «Моей полке» будет автоматически пересчитана по новому профилю.
-              </p>
-              <div className="mt-5 flex gap-2">
-                <button
-                  onClick={() => setShowConfirm(false)}
-                  className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-foreground/70 transition-colors hover:bg-gray-50"
-                >
-                  Отмена
-                </button>
-                <button
-                  onClick={confirmSave}
-                  className="flex-1 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  Сохранить и пересчитать
-                </button>
-              </div>
-            </div>
-          </div>
+        {onStartQuiz && (
+          <button
+            onClick={onStartQuiz}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            <RotateCcw className="size-4" />
+            {hasData ? 'Пройти опрос заново' : 'Пройти опрос'}
+          </button>
         )}
       </div>
     )

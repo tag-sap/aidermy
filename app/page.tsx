@@ -789,14 +789,14 @@ export default function Page() {
 
               {tab !== 'home' && (
                 <div className="sticky top-0 z-20 -mx-4 mb-3 border-b border-gray-200/50 bg-background/85 px-4 py-2.5 backdrop-blur-sm">
-                  <h1 className="text-xl font-light text-foreground">
-                    {tab === 'profile' ? 'Профиль' : tab === 'catalog' ? 'Каталог' : 'Моя полка'}
+                  <h1 className="font-advaken text-xl text-foreground">
+                    {tab === 'profile' ? 'профиль' : tab === 'catalog' ? 'каталог' : 'моя полка'}
                   </h1>
                 </div>
               )}
 
               {showQuiz ? (
-                <div className="py-4">
+                <div className="py-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))]">
                   <ProfileQuestionnaire
                     initial={profile.structured ?? null}
                     onSave={handleQuestionnaireSave}

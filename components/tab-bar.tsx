@@ -17,7 +17,7 @@ interface TabItem {
 }
 
 const TABS: TabItem[] = [
-  { id: 'home', label: 'Главная', icon: Home, circle: true },
+  { id: 'home', label: 'главная', icon: Home, circle: true },
   {
     id: 'catalog',
     label: 'Каталог',
@@ -133,7 +133,7 @@ export function TabBar({
                 >
                   <Icon className="tab-circle-icon size-6" strokeWidth={2} />
                 </span>
-                <span className={cn('text-[9px] font-normal leading-none', isActive ? 'text-primary' : 'text-muted-foreground')}>
+                <span className={cn('font-advaken text-[9px] font-normal leading-none', isActive ? 'text-primary' : 'text-muted-foreground')}>
                   {tab.label}
                 </span>
               </button>
@@ -157,7 +157,7 @@ export function TabBar({
                 className={cn('size-4.5', isActive && 'drop-shadow-[0_0_8px_rgba(108,60,225,0.3)]')}
                 strokeWidth={2}
               />
-              <span className="text-[9px] font-normal leading-none">{tab.label}</span>
+              <span className="font-advaken text-[9px] font-normal leading-none">{tab.label}</span>
             </button>
           )
         })}

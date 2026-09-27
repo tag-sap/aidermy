@@ -31,17 +31,17 @@
 :root {
   color-scheme: light;
   --background: #FFFFFF;
-  --foreground: #151515;
+  --foreground: #141013;
   --card: #FFFFFF;
-  --card-foreground: #151515;
-  --muted: #EFEAE0;
-  --muted-foreground: #6B675E;
-  --primary: #151515;
+  --card-foreground: #141013;
+  --muted: #F2F1F5;
+  --muted-foreground: #7D7D7D;
+  --primary: #141013;
   --primary-foreground: #FFFFFF;
-  --accent: #F5C900;
-  --accent-foreground: #151515;
-  --border: rgba(21, 21, 21, 0.12);
-  --ring: rgba(245, 201, 0, 0.55);
+  --accent: #D6F264;
+  --accent-foreground: #141013;
+  --border: rgba(20, 16, 19, 0.12);
+  --ring: rgba(149, 132, 255, 0.55);
   --radius: 0.35rem;
 }
 
@@ -411,7 +411,7 @@ div {
   border-radius: 12px;
   font-size: 14px;
   font-weight: 400;
-  background: #FAF9F6;
+  background: #FFFFFF;
   color: #1A1A1A;
   border: 1px solid rgba(108, 60, 225, 0.08);
   cursor: pointer;
@@ -691,18 +691,18 @@ div {
    flex-1 scroll-контейнер и приводило к лишней вертикальной прокрутке. */
 html {
   height: 100%;
-  background: #FAF9F6;
+  background: #FFFFFF;
 }
 
 body {
   height: 100%;
   overflow: hidden;
-  background: #FAF9F6;
+  background: #FFFFFF;
 }
 
 #__next {
   height: 100%;
-  background: #FAF9F6;
+  background: #FFFFFF;
 }
 
 .tab-bar-fixed {
@@ -712,7 +712,7 @@ body {
   right: 0;
   z-index: 30;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: #FAF9F6;
+  background: #FFFFFF;
   border-top: 1px solid rgba(0, 0, 0, 0.05);
 }
 
@@ -938,16 +938,16 @@ body.modal-open main {
 /* Поверхность полки: общая для левого/правого торца и центра,
    поэтому стыки между тремя частями визуально не читаются. */
 .shelf-surface {
-  background: linear-gradient(180deg, #ffffff 0%, #f4efe5 48%, #e9e3d5 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #f4f6ec 48%, #ecefd9 100%);
   border-top: 1px solid rgba(255, 255, 255, 0.9);
-  border-bottom: 1px solid rgba(21, 21, 21, 0.06);
+  border-bottom: 1px solid rgba(20, 16, 19, 0.06);
 }
 
 /* Мягкая студийная тень под всей полкой (одна на всю длину, без двойных стыков). */
 .shelf-plank {
   box-shadow:
-    0 16px 30px -18px rgba(21, 21, 21, 0.32),
-    0 5px 12px -6px rgba(21, 21, 21, 0.12),
+    0 16px 30px -18px rgba(20, 16, 19, 0.32),
+    0 5px 12px -6px rgba(20, 16, 19, 0.12),
     0 1px 0 rgba(255, 255, 255, 0.7) inset;
 }
 
