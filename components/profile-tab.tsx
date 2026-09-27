@@ -19,7 +19,7 @@ export const ProfileTab = forwardRef<{ getDraft: () => SkinProfile }, ProfileTab
 
     const skinLabel = useMemo(() => {
       const id = structured?.skin_type
-      return SKIN_TYPE_OPTIONS.find(o => o.id === id)?.label ?? profile.skinType || 'Не указан'
+      return (SKIN_TYPE_OPTIONS.find(o => o.id === id)?.label ?? profile.skinType) || 'Не указан'
     }, [structured, profile.skinType])
 
     const concerns = useMemo(() => {
