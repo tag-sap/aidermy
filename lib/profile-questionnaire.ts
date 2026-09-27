@@ -138,6 +138,7 @@ export const CONCERN_CARDS: Branch[] = [
         ],
       },
     ],
+  },
   {
     id: 'pigmentation', label: 'Пигментация', shortLabel: 'Пигментация',
     questions: [

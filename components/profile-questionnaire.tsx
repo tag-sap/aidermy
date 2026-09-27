@@ -281,11 +281,3 @@ export function ProfileQuestionnaire({ initial, onSave, onCancel }: Props) {
     </div>
   )
 }
-
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </section>
