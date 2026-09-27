@@ -39,8 +39,8 @@ type ProductDetail = {
 }
 
 function scoreColor(s: number) {
-  if (s >= 80) return 'text-[#7A5E00] bg-[#F5C900]/25 border-[#F5C900]/40'
-  if (s >= 60) return 'text-[#7A5E00] bg-[#F5C900]/15 border-[#F5C900]/30'
+  if (s >= 80) return 'text-[#4a5d00] bg-[#D6F264]/25 border-[#D6F264]/40'
+  if (s >= 60) return 'text-[#4a5d00] bg-[#D6F264]/15 border-[#D6F264]/30'
   if (s >= 40) return 'text-[#6D28D9] bg-[#8B5CF6]/10 border-[#8B5CF6]/30'
   return 'text-[#D63B2E] bg-[#FF4D3D]/10 border-[#FF4D3D]/30'
 }
@@ -335,7 +335,7 @@ export function ProductModal({
               {hasAnalysis ? (
                 <button
                   onClick={openFullReport}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#D6F264] py-2.5 text-sm text-[#151515] transition-colors hover:bg-[#c8e64f]"
                 >
                   <FileText className="size-4" />
                   Показать отчёт
@@ -348,7 +348,7 @@ export function ProductModal({
                   <button
                     onClick={checkCompatibility}
                     disabled={checking}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#D6F264] py-2.5 text-sm text-[#151515] transition-colors hover:bg-[#c8e64f] disabled:opacity-60"
                   >
                     {checking ? (
                       <>

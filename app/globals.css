@@ -30,7 +30,7 @@
 
 :root {
   color-scheme: light;
-  --background: #F7F3EA;
+  --background: #FFFFFF;
   --foreground: #151515;
   --card: #FFFFFF;
   --card-foreground: #151515;
@@ -119,6 +119,18 @@
   font-weight: 400;
   font-style: normal;
   font-display: swap;
+}
+
+@font-face {
+  font-family: 'Advaken Sans';
+  src: url('/fonts/Advaken_Sans.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+.font-advaken {
+  font-family: 'Advaken Sans', 'Gerhaus-Regular', sans-serif;
 }
 
 @keyframes wave {

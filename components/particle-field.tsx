@@ -58,7 +58,7 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
         bx,
         by,
         r: Math.random() * 1.6 + 0.7,
-        a: Math.random() * 0.45 + 0.3,
+        a: Math.random() * 0.18 + 0.08,
       })
     }
   }
@@ -110,7 +110,7 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
         if (dd < MESH * MESH) {
           const dist = Math.sqrt(dd)
           const k = 1 - dist / MESH
-          ctx.strokeStyle = 'rgba(62,87,76,' + (k * 0.13).toFixed(3) + ')'
+          ctx.strokeStyle = 'rgba(62,87,76,' + (k * 0.05).toFixed(3) + ')'
           ctx.beginPath()
           ctx.moveTo(A.x, A.y)
           ctx.lineTo(B.x, B.y)
@@ -125,7 +125,7 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
       const qy = q.y - m.y
       const qd = Math.sqrt(qx * qx + qy * qy)
       if (qd < PUSH * 0.9) {
-        ctx.strokeStyle = 'rgba(192,112,63,' + ((1 - qd / (PUSH * 0.9)) * 0.22).toFixed(3) + ')'
+        ctx.strokeStyle = 'rgba(192,112,63,' + ((1 - qd / (PUSH * 0.9)) * 0.09).toFixed(3) + ')'
         ctx.beginPath()
         ctx.moveTo(m.x, m.y)
         ctx.lineTo(q.x, q.y)
@@ -141,7 +141,7 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
         (124 + (near * 68) | 0) + ',' +
         (151 - (near * 39) | 0) + ',' +
         (138 - (near * 60) | 0) + ',' +
-        (t.a * 0.38 + near * 0.5).toFixed(3) + ')'
+        (t.a * 0.15 + near * 0.2).toFixed(3) + ')'
       ctx.beginPath()
       ctx.arc(t.x, t.y, t.r + near * 1.5, 0, 6.283)
       ctx.fill()
