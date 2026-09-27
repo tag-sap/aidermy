@@ -17,6 +17,7 @@ import { CatalogTab } from '@/components/catalog-tab'
 import { WelcomeTab } from '@/components/welcome-tab'
 import { ProductModal } from '@/components/product-modal'
 import { CheckModal } from '@/components/check-modal'
+import { ProductIdentifyModal } from '@/components/product-identify-modal'
 import { AccountModal } from '@/components/account-modal'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import { SKIN_TYPE_OPTIONS } from '@/lib/profile-questionnaire'
@@ -90,6 +91,8 @@ export default function Page() {
   const [accountModalOpen, setAccountModalOpen] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [checkModalOpen, setCheckModalOpen] = useState(false)
+  const [productIdentifyOpen, setProductIdentifyOpen] = useState(false)
+  const [checkPrefill, setCheckPrefill] = useState<{ brand?: string; name?: string } | null>(null)
 
   // ===== ЗАГРУЗКА С СЕРВЕРА =====
   const loadProfileFromServer = async (token: string) => {
@@ -844,19 +847,42 @@ export default function Page() {
             <TabBar
               active={tab}
               onChange={handleTabChange}
-              onCheck={() => setCheckModalOpen(true)}
+              onCheck={() => { setCheckModalOpen(true); setCheckPrefill(null) }}
               isAuthenticated={isAuthenticated}
             />
           </div>
 
           <CheckModal
             isOpen={checkModalOpen}
-            onClose={() => setCheckModalOpen(false)}
+            onClose={() => { setCheckModalOpen(false); setCheckPrefill(null) }}
             onCheck={(product, skinType) => handleCheck(product, profile.skinType || skinType)}
             profile={profile}
             onRecognized={handleRecognized}
             onOpenCatalog={(query) => openCatalogWithBrand(query)}
+            onOpenProductIdentify={() => { setCheckModalOpen(false); setCheckPrefill(null); setProductIdentifyOpen(true) }}
+            prefill={checkPrefill}
+            initialMode={checkPrefill ? 'photo' : 'name'}
           />
+
+          {productIdentifyOpen && (
+            <ProductIdentifyModal
+              onClose={() => setProductIdentifyOpen(false)}
+              onProduct={(name, brand) => {
+                setProductIdentifyOpen(false)
+                handleCheck(`${brand}\n${name}`, profile.skinType || '')
+              }}
+              onPhotoComposition={(prefill) => {
+                setProductIdentifyOpen(false)
+                setCheckPrefill(prefill)
+                setCheckModalOpen(true)
+              }}
+              onManual={(prefill) => {
+                setProductIdentifyOpen(false)
+                setCheckPrefill(prefill)
+                setCheckModalOpen(true)
+              }}
+            />
+          )}
 
           <ResultSheet
             isOpen={isSheetOpen}

@@ -18,6 +18,8 @@ from .models import (
     RecognizeCompositionRequest,
     AnalyzeCompositionRequest,
     CreateProductRequest,
+    ProductIdentifyRequest,
+    ProductWebSearchRequest,
 )
 from .services import check_product_with_ai, check_product_with_ingredients, search_products, capitalize_name
 from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, PRODUCTS_DB, upsert_imported_product, save_ingredients
@@ -35,6 +37,12 @@ from .vision_service import (
     find_product_matches,
     register_ingredients,
     MATCH_CONFIDENT_THRESHOLD,
+    identify_product,
+)
+from .product_identification import (
+    find_product_in_db,
+    has_reliable_inci,
+    web_search_product,
 )
 
 init_db()
@@ -220,6 +228,62 @@ async def recognize_composition_endpoint(request: RecognizeCompositionRequest):
     except Exception as exc:
         print(f"❌ Ошибка распознавания состава: {exc!r}")
         raise HTTPException(status_code=500, detail="Не удалось распознать состав") from exc
+
+
+@app.post("/api/product/identify")
+async def identify_product_endpoint(request: ProductIdentifyRequest):
+    """Этап 1: фото продукта -> бренд/название -> поиск в собственной БД."""
+    try:
+        identified = await identify_product(request.images)
+        product = find_product_in_db(identified.get("brand") or "", identified.get("name") or "")
+        return {
+            "identified": identified,
+            "product": product,
+            "has_inci": has_reliable_inci(product),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        print(f"❌ Ошибка идентификации продукта: {exc!r}")
+        raise HTTPException(status_code=500, detail="Не удалось определить продукт") from exc
+
+
+@app.post("/api/product/web-search")
+async def product_web_search_endpoint(request: ProductWebSearchRequest):
+    """Автоматический Web Search: search -> URL -> scraper -> INCI -> сохранить canonical."""
+    try:
+        found = await web_search_product(request.brand, request.name, request.variant)
+        if not found:
+            return {"found": False, "product": None}
+        from .product_dedup import find_or_create_canonical_product
+
+        saved = find_or_create_canonical_product({
+            "name": found["name"],
+            "brand": found["brand"],
+            "ingredients": found["ingredients"],
+            "url": found.get("source_url") or "",
+            "image_url": found.get("image_url") or "",
+            "category": found.get("category") or "",
+            "volume": found.get("volume") or "",
+            "description": found.get("description") or "",
+            "source_type": "web_search",
+        })
+        return {
+            "found": True,
+            "product": {
+                "slug": saved.get("slug") or "",
+                "name": saved.get("name") or "",
+                "brand": saved.get("brand") or "",
+                "ingredients": saved.get("ingredients") or "",
+                "image_url": saved.get("image_url") or "",
+            },
+            "source_url": found.get("source_url") or "",
+        }
+    except Exception as exc:
+        print(f"❌ Ошибка web-search продукта: {exc!r}")
+        return {"found": False, "product": None}
 
 
 @app.post("/api/composition/analyze")

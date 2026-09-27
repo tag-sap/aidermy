@@ -83,13 +83,16 @@ function buildProfileBody(profile: SkinProfile) {
   }
 }
 
-export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, onOpenCatalog }: {
+export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, onOpenCatalog, onOpenProductIdentify, prefill, initialMode = 'name' }: {
   isOpen: boolean
   onClose: () => void
   onCheck: (product: string, skinType: string) => void
   profile: SkinProfile
   onRecognized: (result: CheckResult) => void
   onOpenCatalog?: (query: string) => void
+  onOpenProductIdentify?: () => void
+  prefill?: { brand?: string; name?: string } | null
+  initialMode?: 'name' | 'link' | 'photo'
 }) {
   const [mode, setMode] = useState<'name' | 'link' | 'photo'>('name')
   const [name, setName] = useState('')
@@ -112,6 +115,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
   const [showManualForm, setShowManualForm] = useState(false)
   const [brandInput, setBrandInput] = useState('')
   const [nameInput, setNameInput] = useState('')
+  const [nameError, setNameError] = useState('')
   const [brandOptions, setBrandOptions] = useState<string[]>([])
   const [creatingProduct, setCreatingProduct] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
@@ -179,13 +183,25 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
     }
   }, [brandInput, mode, showManualForm])
 
-  // Сбрасываем флоу при закрытии модалки.
+  // Сбрасываем флоу при закрытии и применяем prefill/стартовый режим при открытии.
+  const prevOpenRef = useRef(isOpen)
   useEffect(() => {
+    const wasOpen = prevOpenRef.current
+    prevOpenRef.current = isOpen
     if (!isOpen) {
       resetPhotoFlow()
+      return
+    }
+    if (wasOpen) return
+    if (prefill) {
+      setBrandInput(prefill.brand || '')
+      setNameInput(prefill.name || '')
+    }
+    if (initialMode === 'photo') {
+      setMode('photo')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen])
+  }, [isOpen, prefill, initialMode])
 
   if (!isOpen) return null
 
@@ -240,6 +256,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
     setShowManualForm(false)
     setBrandInput('')
     setNameInput('')
+    setNameError('')
     setBrandOptions([])
     setPhotoStatus('')
     setPhotoBusy(false)
@@ -359,7 +376,12 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
   const handleCreateProduct = async () => {
     const brand = brandInput.trim()
     const productName = nameInput.trim()
-    if (!productName || creatingProduct) return
+    if (!productName) {
+      setNameError('Укажите название продукта')
+      return
+    }
+    setNameError('')
+    if (creatingProduct) return
     setCreatingProduct(true)
     setPhotoStatus('')
     try {
@@ -387,9 +409,10 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
   }
 
   const modes = [
+    { id: 'product', label: 'Продукт', icon: Camera },
+    { id: 'photo', label: 'Состав', icon: Sparkles },
     { id: 'name', label: 'Название', icon: Search },
     { id: 'link', label: 'Ссылка', icon: Link2 },
-    { id: 'photo', label: 'Фото', icon: Camera },
   ]
 
   return (
@@ -408,6 +431,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
             <button
               key={m.id}
               onClick={() => {
+                if (m.id === 'product') { onOpenProductIdentify?.(); return }
                 if (m.id === 'photo') enterPhotoMode()
                 else { setMode(m.id as any); setStatus('') }
               }}
@@ -539,15 +563,23 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
                     </div>
                   )}
                 </div>
-                <input
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  placeholder="Название продукта"
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:border-primary/40 focus:outline-none"
-                />
+                <div>
+                  <input
+                    value={nameInput}
+                    onChange={(e) => { setNameInput(e.target.value); if (nameError) setNameError('') }}
+                    placeholder="Название продукта *"
+                    aria-invalid={!!nameError}
+                    className={`w-full rounded-xl border px-3 py-2 text-sm focus:outline-none ${
+                      nameError
+                        ? 'border-red-400 bg-red-50 focus:border-red-400'
+                        : 'border-gray-200 bg-gray-50 focus:border-primary/40'
+                    }`}
+                  />
+                  {nameError && <p className="mt-1 text-[11px] text-red-500">{nameError}</p>}
+                </div>
                 <button
                   onClick={handleCreateProduct}
-                  disabled={!nameInput.trim() || creatingProduct || analyzing}
+                  disabled={creatingProduct || analyzing}
                   className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                 >
                   {creatingProduct || analyzing ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}

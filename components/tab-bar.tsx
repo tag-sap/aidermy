@@ -11,31 +11,17 @@ interface TabItem {
   id: TabId
   label: string
   icon?: typeof Search
-  idle?: string
-  hover?: string
+  frames?: string[]
   circle?: boolean
 }
 
+const FRAMES = (name: string) => Array.from({ length: 7 }, (_, i) => `/icons/${name}/${i}.gif`)
+
 const TABS: TabItem[] = [
   { id: 'home', label: 'главная', icon: Home, circle: true },
-  {
-    id: 'catalog',
-    label: 'Каталог',
-    idle: '/icons/catalog_idle.png',
-    hover: '/icons/catalog_hover.gif',
-  },
-  {
-    id: 'shelf',
-    label: 'Моя полка',
-    idle: '/icons/my_shelf_idle.png',
-    hover: '/icons/my_shelf_hover.gif',
-  },
-  {
-    id: 'profile',
-    label: 'Профиль',
-    idle: '/icons/profile_idle.png',
-    hover: '/icons/profile_hover.gif',
-  },
+  { id: 'catalog', label: 'Каталог', frames: FRAMES('catalog') },
+  { id: 'shelf', label: 'Моя полка', frames: FRAMES('my_shelf') },
+  { id: 'profile', label: 'Профиль', frames: FRAMES('profile') },
 ]
 
 export function TabBar({
@@ -82,8 +68,8 @@ export function TabBar({
         {visibleTabs.map(tab => {
           const isActive = active === tab.id
 
-          // Вкладки-изображения: каталог / полка / профиль (название уже в картинке).
-          if (tab.idle && tab.hover) {
+          // Вкладки-анимации: каталог / полка / профиль (кадры storyboard).
+          if (tab.frames) {
             return (
               <button
                 key={tab.id}
@@ -100,8 +86,7 @@ export function TabBar({
                 className="relative flex flex-1 flex-col items-center justify-center px-1 py-2"
               >
                 <AnimatedTabIcon
-                  idleSrc={tab.idle}
-                  gifSrc={tab.hover}
+                  frames={tab.frames}
                   active={isActive}
                   hovered={hoveredId === tab.id}
                   className="block w-full max-w-[128px]"

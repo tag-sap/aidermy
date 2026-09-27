@@ -1,195 +1,110 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { decodeGif, type DecodedGif } from '@/lib/gif'
+import { cn } from '@/lib/utils'
 
 interface AnimatedTabIconProps {
-  idleSrc: string
-  gifSrc: string
+  frames: string[]
   active: boolean
   hovered: boolean
   className?: string
 }
 
-type Direction = 1 | -1 | 0
-
-const ANIMATION_SPEED = 3
+const FRAME_MS = 55
 
 /**
- * Иконка вкладки с одноразовой GIF-анимацией (вперёд/назад).
+ * Иконка вкладки из готовых storyboard-кадров (0..n-1) с pixel-art рендерингом.
  *
- * - `idleSrc` — обычное состояние (PNG).
- * - `gifSrc` — анимация перехода в активное состояние (GIF, проигрывается
- *   один раз вперёд, а при уходе/деактивации — назад).
- * - `active` — вкладка активна (держим последний кадр).
- * - `hovered` — курсор над вкладкой (desktop, задаётся родителем).
+ * - Desktop hover: frame 0 → ... → последний; при уходе — назад к frame 0.
+ * - Клик/выбор: если hover уже довёл до последнего кадра — только bounce (scale),
+ *   без повторного проигрывания кадров.
+ * - Mobile (hover нет): выбор вкладки проигрывает 0 → последний, без bounce.
+ * - Переключение вкладки корректно возвращает предыдущую в frame 0.
  */
-export function AnimatedTabIcon({ idleSrc, gifSrc, active, hovered, className }: AnimatedTabIconProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const offscreenRef = useRef<HTMLCanvasElement | null>(null)
-  const idleImgRef = useRef<HTMLImageElement | null>(null)
-  const gifRef = useRef<DecodedGif | null>(null)
-  const animRef = useRef<{ frame: number; direction: Direction; timer: number }>({
-    frame: -1,
-    direction: 0,
-    timer: 0,
-  })
-  const initializedRef = useRef(false)
-  const [ready, setReady] = useState(false)
+export function AnimatedTabIcon({ frames, active, hovered, className }: AnimatedTabIconProps) {
+  const [frame, setFrame] = useState(0)
+  const [bounce, setBounce] = useState(false)
+  const timerRef = useRef<number>(0)
+  const frameRef = useRef(0)
+  const prevActiveRef = useRef(active)
 
-  // Загружаем idle-PNG и декодируем GIF один раз.
-  useEffect(() => {
-    let cancelled = false
+  const last = Math.max(frames.length - 1, 0)
 
-    const loadImage = (src: string) =>
-      new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image()
-        img.onload = () => resolve(img)
-        img.onerror = reject
-        img.src = src
-      })
-
-    Promise.all([loadImage(idleSrc), decodeGif(gifSrc)])
-      .then(([idleImg, gif]) => {
-        if (cancelled) return
-        idleImgRef.current = idleImg
-        gifRef.current = gif
-        setReady(true)
-      })
-      .catch(() => {
-        // Если декодирование не удалось — оставляем кнопку рабочей без анимации.
-      })
-
-    return () => {
-      cancelled = true
+  const stop = useCallback(() => {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = 0
     }
-  }, [idleSrc, gifSrc])
-
-  const drawIdle = useCallback(() => {
-    const canvas = canvasRef.current
-    const img = idleImgRef.current
-    const gif = gifRef.current
-    if (!canvas || !img || !gif) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    const { bbox } = gif
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.drawImage(img, bbox.left, bbox.top, bbox.width, bbox.height, 0, 0, canvas.width, canvas.height)
   }, [])
 
-  const drawFrame = useCallback((index: number) => {
-    const canvas = canvasRef.current
-    const gif = gifRef.current
-    if (!canvas || !gif || index < 0 || index >= gif.frames.length) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    // Кадр рисуем на полноразмерный offscreen-canvas, а затем кадрируем через
-    // drawImage (надёжнее, чем putImageData с dirty-rect).
-    let off = offscreenRef.current
-    if (!off) {
-      off = document.createElement('canvas')
-      off.width = gif.width
-      off.height = gif.height
-      offscreenRef.current = off
-    }
-    const offCtx = off.getContext('2d')
-    if (!offCtx) return
-    offCtx.putImageData(gif.frames[index].imageData, 0, 0)
-
-    const { bbox } = gif
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.drawImage(off, bbox.left, bbox.top, bbox.width, bbox.height, 0, 0, canvas.width, canvas.height)
-  }, [])
-
-  const stopAnim = useCallback(() => {
-    if (animRef.current.timer) {
-      window.clearTimeout(animRef.current.timer)
-      animRef.current.timer = 0
-    }
-    animRef.current.direction = 0
+  const apply = useCallback((idx: number) => {
+    frameRef.current = idx
+    setFrame(idx)
   }, [])
 
   const play = useCallback(
-    (direction: 1 | -1) => {
-      const gif = gifRef.current
-      if (!gif || gif.frames.length === 0) return
-      stopAnim()
-      animRef.current.direction = direction
+    (toLast: boolean) => {
+      stop()
+      const target = toLast ? last : 0
+      if (frameRef.current === target) return
       const step = () => {
-        const a = animRef.current
-        if (a.direction !== direction) return
-        const g = gifRef.current
-        if (!g) return
-        const next = a.frame + direction
-        if (direction === 1 && next >= g.frames.length) {
-          a.frame = g.frames.length - 1
-          a.direction = 0
-          drawFrame(a.frame)
+        const next = frameRef.current + (toLast ? 1 : -1)
+        if (toLast ? next >= target : next <= target) {
+          apply(target)
           return
         }
-        if (direction === -1 && next < 0) {
-          a.frame = -1
-          a.direction = 0
-          drawIdle()
-          return
-        }
-        a.frame = next
-        drawFrame(next)
-        a.timer = window.setTimeout(step, g.frames[next].delayMs / ANIMATION_SPEED)
+        apply(next)
+        timerRef.current = window.setTimeout(step, FRAME_MS)
       }
       step()
     },
-    [drawIdle, drawFrame, stopAnim]
+    [last, apply, stop]
   )
 
-  // Устанавливаем размер canvas и рисуем начальное состояние.
+  // Инициализация: активная вкладка сразу на последнем кадре.
   useEffect(() => {
-    if (!ready) return
-    const gif = gifRef.current
-    const canvas = canvasRef.current
-    if (!gif || !canvas) return
-
-    canvas.width = gif.bbox.width
-    canvas.height = gif.bbox.height
-    canvas.style.aspectRatio = `${gif.bbox.width} / ${gif.bbox.height}`
-
-    if (!initializedRef.current) {
-      initializedRef.current = true
-      if (active) {
-        animRef.current.frame = gif.frames.length - 1
-        drawFrame(gif.frames.length - 1)
-      } else {
-        drawIdle()
-      }
-    }
+    apply(active ? last : 0)
+    prevActiveRef.current = active
+    return () => stop()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready])
-
-  // Реакция на смену цели (active / hover).
-  const targetHeld = active || hovered
-
-  useEffect(() => {
-    if (!ready || !initializedRef.current) return
-    const gif = gifRef.current
-    if (!gif || gif.frames.length === 0) return
-    const a = animRef.current
-
-    if (targetHeld) {
-      if (a.direction === 1 || a.frame === gif.frames.length - 1) return
-      play(1)
-    } else {
-      if (a.direction === -1 || a.frame === -1) return
-      play(-1)
-    }
-  }, [ready, targetHeld, active, play])
-
-  // Очистка таймера при размонтировании.
-  useEffect(() => {
-    return () => {
-      if (animRef.current.timer) window.clearTimeout(animRef.current.timer)
-    }
   }, [])
 
-  return <canvas ref={canvasRef} className={className ?? 'block w-full'} aria-hidden="true" />
+  // Hover (только desktop — hovered задаётся родителем по pointerenter для mouse).
+  useEffect(() => {
+    if (hovered) {
+      if (frameRef.current < last) play(true)
+    } else if (!active && frameRef.current > 0) {
+      play(false)
+    }
+  }, [hovered, active, play, last])
+
+  // Выбор вкладки (клик).
+  useEffect(() => {
+    const was = prevActiveRef.current
+    prevActiveRef.current = active
+    if (active && !was) {
+      if (frameRef.current >= last) {
+        // Уже на последнем кадре (hover довёл) — только bounce, без повтора кадров.
+        setBounce(true)
+        window.setTimeout(() => setBounce(false), 560)
+      } else {
+        play(true)
+      }
+    } else if (!active && was) {
+      // Предыдущая вкладка возвращается в исходное состояние.
+      stop()
+      apply(0)
+    }
+  }, [active, play, apply, last, stop])
+
+  return (
+    <img
+      src={frames[Math.min(frame, last)] ?? frames[0]}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      className={cn(className ?? 'block w-full', bounce && 'tab-icon-bounce')}
+      style={{ imageRendering: 'pixelated' }}
+    />
+  )
 }

@@ -76,6 +76,16 @@ class RecognizeCompositionRequest(BaseModel):
     images: List[str] = Field(..., description="Base64 data URL фотографий одной серии")
 
 
+class ProductIdentifyRequest(BaseModel):
+    images: List[str] = Field(..., description="Base64 data URL фотографий продукта/упаковки")
+
+
+class ProductWebSearchRequest(BaseModel):
+    brand: str = Field(default="", description="Бренд продукта")
+    name: str = Field(default="", description="Название продукта")
+    variant: Optional[str] = Field(default=None, description="Вариант продукта")
+
+
 class AnalyzeCompositionRequest(BaseModel):
     product_name: str = Field(..., min_length=1, description="Название продукта")
     brand: str = Field(default="", description="Бренд продукта")

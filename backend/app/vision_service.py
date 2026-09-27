@@ -326,3 +326,101 @@ def register_ingredients(ingredients: List[Dict[str, Any]], db_path: str = AIDER
     return registered
 
 
+# ===========================================================================
+# IDENTIFY PRODUCT (этап 1: фото продукта -> бренд/название/вариант/тип)
+# ===========================================================================
+IDENTIFY_SYSTEM_PROMPT = (
+    "Ты — система идентификации косметического продукта по фотографии упаковки. "
+    "Ты определяешь только БРЕНД, НАЗВАНИЕ и ВАРИАНТ продукта. "
+    "Ты НЕ читаешь состав (INCI), НЕ оцениваешь совместимость и НЕ придумываешь данные. "
+    "Возвращай только корректный JSON без пояснений и без markdown-разметки."
+)
+
+
+def _identify_user_prompt(image_count: int) -> str:
+    return f"""Тебе передано {image_count} фотографий одного косметического продукта (упаковка/флакон).
+
+Твоя задача — определить:
+1. brand — бренд;
+2. name — название продукта;
+3. variant — вариант/линейку, если видно (например, «для сухой кожи», SPF, оттенок);
+4. type — тип продукта (крем, сыворотка, шампунь, тональный крем и т.п.).
+
+Если что-то не видно или неоднозначно — оставь поле пустым или null. НЕ придумывай.
+Если уверенность низкая — отрази это в confidence (0..1).
+
+Верни СТРОГО один JSON-объект:
+{{"brand": "...", "name": "...", "variant": null, "type": null, "confidence": 0.0}}
+"""
+
+
+def _coerce_identification(parsed: Any) -> Dict[str, Any]:
+    if not isinstance(parsed, dict):
+        return {"brand": "", "name": "", "variant": None, "type": None, "confidence": 0.0}
+    return {
+        "brand": str(parsed.get("brand") or "").strip(),
+        "name": str(parsed.get("name") or "").strip(),
+        "variant": parsed.get("variant") or None,
+        "type": parsed.get("type") or None,
+        "confidence": float(parsed.get("confidence") or 0.0),
+    }
+
+
+async def identify_product(images: List[str]) -> Dict[str, Any]:
+    """Определяет бренд/название продукта по фотографии упаковки (DeepSeek Vision)."""
+    if not images:
+        raise ValueError("Не передано ни одной фотографии")
+    if not DEEPSEEK_API_KEY:
+        raise RuntimeError("DEEPSEEK_API_KEY не настроен на сервере")
+
+    content_blocks: List[Dict[str, Any]] = [
+        {"type": "text", "text": _identify_user_prompt(len(images))}
+    ]
+    for img in images:
+        content_blocks.append({"type": "image_url", "image_url": {"url": img}})
+
+    models: List[str] = []
+    for m in [DEEPSEEK_VISION_MODEL, "deepseek-flash"]:
+        if m and m not in models:
+            models.append(m)
+
+    last_error: Optional[str] = None
+    for model_name in models:
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=20.0)) as client:
+                response = await client.post(
+                    DEEPSEEK_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model_name,
+                        "messages": [
+                            {"role": "system", "content": IDENTIFY_SYSTEM_PROMPT},
+                            {"role": "user", "content": content_blocks},
+                        ],
+                        "stream": False,
+                    },
+                )
+            if response.status_code != 200:
+                last_error = f"DeepSeek {model_name} status {response.status_code}: {response.text[:300]}"
+                continue
+            data = response.json()
+            choices = data.get("choices") or []
+            if not choices:
+                last_error = "DeepSeek вернул пустой choices"
+                continue
+            content = (choices[0].get("message") or {}).get("content") or ""
+            if not content:
+                last_error = "DeepSeek вернул пустой content"
+                continue
+            return _coerce_identification(extract_json_from_response(content))
+        except Exception as exc:  # noqa: BLE001
+            last_error = f"DeepSeek {model_name} failed: {exc}"
+            continue
+
+    raise RuntimeError(last_error or "Не удалось определить продукт")
+
+
+
