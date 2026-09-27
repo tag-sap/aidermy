@@ -13,6 +13,8 @@ interface AnimatedTabIconProps {
 
 type Direction = 1 | -1 | 0
 
+const ANIMATION_SPEED = 3
+
 /**
  * Иконка вкладки с одноразовой GIF-анимацией (вперёд/назад).
  *
@@ -134,7 +136,7 @@ export function AnimatedTabIcon({ idleSrc, gifSrc, active, hovered, className }:
         }
         a.frame = next
         drawFrame(next)
-        a.timer = window.setTimeout(step, g.frames[next].delayMs)
+        a.timer = window.setTimeout(step, g.frames[next].delayMs / ANIMATION_SPEED)
       }
       step()
     },
