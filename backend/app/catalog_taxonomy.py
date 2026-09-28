@@ -68,7 +68,7 @@ TAXONOMY: List[Dict[str, Any]] = [
         "categories": [
             {"key": "all", "title": "Все товары категории", "keywords": []},
             {"key": "basic", "title": "Основной уход", "keywords": [
-                "body lotion", "body milk", "body cream", "body moistur", "для тела", "body butter",
+                "для тела", "уход за телом", "body care",
             ]},
             {"key": "shower", "title": "Для душа и ванны", "keywords": [
                 "shower gel", "shower", "bath", "ванн", "душ", "body wash", "гель для душа",
@@ -81,6 +81,7 @@ TAXONOMY: List[Dict[str, Any]] = [
             ]},
             {"key": "body_creams", "title": "Кремы для тела", "keywords": [
                 "body cream", "крем для тела", "body butter", "крем-масло для тела",
+                "body milk", "молочко для тела", "body lotion", "body moistur",
             ]},
             {"key": "body_scrubs", "title": "Скрабы и пилинги", "keywords": [
                 "body scrub", "скраб для тела", "body exfoliat", "body peeling",
@@ -145,7 +146,7 @@ TAXONOMY: List[Dict[str, Any]] = [
                 "concealer", "консилер", "корректор", "corrector",
             ]},
             {"key": "powders", "title": "Пудры", "keywords": [
-                "powder", "пудр", "setting powder",
+                "powder", "пудр", "setting powder", "pact", "меш-пакт", "mesh pact",
             ]},
             {"key": "blush", "title": "Румяна", "keywords": [
                 "blush", "румян", "rouge",
@@ -195,7 +196,8 @@ _CABINET_HINTS: List[Tuple[str, List[str]]] = [
     ("makeup", ["тональн", "foundation", "консилер", "concealer", "пудр", "powder", "румян", "blush",
                 "тушь", "mascara", "помад", "lipstick", "блеск для губ", "lip gloss", "lip tint",
                 "тинт", "подводка", "eyeliner", "тени", "eyeshadow", "бров", "brow", "bb крем", "cc крем",
-                "bb cream", "cc cream", "корректор", "corrector", "лак для ногтей", "nail polish"]),
+                "bb cream", "cc cream", "корректор", "corrector", "лак для ногтей", "nail polish",
+                "pact", "меш-пакт", "mesh pact", "compact"]),
     ("fragrance", ["парфюм", "parfum", "perfume", "туалетная вода", "eau de toilette", "одеколон",
                    "cologne", "духи", "eau de parfum", "парфюмерная вода"]),
 ]
@@ -273,4 +275,192 @@ def resolve_taxonomy_for_product(product: Dict[str, Any]) -> Dict[str, Any]:
     legacy = product.get("category") or ""
     category, subcategory = resolve_taxonomy(name, legacy)
     return {**product, "category": category, "subcategory": subcategory}
+
+
+
+# ---------------------------------------------------------------------------
+# Единый классификатор продукта: PPM/PM → canonical_category.
+# ---------------------------------------------------------------------------
+
+_TOP_KEYS: List[str] = [c["key"] for c in TAXONOMY]
+_BODY_AREA_BY_KEY: Dict[str, Dict[str, Any]] = {c["key"]: c for c in TAXONOMY}
+
+
+def body_area_keys() -> List[str]:
+    """Верхние категории (ключи): face/body/hair/makeup/fragrance."""
+    return list(_TOP_KEYS)
+
+
+def body_area_title(key: str) -> str:
+    return (_BODY_AREA_BY_KEY.get(key) or {}).get("title", "")
+
+
+def body_area_for_title(title: str) -> Optional[str]:
+    t = (title or "").strip().lower()
+    for c in TAXONOMY:
+        if c["title"].lower() == t:
+            return c["key"]
+    return None
+
+
+def subcategories(key: str) -> List[Dict[str, str]]:
+    """Подкатегории (key/title) без «Все товары категории»."""
+    meta = _BODY_AREA_BY_KEY.get(key) or {}
+    return [
+        {"key": s["key"], "title": s["title"]}
+        for s in meta.get("categories", [])
+        if s["key"] != "all"
+    ]
+
+
+def subcategory_titles(key: str) -> List[str]:
+    return [s["title"] for s in subcategories(key)]
+
+
+def subcategory_title_for_key(key: str, sub_key: str) -> Optional[str]:
+    for s in subcategories(key):
+        if s["key"] == sub_key:
+            return s["title"]
+    return None
+
+
+def subcategory_key_for_title(title: str) -> Optional[Tuple[str, str]]:
+    """(body_area_key, subcategory_key) по названию подкатегории."""
+    t = (title or "").strip().lower()
+    for c in TAXONOMY:
+        for s in c["categories"]:
+            if s["key"] != "all" and s["title"].lower() == t:
+                return c["key"], s["key"]
+    return None
+
+
+def canonical_subcategory(cabinet: str, raw: str) -> str:
+    """Приводит сырую категорию к канонической подкатегории (иначе «Другое»)."""
+    candidate = (raw or "").strip()
+    if not candidate:
+        return "Другое"
+    hit = subcategory_key_for_title(candidate)
+    if hit:
+        return subcategory_title_for_key(*hit) or "Другое"
+    low = candidate.lower()
+    if low in _LEGACY_FACE_MAP:
+        return _LEGACY_FACE_MAP[low][1]
+    meta = _BODY_AREA_BY_KEY.get(cabinet) or {}
+    for s in meta.get("categories", []):
+        if s["key"] == "all":
+            continue
+        if low in s["title"].lower() or s["title"].lower() in low:
+            return s["title"]
+        if _has_any(candidate, s.get("keywords", [])):
+            return s["title"]
+    return "Другое"
+
+
+def _resolve_from_text(text: str) -> Tuple[Optional[str], Optional[str], float]:
+    """Резолв (body_area, subcategory) по тексту (название + описание)."""
+    t = (text or "").replace("\n", " ").strip()
+    if not t:
+        return None, None, 0.0
+    for cabinet, hints in _CABINET_HINTS:
+        if _has_any(t, hints):
+            for cat in _BODY_AREA_BY_KEY[cabinet]["categories"]:
+                if cat["key"] == "all":
+                    continue
+                if _has_any(t, cat.get("keywords", [])):
+                    return cabinet, cat["key"], 0.7
+            return cabinet, None, 0.5
+    for cat in _BODY_AREA_BY_KEY["face"]["categories"]:
+        if cat["key"] == "all":
+            continue
+        if _has_any(t, cat.get("keywords", [])):
+            return "face", cat["key"], 0.6
+    return None, None, 0.0
+
+
+def _legacy_or_text_to_key(raw: str) -> Tuple[Optional[str], Optional[str]]:
+    """legacy-категория или свободный текст → (body_area_key, subcategory_key)."""
+    low = (raw or "").strip().lower()
+    if not low:
+        return None, None
+    if low in _LEGACY_FACE_MAP:
+        hit = subcategory_key_for_title(_LEGACY_FACE_MAP[low][1])
+        if hit:
+            return hit
+        return None, None
+    hit = subcategory_key_for_title(raw)
+    if hit:
+        return hit
+    for c in TAXONOMY:
+        for s in c["categories"]:
+            if s["key"] == "all":
+                continue
+            if _has_any(raw, s.get("keywords", [])):
+                return c["key"], s["key"]
+    return None, None
+
+
+
+def classify_product(product: Dict[str, Any]) -> Dict[str, Any]:
+    """Полная классификация продукта в таксономию каталога.
+
+    Приоритет источника категории:
+      1. manufacturer / scraper metadata (category из парсера)
+      2. существующая надёжная catalog metadata (subcategory/taxonomy_category)
+      3. название + описание
+      4. правила / dictionary (legacy map)
+      5. Vision  (placeholder — не реализовано)
+      6. LLM     (placeholder — не реализовано)
+      7. unknown
+
+    НЕ определяет категорию по INCI и НЕ угадывает: при низкой уверенности
+    отдаёт «Другое» / source=unknown.
+    """
+    name = (product.get("name") or "").replace("\n", " ").strip()
+    description = (product.get("description") or "").strip()
+    category_raw = (product.get("category") or "").strip()
+    subcategory_raw = (product.get("subcategory") or "").strip()
+    taxonomy_raw = (product.get("taxonomy_category") or "").strip()
+
+    def make(ba: str, sk: Optional[str], source: str, conf: float,
+             secondary: Optional[List[str]] = None) -> Dict[str, Any]:
+        title = subcategory_title_for_key(ba, sk) if sk else ""
+        return {
+            "body_area": ba,
+            "body_area_title": body_area_title(ba),
+            "product_type": sk or "",
+            "primary_function": title,
+            "secondary_functions": secondary or [],
+            "canonical_category": title or "Другое",
+            "category_confidence": round(conf, 3),
+            "category_source": source,
+        }
+
+    # 1. catalog metadata (subcategory + taxonomy_category — уже разрешены каталогом).
+    if subcategory_raw and subcategory_raw.lower() not in {"все товары категории", "другое", "other", ""}:
+        hit = subcategory_key_for_title(subcategory_raw)
+        if hit:
+            return make(hit[0], hit[1], "catalog", 0.95)
+
+    # 2. название + описание (надёжный сигнал о шкафе/категории).
+    ba3, sk3, conf3 = _resolve_from_text(f"{name} {description}")
+    if ba3 and sk3:
+        return make(ba3, sk3, "name", conf3)
+
+    # 3. manufacturer / scraper metadata + правила/dictionary (legacy category).
+    #    legacy-категория каталога face-центрична («Маска» для hair-маски ошибочна),
+    #    поэтому проверяется ПОСЛЕ названия, а не до него.
+    if category_raw and category_raw.lower() not in {"другое", "other", ""}:
+        ba, sk = _legacy_or_text_to_key(category_raw)
+        if ba and sk:
+            is_legacy = category_raw.lower() in _LEGACY_FACE_MAP
+            return make(ba, sk, "rules" if is_legacy else "manufacturer", 0.6 if is_legacy else 0.9)
+
+    legacy_key = category_raw.lower()
+    if legacy_key in _LEGACY_FACE_MAP:
+        hit = subcategory_key_for_title(_LEGACY_FACE_MAP[legacy_key][1])
+        if hit:
+            return make(hit[0], hit[1], "rules", 0.6)
+
+    # 7. unknown.
+    return make("", None, "unknown", 0.0)
 

@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .database import get_connection, PRODUCTS_DB
 from .ingredient_normalizer import canonicalize_ingredient_name
 from .services import capitalize_name
+from .catalog_taxonomy import TAXONOMY, classify_product, canonical_subcategory
 
 # ---------------------------------------------------------------------------
 # СТРУКТУРА ШКАФОВ
@@ -20,37 +21,18 @@ from .services import capitalize_name
 # compatibility=True означает, что для шкафа применим существующий
 # skin-scoring движок (лицо/волосы/тело). Для макияжа и парфюмерии он
 # концептуально неприменим — процент не показывается.
+# Шкафы строятся из ЕДИНОЙ таксономии каталога (catalog_taxonomy.TAXONOMY):
+# «категория» полки = подкатегория каталога, название = верхняя категория.
+_COMPATIBLE_BODIES = {"face", "hair", "body"}
+
 CABINETS: List[Dict[str, Any]] = [
     {
-        "key": "face",
-        "title": "Лицо",
-        "compatibility": True,
-        "categories": ["Очищение", "Тонизация", "Сыворотки", "Увлажнение", "SPF", "Маски"],
-    },
-    {
-        "key": "hair",
-        "title": "Волосы",
-        "compatibility": True,
-        "categories": ["Шампуни", "Кондиционеры", "Маски", "Несмываемый уход", "Стайлинг"],
-    },
-    {
-        "key": "body",
-        "title": "Тело",
-        "compatibility": True,
-        "categories": ["Гели для душа", "Кремы / лосьоны", "Скрабы", "Дезодоранты"],
-    },
-    {
-        "key": "makeup",
-        "title": "Макияж",
-        "compatibility": False,
-        "categories": ["Тональные средства", "Консилеры", "Пудры", "Румяна", "Тушь", "Помады"],
-    },
-    {
-        "key": "fragrance",
-        "title": "Парфюмерия",
-        "compatibility": False,
-        "categories": ["Парфюм", "Парфюмерная вода", "Туалетная вода"],
-    },
+        "key": c["key"],
+        "title": c["title"],
+        "compatibility": c["key"] in _COMPATIBLE_BODIES,
+        "categories": [s["title"] for s in c["categories"] if s["key"] != "all"],
+    }
+    for c in TAXONOMY
 ]
 
 CABINET_BY_KEY = {c["key"]: c for c in CABINETS}
@@ -75,41 +57,13 @@ _INFER_RULES: List[Tuple[str, List[str]]] = [
 ]
 
 # Правила подбора продуктов для категории шкафа.
+# Правила подбора продуктов = ключевые слова подкатегорий таксономии.
 RECOMMEND_RULES: Dict[str, Dict[str, Dict[str, List[str]]]] = {
-    "face": {
-        "Очищение": {"categories": ["Очищение"], "keywords": ["очищ", "cleans", "cleanser", "micellar", "мицелл", "пенк", "foam", "гель для умывания"]},
-        "Тонизация": {"categories": ["Тонер"], "keywords": ["тонер", "тоник", "toner", "tonic"]},
-        "Сыворотки": {"categories": ["Сыворотка"], "keywords": ["сыворотк", "serum"]},
-        "Увлажнение": {"categories": ["Крем"], "keywords": ["увлажн", "moistur", "крем", "cream", "гидрат", "гиалурон", "hyaluronic"]},
-        "SPF": {"categories": ["Защита"], "keywords": ["spf", "защит", "sunscreen", "солнц", "санскрин"]},
-        "Маски": {"categories": ["Маска"], "keywords": ["маск", "mask"]},
-    },
-    "hair": {
-        "Шампуни": {"categories": [], "keywords": ["шампун", "shampoo"]},
-        "Кондиционеры": {"categories": [], "keywords": ["кондиционер", "conditioner"]},
-        "Маски": {"categories": [], "keywords": ["маска для волос", "hair mask"]},
-        "Несмываемый уход": {"categories": [], "keywords": ["несмываем", "leave-in", "сыворотка для волос", "масло для волос", "hair oil", "hair serum"]},
-        "Стайлинг": {"categories": [], "keywords": ["стайлинг", "styling", "мусс", "mousse", "лак для волос", "hairspray", "гель для волос", "hair gel"]},
-    },
-    "body": {
-        "Гели для душа": {"categories": [], "keywords": ["гель для душа", "shower gel", "body wash", "душ"]},
-        "Кремы / лосьоны": {"categories": [], "keywords": ["крем для тела", "body cream", "body lotion", "лосьон", "молочко для тела", "body butter"]},
-        "Скрабы": {"categories": [], "keywords": ["скраб", "scrub", "exfoliat", "пилинг"]},
-        "Дезодоранты": {"categories": [], "keywords": ["дезодорант", "deodorant", "антиперспирант"]},
-    },
-    "makeup": {
-        "Тональные средства": {"categories": [], "keywords": ["тональн", "foundation", "bb крем", "cc крем", "bb cream", "cc cream"]},
-        "Консилеры": {"categories": [], "keywords": ["консилер", "concealer"]},
-        "Пудры": {"categories": [], "keywords": ["пудр", "powder"]},
-        "Румяна": {"categories": [], "keywords": ["румян", "blush"]},
-        "Тушь": {"categories": [], "keywords": ["тушь", "mascara"]},
-        "Помады": {"categories": [], "keywords": ["помад", "lipstick", "блеск для губ", "lip gloss", "бальзам для губ", "lip balm", "блеск", "gloss"]},
-    },
-    "fragrance": {
-        "Парфюм": {"categories": [], "keywords": ["парфюм", "parfum", "духи"]},
-        "Парфюмерная вода": {"categories": [], "keywords": ["парфюмерная вода", "eau de parfum"]},
-        "Туалетная вода": {"categories": [], "keywords": ["туалетная вода", "eau de toilette"]},
-    },
+    c["key"]: {
+        s["title"]: {"categories": [], "keywords": s["keywords"]}
+        for s in c["categories"] if s["key"] != "all"
+    }
+    for c in TAXONOMY
 }
 
 
@@ -144,24 +98,8 @@ def cabinet_applies_scoring(cabinet: str) -> bool:
 
 
 def canonical_category(cabinet: str, category: str) -> str:
-    """Приводит категорию к канонической для шкафа (иначе «Другое»)."""
-    cabinet_def = CABINET_BY_KEY.get(cabinet) or {}
-    allowed = cabinet_def.get("categories", [])
-    candidate = (category or "").strip()
-
-    # Старая категория каталога/полки → новая категория шкафа
-    if candidate.lower() in LEGACY_CATEGORY_MAP:
-        legacy_cab, legacy_cat = LEGACY_CATEGORY_MAP[candidate.lower()]
-        if legacy_cab == cabinet:
-            return legacy_cat
-
-    for c in allowed:
-        if c.lower() == candidate.lower():
-            return c
-    for c in allowed:
-        if candidate.lower() and (candidate.lower() in c.lower() or c.lower() in candidate.lower()):
-            return c
-    return "Другое"
+    """Приводит категорию к канонической подкатегории таксономии (иначе «Другое»)."""
+    return canonical_subcategory(cabinet, category)
 
 
 CATALOG_CATEGORIES = ["Очищение", "Тонер", "Сыворотка", "Крем", "Маска", "Защита"]
@@ -190,26 +128,9 @@ def normalize_imported_category(raw_category: Optional[str], name: str) -> str:
 
 
 def infer_cabinet_category(category: str, name: str) -> Tuple[str, str]:
-    """Определяет (cabinet, категория) для продукта без явного указания шкафа.
-
-    Название продукта — самый надёжный сигнал о шкафе («Body Lotion» = тело,
-    «Hair Mask» = волосы). Поэтому сначала смотрим на название и только потом —
-    на сохранённую категорию каталога (которая при импорте бывает ошибочной).
-    """
-    name_lower = (name or "").lower()
-    cat_key = (category or "").strip().lower()
-
-    # 1. Название определяет шкаф (hair/body/makeup/fragrance) надёжнее категории.
-    for cabinet, keywords in _INFER_RULES:
-        if any(k in name_lower for k in keywords):
-            cat = _infer_category_within_cabinet(name, cabinet) or canonical_category(cabinet, category or "Другое")
-            return cabinet, cat
-
-    # 2. Категория каталога (legacy map) — только для лица.
-    if cat_key in LEGACY_CATEGORY_MAP:
-        return LEGACY_CATEGORY_MAP[cat_key]
-
-    return "face", canonical_category("face", category or "Другое")
+    """Определяет (body_area, canonical_category) через единый классификатор."""
+    c = classify_product({"name": name, "category": category})
+    return c["body_area"], c["canonical_category"]
 
 
 def resolve_shelf_cabinet(category: str, cabinet: str, name: str) -> Tuple[str, str]:
@@ -243,32 +164,24 @@ def _infer_category_within_cabinet(name: str, cabinet: str) -> Optional[str]:
 def is_product_compatible(product: Dict[str, Any], cabinet: str, category: str) -> Tuple[bool, str]:
     """Проверяет, можно ли добавить продукт в выбранный шкаф/категорию.
 
-    Не блокирует продукт глобально — только неподходящую связь User→Shelf.
-    Возвращает (ok, reason).
+    Использует единый классификатор таксономии. Не блокирует продукт глобально —
+    только неподходящую связь User→Shelf. Unknown-категория не блокируется.
     """
-    name = (product.get("name") or "").replace("\n", " ").strip()
-    prod_category = product.get("category") or ""
-    natural_cabinet, natural_category = infer_cabinet_category(prod_category, name)
+    c = classify_product(product)
+    natural_cabinet = c["body_area"]
+    natural_category = c["canonical_category"]
+
+    # Unknown — не блокируем, пользователь сам выбирает шкаф/категорию.
+    if not natural_cabinet or natural_category in {"", "Другое"}:
+        return True, ""
 
     if natural_cabinet != cabinet:
         target_title = CABINET_BY_KEY.get(cabinet, {}).get("title", cabinet)
         natural_title = CABINET_BY_KEY.get(natural_cabinet, {}).get("title", natural_cabinet)
         return False, f"Этот продукт относится к шкафу «{natural_title}», а не «{target_title}»."
 
-    # Внутри шкафа «Лицо» сверяем категорию по маппингу старой категории каталога
-    if cabinet == "face" and category and category != "Другое":
-        mapped = canonical_category("face", prod_category)
-        if mapped != "Другое" and mapped != category:
-            return False, f"Этот продукт относится к категории «{mapped}», а не «{category}»."
-
-    # Для остальных шкафов сверяем категорию по ключевым словам названия
-    if cabinet != "face" and category and category != "Другое":
-        target_kws = _category_keywords(cabinet, category)
-        if target_kws and not any(k in name.lower() for k in target_kws):
-            natural_cat = _infer_category_within_cabinet(name, cabinet)
-            if natural_cat and natural_cat != category:
-                return False, f"Этот продукт относится к категории «{natural_cat}», а не «{category}»."
-            return False, f"Этот продукт не соответствует категории «{category}»."
+    if category and category != "Другое" and natural_category != category:
+        return False, f"Этот продукт относится к категории «{natural_category}», а не «{category}»."
 
     return True, ""
 # ---------------------------------------------------------------------------

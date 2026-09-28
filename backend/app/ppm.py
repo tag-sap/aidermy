@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from .ingredient_normalizer import normalize_ingredient_name
+from .catalog_taxonomy import classify_product
 from .product_model import KNOWLEDGE_VERSION, TAXONOMY_VERSION, composition_hash
 from .product_vector import build_product_vector
 from .scoring_config import SCORING_CONFIG_VERSION
@@ -33,7 +34,9 @@ def build_ppm(
     known = max(0, total - len(unknown_norm))
     coverage = (known / total) if total else 0.0
 
-    cabinet, category = _cabinet_category(product)
+    classification = classify_product(product)
+    cabinet = classification["body_area"]
+    category = classification["canonical_category"]
 
     return {
         "product_id": product.get("id"),
@@ -45,6 +48,14 @@ def build_ppm(
         "unknown_ingredients": unknown_norm,
         "cabinet": cabinet,
         "category": category,
+        "body_area": classification["body_area"],
+        "body_area_title": classification["body_area_title"],
+        "product_type": classification["product_type"],
+        "primary_function": classification["primary_function"],
+        "secondary_functions": classification["secondary_functions"],
+        "canonical_category": classification["canonical_category"],
+        "category_confidence": classification["category_confidence"],
+        "category_source": classification["category_source"],
         "knowledge_version": KNOWLEDGE_VERSION,
         "scoring_config_version": SCORING_CONFIG_VERSION,
         "taxonomy_version": TAXONOMY_VERSION,
@@ -53,7 +64,7 @@ def build_ppm(
 
 def _cabinet_category(product: Dict[str, Any]) -> Tuple[str, str]:
     try:
-        from .shelf_service import infer_cabinet_category
-        return infer_cabinet_category(product.get("category") or "", product.get("name") or "")
+        c = classify_product(product)
+        return c["body_area"], c["canonical_category"]
     except Exception:
         return "", (product.get("category") or "")

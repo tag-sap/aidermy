@@ -100,7 +100,7 @@ class PpmTests(unittest.TestCase):
         h = composition_hash(p["ingredients"])
         self.repo.save_product_model(42, {
             "product_id": 42, "composition_hash": h,
-            "taxonomy_version": "v1", "knowledge_version": "v1",
+            "taxonomy_version": "v2", "knowledge_version": "v1",
             "interaction_version": "seed-v1", "model_version": "v1",
             "classes": [], "individual_effects": {}, "internal_interaction_ids": [],
             "ingredient_names": ["glycerin", "niacinamide"],

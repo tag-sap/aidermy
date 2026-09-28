@@ -326,12 +326,14 @@ async def generate_full_report(
     ingredients: str,
     profile: dict,
     skin_type: str = "Нормальная",
+    product_type: str = "",
 ) -> dict:
     """Генерирует ВСЕ блоки отчёта по готовому результату scoring engine.
 
     Возвращает {report, active_ingredients, how_to_use, expectations}.
     Процент/verdict НЕ пересчитываются — LLM только объясняет готовый результат
-    и определяет ключевой ингредиент.
+    и определяет ключевой ингредиент. canonical_category (product_type) — только
+    контекст текста отчёта.
     """
     from .decision_engine import DecisionEngine
 
@@ -341,7 +343,7 @@ async def generate_full_report(
 
     report = None
     if DEEPSEEK_API_KEY and has_factors:
-        report = await generate_ai_report(product_name, deterministic, profile)
+        report = await generate_ai_report(product_name, deterministic, profile, product_type)
 
     sections = {"how_to_use": None, "expectations": None}
     if DEEPSEEK_API_KEY and has_factors:
@@ -399,19 +401,20 @@ async def generate_ai_review(product_name: str, skin_type: str, profile: dict, i
     }
 
 
-async def generate_ai_report(product_name: str, analysis: dict, profile: dict) -> str:
+async def generate_ai_report(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> str:
     """AI-отчёт: человеческое объяснение УЖЕ СУЩЕСТВУЮЩЕГО User Analysis.
 
     Score НЕ пересчитывается — берётся из переданного analysis (история проверок).
     AI получает исходные structured factors (ingredient + axis + direction) и
     объясняет их человеческим языком, НЕ выводя технические идентификаторы.
+    canonical_category (product_type) передаётся только как контекст текста.
     """
     from .ai_summary import summarize_with_ai
 
     analysis = analysis or {}
     score = int(analysis.get("score") or 0)
     # Передаём исходные structured factors (с axis/direction), а НЕ ingredient-only списки.
-    summary = await summarize_with_ai(product_name, score, analysis, profile or {})
+    summary = await summarize_with_ai(product_name, score, analysis, profile or {}, product_type)
     return summary or (analysis.get("summary") or "")
 
 async def _enrich_knowledge_with_ai(product_name: str, ingredients: str) -> list | None:

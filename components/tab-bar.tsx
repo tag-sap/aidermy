@@ -59,7 +59,7 @@ export function TabBar({
           aria-label="Проверить продукт"
           className="absolute -top-24 left-1/2 z-40 flex -translate-x-1/2 items-center justify-center md:hidden"
         >
-          <img src="/QRCODE.png?v=2" alt="" className="size-16 pixelated" draggable={false} />
+          <img src="/QRCODE.svg" alt="" className="size-16" draggable={false} />
         </button>
       )}
 

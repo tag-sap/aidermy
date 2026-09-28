@@ -18,13 +18,13 @@ export default function NeoPage() {
     <main className="min-h-dvh" style={{ background: '#F7F3EC' }}>
       {/* Шапка */}
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-5 md:px-6">
-        <img src="/main_logo.png?v=2" alt="aidermy" className="h-9 w-auto pixelated md:h-10" draggable={false} />
+        <img src="/main_logo.svg" alt="aidermy" className="h-9 w-auto md:h-10" draggable={false} />
         <button
           type="button"
           className="flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold text-white transition-transform hover:scale-[1.03] active:scale-95"
           style={{ ...neo, background: '#141013' }}
         >
-          <img src="/QRCODE.png?v=2" alt="" className="size-5 pixelated" draggable={false} />
+          <img src="/QRCODE.svg" alt="" className="size-5" draggable={false} />
           Проверить продукт
         </button>
       </header>

@@ -45,6 +45,7 @@ def _prompt(
     negative: List[Dict[str, Any]],
     skin_type: str,
     concerns: List[str],
+    product_type: str = "",
 ) -> str:
     pos = "; ".join(_factor_text(f) for f in positive[:6]) or "—"
     neg = "; ".join(_factor_text(f) for f in negative[:6]) or "—"
@@ -52,6 +53,7 @@ def _prompt(
         "Ты — косметолог. Объясни пользователю УЖЕ ГОТОВЫЙ результат подбора косметики "
         "обычным человеческим языком.\n\n"
         f"Продукт: {product_name}\n"
+        f"Тип продукта: {product_type or 'не указан'}\n"
         f"Тип кожи: {skin_type or 'не указан'}\n"
         f"Итоговая совместимость (рассчитана алгоритмом, НЕ меняй её): {score}%\n"
         f"Положительные факторы: {pos}\n"
@@ -69,6 +71,7 @@ async def summarize_with_ai(
     score: int,
     analysis: Dict[str, Any],
     profile: Dict[str, Any],
+    product_type: str = "",
 ) -> Optional[str]:
     """AI #3 — пишет человекочитаемое резюме. Возвращает None при недоступности AI."""
     try:
@@ -90,7 +93,7 @@ async def summarize_with_ai(
     skin_type = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
     concerns = (profile or {}).get("concerns") or []
 
-    prompt = _prompt(product_name, score, positive, negative, skin_type, concerns)
+    prompt = _prompt(product_name, score, positive, negative, skin_type, concerns, product_type)
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
         try:

@@ -65,7 +65,7 @@ export function AppHeader({
         <ParticleField />
         <div className="relative mx-auto w-full max-w-md px-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl md:px-6">
           <div className="flex items-center justify-between gap-3 py-3">
-            <img src="/main_logo.png?v=2" alt="aidermy" className="h-9 w-auto pixelated md:h-10" draggable={false} />
+            <img src="/main_logo.svg" alt="aidermy" className="h-9 w-auto md:h-10" draggable={false} />
 
             <div className="flex items-center gap-2">
             {onCheck && (
@@ -75,7 +75,7 @@ export function AppHeader({
                 className="hidden items-center gap-2 transition-all duration-200 ease-out hover:opacity-70 hover:scale-[1.03] active:scale-95 md:inline-flex"
                 aria-label="Проверить продукт"
               >
-                <img src="/QRCODE.png?v=2" alt="" className="size-10 pixelated" draggable={false} />
+                <img src="/QRCODE.svg" alt="" className="size-10" draggable={false} />
                 <span className="font-advaken text-xs text-foreground">проверить продукт</span>
               </button>
             )}

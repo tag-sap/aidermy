@@ -1342,6 +1342,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     from .database import get_product_by_slug, save_ai_report, save_analysis_report, save_analysis_details
     from .shelf_service import score_product
     from .services import generate_full_report
+    from .catalog_taxonomy import classify_product
 
     product = get_product_by_slug(request.slug)
     if not product:
@@ -1368,8 +1369,9 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     # Как применять + Чего ожидать) по уже готовому результату scoring engine.
     profile = _profile_from_user(current_user)
     skin_type = profile.get("skin_type") or "Нормальная"
+    product_type = classify_product(product).get("canonical_category") or ""
     try:
-        full = await generate_full_report(name, product.get("ingredients") or "", profile, skin_type)
+        full = await generate_full_report(name, product.get("ingredients") or "", profile, skin_type, product_type)
     except Exception as exc:
         print(f"[REVIEW] failed: {exc!r}")
         raise HTTPException(status_code=502, detail="Не удалось сформировать отчёт") from exc

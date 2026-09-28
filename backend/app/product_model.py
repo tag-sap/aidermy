@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 from .ingredient_normalizer import normalize_ingredient_name
 from .instrumentation import METRICS
 
-TAXONOMY_VERSION = "v1"
+TAXONOMY_VERSION = "v2"
 KNOWLEDGE_VERSION = "v1"
 INTERACTION_VERSION = "seed-v1"
 MODEL_VERSION = "v1"

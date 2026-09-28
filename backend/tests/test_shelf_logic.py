@@ -9,7 +9,7 @@ from app.decision_engine import build_summary
 def test_body_lotion_not_face_toner():
     cabinet, cat = infer_cabinet_category("Тонер", "Naturium Bio-Lipid Restoring Body Lotion")
     assert cabinet == "body"
-    assert cat == "Кремы / лосьоны"
+    assert cat == "Кремы для тела"
 
 
 def test_hair_mask_not_face_mask():
@@ -20,14 +20,14 @@ def test_hair_mask_not_face_mask():
 def test_toner_stays_face():
     cabinet, cat = infer_cabinet_category("Тонер", "Hydrating Facial Toner")
     assert cabinet == "face"
-    assert cat == "Тонизация"
+    assert cat == "Тонизирование"
 
 
 def test_body_lotion_rejected_for_face_toner():
     ok, reason = is_product_compatible(
         {"name": "Naturium Bio-Lipid Restoring Body Lotion", "category": "Тонер"},
         "face",
-        "Тонизация",
+        "Тонизирование",
     )
     assert ok is False
 

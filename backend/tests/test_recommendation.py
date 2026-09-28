@@ -38,19 +38,19 @@ def _product(category, name, slug, ingredients="Aqua, Glycerin"):
 class CompatibilityTests(unittest.TestCase):
     def test_cleanser_not_compatible_with_moisturizer(self):
         p = _product("Крем", "Увлажняющий крем", "cream-1")
-        ok, _reason = is_product_compatible(p, "face", "Очищение")
+        ok, _reason = is_product_compatible(p, "face", "Очищение и демакияж")
         self.assertFalse(ok)
 
     def test_cleanser_compatible_with_cleansing(self):
         p = _product("Очищение", "Гель для умывания", "cleanser-1")
-        ok, _reason = is_product_compatible(p, "face", "Очищение")
+        ok, _reason = is_product_compatible(p, "face", "Очищение и демакияж")
         self.assertTrue(ok)
 
     def test_face_product_not_compatible_with_hair(self):
         p = _product("Крем", "Крем для лица", "face-cream")
         ok, reason = is_product_compatible(p, "hair", "Шампуни")
         self.assertFalse(ok)
-        self.assertIn("Лицо", reason)
+        self.assertIn("Уход для лица", reason)
 
 
 class RecommendationTests(unittest.TestCase):
@@ -66,7 +66,7 @@ class RecommendationTests(unittest.TestCase):
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=True), \
              patch("app.shelf_service._find_history_score", return_value=(80, None)):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", set()))
         names = [r["name"] for r in recs]
         self.assertNotIn("Увлажняющий крем B", names)
         for name in names:
@@ -78,7 +78,7 @@ class RecommendationTests(unittest.TestCase):
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=True), \
              patch("app.shelf_service._find_history_score", return_value=(80, None)):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", {"clean-a"}))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", {"clean-a"}))
         names = [r["name"] for r in recs]
         self.assertNotIn("Гель для умывания A", names)
 
@@ -94,7 +94,7 @@ class RecommendationTests(unittest.TestCase):
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=True), \
              patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", set()))
 
         self.assertEqual(len(recs), 3)
         ordered = [r["score"] for r in recs]
@@ -116,7 +116,7 @@ class RecommendationTests(unittest.TestCase):
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", side_effect=has_model), \
              patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (80, None) if p["slug"] == "prepared" else (None, None)):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", set()))
 
         self.assertEqual([r["slug"] for r in recs], ["prepared"])
         self.assertEqual(recs[0]["score"], 80)
@@ -132,7 +132,7 @@ class RecommendationTests(unittest.TestCase):
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=False), \
              patch("app.shelf_service._find_history_score", return_value=(80, None)):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", set()))
         self.assertEqual(len(recs), 2)
 
     def test_recommendation_returns_fewer_than_three_when_not_enough_prepared(self):
@@ -156,32 +156,32 @@ class RecommendationTests(unittest.TestCase):
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", side_effect=has_model), \
              patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)), \
              patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.0, "score": 0}):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", set()))
         self.assertEqual(sorted([r["slug"] for r in recs]), ["a", "c"])
 
     def test_prepared_product_without_history_is_recommended(self):
         # Static Product Model есть, истории нет → продукт остаётся в подборе,
         # персональный score рассчитывается детерминированно (не из истории).
-        candidates = [_product("Очищение", "Serum", "serum", "Aqua, Glycerin, Betaine")]
+        candidates = [_product("Очищение", "Cleanser", "cleanser", "Aqua, Glycerin, Betaine")]
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=True), \
              patch("app.shelf_service._find_history_score", return_value=(None, None)), \
              patch("app.shelf_service._deterministic_analysis", return_value={"confidence": 0.8, "score": 61, "positive_factors": [{"ingredient": "glycerin"}]}):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", set()))
         self.assertEqual(len(recs), 1)
-        self.assertEqual(recs[0]["slug"], "serum")
+        self.assertEqual(recs[0]["slug"], "cleanser")
         self.assertEqual(recs[0]["score"], 61)
 
     def test_history_alone_includes_product(self):
         # История есть (даже без Static Product Model) → продукт попадает в подбор
         # со score из истории. Модель больше не является жёстким фильтром.
-        candidates = [_product("Очищение", "Serum", "serum", "Aqua, Glycerin")]
+        candidates = [_product("Очищение", "Cleanser", "cleanser", "Aqua, Glycerin")]
         with patch("app.shelf_service._query_candidates", return_value=candidates), \
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=False), \
              patch("app.shelf_service._find_history_score", return_value=(80, None)):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", set()))
         self.assertEqual(len(recs), 1)
         self.assertEqual(recs[0]["score"], 80)
 
@@ -239,7 +239,7 @@ class RecommendationTests(unittest.TestCase):
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=True), \
              patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", set()))
         self.assertEqual([r["slug"] for r in recs], ["b", "a"])
         for r in recs:
             self.assertIsNone(r["shelf_compatibility"])
@@ -257,7 +257,7 @@ class RecommendationTests(unittest.TestCase):
              patch("app.shelf_service._load_shelf_products", return_value=shelf), \
              patch("app.ingredient_repository.IngredientRepository.has_current_product_model", return_value=True), \
              patch("app.shelf_service._find_history_score", side_effect=lambda u, p, **kw: (scores.get(p["slug"], None), None)):
-            recs = asyncio.run(recommend_products(USER, "face", "Очищение", set()))
+            recs = asyncio.run(recommend_products(USER, "face", "Очищение и демакияж", set()))
         self.assertEqual([r["slug"] for r in recs], ["b", "a"])
         by = {r["slug"]: r for r in recs}
         # Product Compatibility одинаковый (не уничтожен), Shelf Compatibility разный.
