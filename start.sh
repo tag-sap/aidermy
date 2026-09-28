@@ -11,11 +11,8 @@ case "$1" in
     curl -s http://127.0.0.1:8000/api/health > /dev/null && echo "✅ Бэкенд работает" || echo "❌ Бэкенд не работает"
     ;;
   frontend)
-    echo "🔄 Запуск фронтенда..."
-    cd /var/www/aidermy
-    pkill -f "next-server" 2>/dev/null
-    pkill -f "node.*next" 2>/dev/null
-    npm start > next.log 2>&1 &
+    echo "🔄 Запуск фронтенда (systemd)..."
+    systemctl restart aidermy-frontend
     sleep 3
     curl -s http://127.0.0.1:3000 > /dev/null && echo "✅ Фронтенд работает" || echo "❌ Фронтенд не работает"
     ;;
@@ -26,6 +23,7 @@ case "$1" in
   status)
     echo "=== ПРОЦЕССЫ ==="
     ps aux | grep -E 'gunicorn|next-server' | grep -v grep
+    echo "systemd фронтенд: $(systemctl is-active aidermy-frontend 2>/dev/null)"
     echo ""
     echo "=== ПОРТЫ ==="
     ss -tlnp | grep -q ':8000' && echo "✅ Бэкенд (8000) запущен" || echo "❌ Бэкенд (8000) не запущен"
