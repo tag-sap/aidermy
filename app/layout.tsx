@@ -13,6 +13,8 @@ const playfair = Playfair_Display({
   variable: '--font-playfair',
 })
 
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   title: 'Aidermy — AI-проверка косметики',
   description:

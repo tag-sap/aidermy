@@ -1,5 +1,7 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useEffect, useState, useRef } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
 import { AppHeader } from '@/components/app-header'
