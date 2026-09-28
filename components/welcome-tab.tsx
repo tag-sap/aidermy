@@ -110,7 +110,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
           </div>
         </div>
         <div className="mx-auto mt-auto w-full max-w-md px-5 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:max-w-5xl">
-          <div className="border-t border-white/10 pt-5 text-xs text-white/40">
+          <div className="border-t border-white/10 pt-5 text-xs text-white/40" suppressHydrationWarning>
             © {new Date().getFullYear()} aidermy. Все права защищены.
           </div>
         </div>

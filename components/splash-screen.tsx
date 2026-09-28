@@ -31,9 +31,17 @@ export function SplashScreen() {
         fadeOut ? 'opacity-0' : 'opacity-100'
       }`}
     >
-      {/* Гифка с прозрачным фоном — показываем как есть, без дополнительной подложки */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/loading.gif" alt="Загрузка" className="h-auto w-40" />
+      <div className="flex flex-col items-center gap-5">
+        <div className="relative flex size-16 items-center justify-center">
+          <div className="absolute inset-0 animate-spin rounded-full border-[3px] border-[#151515]/10 border-t-[#151515]" />
+          <span className="font-[family-name:var(--font-playfair)] text-2xl leading-none text-[#151515]">
+            a
+          </span>
+        </div>
+        <span className="text-[11px] font-medium uppercase tracking-[0.25em] text-[#151515]/50">
+          Загрузка
+        </span>
+      </div>
     </div>
   )
 }

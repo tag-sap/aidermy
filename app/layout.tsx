@@ -33,6 +33,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -43,7 +44,6 @@ export default function RootLayout({
   return (
     <html lang="ru" className={`dark bg-background ${inter.variable} ${playfair.variable}`}>
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
         <link rel="icon" href="/favicon.ico" sizes="32x32" />
         <link rel="icon" href="/icon-192.png" type="image/png" />
         <link rel="apple-touch-icon" href="/apple-icon.png" />
