@@ -776,6 +776,20 @@ def get_all_products(limit: int = 100):
     conn.close()
     return [dict(row) for row in rows]
 
+def get_all_canonical_products():
+    """Все canonical продукты с непустым составом (для vector retrieval)."""
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, name, slug, image_url, category, brand, ingredients, taxonomy_category
+        FROM products
+        WHERE is_canonical = 1 AND ingredients IS NOT NULL AND trim(ingredients) != ''
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
 def get_product_count():
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()

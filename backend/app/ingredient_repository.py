@@ -70,6 +70,10 @@ _CLASS_ROUTES = [
 
 
 class IngredientRepository:
+    # Guard для идемпотентных ensure-таблиц: CREATE TABLE IF NOT EXISTS дешевле
+    # не повторять тысячи раз в batch-циклах (путь к БД уникален).
+    _ensured_tables: set = set()
+
     def __init__(self, db_path: str = AIDERMY_DB):
         self.db_path = db_path
 
@@ -678,6 +682,10 @@ class IngredientRepository:
     # Фаза 5 — Static Product Model (кэш объективного состояния продукта)
     # ------------------------------------------------------------------
     def ensure_product_model_tables(self) -> None:
+        key = ("pm", self.db_path)
+        if key in self._ensured_tables:
+            return
+        self._ensured_tables.add(key)
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
@@ -765,6 +773,226 @@ class IngredientRepository:
         if composition_hash is not None and data.get("composition_hash") != composition_hash:
             return False
         return True
+
+    # ------------------------------------------------------------------
+    # Фаза 10 — PPM + единый Product Vector index (retrieval layer)
+    # ------------------------------------------------------------------
+    def ensure_ppm_tables(self) -> None:
+        key = ("ppm", self.db_path)
+        if key in self._ensured_tables:
+            return
+        self._ensured_tables.add(key)
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS product_ppms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL UNIQUE,
+                composition_hash TEXT NOT NULL,
+                vector TEXT NOT NULL,
+                coverage REAL NOT NULL DEFAULT 0,
+                known_count INTEGER NOT NULL DEFAULT 0,
+                unknown_count INTEGER NOT NULL DEFAULT 0,
+                unknown_ingredients TEXT NOT NULL DEFAULT '[]',
+                cabinet TEXT DEFAULT '',
+                category TEXT DEFAULT '',
+                knowledge_version TEXT DEFAULT '',
+                scoring_config_version TEXT DEFAULT '',
+                taxonomy_version TEXT DEFAULT '',
+                superseded INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS product_vectors (
+                product_id INTEGER NOT NULL UNIQUE,
+                representation_type TEXT NOT NULL,
+                composition_hash TEXT NOT NULL,
+                v_hydration REAL DEFAULT 0,
+                v_barrier REAL DEFAULT 0,
+                v_irritation REAL DEFAULT 0,
+                v_sensitization REAL DEFAULT 0,
+                v_sebum REAL DEFAULT 0,
+                v_pigmentation REAL DEFAULT 0,
+                coverage REAL DEFAULT 0,
+                unknown_count INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS ppm_unknown_index (
+                ingredient TEXT NOT NULL,
+                product_id INTEGER NOT NULL,
+                PRIMARY KEY (ingredient, product_id)
+            )
+            '''
+        )
+        conn.commit()
+        conn.close()
+
+    def save_ppm(self, ppm: Dict[str, Any]) -> int:
+        self.ensure_ppm_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT OR REPLACE INTO product_ppms
+                (product_id, composition_hash, vector, coverage, known_count,
+                 unknown_count, unknown_ingredients, cabinet, category,
+                 knowledge_version, scoring_config_version, taxonomy_version,
+                 superseded, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+            ''',
+            (
+                ppm["product_id"],
+                ppm["composition_hash"],
+                json.dumps(ppm.get("vector") or {}, ensure_ascii=False),
+                ppm.get("coverage", 0.0),
+                ppm.get("known_count", 0),
+                ppm.get("unknown_count", 0),
+                json.dumps(ppm.get("unknown_ingredients") or [], ensure_ascii=False),
+                ppm.get("cabinet") or "",
+                ppm.get("category") or "",
+                ppm.get("knowledge_version") or "",
+                ppm.get("scoring_config_version") or "",
+                ppm.get("taxonomy_version") or "",
+            ),
+        )
+        # Reverse index в том же соединении (иначе — SQLite lock на вложенных connect).
+        cursor.execute("DELETE FROM ppm_unknown_index WHERE product_id = ?", (ppm["product_id"],))
+        for ing in (ppm.get("unknown_ingredients") or []):
+            cursor.execute(
+                "INSERT OR IGNORE INTO ppm_unknown_index (ingredient, product_id) VALUES (?, ?)",
+                (ing, ppm["product_id"]),
+            )
+        conn.commit()
+        conn.close()
+        return ppm["product_id"]
+
+    def get_ppm(self, product_id: int) -> Optional[Dict[str, Any]]:
+        self.ensure_ppm_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT * FROM product_ppms WHERE product_id = ?", (product_id,)).fetchone()
+        conn.close()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["vector"] = json.loads(d.get("vector") or "{}")
+        except Exception:
+            d["vector"] = {}
+        try:
+            d["unknown_ingredients"] = json.loads(d.get("unknown_ingredients") or "[]")
+        except Exception:
+            d["unknown_ingredients"] = []
+        return d
+
+    def has_current_ppm(self, product_id: int, composition_hash: str) -> bool:
+        ppm = self.get_ppm(product_id)
+        if not ppm or ppm.get("composition_hash") != composition_hash:
+            return False
+        from .product_model import KNOWLEDGE_VERSION, TAXONOMY_VERSION
+        from .scoring_config import SCORING_CONFIG_VERSION
+        return (
+            ppm.get("knowledge_version") == KNOWLEDGE_VERSION
+            and ppm.get("scoring_config_version") == SCORING_CONFIG_VERSION
+            and ppm.get("taxonomy_version") == TAXONOMY_VERSION
+        )
+
+    def save_product_vector(
+        self,
+        product_id: int,
+        representation_type: str,
+        vector: Dict[str, float],
+        composition_hash: str,
+        coverage: float = 0.0,
+        unknown_count: int = 0,
+    ) -> int:
+        self.ensure_ppm_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT OR REPLACE INTO product_vectors
+                (product_id, representation_type, composition_hash,
+                 v_hydration, v_barrier, v_irritation, v_sensitization, v_sebum,
+                 v_pigmentation, coverage, unknown_count, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''',
+            (
+                product_id,
+                representation_type,
+                composition_hash,
+                vector.get("hydration", 0.0),
+                vector.get("barrier", 0.0),
+                vector.get("irritation", 0.0),
+                vector.get("sensitization", 0.0),
+                vector.get("sebum", 0.0),
+                vector.get("pigmentation", 0.0),
+                coverage,
+                unknown_count,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        return product_id
+
+    def get_product_vector(self, product_id: int) -> Optional[Dict[str, Any]]:
+        self.ensure_ppm_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT * FROM product_vectors WHERE product_id = ?", (product_id,)).fetchone()
+        conn.close()
+        return dict(row) if row else None
+
+    def get_all_product_vectors(self) -> List[Dict[str, Any]]:
+        self.ensure_ppm_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        rows = [dict(r) for r in cursor.execute("SELECT * FROM product_vectors").fetchall()]
+        conn.close()
+        return rows
+
+    def delete_product_vector(self, product_id: int) -> None:
+        self.ensure_ppm_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM product_vectors WHERE product_id = ?", (product_id,))
+        conn.commit()
+        conn.close()
+
+    def set_ppm_unknown_index(self, ingredient: str, product_id: int) -> None:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO ppm_unknown_index (ingredient, product_id) VALUES (?, ?)",
+            (ingredient, product_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def clear_ppm_unknown_index(self, product_id: int) -> None:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM ppm_unknown_index WHERE product_id = ?", (product_id,))
+        conn.commit()
+        conn.close()
+
+    def get_ppms_by_unknown_ingredient(self, ingredient: str) -> List[int]:
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        rows = cursor.execute(
+            "SELECT product_id FROM ppm_unknown_index WHERE ingredient = ?", (ingredient,)
+        ).fetchall()
+        conn.close()
+        return [int(r["product_id"]) for r in rows]
 
     def initialize_knowledge_graph(self) -> Dict[str, int]:
         """Startup/migration: создаёт таблицы + seed (идемпотентно).

@@ -873,7 +873,12 @@ async def recommend_products(
     profile = _build_user_profile(user)
     _skin = profile["skin_type"]
 
-    candidates = _query_candidates(cabinet, category)
+    # Candidate discovery: vector retrieval (Clamped Dot) либо legacy SQL-фильтр.
+    from . import vector_retrieval
+    if vector_retrieval.VECTOR_RETRIEVAL_ENABLED:
+        candidates = vector_retrieval.retrieve_candidates(profile, cabinet, category, exclude_slugs)
+    else:
+        candidates = _query_candidates(cabinet, category)
     METRICS.set_gauge("ingredient_count", len(candidates))
     rule = (RECOMMEND_RULES.get(cabinet) or {}).get(category) or {}
     keywords = rule.get("keywords") or []

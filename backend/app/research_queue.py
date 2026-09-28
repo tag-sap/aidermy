@@ -126,7 +126,7 @@ async def run_research(
                 METRICS.increment("research_success")
             else:
                 METRICS.increment("research_failure")
-            invalidate_knowledge_caches()
+            invalidate_knowledge_caches(unknown_ingredients)
             return status
         if time.perf_counter() - t0 > timeout:
             METRICS.increment("research_wait_timeout")
@@ -405,8 +405,12 @@ def _parse_json_records(content: str) -> Optional[List[dict]]:
     return None
 
 
-def invalidate_knowledge_caches() -> None:
-    """Инвалидирует Knowledge Graph + Static Product Model после Research."""
+def invalidate_knowledge_caches(enriched_ingredients: Optional[List[str]] = None) -> None:
+    """Инвалидирует Knowledge Graph + Static Product Model после Research.
+
+    При наличии enriched_ingredients дополнительно делает targeted invalidation:
+    пересобирает только те PPM, которые содержали обогащённый ингредиент как unknown.
+    """
     try:
         from .ingredient_graph import GRAPH
         GRAPH.invalidate()
@@ -418,4 +422,10 @@ def invalidate_knowledge_caches() -> None:
         pm._context_cache.clear()
     except Exception:
         pass
+    if enriched_ingredients:
+        try:
+            from .ppm_service import refresh_ppms_for_ingredients
+            refresh_ppms_for_ingredients(enriched_ingredients)
+        except Exception:
+            pass
 
