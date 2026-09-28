@@ -1,8 +1,17 @@
 import os
 import re
+import logging
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+# Пишем диагностические логи в файл (gunicorn --daemon уводит stderr в /dev/null).
+logging.basicConfig(
+    filename=os.path.join(os.path.dirname(__file__), '..', 'aidermy_app.log'),
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+)
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Header
 from pydantic import BaseModel
@@ -235,7 +244,12 @@ async def identify_product_endpoint(request: ProductIdentifyRequest):
     """Этап 1: фото продукта -> бренд/название -> поиск в собственной БД."""
     try:
         identified = await identify_product(request.images)
+        logger.info(
+            "[IDENTIFY] vision -> brand=%r name=%r variant=%r",
+            identified.get("brand"), identified.get("name"), identified.get("variant"),
+        )
         product = find_product_in_db(identified.get("brand") or "", identified.get("name") or "")
+        logger.info("[IDENTIFY] db lookup -> %s", "FOUND" if product else "MISS")
         return {
             "identified": identified,
             "product": product,
@@ -246,6 +260,7 @@ async def identify_product_endpoint(request: ProductIdentifyRequest):
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
+        logger.exception("[IDENTIFY] failed")
         print(f"❌ Ошибка идентификации продукта: {exc!r}")
         raise HTTPException(status_code=500, detail="Не удалось определить продукт") from exc
 

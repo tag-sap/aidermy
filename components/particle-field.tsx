@@ -157,6 +157,14 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
   }
   window.addEventListener('resize', onResize)
 
+  // Отслеживаем изменение размера header (например, появление/скрытие заголовка),
+  // чтобы частицы всегда пересчитывались под фактические границы header.
+  let ro: ResizeObserver | null = null
+  if (typeof ResizeObserver !== 'undefined' && cv.parentElement) {
+    ro = new ResizeObserver(onResize)
+    ro.observe(cv.parentElement)
+  }
+
   const onVis = () => {
     if (document.hidden) {
       live = false
@@ -175,5 +183,6 @@ function initField(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     window.removeEventListener('pointerleave', onLeave)
     window.removeEventListener('resize', onResize)
     document.removeEventListener('visibilitychange', onVis)
+    if (ro) ro.disconnect()
   }
 }

@@ -4,12 +4,23 @@
 from __future__ import annotations
 
 import re
+import logging
 from typing import Any, Dict, Optional
 
 import httpx
 
 from . import database
 from .product_dedup import _MATCH_THRESHOLD, match_score
+
+logger = logging.getLogger(__name__)
+
+# Реалистичный User-Agent: DuckDuckGo возвращает 202 (антибот) для ботоподобных UA.
+_WEBSEARCH_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+# Маркеры рекламных результатов DuckDuckGo — их пропускаем (нужен органический URL).
+_AD_MARKERS = ("ad_domain", "ad_provider", "doubleclick", "bing.com/aclick", "aclick")
 
 
 def _normalize(s: str) -> str:
@@ -74,8 +85,7 @@ async def _search_product_url(brand: str, name: str, variant: Optional[str] = No
     """Ищет ссылку на страницу продукта (best-effort, без API-ключа).
 
     Использует публичный HTML-эндпоинт DuckDuckGo ТОЛЬКО как способ получить URL.
-    INCI из поисковой выдачи не извлекается. Если поиск недоступен или ничего
-    не нашлось — возвращает None (оркестратор перейдёт к fallback).
+    INCI из поисковой выдачи не извлекается. Пропускает рекламные результаты.
     """
     query = " ".join(x for x in (brand, name, variant) if x and x.strip()).strip()
     if not query:
@@ -85,20 +95,29 @@ async def _search_product_url(brand: str, name: str, variant: Optional[str] = No
             resp = await client.get(
                 "https://html.duckduckgo.com/html/",
                 params={"q": query},
-                headers={"User-Agent": "Mozilla/5.0 (compatible; AidermyBot/1.0)"},
+                headers={"User-Agent": _WEBSEARCH_UA},
             )
         if resp.status_code != 200:
+            logger.warning("[WEBSEARCH] DuckDuckGo status=%s for query=%r", resp.status_code, query)
             return None
         html = resp.text
-        # Первый внешний результат: ссылка вида <a rel="nofollow" class="result__a" href="...">
-        m = re.search(r'class="result__a"[^>]*href="([^"]+)"', html)
-        if not m:
+        urls: list[str] = []
+        for m in re.finditer(r'class="result__a"[^>]*href="([^"]+)"', html):
+            uddg = re.search(r"uddg=([^&]+)", m.group(1))
+            if not uddg:
+                continue
+            url = _unquote(uddg.group(1))
+            low = url.lower()
+            if any(marker in low for marker in _AD_MARKERS):
+                continue  # пропускаем рекламу
+            urls.append(url)
+        if not urls:
+            logger.warning("[WEBSEARCH] no organic URLs for query=%r", query)
             return None
-        # DDG оборачивает ссылку в свой редирект — извлекаем реальный URL из uddg.
-        url = m.group(1)
-        uddg = re.search(r"uddg=([^&]+)", url)
-        return _unquote(uddg.group(1)) if uddg else None
-    except Exception:  # noqa: BLE001
+        logger.info("[WEBSEARCH] query=%r -> %s", query, urls[0])
+        return urls[0]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[WEBSEARCH] search failed for query=%r: %s", query, exc)
         return None
 
 
@@ -155,12 +174,18 @@ async def web_search_product(brand: str, name: str, variant: Optional[str] = Non
         return None
     try:
         imported = await import_product(url)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[WEBSEARCH] import_product failed for url=%s: %s", url, exc)
         return None
 
     if not imported.name:
+        logger.warning("[WEBSEARCH] import_product returned empty name for url=%s", url)
         return None
     if not _is_matching_product(imported.brand or "", imported.name, brand, name, variant):
+        logger.warning(
+            "[WEBSEARCH] product mismatch: vision=%r %r vs imported=%r %r",
+            brand, name, imported.brand, imported.name,
+        )
         return None
 
     ingredients = (imported.ingredients_raw or "").strip()
@@ -176,5 +201,7 @@ async def web_search_product(brand: str, name: str, variant: Optional[str] = Non
     }
     # INCI должен быть надёжным (несколько ингредиентов), иначе fallback.
     if not has_reliable_inci(result):
+        logger.warning("[WEBSEARCH] unreliable INCI for url=%s (%d chars)", url, len(ingredients))
         return None
+    logger.info("[WEBSEARCH] saved product %r (%d INCI chars)", imported.name, len(ingredients))
     return result

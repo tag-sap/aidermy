@@ -72,7 +72,7 @@ export function AppHeader({
               <button
                 type="button"
                 onClick={onCheck}
-                className="hidden items-center gap-2 md:inline-flex"
+                className="hidden items-center gap-2 transition-all duration-200 ease-out hover:opacity-70 hover:scale-[1.03] active:scale-95 md:inline-flex"
                 aria-label="Проверить продукт"
               >
                 <img src="/QRCODE.png?v=2" alt="" className="size-10 pixelated" draggable={false} />

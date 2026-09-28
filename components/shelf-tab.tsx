@@ -532,7 +532,7 @@ export function ShelfTab({
 
                     {/* Интерактивный узел «+» — последний пустой слот */}
                     {isLastShelf && (
-                      <div data-shelf-add-node className="relative">
+                      <div data-shelf-add-node className="relative mt-[20px]">
                         <button
                           onClick={() => setAddNodeOpen(true)}
                           className="flex h-[210px] w-[160px] items-center justify-center rounded-2xl border border-dashed border-gray-300/70 text-muted-foreground/40 transition-colors hover:text-primary"
