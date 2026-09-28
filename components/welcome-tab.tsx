@@ -25,6 +25,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
         <div className="relative h-[74vh] min-h-[480px] overflow-hidden">
           <video
             src="/header_video.mp4"
+            poster="/header_video_poster.jpg"
             autoPlay
             muted
             playsInline
