@@ -27,11 +27,14 @@ def retrieve_candidates(
     Возвращает обычные product-dict'ы (как _query_candidates) — БЕЗ внутренних
     полей (vector / retrieval score / coverage / PPM). Они не должны попасть в API.
     """
-    from .profile_resolver import resolve_personal_profile
+    from .decision_engine import profile_weights
     from .database import get_all_canonical_products
     from .shelf_service import _hard_filter_exclusion, is_product_compatible
 
-    weights = resolve_personal_profile(profile)["weights"]
+    # Тот же источник весов, что и у deterministic scoring (profile_weights),
+    # чтобы retrieval находил именно то, что scoring оценит высоко. Для legacy
+    # RU-профилей profile_weights делает legacy→structured mapping (не равномерные).
+    weights = profile_weights(profile)
 
     if not VECTOR_INDEX.is_loaded():
         load_vector_index()

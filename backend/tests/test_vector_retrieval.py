@@ -142,8 +142,8 @@ class PpmTests(unittest.TestCase):
              patch("app.database.get_all_canonical_products", return_value=products), \
              patch("app.shelf_service.is_product_compatible", return_value=(True, "")), \
              patch("app.shelf_service._hard_filter_exclusion", return_value=False), \
-             patch("app.profile_resolver.resolve_personal_profile",
-                   return_value={"weights": {k: 1 / 6 for k in AXES}}):
+             patch("app.decision_engine.profile_weights",
+                   return_value={k: 1 / 6 for k in AXES}):
             recs = vector_retrieval.retrieve_candidates(
                 {"skin_type": "dry"}, "face", "Очищение", set())
 
