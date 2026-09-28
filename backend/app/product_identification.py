@@ -3,6 +3,7 @@
 # Это orchestration/navigation layer: использует существующие scraper/vision_service/database.
 from __future__ import annotations
 
+import asyncio
 import re
 import logging
 from typing import Any, Dict, Optional
@@ -90,35 +91,38 @@ async def _search_product_url(brand: str, name: str, variant: Optional[str] = No
     query = " ".join(x for x in (brand, name, variant) if x and x.strip()).strip()
     if not query:
         return None
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=8.0), follow_redirects=True) as client:
-            resp = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": query},
-                headers={"User-Agent": _WEBSEARCH_UA},
-            )
-        if resp.status_code != 200:
-            logger.warning("[WEBSEARCH] DuckDuckGo status=%s for query=%r", resp.status_code, query)
-            return None
-        html = resp.text
-        urls: list[str] = []
-        for m in re.finditer(r'class="result__a"[^>]*href="([^"]+)"', html):
-            uddg = re.search(r"uddg=([^&]+)", m.group(1))
-            if not uddg:
-                continue
-            url = _unquote(uddg.group(1))
-            low = url.lower()
-            if any(marker in low for marker in _AD_MARKERS):
-                continue  # пропускаем рекламу
-            urls.append(url)
-        if not urls:
-            logger.warning("[WEBSEARCH] no organic URLs for query=%r", query)
-            return None
-        logger.info("[WEBSEARCH] query=%r -> %s", query, urls[0])
-        return urls[0]
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[WEBSEARCH] search failed for query=%r: %s", query, exc)
-        return None
+    # DuckDuckGo периодически возвращает 202 (антибот) — пробуем несколько раз с backoff.
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=8.0), follow_redirects=True) as client:
+                resp = await client.get(
+                    "https://html.duckduckgo.com/html/",
+                    params={"q": query},
+                    headers={"User-Agent": _WEBSEARCH_UA},
+                )
+            if resp.status_code != 200:
+                logger.warning("[WEBSEARCH] DuckDuckGo status=%s (attempt %d) query=%r", resp.status_code, attempt + 1, query)
+            else:
+                html = resp.text
+                urls: list[str] = []
+                for m in re.finditer(r'class="result__a"[^>]*href="([^"]+)"', html):
+                    uddg = re.search(r"uddg=([^&]+)", m.group(1))
+                    if not uddg:
+                        continue
+                    url = _unquote(uddg.group(1))
+                    low = url.lower()
+                    if any(marker in low for marker in _AD_MARKERS):
+                        continue  # пропускаем рекламу
+                    urls.append(url)
+                if urls:
+                    logger.info("[WEBSEARCH] query=%r -> %s", query, urls[0])
+                    return urls[0]
+                logger.warning("[WEBSEARCH] no organic URLs (attempt %d) query=%r", attempt + 1, query)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[WEBSEARCH] search failed (attempt %d) query=%r: %s", attempt + 1, query, exc)
+        if attempt < 2:
+            await asyncio.sleep(1.5 * (attempt + 1))
+    return None
 
 
 def _unquote(s: str) -> str:
