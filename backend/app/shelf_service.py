@@ -184,6 +184,21 @@ def is_product_compatible(product: Dict[str, Any], cabinet: str, category: str) 
         return False, f"Этот продукт относится к категории «{natural_category}», а не «{category}»."
 
     return True, ""
+
+
+def _is_other_category(product: Dict[str, Any]) -> bool:
+    """True, если товар относится к категории «Другое» (не классифицирован).
+
+    Товары «Другое» исключаются из рекомендаций, но остаются в каталоге, поиске,
+    карточке и могут добавляться на полку вручную. Фильтр применяется только к
+    candidate pool рекомендаций, а не к ручному добавлению (is_product_compatible
+    для «Другое» по-прежнему возвращает True).
+    """
+    try:
+        c = classify_product(product)
+    except Exception:
+        return False
+    return c.get("canonical_category") == "Другое"
 # ---------------------------------------------------------------------------
 # СКОРИНГ
 # ---------------------------------------------------------------------------
@@ -650,6 +665,7 @@ def _query_candidates(cabinet: str, category: str) -> List[Dict[str, Any]]:
                 rows.append(r)
 
     conn.close()
+    rows = [r for r in rows if not _is_other_category(r)]
     return rows[:60]
 
 
@@ -843,6 +859,10 @@ async def recommend_products(
             continue
         seen_ids.add(pid)
         seen_names.add(norm_name)
+
+        # Товары категории «Другое» исключаются из рекомендаций ДО совместимости/скоринга.
+        if _is_other_category(product):
+            continue
 
         # Пропускаем продукты, не соответствующие шкафу/категории
         compatible, _compat_reason = is_product_compatible(product, cabinet, category)

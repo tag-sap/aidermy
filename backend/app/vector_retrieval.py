@@ -29,7 +29,7 @@ def retrieve_candidates(
     """
     from .decision_engine import profile_weights
     from .database import get_all_canonical_products
-    from .shelf_service import _hard_filter_exclusion, is_product_compatible
+    from .shelf_service import _hard_filter_exclusion, is_product_compatible, _is_other_category
 
     # Тот же источник весов, что и у deterministic scoring (profile_weights),
     # чтобы retrieval находил именно то, что scoring оценит высоко. Для legacy
@@ -52,6 +52,8 @@ def retrieve_candidates(
         if not ok:
             return False
         if _hard_filter_exclusion(profile, p.get("ingredients") or ""):
+            return False
+        if _is_other_category(p):
             return False
         return True
 
