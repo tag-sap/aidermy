@@ -105,9 +105,12 @@ class VectorRetrievalExclusionTests(unittest.TestCase):
             {"id": 1, "name": "Продукт без категории", "slug": "other-1", "category": "Другое", "brand": "", "ingredients": "Aqua, Glycerin"},
             {"id": 2, "name": "Гель для умывания A", "slug": "clean-a", "category": "Очищение", "brand": "", "ingredients": "Aqua, Glycerin"},
         ]
+        captured = {}
 
-        def fake_search(weights, k, predicate):
-            return [(p["id"], 1.0) for p in products if predicate(p["id"])]
+        def fake_search(weights, k, predicate, allowed_ids=None):
+            captured["allowed_ids"] = list(allowed_ids) if allowed_ids is not None else None
+            allowed = set(allowed_ids) if allowed_ids is not None else set()
+            return [(p["id"], 1.0) for p in products if p["id"] in allowed and predicate(p["id"])]
 
         from app import vector_retrieval
         with patch("app.database.get_all_canonical_products", return_value=products), \
@@ -124,6 +127,8 @@ class VectorRetrievalExclusionTests(unittest.TestCase):
         slugs = [r["slug"] for r in result]
         self.assertNotIn("other-1", slugs)
         self.assertIn("clean-a", slugs)
+        # Category hard filter применяется ДО retrieval: search получает только id категории.
+        self.assertEqual(captured["allowed_ids"], [2])
 
 
 class ManualShelfAndCatalogTests(unittest.TestCase):

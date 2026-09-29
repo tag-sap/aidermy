@@ -54,14 +54,22 @@ class VectorIndex:
         weights: Dict[str, float],
         top_k: int,
         predicate=None,
+        allowed_ids=None,
     ) -> List[Tuple[int, float]]:
-        """Clamped Dot retrieval. predicate(pid)->bool — hard filter (вне блокировки)."""
+        """Clamped Dot retrieval. predicate(pid)->bool — hard filter (вне блокировки).
+
+        allowed_ids (optional) — жёсткое ограничение candidate pool ДО retrieval:
+        поиск ранжирует только эти id (category hard filter), а не весь каталог.
+        """
         with self._lock:
             ids = list(self._ids)
             vectors = list(self._vectors)
 
+        allowed = set(allowed_ids) if allowed_ids is not None else None
         scored: List[Tuple[int, float]] = []
         for pid, vec in zip(ids, vectors):
+            if allowed is not None and pid not in allowed:
+                continue
             if predicate is not None and not predicate(pid):
                 continue
             scored.append((pid, clamped_dot(vec, weights)))

@@ -234,6 +234,33 @@ def _deterministic_analysis(
         return None
 
 
+def _build_match_interactions(
+    product: Dict[str, Any],
+    shelf_products: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Layer 2 (внутренние взаимодействия) + Layer 3 (взаимодействия с полкой).
+
+    Вычисляются ДО персонального Match и передаются в scoring engine. Layer 2 —
+    internal ingredient interactions из Static Product Model (классы ингредиентов);
+    Layer 3 — cross-product interactions через Dynamic Shelf Model. Если слой
+    недоступен (нет данных/модели) — он не блокирует Match, просто не вносит вклад.
+    """
+    interactions: List[Dict[str, Any]] = []
+    try:
+        from .product_model import get_internal_interactions
+        interactions.extend(get_internal_interactions(product))
+    except Exception:
+        pass
+    if shelf_products:
+        try:
+            from .interaction_system import build_dynamic_shelf_model, flatten_cross_product_interactions
+            dyn = build_dynamic_shelf_model(shelf_products, product)
+            interactions.extend(flatten_cross_product_interactions(dyn.get("results") or []))
+        except Exception:
+            pass
+    return interactions
+
+
 def _interaction_scoring_enabled() -> bool:
     """Feature flag interaction contribution (Фаза 7). False = legacy score бит-в-бит."""
     from . import interaction_scoring
@@ -895,8 +922,13 @@ async def recommend_products(
                 rec["reason"] = _reason_from_analysis(history_analysis)
                 rec["_from_history"] = True
             else:
+                # Полный 4-layer Match: Layer 1 (прямые эффекты) + Layer 4 (профиль)
+                # считаются внутри scoring engine; Layer 2 (internal ingredient-class
+                # interactions) + Layer 3 (cross/shelf interactions) передаются как
+                # interactions. Только после этого кандидат становится completed match.
+                interactions = _build_match_interactions(product, shelf_products)
                 analysis = _deterministic_analysis(
-                    profile, product.get("ingredients") or "", knowledge=knowledge
+                    profile, product.get("ingredients") or "", knowledge=knowledge, interactions=interactions
                 )
                 meaningful = _meaningful_score(analysis)
                 if meaningful is None:
