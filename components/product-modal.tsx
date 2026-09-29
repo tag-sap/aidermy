@@ -338,7 +338,7 @@ export function ProductModal({
                   className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#D6F264] py-2.5 text-sm text-[#151515] transition-colors hover:bg-[#c8e64f]"
                 >
                   <FileText className="size-4" />
-                  Показать отчёт
+                  Посмотреть отчёт
                 </button>
               ) : (
                 <>

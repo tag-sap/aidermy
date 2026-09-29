@@ -54,6 +54,11 @@ class CompatibilityTests(unittest.TestCase):
 
 
 class RecommendationTests(unittest.TestCase):
+    def setUp(self):
+        self._upsert_patcher = patch("app.database.upsert_analysis")
+        self._upsert_patcher.start()
+        self.addCleanup(self._upsert_patcher.stop)
+
     def _candidates(self):
         return [
             _product("Очищение", "Гель для умывания A", "clean-a", "Aqua, Glycerin"),

@@ -87,7 +87,8 @@ class CompletedMatchPipelineTests(unittest.TestCase):
              patch("app.shelf_service._load_shelf_products", return_value=[]), \
              patch("app.shelf_service._find_history_score", return_value=(None, None)), \
              patch("app.shelf_service._build_match_interactions", return_value=(interactions or [])), \
-             patch("app.shelf_service._deterministic_analysis", side_effect=det_analysis):
+             patch("app.shelf_service._deterministic_analysis", side_effect=det_analysis), \
+             patch("app.database.upsert_analysis"):
             return asyncio.run(recommend_products(USER, "face", "Тонизирование", set()))
 
     def test_only_completed_matches_returned(self):
@@ -164,6 +165,25 @@ class CompletedMatchPipelineTests(unittest.TestCase):
         self.assertEqual(len(recs), 1)
         for bad in ("vector", "coverage", "representation_type", "unknown_ingredients", "_retrieval_score"):
             self.assertNotIn(bad, recs[0])
+
+    def test_recommendation_persists_match(self):
+        candidates = [
+            _product("Тонизирование", "Тоник A", "toner-a", "Aqua, Glycerin, A"),
+        ]
+        with patch("app.vector_retrieval.VECTOR_RETRIEVAL_ENABLED", False), \
+             patch("app.shelf_service._query_candidates", return_value=candidates), \
+             patch("app.shelf_service._load_shelf_products", return_value=[]), \
+             patch("app.shelf_service._find_history_score", return_value=(None, None)), \
+             patch("app.shelf_service._build_match_interactions", return_value=[]), \
+             patch("app.shelf_service._deterministic_analysis",
+                   return_value={"score": 80, "confidence": 0.8, "verdict": "Подходит",
+                                 "summary": "", "safe_ingredients": [], "caution_ingredients": []}), \
+             patch("app.database.upsert_analysis") as upsert_mock:
+            recs = asyncio.run(recommend_products(USER, "face", "Тонизирование", set()))
+        self.assertEqual(len(recs), 1)
+        # Завершённый Match сохраняется, чтобы Product Card использовала тот же результат.
+        self.assertTrue(upsert_mock.called)
+        self.assertEqual(upsert_mock.call_args.kwargs["score"], 80)
 
 
 if __name__ == "__main__":

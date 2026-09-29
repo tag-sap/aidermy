@@ -243,10 +243,10 @@ VERDICT_CAUTION = 40
 # Модель (v1): contribution = sign × strength_weight(strength) × confidence(confidence).
 INTERACTION_SCORING_VERSION = "v1"
 
-# Feature flag: False = legacy score бит-в-бит (регрессия). True = + interaction contribution.
-# Хранится здесь как значение по умолчанию; runtime-флаг живёт в interaction_scoring.py,
-# чтобы тесты могли его переключать, не трогая конфиг.
-INTERACTION_SCORING_ENABLED_DEFAULT = False
+# Полный 4-layer Match включён в production: interaction contribution (Layer 2 internal
+# + Layer 3 cross/shelf) реально влияет на финальный score наряду с Layer 1 (прямые
+# эффекты) и Layer 4 (профиль). Не feature-flag для «потом» — целевая архитектура.
+INTERACTION_SCORING_ENABLED_DEFAULT = True
 
 # Строковый strength → вес (детерминированно). Числовой strength проходит clamp(0,1).
 INTERACTION_STRENGTH_MAP: Dict[str, float] = {

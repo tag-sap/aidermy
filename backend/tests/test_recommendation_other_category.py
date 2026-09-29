@@ -60,6 +60,11 @@ class OtherCategoryDetectionTests(unittest.TestCase):
 
 
 class RecommendationExclusionTests(unittest.TestCase):
+    def setUp(self):
+        self._upsert_patcher = patch("app.database.upsert_analysis")
+        self._upsert_patcher.start()
+        self.addCleanup(self._upsert_patcher.stop)
+
     def test_other_category_not_recommended(self):
         candidates = [
             _product("Другое", "Продукт без категории", "other-1"),

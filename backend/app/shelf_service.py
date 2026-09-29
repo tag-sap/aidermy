@@ -940,6 +940,27 @@ async def recommend_products(
             haystack = f"{product.get('name') or ''} {product.get('ingredients') or ''}".lower()
             rec["_relevance"] = sum(1 for kw in keywords if kw in haystack)
 
+        # Сохраняем завершённый Match (score/verdict/summary) в Analysis, чтобы Product Card
+        # и рекомендация использовали ОДИН И ТОТ ЖЕ результат. Report остаётся отдельной
+        # сущностью и генерируется позже по явному запросу «Посмотреть отчёт».
+        if scored and rec["score"] is not None:
+            try:
+                from .database import upsert_analysis
+                saved_analysis = history_analysis if rec.get("_from_history") else analysis
+                upsert_analysis(
+                    user_id=user["id"],
+                    product_id=pid,
+                    slug=slug,
+                    score=rec["score"],
+                    verdict=(saved_analysis or {}).get("verdict") or "",
+                    summary=(saved_analysis or {}).get("summary") or "",
+                    safe_ingredients=(saved_analysis or {}).get("safe_ingredients") or [],
+                    caution_ingredients=(saved_analysis or {}).get("caution_ingredients") or [],
+                    ttl_days=None,
+                )
+            except Exception:
+                pass
+
         # Shelf Compatibility: насколько добавление кандидата подходит текущей
         # комбинации средств на полке. Отдельный показатель (НЕ Product Compatibility).
         if scored and shelf_products and rec["score"] is not None:

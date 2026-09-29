@@ -25,6 +25,230 @@ REPORT_STEP_TIMEOUT = 20.0
 SECTIONS_STEP_TIMEOUT = 20.0
 KEY_INGREDIENT_STEP_TIMEOUT = 12.0
 
+# ---------------------------------------------------------------------------
+# Category-aware «Как применять».
+# Категория продукта — обязательный вход генератора отчёта: она определяет
+# допустимый тип применения, а LLM лишь оформляет конкретную инструкцию внутри
+# этого ограничения. Здесь — детерминированный fallback + guidance для LLM.
+# ---------------------------------------------------------------------------
+_CATEGORY_APPLICATION: dict = {
+    # face
+    "patches": {
+        "title": "Патчи",
+        "guidance": "Это патчи: их наклеивают на нужную область, а НЕ наносят ровным слоем.",
+        "how_to_use": {
+            "application": "Очистите и высушите кожу, аккуратно наклейте патч на нужную область.",
+            "time": "Оставьте на рекомендованное на упаковке время, затем снимите.",
+            "note": "Остатки средства распределите или удалите согласно типу патча.",
+        },
+    },
+    "toning": {
+        "title": "Тонизирование",
+        "guidance": "Тоник/тонер используют ПОСЛЕ очищения; наносят руками или ватным диском; если продукт несмываемый — не смывают.",
+        "how_to_use": {
+            "application": "После очищения нанесите тоник на кожу руками или ватным диском.",
+            "time": "Дайте впитаться.",
+            "note": "Если продукт несмываемый — не смывайте.",
+        },
+    },
+    "serums": {
+        "title": "Сыворотки",
+        "guidance": "Сыворотку наносят небольшим количеством на очищенную кожу, распределяют, затем используют следующий этап ухода.",
+        "how_to_use": {
+            "application": "Нанесите небольшое количество сыворотки на очищенную кожу и распределите.",
+            "time": "Дайте впитаться.",
+            "note": "Затем используйте следующий этап ухода.",
+        },
+    },
+    "creams": {
+        "title": "Кремы",
+        "guidance": "Крем наносят подходящим количеством, распределяют по коже и используют на соответствующем этапе ухода.",
+        "how_to_use": {
+            "application": "Нанесите подходящее количество крема и распределите по коже.",
+            "time": "Используйте на соответствующем этапе ухода.",
+            "note": "",
+        },
+    },
+    "masks": {
+        "title": "Маски",
+        "guidance": "Инструкция зависит от типа маски: тканевая (наложить полотно), смываемая (нанести, выдержать, смыть), ночная (не смывать), глиняная (нанести тонким слоем, смыть до высыхания), патч-маска (наклеить). Не давайте универсальную инструкцию.",
+        "how_to_use": {
+            "application": "Используйте маску согласно её типу (тканевая, смываемая, ночная, глиняная или патч-маска).",
+            "time": "Выдержите рекомендованное время.",
+            "note": "Смываемые маски смойте, несмываемые оставьте.",
+        },
+    },
+    "cleansing": {
+        "title": "Очищение и демакияж",
+        "guidance": "Очищающее средство используют для очищения: наносят на кожу/влажную кожу в зависимости от типа, при необходимости вспенивают и обязательно смывают.",
+        "how_to_use": {
+            "application": "Нанесите средство на влажную кожу (или согласно типу средства).",
+            "time": "При необходимости вспеньте, мягко помассируйте.",
+            "note": "Тщательно смойте водой.",
+        },
+    },
+    "lips": {
+        "title": "Уход для губ",
+        "guidance": "Средство для губ наносят на губы, а не на кожу лица.",
+        "how_to_use": {
+            "application": "Нанесите средство на губы.",
+            "time": "Обновляйте по мере необходимости.",
+            "note": "",
+        },
+    },
+    "eyes": {
+        "title": "Для кожи вокруг глаз",
+        "guidance": "Средство для зоны вокруг глаз наносят на эту зону, а не на всё лицо.",
+        "how_to_use": {
+            "application": "Нанесите небольшое количество на зону вокруг глаз.",
+            "time": "Аккуратно распределите похлопывающими движениями.",
+            "note": "",
+        },
+    },
+    "pads": {
+        "title": "Пэды",
+        "guidance": "Пэды — пропитанные диски: ими протирают кожу, а не наносят крем.",
+        "how_to_use": {
+            "application": "Протрите кожу пэдом.",
+            "time": "Используйте после очищения.",
+            "note": "Если пэд отшелушивающий — не трите повреждённую кожу.",
+        },
+    },
+    "scrubs": {
+        "title": "Скрабы и пилинги",
+        "guidance": "Скраб/пилинг наносят на влажную кожу, массируют и обязательно смывают.",
+        "how_to_use": {
+            "application": "Нанесите на влажную кожу и мягко помассируйте.",
+            "time": "Избегайте области вокруг глаз.",
+            "note": "Тщательно смойте.",
+        },
+    },
+    "moisturizing": {
+        "title": "Увлажнение и питание",
+        "guidance": "Увлажняющее/питательное средство наносят и распределяют по коже.",
+        "how_to_use": {
+            "application": "Нанесите средство и распределите по коже.",
+            "time": "Дайте впитаться.",
+            "note": "",
+        },
+    },
+    "special": {
+        "title": "Специальный уход",
+        "guidance": "Концентрированное/точечное средство наносят точечно или локально.",
+        "how_to_use": {
+            "application": "Нанесите точечно или локально на проблемную зону.",
+            "time": "Следуйте инструкции на упаковке.",
+            "note": "",
+        },
+    },
+    "antiage": {
+        "title": "Антивозрастной уход",
+        "guidance": "Антивозрастное средство наносят и распределяют по коже (крем/сыворотка).",
+        "how_to_use": {
+            "application": "Нанесите средство и распределите по коже.",
+            "time": "Используйте на соответствующем этапе ухода.",
+            "note": "",
+        },
+    },
+    # hair
+    "shampoos": {
+        "title": "Шампуни",
+        "guidance": "Шампунь наносят на влажные волосы и кожу головы, вспенивают и смывают.",
+        "how_to_use": {
+            "application": "Нанесите на влажные волосы и кожу головы, вспеньте.",
+            "time": "Помассируйте.",
+            "note": "Тщательно смойте.",
+        },
+    },
+    "conditioners": {
+        "title": "Бальзамы и кондиционеры",
+        "guidance": "Бальзам/кондиционер наносят на длину волос, выдерживают и смывают.",
+        "how_to_use": {
+            "application": "Нанесите на длину волос, избегая корней.",
+            "time": "Выдержите рекомендованное время.",
+            "note": "Смойте.",
+        },
+    },
+    "dry_shampoos": {
+        "title": "Сухие шампуни",
+        "guidance": "Сухой шампунь распыляют на корни, не смывают.",
+        "how_to_use": {
+            "application": "Распылите на корни волос.",
+            "time": "Подождите и расчешите.",
+            "note": "Не смывайте.",
+        },
+    },
+    "hair_masks": {
+        "title": "Маски для волос",
+        "guidance": "Маску для волос наносят на влажные волосы, выдерживают и смывают.",
+        "how_to_use": {
+            "application": "Нанесите на влажные волосы.",
+            "time": "Выдержите рекомендованное время.",
+            "note": "Смойте.",
+        },
+    },
+    "hair_scrubs": {
+        "title": "Скрабы для кожи головы",
+        "guidance": "Скраб наносят на кожу головы, массируют и смывают.",
+        "how_to_use": {
+            "application": "Нанесите на кожу головы и помассируйте.",
+            "time": "Смойте.",
+            "note": "",
+        },
+    },
+    # body
+    "shower": {
+        "title": "Для душа и ванны",
+        "guidance": "Средство для душа наносят на влажную кожу, вспенивают и смывают.",
+        "how_to_use": {
+            "application": "Нанесите на влажную кожу, вспеньте.",
+            "time": "Помассируйте.",
+            "note": "Смойте.",
+        },
+    },
+    "hands": {
+        "title": "Для рук",
+        "guidance": "Средство для рук наносят на кожу рук.",
+        "how_to_use": {
+            "application": "Нанесите на кожу рук и распределите.",
+            "time": "Дайте впитаться.",
+            "note": "",
+        },
+    },
+    "feet": {
+        "title": "Для ног",
+        "guidance": "Средство для ног наносят на кожу стоп.",
+        "how_to_use": {
+            "application": "Нанесите на кожу стоп и распределите.",
+            "time": "Дайте впитаться.",
+            "note": "",
+        },
+    },
+    "body_creams": {
+        "title": "Кремы для тела",
+        "guidance": "Крем для тела наносят на кожу тела и распределяют.",
+        "how_to_use": {
+            "application": "Нанесите на кожу тела и распределите.",
+            "time": "Дайте впитаться.",
+            "note": "",
+        },
+    },
+}
+
+
+def _category_application_hint(product_type: str) -> dict:
+    """Category-aware подсказка применения по canonical category (title)."""
+    from .catalog_taxonomy import subcategory_key_for_title
+
+    if not product_type:
+        return {}
+    hit = subcategory_key_for_title(product_type)
+    if not hit:
+        return {}
+    _body_area, key = hit
+    return _CATEGORY_APPLICATION.get(key, {})
+
+
 def generate_slug(name: str) -> str:
     slug = re.sub(r'[^a-zA-Z0-9\s-]', '', name)
     slug = re.sub(r'[-\s]+', '-', slug)
@@ -347,7 +571,7 @@ async def generate_full_report(
 
     sections = {"how_to_use": None, "expectations": None}
     if DEEPSEEK_API_KEY and has_factors:
-        sections = await generate_ai_report_sections(product_name, deterministic, profile)
+        sections = await generate_ai_report_sections(product_name, deterministic, profile, product_type)
 
     active_ingredients = build_active_ingredient(deterministic)
     if DEEPSEEK_API_KEY:
@@ -642,11 +866,12 @@ def _factor_text(factor: dict) -> str:
     return f"{ing} → {prop}" if ing and prop else (ing or prop or "")
 
 
-def build_report_sections_prompt(product_name: str, analysis: dict, profile: dict) -> str:
+def build_report_sections_prompt(product_name: str, analysis: dict, profile: dict, product_type: str = "", category_hint: dict = None) -> str:
     """Собирает prompt для how_to_use/expectations ИЗ структурированного анализа.
 
     AI получает уже готовый результат (score, verdict, factors, safe/caution, hard flags)
-    и НЕ имеет права переопределять совместимость или вердикт.
+    и НЕ имеет права переопределять совместимость или вердикт. Категория продукта
+    передаётся явно и задаёт допустимый тип применения.
     """
     score = int(analysis.get("score") or 0)
     verdict = analysis.get("verdict") or ""
@@ -670,10 +895,13 @@ def build_report_sections_prompt(product_name: str, analysis: dict, profile: dic
         f"- Подходят профилю: {safe}\n"
         f"- Требуют внимания: {caution}\n"
         f"- Жёсткие ограничения: {hard}\n"
-        f"- Тип кожи: {skin or 'не указан'}\n\n"
+        f"- Тип кожи: {skin or 'не указан'}\n"
+        f"- Категория продукта: {product_type or 'не указана'}\n"
+        f"- Допустимый тип применения: {category_hint.get('guidance') if category_hint else 'определи по категории и типу продукта'}\n\n"
         "### Задачи (верни ТОЛЬКО JSON):\n"
-        "1. how_to_use: {{application, time, note}} — нейтральное описание применения, "
-        "следующее из состава. НЕ используй слова «подходит/не подходит/рекомендуется/противопоказан». "
+        "1. how_to_use: {{application, time, note}} — описание применения, СТРОГО соответствующее "
+        "категории и допустимому типу применения (например, патчи наклеивают, а не наносят ровным слоем). "
+        "НЕ используй слова «подходит/не подходит/рекомендуется/противопоказан». "
         "Если данных недостаточно — верни null.\n"
         "2. expectations: {{when, normal, danger}} — "
         "normal описывай ТОЛЬКО эффекты из положительных факторов; "
@@ -718,19 +946,24 @@ def sanitize_report_sections(verdict: str, sections: dict) -> dict:
     return cleaned
 
 
-async def generate_ai_report_sections(product_name: str, analysis: dict, profile: dict) -> dict:
+async def generate_ai_report_sections(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> dict:
     """Генерирует how_to_use/expectations из СТРУКТУРИРОВАННОГО анализа.
 
     Вторичное текстовое представление User Analysis, а НЕ второй анализ.
     Возвращает {"how_to_use": ... | None, "expectations": ... | None}.
-    При недоступности AI или отсутствии structured evidence возвращает None-поля.
+    Категория (product_type) задаёт допустимый тип применения; при недоступности AI
+    или отсутствии structured evidence возвращается детерминированный category-aware
+    how_to_use (fallback).
     """
     pos = analysis.get("positive_factors") or []
     neg = analysis.get("negative_factors") or []
-    if not pos and not neg:
-        return {"how_to_use": None, "expectations": None}
+    category_hint = _category_application_hint(product_type)
 
-    prompt = build_report_sections_prompt(product_name, analysis, profile)
+    if not pos and not neg:
+        fallback = category_hint.get("how_to_use") if category_hint else None
+        return {"how_to_use": fallback, "expectations": None}
+
+    prompt = build_report_sections_prompt(product_name, analysis, profile, product_type, category_hint)
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
         try:
@@ -759,15 +992,19 @@ async def generate_ai_report_sections(product_name: str, analysis: dict, profile
             if not isinstance(parsed, dict):
                 continue
             parsed = sanitize_report_sections(analysis.get("verdict") or "", parsed)
+            how_to_use = parsed.get("how_to_use")
+            if not how_to_use and category_hint:
+                how_to_use = category_hint.get("how_to_use")
             return {
-                "how_to_use": parsed.get("how_to_use"),
+                "how_to_use": how_to_use,
                 "expectations": parsed.get("expectations"),
             }
         except Exception as exc:
             print(f"[REPORT SECTIONS] AI failed: {exc!r}")
             continue
 
-    return {"how_to_use": None, "expectations": None}
+    fallback = category_hint.get("how_to_use") if category_hint else None
+    return {"how_to_use": fallback, "expectations": None}
 
 
 def search_products(query: str) -> List[dict]:
