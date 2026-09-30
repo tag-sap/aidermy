@@ -29,6 +29,17 @@ type ProductMatch = {
 type Identified = { brand: string; name: string; variant: string | null; type: string | null; confidence: number }
 type FoundProduct = { slug: string; name: string; brand: string; ingredients: string }
 
+// fetch с таймаутом (AbortController): внешний запрос не может держать UI в вечном loading.
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function splitName(raw: string): { brand: string; title: string } {
   const parts = (raw || '').split('\n').filter((x) => x.trim())
   if (parts.length >= 2) return { brand: capitalizeFirst(parts[0]), title: capitalizeFirst(parts.slice(1).join(' ')) }
@@ -408,11 +419,11 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
     setProductStage('identifying')
     setProductStatus('Определяем продукт…')
     try {
-      const res = await fetch('/api/product/identify', {
+      const res = await fetchWithTimeout('/api/product/identify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images }),
-      })
+      }, 90000)
       if (!res.ok) throw new Error()
       const data = await res.json()
       setIdentified(data.identified)
@@ -425,7 +436,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
 
       setProductStage('searching')
       setProductStatus('Ищем продукт в интернете…')
-      const ws = await fetch('/api/product/web-search', {
+      const ws = await fetchWithTimeout('/api/product/web-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -433,7 +444,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
           name: data.identified?.name || '',
           variant: data.identified?.variant || null,
         }),
-      })
+      }, 180000)
       if (ws.ok) {
         const wsData = await ws.json()
         if (wsData.found && wsData.product) {
@@ -446,6 +457,9 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
     } catch {
       setProductStage('error')
       setProductStatus('Не удалось определить продукт. Попробуйте ещё раз или введите вручную.')
+    } finally {
+      // Гарантия: loading-стадии («Определяем продукт…» / «Ищем…») не зависают навсегда.
+      setProductStage((prev) => (prev === 'identifying' || prev === 'searching' ? 'error' : prev))
     }
   }
 

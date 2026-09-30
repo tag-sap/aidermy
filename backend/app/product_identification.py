@@ -177,9 +177,11 @@ async def web_search_product(brand: str, name: str, variant: Optional[str] = Non
     if not url:
         return None
     try:
+        logger.info("[WEBSEARCH] SCRAPER_START url=%s", url)
         imported = await import_product(url)
+        logger.info("[WEBSEARCH] SCRAPER_DONE name=%r has_inci=%s", imported.name, bool((imported.ingredients_raw or "").strip()))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[WEBSEARCH] import_product failed for url=%s: %s", url, exc)
+        logger.warning("[WEBSEARCH] SCRAPER_ERROR url=%s: %s", url, exc)
         return None
 
     if not imported.name:

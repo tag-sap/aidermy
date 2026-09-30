@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+import asyncio
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -240,29 +241,37 @@ async def recognize_composition_endpoint(request: RecognizeCompositionRequest):
         raise HTTPException(status_code=500, detail="Не удалось распознать состав") from exc
 
 
+# Таймауты внешних операций в pipeline идентификации: гарантируют, что пользовательский
+# запрос никогда не зависнет бесконечно (Vision / Web Search / scraper).
+VISION_TIMEOUT = 90.0
+WEB_SEARCH_TIMEOUT = 180.0
+
+
 @app.post("/api/product/identify")
 async def identify_product_endpoint(request: ProductIdentifyRequest):
     """Этап 1: фото продукта -> бренд/название -> поиск в собственной БД."""
     try:
-        identified = await identify_product(request.images)
+        logger.info("[IDENTIFY] PHOTO_RECEIVED images=%d", len(request.images or []))
+        identified = await asyncio.wait_for(identify_product(request.images), timeout=VISION_TIMEOUT)
+        logger.info("[IDENTIFY] VISION_DONE brand=%r product_name=%r", identified.get("brand"), identified.get("product_name") or identified.get("name"))
         product_name = identified.get("product_name") or identified.get("name") or ""
-        logger.info(
-            "[IDENTIFY] vision -> brand=%r product_name=%r manufacturer=%r variant=%r",
-            identified.get("brand"), product_name, identified.get("manufacturer"), identified.get("variant"),
-        )
+        logger.info("[IDENTIFY] DB_LOOKUP_START brand=%r name=%r", identified.get("brand"), product_name)
         product = find_product_in_db(identified.get("brand") or "", product_name)
-        logger.info("[IDENTIFY] db lookup -> %s", "FOUND" if product else "MISS")
+        logger.info("[IDENTIFY] DB_LOOKUP_DONE -> %s", "FOUND" if product else "MISS")
         return {
             "identified": identified,
             "product": product,
             "has_inci": has_reliable_inci(product),
         }
+    except asyncio.TimeoutError:
+        logger.error("[IDENTIFY] IDENTIFICATION_ERROR vision_timeout")
+        raise HTTPException(status_code=504, detail="Не удалось определить продукт: распознавание не завершилось вовремя.") from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("[IDENTIFY] failed")
+        logger.exception("[IDENTIFY] IDENTIFICATION_ERROR")
         print(f"❌ Ошибка идентификации продукта: {exc!r}")
         raise HTTPException(status_code=500, detail="Не удалось определить продукт") from exc
 
@@ -271,7 +280,12 @@ async def identify_product_endpoint(request: ProductIdentifyRequest):
 async def product_web_search_endpoint(request: ProductWebSearchRequest):
     """Автоматический Web Search: search -> URL -> scraper -> INCI -> сохранить canonical."""
     try:
-        found = await web_search_product(request.brand, request.name, request.variant)
+        logger.info("[WEBSEARCH] WEB_SEARCH_START brand=%r name=%r", request.brand, request.name)
+        found = await asyncio.wait_for(
+            web_search_product(request.brand, request.name, request.variant),
+            timeout=WEB_SEARCH_TIMEOUT,
+        )
+        logger.info("[WEBSEARCH] WEB_SEARCH_DONE found=%s", bool(found))
         if not found:
             return {"found": False, "product": None}
         from .product_dedup import find_or_create_canonical_product
@@ -288,6 +302,7 @@ async def product_web_search_endpoint(request: ProductWebSearchRequest):
             "description": found.get("description") or "",
             "source_type": "web_search",
         })
+        logger.info("[WEBSEARCH] IDENTIFICATION_DONE slug=%s", saved.get("slug"))
         return {
             "found": True,
             "product": {
@@ -299,7 +314,11 @@ async def product_web_search_endpoint(request: ProductWebSearchRequest):
             },
             "source_url": found.get("source_url") or "",
         }
+    except asyncio.TimeoutError:
+        logger.error("[WEBSEARCH] IDENTIFICATION_ERROR web_search_timeout")
+        return {"found": False, "product": None}
     except Exception as exc:
+        logger.exception("[WEBSEARCH] IDENTIFICATION_ERROR")
         print(f"❌ Ошибка web-search продукта: {exc!r}")
         return {"found": False, "product": None}
 

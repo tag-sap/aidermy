@@ -46,6 +46,11 @@ def resolve_browser_executable() -> str | None:
     return None
 
 
+# Общий таймаут на ОДИН fetcher (basic/dynamic/stealth). Гарантирует, что scraper
+# никогда не зависнет бесконечно на внешнем сайте (например, headless-браузер).
+SCRAPER_FETCH_TIMEOUT = 90.0
+
+
 class ProductImportError(Exception):
     """A user-facing product import failure with safe technical logging."""
 
@@ -105,12 +110,18 @@ async def import_product(url: str) -> ProductImportResult:
     last_error: Exception | None = None
     for fetcher in ("basic", "dynamic", "stealth"):
         try:
-            result = await asyncio.to_thread(_try_extract, fetcher, source_url)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(_try_extract, fetcher, source_url),
+                timeout=SCRAPER_FETCH_TIMEOUT,
+            )
             if result.has_product_data():
                 if result.ingredients_raw:
                     logger.info("[SCRAPER] Ingredients found")
                 logger.info("[SCRAPER] Product normalized")
                 return result
+        except asyncio.TimeoutError:
+            last_error = ProductImportError(f"{fetcher} fetch timed out")
+            logger.info("[SCRAPER] %s timed out after %.0fs", fetcher.capitalize(), SCRAPER_FETCH_TIMEOUT)
         except ProductImportError as exc:
             last_error = exc
             logger.info("[SCRAPER] %s rejected: %s", fetcher.capitalize(), exc.technical)
