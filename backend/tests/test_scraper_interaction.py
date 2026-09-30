@@ -38,6 +38,9 @@ class ExpandIngredientsTests(unittest.TestCase):
             def wait_for_timeout(self, ms):
                 pass
 
+            def wait_for_load_state(self, state, timeout=None):
+                pass
+
         _expand_ingredients(Page())
         self.assertTrue(clicks)
 

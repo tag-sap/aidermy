@@ -88,7 +88,11 @@ def _expand_ingredients(page: object) -> None:
             if loc.count() == 0:
                 continue
             loc.first.click(force=True, timeout=5000)
-            page.wait_for_timeout(1500)
+            try:
+                # INCI часто грузится лениво (AJAX) после раскрытия аккордеона.
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:  # noqa: BLE001
+                page.wait_for_timeout(3000)
             logger.info("[SCRAPER] expanded Ingredients via aria-label %r", label)
             return
     except Exception as exc:  # noqa: BLE001
