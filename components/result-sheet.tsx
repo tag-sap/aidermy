@@ -25,8 +25,8 @@ function ScoreRing({ score }: { score: number }) {
   const getColors = (s: number) => {
     if (s >= 80) return { ring: '#D6F264', glow: 'rgba(214,242,100,0.35)', text: '#4a5d00' }
     if (s >= 60) return { ring: '#C9E84F', glow: 'rgba(214,242,100,0.3)', text: '#4a5d00' }
-    if (s >= 40) return { ring: '#8B5CF6', glow: 'rgba(139,92,246,0.3)', text: '#6D28D9' }
-    return { ring: '#FF4D3D', glow: 'rgba(255,77,61,0.3)', text: '#D63B2E' }
+    if (s >= 40) return { ring: '#151515', glow: 'rgba(21,21,21,0.2)', text: '#151515' }
+    return { ring: '#151515', glow: 'rgba(21,21,21,0.12)', text: '#151515' }
   }
 
   const colors = getColors(score)

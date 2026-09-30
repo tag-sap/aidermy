@@ -41,8 +41,8 @@ type ProductDetail = {
 function scoreColor(s: number) {
   if (s >= 80) return 'text-[#4a5d00] bg-[#D6F264]/25 border-[#D6F264]/40'
   if (s >= 60) return 'text-[#4a5d00] bg-[#D6F264]/15 border-[#D6F264]/30'
-  if (s >= 40) return 'text-[#6D28D9] bg-[#8B5CF6]/10 border-[#8B5CF6]/30'
-  return 'text-[#D63B2E] bg-[#FF4D3D]/10 border-[#FF4D3D]/30'
+  if (s >= 40) return 'text-[#151515] bg-[#151515]/10 border-[#151515]/25'
+  return 'text-[#151515]/70 bg-[#151515]/5 border-[#151515]/15'
 }
 
 function asList(v: unknown): string[] {

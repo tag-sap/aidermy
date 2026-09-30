@@ -26,7 +26,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
           <img
             src="/background.svg"
             alt=""
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover object-bottom"
             draggable={false}
             aria-hidden
           />
@@ -35,7 +35,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-24 md:px-12 md:pb-28">
             <div className="mx-auto flex w-full max-w-md flex-col gap-6 md:max-w-5xl md:flex-row md:items-end md:justify-between">
               <div>
-                <h1 className="font-[family-name:var(--font-playfair)] text-[44px] font-normal leading-[1.02] tracking-tight text-white md:text-[76px]">
+                <h1 className="font-advaken text-[44px] font-normal leading-[1.02] tracking-tight text-white md:text-[76px]">
                   Состав решает.
                   <br />
                   Остальное — детали.
@@ -55,7 +55,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
           <div className="mx-auto flex w-full max-w-md justify-start px-5 md:max-w-5xl md:justify-end md:px-12">
             <button
               onClick={onAuth}
-              className="pointer-events-auto inline-flex translate-y-1/2 items-center gap-2 rounded-lg bg-white px-8 py-4 text-base font-medium text-[#151515] shadow-[0_8px_32px_rgba(0,0,0,0.35)] transition-all hover:bg-[#F7F3EA] active:scale-[0.98]"
+              className="pointer-events-auto inline-flex translate-y-1/2 items-center gap-2 rounded-lg bg-white px-8 py-4 text-base font-advaken font-medium text-[#151515] shadow-[0_8px_32px_rgba(0,0,0,0.35)] transition-all hover:bg-[#F7F3EA] active:scale-[0.98]"
             >
               Начать
               <ArrowRight className="size-5" />
@@ -67,15 +67,15 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
       {/* PIPELINE — молочный фон, коралловый шрифт */}
       <section className="bg-[#F7F3EA]" style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}>
         <div className="mx-auto w-full max-w-md px-5 py-12 md:max-w-5xl md:py-16">
-          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#FF4D3D]">Как это устроено</p>
+          <p className="text-[11px] font-advaken font-medium uppercase tracking-[0.18em] text-[#151515]">Как это устроено</p>
           <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-4 md:gap-4">
             {PIPELINE.map((step, i) => (
               <div key={step.n} className="relative md:pr-4">
-                <span className="font-[family-name:var(--font-playfair)] text-4xl font-normal text-[#FF4D3D]/35">{step.n}</span>
-                <h3 className="mt-2 text-lg font-normal leading-snug text-[#FF4D3D]">{step.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-[#FF4D3D]/70">{step.text}</p>
+                <span className="font-[family-name:var(--font-playfair)] text-4xl font-normal text-[#151515]/35">{step.n}</span>
+                <h3 className="mt-2 font-advaken text-lg font-normal leading-snug text-[#151515]">{step.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-[#151515]/70">{step.text}</p>
                 {i < PIPELINE.length - 1 && (
-                  <ArrowRight className="mt-4 hidden size-5 text-[#FF4D3D]/40 md:block" />
+                  <ArrowRight className="mt-4 hidden size-5 text-[#151515]/40 md:block" />
                 )}
               </div>
             ))}

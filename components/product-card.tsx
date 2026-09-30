@@ -6,8 +6,8 @@ import { cn } from '@/lib/utils'
 function scoreBadge(s: number) {
   if (s >= 80) return 'bg-[#F5C900]/20 text-[#7A5E00]'
   if (s >= 60) return 'bg-[#F5C900]/15 text-[#7A5E00]'
-  if (s >= 40) return 'bg-[#8B5CF6]/10 text-[#6D28D9]'
-  return 'bg-[#FF4D3D]/10 text-[#D63B2E]'
+  if (s >= 40) return 'bg-[#151515]/10 text-[#151515]'
+  return 'bg-[#151515]/5 text-[#151515]/70'
 }
 
 export function ProductCard({

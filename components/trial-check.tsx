@@ -327,7 +327,7 @@ export function TrialCheck({ onAuth }: { onAuth: () => void }) {
           <input
             value={link}
             onChange={(e) => setLink(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && checkLink()}
+            onKeyDown={(e) => e.key === 'Enter' && onAuth()}
             placeholder="Ссылка на товар…"
             className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white/70 px-3 py-2 text-sm focus:border-primary/40 focus:outline-none"
           />
@@ -342,7 +342,7 @@ export function TrialCheck({ onAuth }: { onAuth: () => void }) {
               onChange={(e) => { checkPhoto(e.target.files); e.target.value = '' }}
             />
             <button
-              onClick={() => fileRef.current?.click()}
+              onClick={onAuth}
               className="flex-1 truncate rounded-xl border border-dashed border-gray-300 bg-white/70 px-3 py-2 text-sm text-muted-foreground/60 transition-colors hover:bg-white"
             >
               {photoName || 'Загрузите фото состава…'}
@@ -350,7 +350,7 @@ export function TrialCheck({ onAuth }: { onAuth: () => void }) {
           </>
         )}
         <button
-          onClick={() => (mode === 'link' ? checkLink() : mode === 'photo' ? fileRef.current?.click() : checkName())}
+          onClick={() => (mode === 'name' ? checkName() : onAuth())}
           disabled={loading}
           className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
         >
