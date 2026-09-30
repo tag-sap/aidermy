@@ -82,15 +82,16 @@ def has_reliable_inci(product: Optional[Dict[str, Any]]) -> bool:
     return len(ings) >= 2
 
 
-async def _search_product_url(brand: str, name: str, variant: Optional[str] = None) -> Optional[str]:
-    """Ищет ссылку на страницу продукта (best-effort, без API-ключа).
+async def _search_product_urls(brand: str, name: str, variant: Optional[str] = None) -> list[str]:
+    """Ищет URL-кандидаты страницы продукта (best-effort, без API-ключа).
 
-    Использует публичный HTML-эндпоинт DuckDuckGo ТОЛЬКО как способ получить URL.
-    INCI из поисковой выдачи не извлекается. Пропускает рекламные результаты.
+    Возвращает список органических URL в порядке релевантности. INCI из поисковой
+    выдачи не извлекается — только URL. Пропускает рекламные результаты.
     """
     query = " ".join(x for x in (brand, name, variant) if x and x.strip()).strip()
     if not query:
-        return None
+        return []
+    found: list[str] = []
     # DuckDuckGo периодически возвращает 202 (антибот) — пробуем несколько раз с backoff.
     for attempt in range(3):
         try:
@@ -102,27 +103,33 @@ async def _search_product_url(brand: str, name: str, variant: Optional[str] = No
                 )
             if resp.status_code != 200:
                 logger.warning("[WEBSEARCH] DuckDuckGo status=%s (attempt %d) query=%r", resp.status_code, attempt + 1, query)
-            else:
-                html = resp.text
-                urls: list[str] = []
-                for m in re.finditer(r'class="result__a"[^>]*href="([^"]+)"', html):
-                    uddg = re.search(r"uddg=([^&]+)", m.group(1))
-                    if not uddg:
-                        continue
-                    url = _unquote(uddg.group(1))
-                    low = url.lower()
-                    if any(marker in low for marker in _AD_MARKERS):
-                        continue  # пропускаем рекламу
-                    urls.append(url)
-                if urls:
-                    logger.info("[WEBSEARCH] query=%r -> %s", query, urls[0])
-                    return urls[0]
-                logger.warning("[WEBSEARCH] no organic URLs (attempt %d) query=%r", attempt + 1, query)
+                continue
+            html = resp.text
+            for m in re.finditer(r'class="result__a"[^>]*href="([^"]+)"', html):
+                uddg = re.search(r"uddg=([^&]+)", m.group(1))
+                if not uddg:
+                    continue
+                url = _unquote(uddg.group(1))
+                low = url.lower()
+                if any(marker in low for marker in _AD_MARKERS):
+                    continue  # пропускаем рекламу
+                if url not in found:
+                    found.append(url)
+            if found:
+                break
+            logger.warning("[WEBSEARCH] no organic URLs (attempt %d) query=%r", attempt + 1, query)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[WEBSEARCH] search failed (attempt %d) query=%r: %s", attempt + 1, query, exc)
         if attempt < 2:
             await asyncio.sleep(1.5 * (attempt + 1))
-    return None
+    logger.info("[WEBSEARCH] query=%r -> %d urls", query, len(found))
+    return found
+
+
+async def _search_product_url(brand: str, name: str, variant: Optional[str] = None) -> Optional[str]:
+    """Первый URL-кандидат (обратная совместимость с существующими тестами)."""
+    urls = await _search_product_urls(brand, name, variant)
+    return urls[0] if urls else None
 
 
 def _unquote(s: str) -> str:
@@ -173,42 +180,44 @@ async def web_search_product(brand: str, name: str, variant: Optional[str] = Non
     """
     from .scraper import import_product
 
-    url = await _search_product_url(brand, name, variant)
-    if not url:
+    urls = await _search_product_urls(brand, name, variant)
+    if not urls:
         return None
-    try:
-        logger.info("[WEBSEARCH] SCRAPER_START url=%s", url)
-        imported = await import_product(url)
-        logger.info("[WEBSEARCH] SCRAPER_DONE name=%r has_inci=%s", imported.name, bool((imported.ingredients_raw or "").strip()))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[WEBSEARCH] SCRAPER_ERROR url=%s: %s", url, exc)
-        return None
+    for url in urls:
+        try:
+            logger.info("[WEBSEARCH] SCRAPER_START url=%s", url)
+            imported = await import_product(url)
+            logger.info("[WEBSEARCH] SCRAPER_DONE name=%r has_inci=%s", imported.name, bool((imported.ingredients_raw or "").strip()))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[WEBSEARCH] SCRAPER_ERROR url=%s: %s", url, exc)
+            continue
 
-    if not imported.name:
-        logger.warning("[WEBSEARCH] import_product returned empty name for url=%s", url)
-        return None
-    if not _is_matching_product(imported.brand or "", imported.name, brand, name, variant):
-        logger.warning(
-            "[WEBSEARCH] product mismatch: vision=%r %r vs imported=%r %r",
-            brand, name, imported.brand, imported.name,
-        )
-        return None
+        if not imported.name:
+            logger.warning("[WEBSEARCH] import_product returned empty name for url=%s", url)
+            continue
+        if not _is_matching_product(imported.brand or "", imported.name, brand, name, variant):
+            logger.warning(
+                "[WEBSEARCH] product mismatch: vision=%r %r vs imported=%r %r url=%s",
+                brand, name, imported.brand, imported.name, url,
+            )
+            continue
 
-    ingredients = (imported.ingredients_raw or "").strip()
-    result: Dict[str, Any] = {
-        "name": imported.name,
-        "brand": imported.brand or brand,
-        "manufacturer": imported.manufacturer or "",
-        "ingredients": ingredients,
-        "source_url": url,
-        "image_url": imported.image_url or "",
-        "category": imported.category or "",
-        "volume": imported.volume or "",
-        "description": imported.description or "",
-    }
-    # INCI должен быть надёжным (несколько ингредиентов), иначе fallback.
-    if not has_reliable_inci(result):
-        logger.warning("[WEBSEARCH] unreliable INCI for url=%s (%d chars)", url, len(ingredients))
-        return None
-    logger.info("[WEBSEARCH] saved product %r (%d INCI chars)", imported.name, len(ingredients))
-    return result
+        ingredients = (imported.ingredients_raw or "").strip()
+        result: Dict[str, Any] = {
+            "name": imported.name,
+            "brand": imported.brand or brand,
+            "manufacturer": imported.manufacturer or "",
+            "ingredients": ingredients,
+            "source_url": url,
+            "image_url": imported.image_url or "",
+            "category": imported.category or "",
+            "volume": imported.volume or "",
+            "description": imported.description or "",
+        }
+        # INCI должен быть надёжным (несколько ингредиентов), иначе пробуем следующий URL.
+        if not has_reliable_inci(result):
+            logger.warning("[WEBSEARCH] unreliable INCI for url=%s (%d chars)", url, len(ingredients))
+            continue
+        logger.info("[WEBSEARCH] saved product %r (%d INCI chars) url=%s", imported.name, len(ingredients), url)
+        return result
+    return None

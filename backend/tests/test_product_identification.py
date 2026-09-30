@@ -170,7 +170,7 @@ class IsMatchingProductTests(unittest.TestCase):
 
 class WebSearchProductTests(unittest.TestCase):
     def test_returns_none_when_no_url(self):
-        with patch("app.product_identification._search_product_url", new=AsyncMock(return_value=None)):
+        with patch("app.product_identification._search_product_urls", new=AsyncMock(return_value=[])):
             result = asyncio.run(web_search_product("La Roche-Posay", "Anthelios"))
         self.assertIsNone(result)
 
@@ -178,7 +178,7 @@ class WebSearchProductTests(unittest.TestCase):
         imported = ProductImportResult(
             name="Anthelios 50+", brand="La Roche-Posay", ingredients_raw="Aqua, Glycerin, Homosalate"
         )
-        with patch("app.product_identification._search_product_url", new=AsyncMock(return_value="https://example.com/p")), \
+        with patch("app.product_identification._search_product_urls", new=AsyncMock(return_value=["https://example.com/p"])), \
              patch("app.scraper.import_product", new=AsyncMock(return_value=imported)):
             result = asyncio.run(web_search_product("La Roche-Posay", "Anthelios", "50+"))
         self.assertIsNotNone(result)
@@ -189,14 +189,14 @@ class WebSearchProductTests(unittest.TestCase):
         imported = ProductImportResult(
             name="Toleriane", brand="La Roche-Posay", ingredients_raw="Aqua, Glycerin"
         )
-        with patch("app.product_identification._search_product_url", new=AsyncMock(return_value="https://example.com/p")), \
+        with patch("app.product_identification._search_product_urls", new=AsyncMock(return_value=["https://example.com/p"])), \
              patch("app.scraper.import_product", new=AsyncMock(return_value=imported)):
             result = asyncio.run(web_search_product("La Roche-Posay", "Anthelios"))
         self.assertIsNone(result)
 
     def test_rejects_product_without_reliable_inci(self):
         imported = ProductImportResult(name="Anthelios 50+", brand="La Roche-Posay", ingredients_raw="Aqua")
-        with patch("app.product_identification._search_product_url", new=AsyncMock(return_value="https://example.com/p")), \
+        with patch("app.product_identification._search_product_urls", new=AsyncMock(return_value=["https://example.com/p"])), \
              patch("app.scraper.import_product", new=AsyncMock(return_value=imported)):
             result = asyncio.run(web_search_product("La Roche-Posay", "Anthelios"))
         self.assertIsNone(result)
@@ -232,7 +232,7 @@ class WebSearchSaveAndReuseTests(unittest.TestCase):
         from app.product_dedup import find_or_create_canonical_product
 
         imported = ProductImportResult(name="Anthelios 50+", brand="La Roche-Posay", ingredients_raw="Aqua, Glycerin, Homosalate")
-        with patch("app.product_identification._search_product_url", new=AsyncMock(return_value="https://example.com/p")), \
+        with patch("app.product_identification._search_product_urls", new=AsyncMock(return_value=["https://example.com/p"])), \
              patch("app.scraper.import_product", new=AsyncMock(return_value=imported)):
             found = asyncio.run(web_search_product("La Roche-Posay", "Anthelios", "50+"))
         self.assertIsNotNone(found)
@@ -256,7 +256,7 @@ class WebSearchSaveAndReuseTests(unittest.TestCase):
     def test_wrong_variant_not_accepted_by_web_search(self):
         # Vision определил variant "50+", но scraper вернул "Anthelios 30" — другой вариант.
         imported = ProductImportResult(name="Anthelios 30", brand="La Roche-Posay", ingredients_raw="Aqua, Glycerin, Homosalate")
-        with patch("app.product_identification._search_product_url", new=AsyncMock(return_value="https://example.com/p")), \
+        with patch("app.product_identification._search_product_urls", new=AsyncMock(return_value=["https://example.com/p"])), \
              patch("app.scraper.import_product", new=AsyncMock(return_value=imported)):
             result = asyncio.run(web_search_product("La Roche-Posay", "Anthelios", "50+"))
         self.assertIsNone(result)
