@@ -63,6 +63,27 @@ class ProductImportTests(unittest.TestCase):
             "Snail Secretion Filtrate, Betaine, Butylene Glycol, Sodium Hyaluronate",
         )
 
+    def test_jsonld_additional_property_extracts_ingredients(self):
+        page = Selector("""
+            <html><body><h1>Snail Essence</h1>
+              <script type="application/ld+json">
+                {"@type":"Product","name":"Snail Essence",
+                 "additionalProperty":[
+                   {"@type":"PropertyValue","name":"Skin Concerns","value":["Dark Spots","Redness"]},
+                   {"@type":"PropertyValue","name":"Product Ingredients","value":["Snail Secretion Filtrate"," Betaine"," Butylene Glycol"," Sodium Hyaluronate"]}
+                 ]}
+              </script>
+            </body></html>
+        """)
+
+        result = extract_product(page, "https://shop.example/item")
+
+        self.assertEqual(result.name, "Snail Essence")
+        self.assertEqual(
+            result.ingredients_raw,
+            "Snail Secretion Filtrate, Betaine, Butylene Glycol, Sodium Hyaluronate",
+        )
+
     def test_missing_ingredients_is_none(self):
         page = Selector("<html><body><h1>Simple Product</h1><p>Just a description.</p></body></html>")
 

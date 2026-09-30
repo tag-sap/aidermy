@@ -18,10 +18,10 @@ _JSON_INCI = re.compile(
     r'\\?"?value\\?"?\s*:\s*\\?"((?:Deionized Water|Aqua|Water)[^"\\]{8,})',
     re.IGNORECASE,
 )
-# Next.js/SPA: {"name":"Ingredients","value":["Snail Secretion Filtrate"," Betaine", ...]}.
+# Next.js/SPA: {"name":"Product Ingredients","value":["Snail Secretion Filtrate"," Betaine", ...]}.
 _JSON_LIST_INCI = re.compile(
-    r'"name"\s*:\s*"(?:ingredients?|состав|ингредиенты)"\s*,\s*"value"\s*:\s*\[([^\]]{20,3000})\]',
-    re.IGNORECASE,
+    r'"name"\s*:\s*"(?:product\s+)?(?:ingredients?|состав|ингредиенты)"\s*,\s*"value"\s*:\s*\[(.*?)\]',
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -211,6 +211,40 @@ def _extract_inci_candidate(raw: str) -> str | None:
     return candidate
 
 
+def _jsonld_ingredients_value(value: Any) -> str | None:
+    """Превращает JSON-LD значение (str/list/dict) в INCI-строку."""
+    if isinstance(value, str):
+        return _extract_inci_candidate(value)
+    if isinstance(value, list):
+        parts = [p for p in (_text(x) for x in value) if p]
+        if len(parts) >= 3:
+            joined = ", ".join(parts)
+            return _extract_inci_candidate(joined) or joined
+        return None
+    if isinstance(value, dict):
+        return _jsonld_ingredients_value(value.get("value"))
+    return None
+
+
+def _ingredients_from_jsonld(record: dict[str, Any]) -> str | None:
+    """Извлекает INCI из JSON-LD: поле ingredients или additionalProperty (Product Ingredients)."""
+    ingredients = record.get("ingredients")
+    if ingredients is not None:
+        found = _jsonld_ingredients_value(ingredients)
+        if found:
+            return found
+
+    for prop in record.get("additionalProperty") or []:
+        if not isinstance(prop, dict):
+            continue
+        name = _text(prop.get("name")) or ""
+        if re.search(r"(?:ingredients?|состав|ингредиенты)", name, re.IGNORECASE):
+            found = _jsonld_ingredients_value(prop.get("value"))
+            if found:
+                return found
+    return None
+
+
 def _ingredient_text(page: Any, body_text: str) -> str | None:
     selectors = [
         '[text="Состав"]', '[value="Text_2"]',
@@ -279,7 +313,7 @@ def extract_product(page: Any, source_url: str) -> ProductImportResult:
     image = image or _meta(page, "og:image")
     if image:
         image = urljoin(source_url, image)
-    ingredients = _text(record.get("ingredients")) or _ingredient_text(page, body_text)
+    ingredients = _ingredients_from_jsonld(record) or _ingredient_text(page, body_text)
     volume_match = _VOLUME.search(body_text)
 
     return ProductImportResult(
