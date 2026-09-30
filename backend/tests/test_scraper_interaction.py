@@ -25,14 +25,11 @@ class ExpandIngredientsTests(unittest.TestCase):
             def first(self):
                 return self
 
-            def click(self):
+            def click(self, force=False, timeout=None):
                 clicks.append("click")
 
         class Page:
-            def get_by_text(self, label, exact=True):
-                return Loc()
-
-            def locator(self, sel):
+            def get_by_role(self, role, name=None):
                 return Loc()
 
             def wait_for_timeout(self, ms):
@@ -47,10 +44,7 @@ class ExpandIngredientsTests(unittest.TestCase):
                 return 0
 
         class Page:
-            def get_by_text(self, label, exact=True):
-                return NoLoc()
-
-            def locator(self, sel):
+            def get_by_role(self, role, name=None):
                 return NoLoc()
 
             def wait_for_timeout(self, ms):
