@@ -108,6 +108,7 @@ async def import_product(url: str) -> ProductImportResult:
     source_url = validate_public_url(url)
     logger.info("[SCRAPER] Import started")
     last_error: Exception | None = None
+    best_result: ProductImportResult | None = None
     for fetcher in ("basic", "dynamic", "stealth"):
         try:
             result = await asyncio.wait_for(
@@ -115,10 +116,13 @@ async def import_product(url: str) -> ProductImportResult:
                 timeout=SCRAPER_FETCH_TIMEOUT,
             )
             if result.has_product_data():
+                if best_result is None:
+                    best_result = result
                 if result.ingredients_raw:
-                    logger.info("[SCRAPER] Ingredients found")
-                logger.info("[SCRAPER] Product normalized")
-                return result
+                    logger.info("[SCRAPER] Ingredients found via %s", fetcher)
+                    logger.info("[SCRAPER] Product normalized")
+                    return result
+                logger.info("[SCRAPER] %s: no ingredients, trying next fetcher", fetcher)
         except asyncio.TimeoutError:
             last_error = ProductImportError(f"{fetcher} fetch timed out")
             logger.info("[SCRAPER] %s timed out after %.0fs", fetcher.capitalize(), SCRAPER_FETCH_TIMEOUT)
@@ -128,6 +132,9 @@ async def import_product(url: str) -> ProductImportResult:
         except Exception as exc:
             last_error = exc
             logger.exception("[SCRAPER] %s fetch failed", fetcher.capitalize())
+    if best_result is not None:
+        logger.info("[SCRAPER] Product normalized (no ingredients)")
+        return best_result
     if isinstance(last_error, ProductImportError):
         raise ProductImportError(
             "Не удалось автоматически получить данные товара: сайт отклонил автоматический запрос (антибот или ограничение доступа). Проверьте ссылку или найдите товар по названию.",
