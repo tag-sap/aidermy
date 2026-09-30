@@ -50,6 +50,37 @@ def resolve_browser_executable() -> str | None:
 # никогда не зависнет бесконечно на внешнем сайте (например, headless-браузер).
 SCRAPER_FETCH_TIMEOUT = 90.0
 
+# Ярлыки раскрывающихся блоков состава (таб/аккордеон/button/summary).
+_INGREDIENTS_ACCORDION_LABELS = (
+    "Ingredients", "Full Ingredients", "Ingredients & Benefits",
+    "Ingredients and Benefits", "Ingredient List", "What's inside",
+    "Состав", "Ингредиенты",
+)
+
+
+def _expand_ingredients(page: object) -> None:
+    """JS-interaction (page_action): раскрывает блок Ingredients после загрузки.
+
+    Кликает ТОЛЬКО по элементам, похожим на раскрывающийся блок состава
+    (button/summary/[role=tab]/[aria-expanded]) по текстовому совпадению, а не по
+    CSS-классам конкретного сайта. Если INCI уже был в HTML — extraction вернёт его
+    и без клика; этот шаг нужен только когда состав скрыт в аккордеоне.
+    """
+    try:
+        for label in _INGREDIENTS_ACCORDION_LABELS:
+            loc = page.locator(
+                "xpath=//*[self::button or self::summary or @role='tab' or @aria-expanded]"
+                f"[contains(normalize-space(.), '{label}')]"
+            )
+            if loc.count() == 0:
+                continue
+            loc.first.click()
+            page.wait_for_timeout(900)
+            return
+    except Exception:
+        # best-effort: если клик не удался, extraction выполнится как обычно.
+        pass
+
 
 class ProductImportError(Exception):
     """A user-facing product import failure with safe technical logging."""
@@ -84,12 +115,12 @@ def _fetch(fetcher: str, url: str) -> object:
         return Fetcher.get(url, timeout=20, impersonate="chrome")
     if fetcher == "dynamic":
         from scrapling.fetchers import DynamicFetcher
-        options = {"headless": True, "network_idle": False, "timeout": 30000}
+        options = {"headless": True, "network_idle": False, "timeout": 30000, "page_action": _expand_ingredients}
         if executable_path:
             options["executable_path"] = executable_path
         return DynamicFetcher.fetch(url, **options)
     from scrapling.fetchers import StealthyFetcher
-    options = {"headless": True, "network_idle": True, "timeout": 60000}
+    options = {"headless": True, "network_idle": True, "timeout": 60000, "page_action": _expand_ingredients}
     if executable_path:
         options["executable_path"] = executable_path
     return StealthyFetcher.fetch(url, **options)
