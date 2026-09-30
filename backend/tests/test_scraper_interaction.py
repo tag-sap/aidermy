@@ -25,6 +25,10 @@ class ExtractInciCandidateTests(unittest.TestCase):
         raw = "Like a multivitamin for your skin, this product nourishes, repairs, and plumps"
         self.assertIsNone(_extract_inci_candidate(raw))
 
+    def test_json_bundle_is_not_inci(self):
+        raw = '","navigationType":"push","url":"https://x.com/clean-ingredients","graphql":null'
+        self.assertIsNone(_extract_inci_candidate(raw))
+
 
 class ExpandIngredientsTests(unittest.TestCase):
     def test_labels_cover_variants(self):

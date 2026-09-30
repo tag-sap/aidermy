@@ -197,6 +197,9 @@ def _extract_inci_candidate(raw: str) -> str | None:
         return None
     if not (20 <= len(candidate) <= 8000):
         return None
+    # JSON/JS-бандл — не состав (кавычки/скобки/escape).
+    if any(ch in candidate for ch in ('"', '{', '}', '\\')):
+        return None
     # Ингредиент — короткое название (до 4 слов); длинные элементы = это предложение.
     if any(len(p.split()) > 4 for p in parts):
         return None
