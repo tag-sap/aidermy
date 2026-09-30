@@ -177,6 +177,32 @@ def _dom_text(page: Any, selectors: list[str]) -> str | None:
     return None
 
 
+def _extract_inci_candidate(raw: str) -> str | None:
+    """Превращает текст после «Ingredients»-метки в список INCI.
+
+    INCI не всегда начинается с Water/Aqua (например, «Snail Secretion Filtrate, ...»),
+    поэтому признак — список через запятую из КОРОТКИХ ингредиентов (≤4 слов), а не
+    стартовое слово. Маркетинговый текст/описание отсекается по длинным элементам.
+    """
+    if not raw:
+        return None
+    candidate = re.split(r"\.\s*[^.]{0,80}?перейти в каталог бренда", raw, maxsplit=1, flags=re.IGNORECASE)[0]
+    # Конец секции состава — пустая строка (следующая секция описания/применения).
+    candidate = re.split(r"\n\s*\n", candidate, maxsplit=1)[0]
+    candidate = _text(candidate)
+    if not candidate:
+        return None
+    parts = [p.strip() for p in candidate.split(",") if p.strip()]
+    if len(parts) < 3:
+        return None
+    if not (20 <= len(candidate) <= 8000):
+        return None
+    # Ингредиент — короткое название (до 4 слов); длинные элементы = это предложение.
+    if any(len(p.split()) > 4 for p in parts):
+        return None
+    return candidate
+
+
 def _ingredient_text(page: Any, body_text: str) -> str | None:
     selectors = [
         '[text="Состав"]', '[value="Text_2"]',
@@ -187,14 +213,9 @@ def _ingredient_text(page: Any, body_text: str) -> str | None:
         value = _dom_text(page, [selector])
         if value:
             match = _INGREDIENT_LABELS.search(value)
-            candidate = match.group(1) if match else value
-            inci_start = _INCI_START.search(candidate)
-            if not inci_start:
-                continue  # нет начала INCI (water/aqua) — это не состав
-            candidate = candidate[inci_start.start():]
-            candidate = re.split(r"\.\s*[^.]{0,80}?перейти в каталог бренда", candidate, maxsplit=1, flags=re.IGNORECASE)[0]
-            if "," in candidate and len(candidate) >= 20:
-                return _text(candidate)
+            candidate = _extract_inci_candidate(match.group(1) if match else value)
+            if candidate:
+                return candidate
 
     # Состав в JSON-структуре (Next.js/SPA): {"name":"Состав","value":"Water, ..."}.
     for m in _JSON_INCI.finditer(body_text):
@@ -202,15 +223,10 @@ def _ingredient_text(page: Any, body_text: str) -> str | None:
         if candidate and "," in candidate and len(candidate) >= 20:
             return candidate
 
-    match = _INGREDIENT_LABELS.search(body_text)
-    if match:
-        candidate = match.group(1).split("description", 1)[0]
-        inci_start = _INCI_START.search(candidate)
-        if inci_start:
-            candidate = candidate[inci_start.start():]
-            candidate = re.split(r"\.\s*[^.]{0,80}?перейти в каталог бренда", candidate, maxsplit=1, flags=re.IGNORECASE)[0]
-            if "," in candidate and len(candidate) >= 20:
-                return _text(candidate)
+    for match in _INGREDIENT_LABELS.finditer(body_text):
+        candidate = _extract_inci_candidate(match.group(1))
+        if candidate:
+            return candidate
 
     match = _INCI_VALUE.search(body_text)
     return _text(match.group(0)) if match else None

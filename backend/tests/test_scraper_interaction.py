@@ -7,6 +7,23 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.scraper.service import _expand_ingredients, _INGREDIENTS_ACCORDION_LABELS
+from app.scraper.extractors import _extract_inci_candidate
+
+
+class ExtractInciCandidateTests(unittest.TestCase):
+    def test_inci_without_water_prefix(self):
+        raw = "Snail Secretion Filtrate, Betaine, Butylene Glycol, 1,2-hexanediol, Sodium Hyaluronate"
+        self.assertEqual(_extract_inci_candidate(raw), raw)
+
+    def test_inci_stops_at_next_section(self):
+        raw = "Snail Secretion Filtrate, Betaine, Butylene Glycol, 1,2-hexanediol\n\nSuggested Usage: apply daily"
+        candidate = _extract_inci_candidate(raw)
+        self.assertIn("Snail Secretion Filtrate", candidate)
+        self.assertNotIn("Suggested", candidate)
+
+    def test_marketing_text_is_not_inci(self):
+        raw = "Like a multivitamin for your skin, this product nourishes, repairs, and plumps"
+        self.assertIsNone(_extract_inci_candidate(raw))
 
 
 class ExpandIngredientsTests(unittest.TestCase):
