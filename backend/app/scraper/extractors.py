@@ -18,6 +18,11 @@ _JSON_INCI = re.compile(
     r'\\?"?value\\?"?\s*:\s*\\?"((?:Deionized Water|Aqua|Water)[^"\\]{8,})',
     re.IGNORECASE,
 )
+# Next.js/SPA: {"name":"Ingredients","value":["Snail Secretion Filtrate"," Betaine", ...]}.
+_JSON_LIST_INCI = re.compile(
+    r'"name"\s*:\s*"(?:ingredients?|состав|ингредиенты)"\s*,\s*"value"\s*:\s*\[([^\]]{20,3000})\]',
+    re.IGNORECASE,
+)
 
 
 def _first(value: Any) -> Any:
@@ -225,6 +230,14 @@ def _ingredient_text(page: Any, body_text: str) -> str | None:
         candidate = _text(m.group(1))
         if candidate and "," in candidate and len(candidate) >= 20:
             return candidate
+
+    # Состав массивом строк: {"name":"Ingredients","value":["Snail Secretion Filtrate"," Betaine", ...]}.
+    for m in _JSON_LIST_INCI.finditer(body_text):
+        parts = [p.strip() for p in re.findall(r'"([^"]+)"', m.group(1)) if p.strip()]
+        if len(parts) >= 3:
+            candidate = _extract_inci_candidate(", ".join(parts))
+            if candidate:
+                return candidate
 
     for match in _INGREDIENT_LABELS.finditer(body_text):
         candidate = _extract_inci_candidate(match.group(1))
