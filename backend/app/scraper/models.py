@@ -6,6 +6,7 @@ from typing import Any
 class ProductImportResult:
     name: str | None = None
     brand: str | None = None
+    manufacturer: str | None = None
     image_url: str | None = None
     price: float | None = None
     currency: str | None = None

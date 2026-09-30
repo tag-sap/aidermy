@@ -352,13 +352,13 @@ def _insert_canonical(cursor, payload: Dict[str, Any]) -> Dict[str, Any]:
         slug = _slugify(name, payload.get("source_url") or name)
     cursor.execute(
         """INSERT INTO products (
-            name, slug, brand, ingredients, url, incidecoder_url, image_url,
+            name, slug, brand, manufacturer, ingredients, url, incidecoder_url, image_url,
             category, volume, description, sku, price, currency,
             source_type, contributed_by, normalized_name, is_canonical, canonical_id, saved_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, CURRENT_TIMESTAMP)""",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, CURRENT_TIMESTAMP)""",
         (
             name, slug,
-            payload.get("brand"), payload.get("ingredients"), payload.get("url"),
+            payload.get("brand"), payload.get("manufacturer"), payload.get("ingredients"), payload.get("url"),
             payload.get("incidecoder_url"), payload.get("image_url"),
             payload.get("category"), payload.get("volume"), payload.get("description"),
             payload.get("sku"), payload.get("price"), payload.get("currency"),
@@ -375,6 +375,7 @@ def _update_canonical(cursor, canonical_id: int, fields: Dict[str, Any]) -> None
         """UPDATE products SET
             name = COALESCE(NULLIF(?, ''), name),
             brand = COALESCE(NULLIF(?, ''), brand),
+            manufacturer = COALESCE(NULLIF(?, ''), manufacturer),
             ingredients = COALESCE(NULLIF(?, ''), ingredients),
             url = COALESCE(NULLIF(?, ''), url),
             incidecoder_url = COALESCE(NULLIF(?, ''), incidecoder_url),
@@ -387,7 +388,7 @@ def _update_canonical(cursor, canonical_id: int, fields: Dict[str, Any]) -> None
             currency = COALESCE(NULLIF(?, ''), currency)
         WHERE id = ?""",
         (
-            fields.get("name"), fields.get("brand"), fields.get("ingredients"),
+            fields.get("name"), fields.get("brand"), fields.get("manufacturer"), fields.get("ingredients"),
             fields.get("url"), fields.get("incidecoder_url"), fields.get("image_url"),
             fields.get("category"), fields.get("volume"), fields.get("description"),
             fields.get("sku"), fields.get("price"), fields.get("currency"),

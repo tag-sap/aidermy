@@ -1,7 +1,7 @@
 import json
 import re
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from .models import ProductImportResult
 
@@ -87,6 +87,47 @@ def _clean_brand(value: str | None) -> str | None:
     if len(words) > 1 and words[0].casefold() == words[1].casefold():
         cleaned = words[0]
     return cleaned
+
+
+# Известные официальные домены брендов → canonical brand name.
+# Fallback для определения brand, когда страница (например, официальный сайт бренда)
+# не содержит brand в JSON-LD/meta/title. НЕ считаем любой домен автоматически брендом.
+_BRAND_DOMAINS: dict[str, str] = {
+    "theordinary.com": "The Ordinary",
+    "deciem.com": "The Ordinary",
+    "cosrx.com": "COSRX",
+    "laroche-posay.com": "La Roche-Posay",
+    "larocheposay.com": "La Roche-Posay",
+    "cerave.com": "CeraVe",
+    "paulaschoice.com": "Paula's Choice",
+    "clinique.com": "Clinique",
+    "kiehls.com": "Kiehl's",
+    "lorealparis.com": "L'Oréal Paris",
+    "loreal.com": "L'Oréal",
+    "vichy.com": "Vichy",
+    "bioderma.com": "Bioderma",
+    "avene.com": "Avène",
+    "eucerin.com": "Eucerin",
+    "neutrogena.com": "Neutrogena",
+    "olaplex.com": "Olaplex",
+    "skinceuticals.com": "SkinCeuticals",
+}
+
+
+def _brand_from_domain(source_url: str) -> str | None:
+    """Возвращает brand по известному официальному домену (иначе None — не выдумываем)."""
+    try:
+        host = (urlparse(source_url).hostname or "").rstrip(".").lower()
+    except Exception:
+        return None
+    if not host:
+        return None
+    if host in _BRAND_DOMAINS:
+        return _BRAND_DOMAINS[host]
+    for domain, brand in _BRAND_DOMAINS.items():
+        if host == domain or host.endswith("." + domain):
+            return brand
+    return None
 
 
 def _safe_float(value: Any) -> float | None:
@@ -210,7 +251,8 @@ def extract_product(page: Any, source_url: str) -> ProductImportResult:
 
     return ProductImportResult(
         name=_clean_product_name(name),
-        brand=_clean_brand(_text(brand) or _meta(page, "product:brand") or _dom_text(page, ['[text="Бренд"] [class*="__title"]', '[class*="brand"] [class*="__title"]', '[itemprop="brand"]', '[class*="brand"]', '[class*="бренд"]'])),
+        brand=_clean_brand(_text(brand) or _meta(page, "product:brand") or _dom_text(page, ['[text="Бренд"] [class*="__title"]', '[class*="brand"] [class*="__title"]', '[itemprop="brand"]', '[class*="brand"]', '[class*="бренд"]'])) or _brand_from_domain(source_url),
+        manufacturer=_text(record.get("manufacturer")),
         image_url=image,
         price=_safe_float(offers.get("price") if isinstance(offers, dict) else None) or _safe_float(_meta(page, "product:price")),
         currency=_text(offers.get("priceCurrency") if isinstance(offers, dict) else None) or _meta(page, "product:price:currency"),

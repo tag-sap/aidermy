@@ -306,7 +306,7 @@ def init_db():
         )
     ''')
     product_columns = [col[1] for col in cursor.execute("PRAGMA table_info(products)").fetchall()]
-    for column in ("image_url", "category", "brand", "incidecoder_url"):
+    for column in ("image_url", "category", "brand", "incidecoder_url", "manufacturer"):
         if column not in product_columns:
             cursor.execute(f"ALTER TABLE products ADD COLUMN {column} TEXT")
             product_columns.append(column)
@@ -388,6 +388,7 @@ def upsert_imported_product(product: dict) -> dict:
     payload = {
         "name": name,
         "brand": (product.get("brand") or "").strip() or None,
+        "manufacturer": (product.get("manufacturer") or "").strip() or None,
         "ingredients": product.get("ingredients_raw") or product.get("ingredients"),
         "url": product.get("source_url") or product.get("url"),
         "image_url": product.get("image_url"),

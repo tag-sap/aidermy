@@ -340,26 +340,33 @@ IDENTIFY_SYSTEM_PROMPT = (
 def _identify_user_prompt(image_count: int) -> str:
     return f"""Тебе передано {image_count} фотографий одного косметического продукта (упаковка/флакон).
 
-Твоя задача — определить:
-1. brand — бренд;
-2. name — название продукта;
-3. variant — вариант/линейку, если видно (например, «для сухой кожи», SPF, оттенок);
-4. type — тип продукта (крем, сыворотка, шампунь, тональный крем и т.п.).
+Твоя задача — определить продукт как структурированный объект:
+1. brand — бренд (отдельно от названия, НЕ склеивай в одно поле);
+2. product_name — полное название продукта (без бренда);
+3. manufacturer — производитель, если он явно указан/определим на упаковке, иначе null;
+4. category — категория/тип продукта (крем, сыворотка, шампунь, тональный крем, патчи и т.п.), если видно, иначе null;
+5. variant — вариант/линейку, если видно (например, «для сухой кожи», SPF, оттенок).
 
 Если что-то не видно или неоднозначно — оставь поле пустым или null. НЕ придумывай.
 Если уверенность низкая — отрази это в confidence (0..1).
 
 Верни СТРОГО один JSON-объект:
-{{"brand": "...", "name": "...", "variant": null, "type": null, "confidence": 0.0}}
+{{"brand": "...", "product_name": "...", "manufacturer": null, "category": null, "variant": null, "confidence": 0.0}}
 """
 
 
 def _coerce_identification(parsed: Any) -> Dict[str, Any]:
     if not isinstance(parsed, dict):
-        return {"brand": "", "name": "", "variant": None, "type": None, "confidence": 0.0}
+        return {"brand": "", "product_name": "", "name": "", "manufacturer": None, "category": None, "variant": None, "type": None, "confidence": 0.0}
+    brand = str(parsed.get("brand") or "").strip()
+    product_name = str(parsed.get("product_name") or parsed.get("name") or "").strip()
     return {
-        "brand": str(parsed.get("brand") or "").strip(),
-        "name": str(parsed.get("name") or "").strip(),
+        "brand": brand,
+        "product_name": product_name,
+        # alias для обратной совместимости: существующий код использует `name`.
+        "name": product_name,
+        "manufacturer": parsed.get("manufacturer") or None,
+        "category": parsed.get("category") or parsed.get("type") or None,
         "variant": parsed.get("variant") or None,
         "type": parsed.get("type") or None,
         "confidence": float(parsed.get("confidence") or 0.0),

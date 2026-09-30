@@ -17,6 +17,7 @@ from app.product_identification import (
     web_search_product,
 )
 from app.scraper.models import ProductImportResult
+from app.scraper.extractors import _brand_from_domain
 from app.vision_service import _coerce_identification
 
 
@@ -26,10 +27,30 @@ class ProductIdentificationTests(unittest.TestCase):
         self.assertEqual(_normalize(""), "")
 
     def test_coerce_identification(self):
-        self.assertEqual(_coerce_identification("x"), {"brand": "", "name": "", "variant": None, "type": None, "confidence": 0.0})
+        base = _coerce_identification("x")
+        self.assertEqual(base["brand"], "")
+        self.assertEqual(base["product_name"], "")
+        self.assertEqual(base["name"], "")
+        self.assertIsNone(base["manufacturer"])
+        self.assertIsNone(base["category"])
+        self.assertEqual(base["confidence"], 0.0)
         r = _coerce_identification({"brand": "CeraVe", "name": "Foaming", "confidence": "0.9"})
         self.assertEqual(r["brand"], "CeraVe")
+        self.assertEqual(r["product_name"], "Foaming")
         self.assertEqual(r["confidence"], 0.9)
+
+    def test_structured_output_keeps_manufacturer(self):
+        ident = _coerce_identification({
+            "brand": "COSRX",
+            "product_name": "Advanced Snail 96 Mucin Power Essence",
+            "manufacturer": "COSRX Inc",
+            "category": "Сыворотка",
+        })
+        self.assertEqual(ident["brand"], "COSRX")
+        self.assertEqual(ident["product_name"], "Advanced Snail 96 Mucin Power Essence")
+        self.assertEqual(ident["manufacturer"], "COSRX Inc")
+        self.assertEqual(ident["category"], "Сыворотка")
+        self.assertEqual(ident["name"], "Advanced Snail 96 Mucin Power Essence")
 
     def test_has_reliable_inci(self):
         self.assertFalse(has_reliable_inci(None))
@@ -191,7 +212,7 @@ class WebSearchSaveAndReuseTests(unittest.TestCase):
         conn = database.get_connection(database.PRODUCTS_DB)
         cur = conn.cursor()
         cur.execute(
-            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, slug TEXT UNIQUE, brand TEXT, "
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, slug TEXT UNIQUE, brand TEXT, manufacturer TEXT, "
             "ingredients TEXT, url TEXT, incidecoder_url TEXT, image_url TEXT, category TEXT, volume TEXT, "
             "description TEXT, sku TEXT, price REAL, currency TEXT, source_type TEXT, contributed_by INTEGER, "
             "normalized_name TEXT, is_canonical INTEGER DEFAULT 1, canonical_id INTEGER, saved_at TEXT)"
@@ -239,6 +260,17 @@ class WebSearchSaveAndReuseTests(unittest.TestCase):
              patch("app.scraper.import_product", new=AsyncMock(return_value=imported)):
             result = asyncio.run(web_search_product("La Roche-Posay", "Anthelios", "50+"))
         self.assertIsNone(result)
+
+
+class BrandFromDomainTests(unittest.TestCase):
+    def test_official_domain_resolves_brand(self):
+        self.assertEqual(_brand_from_domain("https://theordinary.com/product/serum"), "The Ordinary")
+
+    def test_subdomain_resolves_brand(self):
+        self.assertEqual(_brand_from_domain("https://us.cosrx.com/products/x"), "COSRX")
+
+    def test_unknown_domain_returns_none(self):
+        self.assertIsNone(_brand_from_domain("https://some-random-shop.com/x"))
 
 
 if __name__ == "__main__":

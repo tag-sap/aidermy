@@ -196,6 +196,7 @@ async def web_search_product(brand: str, name: str, variant: Optional[str] = Non
     result: Dict[str, Any] = {
         "name": imported.name,
         "brand": imported.brand or brand,
+        "manufacturer": imported.manufacturer or "",
         "ingredients": ingredients,
         "source_url": url,
         "image_url": imported.image_url or "",

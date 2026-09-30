@@ -77,7 +77,7 @@ class IdempotentMergeTests(unittest.TestCase):
         conn.execute('''
             CREATE TABLE products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT, slug TEXT, brand TEXT, ingredients TEXT, url TEXT,
+                name TEXT, slug TEXT, brand TEXT, manufacturer TEXT, ingredients TEXT, url TEXT,
                 incidecoder_url TEXT, image_url TEXT, category TEXT, volume TEXT,
                 description TEXT, sku TEXT, price REAL, currency TEXT,
                 source_type TEXT, contributed_by INTEGER, normalized_name TEXT,

@@ -199,6 +199,7 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
         product = {
             "name": saved.get("name"),
             "brand": saved.get("brand"),
+            "manufacturer": saved.get("manufacturer"),
             "image_url": saved.get("image_url"),
             "price": imported.price,
             "currency": imported.currency,
@@ -244,11 +245,12 @@ async def identify_product_endpoint(request: ProductIdentifyRequest):
     """Этап 1: фото продукта -> бренд/название -> поиск в собственной БД."""
     try:
         identified = await identify_product(request.images)
+        product_name = identified.get("product_name") or identified.get("name") or ""
         logger.info(
-            "[IDENTIFY] vision -> brand=%r name=%r variant=%r",
-            identified.get("brand"), identified.get("name"), identified.get("variant"),
+            "[IDENTIFY] vision -> brand=%r product_name=%r manufacturer=%r variant=%r",
+            identified.get("brand"), product_name, identified.get("manufacturer"), identified.get("variant"),
         )
-        product = find_product_in_db(identified.get("brand") or "", identified.get("name") or "")
+        product = find_product_in_db(identified.get("brand") or "", product_name)
         logger.info("[IDENTIFY] db lookup -> %s", "FOUND" if product else "MISS")
         return {
             "identified": identified,
@@ -277,6 +279,7 @@ async def product_web_search_endpoint(request: ProductWebSearchRequest):
         saved = find_or_create_canonical_product({
             "name": found["name"],
             "brand": found["brand"],
+            "manufacturer": found.get("manufacturer") or "",
             "ingredients": found["ingredients"],
             "url": found.get("source_url") or "",
             "image_url": found.get("image_url") or "",

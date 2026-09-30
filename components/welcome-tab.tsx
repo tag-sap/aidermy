@@ -23,15 +23,11 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
         style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}
       >
         <div className="relative h-[74vh] min-h-[480px] overflow-hidden">
-          <video
-            src="/header_video.mp4"
-            poster="/header_video_poster.jpg"
-            autoPlay
-            muted
-            playsInline
-            loop
-            preload="metadata"
+          <img
+            src="/background.svg"
+            alt=""
             className="h-full w-full object-cover"
+            draggable={false}
             aria-hidden
           />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />

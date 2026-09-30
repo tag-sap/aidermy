@@ -780,7 +780,10 @@ export default function Page() {
               isAuthenticated={isAuthenticated}
               userName={userName}
               avatarUrl={avatarUrl}
-              onCheck={() => setCheckModalOpen(true)}
+              onCheck={() => {
+                if (!isAuthenticated) { setIsAuthModalOpen(true); return }
+                setCheckModalOpen(true)
+              }}
               title={tab === 'home' ? undefined : tab === 'profile' ? 'профиль' : tab === 'catalog' ? 'каталог' : 'моя полка'}
               onReplayGuide={() => {
                 if (!isAuthenticated) { setIsAuthModalOpen(true); return }
@@ -845,7 +848,10 @@ export default function Page() {
             <TabBar
               active={tab}
               onChange={handleTabChange}
-              onCheck={() => setCheckModalOpen(true)}
+              onCheck={() => {
+                if (!isAuthenticated) { setIsAuthModalOpen(true); return }
+                setCheckModalOpen(true)
+              }}
               isAuthenticated={isAuthenticated}
             />
           </div>
