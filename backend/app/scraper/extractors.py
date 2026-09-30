@@ -189,8 +189,9 @@ def _ingredient_text(page: Any, body_text: str) -> str | None:
             match = _INGREDIENT_LABELS.search(value)
             candidate = match.group(1) if match else value
             inci_start = _INCI_START.search(candidate)
-            if inci_start:
-                candidate = candidate[inci_start.start():]
+            if not inci_start:
+                continue  # нет начала INCI (water/aqua) — это не состав
+            candidate = candidate[inci_start.start():]
             candidate = re.split(r"\.\s*[^.]{0,80}?перейти в каталог бренда", candidate, maxsplit=1, flags=re.IGNORECASE)[0]
             if "," in candidate and len(candidate) >= 20:
                 return _text(candidate)
@@ -207,9 +208,9 @@ def _ingredient_text(page: Any, body_text: str) -> str | None:
         inci_start = _INCI_START.search(candidate)
         if inci_start:
             candidate = candidate[inci_start.start():]
-        candidate = re.split(r"\.\s*[^.]{0,80}?перейти в каталог бренда", candidate, maxsplit=1, flags=re.IGNORECASE)[0]
-        if "," in candidate and len(candidate) >= 20:
-            return _text(candidate)
+            candidate = re.split(r"\.\s*[^.]{0,80}?перейти в каталог бренда", candidate, maxsplit=1, flags=re.IGNORECASE)[0]
+            if "," in candidate and len(candidate) >= 20:
+                return _text(candidate)
 
     match = _INCI_VALUE.search(body_text)
     return _text(match.group(0)) if match else None
