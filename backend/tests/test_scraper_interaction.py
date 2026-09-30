@@ -29,6 +29,9 @@ class ExpandIngredientsTests(unittest.TestCase):
                 clicks.append("click")
 
         class Page:
+            def get_by_text(self, label, exact=True):
+                return Loc()
+
             def locator(self, sel):
                 return Loc()
 
@@ -39,13 +42,16 @@ class ExpandIngredientsTests(unittest.TestCase):
         self.assertTrue(clicks)
 
     def test_no_ingredients_no_click_and_no_crash(self):
-        class Loc:
+        class NoLoc:
             def count(self):
                 return 0
 
         class Page:
+            def get_by_text(self, label, exact=True):
+                return NoLoc()
+
             def locator(self, sel):
-                return Loc()
+                return NoLoc()
 
             def wait_for_timeout(self, ms):
                 pass

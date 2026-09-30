@@ -61,25 +61,28 @@ _INGREDIENTS_ACCORDION_LABELS = (
 def _expand_ingredients(page: object) -> None:
     """JS-interaction (page_action): раскрывает блок Ingredients после загрузки.
 
-    Кликает ТОЛЬКО по элементам, похожим на раскрывающийся блок состава
-    (button/summary/[role=tab]/[aria-expanded]) по текстовому совпадению, а не по
-    CSS-классам конкретного сайта. Если INCI уже был в HTML — extraction вернёт его
-    и без клика; этот шаг нужен только когда состав скрыт в аккордеоне.
+    Ищет кликабельный элемент с текстом состава (по тексту, а не по CSS-классам
+    сайта) и кликает по нему. Если INCI уже был в HTML — extraction вернёт его и без
+    клика; этот шаг нужен только когда состав скрыт в аккордеоне/табе.
     """
     try:
         for label in _INGREDIENTS_ACCORDION_LABELS:
-            loc = page.locator(
+            # get_by_text ищет по тексту (включая вложенные элементы), точное совпадение.
+            loc = page.get_by_text(label, exact=True)
+            if loc.count() == 0:
+                continue
+            # Предпочитаем кликабельные элементы (button/summary/tab), иначе первый.
+            clickable = page.locator(
                 "xpath=//*[self::button or self::summary or @role='tab' or @aria-expanded]"
                 f"[contains(normalize-space(.), '{label}')]"
             )
-            if loc.count() == 0:
-                continue
-            loc.first.click()
-            page.wait_for_timeout(900)
+            target = clickable.first if clickable.count() > 0 else loc.first
+            target.click()
+            page.wait_for_timeout(1200)
+            logger.info("[SCRAPER] expanded Ingredients via text %r", label)
             return
-    except Exception:
-        # best-effort: если клик не удался, extraction выполнится как обычно.
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[SCRAPER] expand ingredients skipped: %s", exc)
 
 
 class ProductImportError(Exception):
