@@ -74,19 +74,22 @@ def _dismiss_cookie_banner(page: object) -> None:
 def _expand_ingredients(page: object) -> None:
     """JS-interaction (page_action): раскрывает блок Ingredients после загрузки.
 
-    Ищет именно КЛИКАБЕЛЬНУЮ кнопку аккордеона/таба состава по accessible name
-    (aria-label/text) и кликает её. Текст заголовка (например, <h3>Ingredients</h3>)
-    не кликается. Если INCI уже был в HTML — extraction вернёт его и без клика.
+    Ищет именно КЛИКАБЕЛЬНУЮ кнопку аккордеона/таба состава. Приоритет: кнопка с
+    aria-label (надёжный признак раскрывающегося блока), затем элемент с
+    aria-expanded. Если INCI уже был в HTML — extraction вернёт его и без клика.
     """
     try:
         _dismiss_cookie_banner(page)
         for label in _INGREDIENTS_ACCORDION_LABELS:
-            loc = page.get_by_role("button", name=label)
+            # Кнопка аккордеона с aria-label="Ingredients" (не текстовый бейдж).
+            loc = page.locator(f"button[aria-label='{label}']")
+            if loc.count() == 0:
+                loc = page.locator(f"[aria-expanded][aria-label='{label}']")
             if loc.count() == 0:
                 continue
             loc.first.click(force=True, timeout=5000)
-            page.wait_for_timeout(1200)
-            logger.info("[SCRAPER] expanded Ingredients via role %r", label)
+            page.wait_for_timeout(1500)
+            logger.info("[SCRAPER] expanded Ingredients via aria-label %r", label)
             return
     except Exception as exc:  # noqa: BLE001
         logger.info("[SCRAPER] expand ingredients skipped: %s", exc)

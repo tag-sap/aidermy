@@ -32,6 +32,9 @@ class ExpandIngredientsTests(unittest.TestCase):
             def get_by_role(self, role, name=None):
                 return Loc()
 
+            def locator(self, sel):
+                return Loc()
+
             def wait_for_timeout(self, ms):
                 pass
 
@@ -45,6 +48,9 @@ class ExpandIngredientsTests(unittest.TestCase):
 
         class Page:
             def get_by_role(self, role, name=None):
+                return NoLoc()
+
+            def locator(self, sel):
                 return NoLoc()
 
             def wait_for_timeout(self, ms):
