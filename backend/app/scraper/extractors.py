@@ -6,7 +6,7 @@ from urllib.parse import urljoin, urlparse
 from .models import ProductImportResult
 
 _INGREDIENT_LABELS = re.compile(
-    r"(?:ingredients?|inci|состав|ингредиенты)\s*[:\-]?\s*(.+)",
+    r"(?:ingredients?|inci|состав|ингредиенты)\s*[:\-]?\s*(.{0,8000})",
     re.IGNORECASE | re.DOTALL,
 )
 _INCI_VALUE = re.compile(r"\b(?:aqua|water)\b\s*,\s*[^.]{8,}", re.IGNORECASE)

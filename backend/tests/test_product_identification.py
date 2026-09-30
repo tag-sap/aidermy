@@ -17,7 +17,7 @@ from app.product_identification import (
     web_search_product,
 )
 from app.scraper.models import ProductImportResult
-from app.scraper.extractors import _brand_from_domain
+from app.scraper.extractors import _brand_from_domain, _INGREDIENT_LABELS
 from app.vision_service import _coerce_identification
 
 
@@ -271,6 +271,29 @@ class BrandFromDomainTests(unittest.TestCase):
 
     def test_unknown_domain_returns_none(self):
         self.assertIsNone(_brand_from_domain("https://some-random-shop.com/x"))
+
+
+class ProductImportResultValidationTests(unittest.TestCase):
+    def test_site_title_is_not_product_data(self):
+        # «Brand | Slogan» — заголовок сайта, а не название продукта.
+        r = ProductImportResult(name="COSRX | EXPECTING TOMORROW", ingredients_raw="Water, Glycerin")
+        self.assertFalse(r.has_product_data())
+
+    def test_huge_ingredients_is_not_product_data(self):
+        # «Состав» = весь текст страницы (не INCI) — не валидные данные товара.
+        r = ProductImportResult(name="Advanced Snail 96", ingredients_raw="x" * 16000)
+        self.assertFalse(r.has_product_data())
+
+    def test_valid_product_data(self):
+        r = ProductImportResult(name="Advanced Snail 96 Mucin Power Essence", brand="COSRX", ingredients_raw="Water, Glycerin, Snail Secretion Filtrate")
+        self.assertTrue(r.has_product_data())
+
+    def test_ingredient_label_does_not_capture_entire_page(self):
+        # DOTALL-greedy раньше захватывал весь текст страницы — теперь ограничен.
+        text = "Ingredients: Water, Glycerin, Niacinamide." + ("x" * 20000)
+        m = _INGREDIENT_LABELS.search(text)
+        self.assertIsNotNone(m)
+        self.assertLessEqual(len(m.group(1)), 8000)
 
 
 if __name__ == "__main__":

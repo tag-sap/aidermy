@@ -22,6 +22,12 @@ class ProductImportResult:
     def has_product_data(self) -> bool:
         if not self.name:
             return False
+        # Заголовок сайта («Brand | Slogan») — не название конкретного продукта.
+        if "|" in self.name:
+            return False
+        # «Состав» = весь текст страницы (не INCI) — не валидные данные товара.
+        if self.ingredients_raw and len(self.ingredients_raw) > 15000:
+            return False
         blocked_markers = ("включен javascript", "checking device", "captcha", "access denied")
         haystack = " ".join(filter(None, (self.name, self.description))).lower()
         if any(marker in haystack for marker in blocked_markers):
