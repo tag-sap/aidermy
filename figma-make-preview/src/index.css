@@ -34,7 +34,9 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; }
+html, body { margin: 0; min-height: 100%; overflow-x: hidden; }
+#root { overflow-x: hidden; }
+.app-shell { overflow-x: clip; }
 body {
   font-family: var(--font-sans);
   color: var(--ink);
@@ -395,16 +397,16 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .pricing__note { color: var(--ink-faint); font-size: 12.5px; }
 .pricing__actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .matrix { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; display: grid; }
-.matrix__row { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; align-items: center; }
-.matrix__row > span { padding: 12px 14px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); font-size: 12.5px; text-align: center; }
-.matrix__row > span:first-child { text-align: left; font-weight: 600; color: var(--ink); }
+.matrix__row { display: grid; grid-template-columns: 2.2fr 1fr 1fr 1fr; align-items: stretch; }
+.matrix__row > span { display: flex; align-items: center; justify-content: center; padding: 11px 12px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); font-size: 12.5px; text-align: center; line-height: 1.35; }
+.matrix__row > span:first-child { text-align: left; justify-content: flex-start; font-weight: 600; color: var(--ink); }
 .matrix__row > span:last-child { border-right: 0; }
 .matrix__row:last-child > span { border-bottom: 0; }
 .matrix__row--head { background: var(--surface-2); }
-.matrix__row--head > span { font-weight: 800; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
+.matrix__row--head > span { font-weight: 800; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .03em; font-size: 11px; }
 .matrix__plan { font-weight: 800; }
 .matrix__plan--current { color: var(--good); }
-.matrix__cell--pro { background: var(--lime-soft); }
+.matrix__cell--current { background: var(--lime-soft); font-weight: 700; }
 .matrix__yes { color: var(--good); font-weight: 800; }
 
 .drawer-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(22,21,15,.32); backdrop-filter: blur(2px); animation: fade .18s ease; }
@@ -441,7 +443,7 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .loading-screen span { color: var(--ink-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .12em; }
 .loading-screen--done { opacity: 0; visibility: hidden; pointer-events: none; }
 
-.page, .grid-2, .report-cols, .result__sections, .profile-grid, .product-grid, .shelf-board__rack, .scan-methods { min-width: 0; }
+.page, .grid-2, .report-cols, .result__sections, .profile-grid, .product-grid, .shelf-board__rack, .scan-methods, .block, .hscroll, .hscroll-wrap, .shelf-anim, .shelf-rack-wrap, .page-anim, .main-content, .workspace { min-width: 0; }
 .page-head > div, .section-head > div, .report-preview__side, .result__meta, .modal__hero-meta, .topbar__title { min-width: 0; }
 @media (max-width: 1024px) {
   .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -471,13 +473,14 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
   .result__top { flex-direction: column; align-items: flex-start; }
   .report-hero { flex-direction: column; align-items: flex-start; }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .shelf__group { flex: 1 1 46%; min-width: 0; padding: 8px; }
-  .shelf__group-cards .pcard { width: 100%; min-width: 0; height: 230px; }
-  .shelf-add { flex: 0 0 46%; width: auto; height: 230px; }
+  .shelf__group { flex: 0 0 47%; min-width: 0; padding: 8px; }
+  .shelf__group-cards .pcard { width: 100%; min-width: 0; height: 220px; }
+  .shelf__group-cards { flex-direction: column; }
+  .shelf-add { flex: 0 0 47%; width: auto; height: 220px; }
   .modal-backdrop { align-items: flex-end; padding: 0; }
   .modal { max-width: none; border-radius: 20px 20px 0 0; max-height: 90dvh; }
-  .matrix__row { grid-template-columns: 1.4fr 1fr 1fr 1fr; }
-  .matrix__row > span { padding: 10px 8px; font-size: 11px; }
+  .matrix__row { grid-template-columns: 1.7fr 1fr 1fr 1fr; }
+  .matrix__row > span { padding: 9px 6px; font-size: 11px; }
 }
 
 @media (max-width: 430px) {

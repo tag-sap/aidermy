@@ -177,18 +177,13 @@ function ProductCard({ product, checking = false, onOpen }: {
         </div>
       </button>
       <div className="pcard__foot">
-        {checked ? (
-          <>
-            <VerdictPill verdict={product.verdict} score={product.score} />
-            <button type="button" className="pcard__link" onClick={onOpen}>{product.report ? "Отчёт" : "Подробнее"} <Icon name="chevron" size={13} /></button>
-          </>
-        ) : checking ? (
+        {!checked && (checking ? (
           <span className="pcard__checking"><span className="spin" /> Проверяем…</span>
         ) : (
           <button type="button" className="pcard__check" onClick={onOpen}>
             <Icon name="sparkle" size={13} /> Проверить совместимость
           </button>
-        )}
+        ))}
       </div>
     </article>
   )
@@ -1136,6 +1131,7 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
 function PricingModal({ user, onClose, onSelectPlan }: {
   user: User | null; onClose: () => void; onSelectPlan: (p: Plan) => void
 }) {
+  const currentPlan = user?.plan ?? "free"
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal--wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
@@ -1143,18 +1139,24 @@ function PricingModal({ user, onClose, onSelectPlan }: {
         <div className="pricing">
           <p className="eyebrow">Подписка</p>
           <h2>Тарифы</h2>
-          <p className="pricing__hint">Сравните возможности тарифов и выберите подходящий.</p>
+          <p className="pricing__hint">Сравните возможности тарифов и выберите подходящий. Текущий тариф выделен цветом.</p>
           <div className="matrix">
             <div className="matrix__row matrix__row--head">
               <span>Возможность</span>
-              {PLANS.map((p) => <span key={p.key} className={user?.plan === p.key ? "matrix__plan matrix__plan--current" : "matrix__plan"}>{p.title}{user?.plan === p.key ? " · текущий" : ""}</span>)}
+              {PLANS.map((p) => (
+                <span key={p.key} className={`matrix__plan ${currentPlan === p.key ? "matrix__plan--current" : ""}`}>{p.title}{currentPlan === p.key ? " · текущий" : ""}</span>
+              ))}
             </div>
             {SUBSCRIPTION_ROWS.map((r) => (
               <div className="matrix__row" key={r.feature}>
                 <span>{r.feature}</span>
-                <span className={r.values.free === "✓" ? "matrix__yes" : ""}>{r.values.free}</span>
-                <span className={r.values.plus === "✓" ? "matrix__yes" : ""}>{r.values.plus}</span>
-                <span className={`matrix__cell ${r.pro ? "matrix__cell--pro" : ""} ${r.values.pro === "✓" ? "matrix__yes" : ""}`}>{r.values.pro}</span>
+                {PLANS.map((p) => {
+                  const val = r.values[p.key]
+                  const current = currentPlan === p.key
+                  return (
+                    <span key={p.key} className={`${val === "✓" ? "matrix__yes" : ""} ${current ? "matrix__cell--current" : ""}`}>{val}</span>
+                  )
+                })}
               </div>
             ))}
           </div>
