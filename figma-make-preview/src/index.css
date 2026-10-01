@@ -1,15 +1,24 @@
 @import "tailwindcss";
 
 @font-face {
-  font-family: "Avs";
-  src: url("./fonts/Avs.otf") format("opentype");
+  font-family: "Advaken Sans";
+  src: url("./fonts/Advaken_Sans.otf") format("opentype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Actinia Regular";
+  src: url("./fonts/Actinia-Regular.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 :root {
-  --font-display: "Avs", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Advaken Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-brand: "Actinia Regular", "Advaken Sans", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --ink: #16150f;
   --ink-2: #23221a;
@@ -67,7 +76,7 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
   width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px;
   background: var(--lime); color: var(--ink); font-family: var(--font-display); font-size: 18px; font-weight: 400;
 }
-.brand strong { font-family: var(--font-display); font-weight: 400; font-size: 22px; letter-spacing: -0.02em; }
+.brand strong { font-family: var(--font-brand); font-weight: 400; font-size: 22px; letter-spacing: -0.02em; }
 .nav-list { display: grid; gap: 4px; }
 .nav-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 13px; border-radius: 11px; color: #a9a59b; font-weight: 500; transition: background .15s, color .15s; }
 .nav-item svg { opacity: .85; flex-shrink: 0; }
@@ -100,6 +109,7 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
   padding: 14px 24px; background: rgba(255,255,255,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border);
 }
 .globalbar__brand { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 19px; }
+.globalbar__brand strong, .topbar__brand strong { font-family: var(--font-brand); font-weight: 400; }
 .globalbar__actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .points-chip { display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: 12px; color: var(--ink-soft); transition: border-color .15s; }
 .points-chip:hover { border-color: var(--border-strong); }
@@ -432,7 +442,7 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 
 .loading-screen { position: fixed; inset: 0; z-index: 999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #fff; transition: opacity .35s ease, visibility .35s; }
 .loading-screen img { width: 140px; height: 140px; object-fit: contain; }
-.loading-screen strong { font-family: var(--font-display); font-weight: 400; font-size: 30px; letter-spacing: -0.02em; }
+.loading-screen strong { font-family: var(--font-brand); font-weight: 400; font-size: 30px; letter-spacing: -0.02em; }
 .loading-screen span { color: var(--ink-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .12em; }
 .loading-screen--done { opacity: 0; visibility: hidden; pointer-events: none; }
 
