@@ -144,8 +144,8 @@ function ScoreRing({ score, label = "совместимость" }: { score: num
     </div>
   )
 }
-function ProductCard({ product, checking = false, onOpen, onCheck }: {
-  product: Product; checking?: boolean; onOpen?: () => void; onCheck?: () => void
+function ProductCard({ product, checking = false, onOpen }: {
+  product: Product; checking?: boolean; onOpen?: () => void
 }) {
   const checked = product.checked === true && product.score != null
   return (
@@ -171,7 +171,7 @@ function ProductCard({ product, checking = false, onOpen, onCheck }: {
         ) : checking ? (
           <span className="pcard__checking"><span className="spin" /> Проверяем…</span>
         ) : (
-          <button type="button" className="pcard__check" onClick={onCheck}>
+          <button type="button" className="pcard__check" onClick={onOpen}>
             <Icon name="sparkle" size={13} /> Проверить совместимость
           </button>
         )}
@@ -347,8 +347,8 @@ function HomePage({ onNavigate, onOpen, onScan }: { onNavigate: (p: Page) => voi
     </div>
   )
 }
-function ShelfPage({ items, checkingIds, onOpen, onCheck, onAdd }: {
-  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onCheck: (id: number) => void; onAdd: () => void
+function ShelfPage({ items, checkingIds, onOpen, onAdd }: {
+  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onAdd: () => void
 }) {
   const [filter, setFilter] = useState<"all" | ProductState>("all")
   const states: { id: "all" | ProductState; label: string }[] = [
@@ -388,7 +388,7 @@ function ShelfPage({ items, checkingIds, onOpen, onCheck, onAdd }: {
             </div>
             <div className="shelf-board__rack">
               {list.map((p) => (
-                <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} onCheck={() => onCheck(p.id)} />
+                <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} />
               ))}
               <button type="button" className="shelf-add" onClick={onAdd} aria-label="Добавить продукт">
                 <Icon name="plus" size={26} />
@@ -402,8 +402,8 @@ function ShelfPage({ items, checkingIds, onOpen, onCheck, onAdd }: {
   )
 }
 
-function CatalogPage({ items, checkingIds, onOpen, onCheck }: {
-  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onCheck: (id: number) => void
+function CatalogPage({ items, checkingIds, onOpen }: {
+  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void
 }) {
   const [query, setQuery] = useState("")
   const [cat, setCat] = useState<string>("Все")
@@ -430,7 +430,7 @@ function CatalogPage({ items, checkingIds, onOpen, onCheck }: {
       </div>
       <div className="product-grid">
         {list.map((p) => (
-          <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} onCheck={() => onCheck(p.id)} />
+          <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} />
         ))}
       </div>
       {list.length === 0 && <p className="empty">Ничего не нашлось. Попробуйте другой запрос.</p>}
@@ -753,8 +753,8 @@ function ProfilePage() {
   )
 }
 
-function ProductDrawer({ product, onClose, onChecked, onReported, onOpen }: {
-  product: Product; onClose: () => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void
+function ProductDrawer({ product, onClose, onChecking, onChecked, onReported, onOpen }: {
+  product: Product; onClose: () => void; onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
     product.checked && product.report ? "report" : product.checked ? "match" : "idle"
@@ -764,6 +764,7 @@ function ProductDrawer({ product, onClose, onChecked, onReported, onOpen }: {
 
   const check = () => {
     setPhase("checking")
+    onChecking(product.id)
     window.setTimeout(() => {
       const s = 60 + ((product.id * 13) % 35)
       const v: Verdict = s >= 80 ? "Подходит" : s >= 60 ? "С осторожностью" : "Не подходит"
@@ -858,19 +859,11 @@ export default function App() {
 
   const navigate = (p: Page) => { setPage(p); window.scrollTo({ top: 0 }) }
 
-  const mockScore = (id: number) => 60 + ((id * 13) % 35)
-  const verdictOf = (s: number): Verdict => (s >= 80 ? "Подходит" : s >= 60 ? "С осторожностью" : "Не подходит")
-
-  const startCheck = (id: number) => {
-    setCheckingIds((prev) => new Set(prev).add(id))
-    window.setTimeout(() => {
-      setItems((cur) => cur.map((p) => { if (p.id !== id) return p; const s = mockScore(p.id); return { ...p, checked: true, score: s, verdict: verdictOf(s) } }))
-      setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
-    }, 1300)
-  }
+  const onChecking = (id: number) => setCheckingIds((prev) => new Set(prev).add(id))
   const onChecked = (id: number, score: number, verdict: Verdict) => {
     setItems((cur) => cur.map((p) => (p.id === id ? { ...p, checked: true, score, verdict } : p)))
     setOpen((o) => (o && o.id === id ? { ...o, checked: true, score, verdict } : o))
+    setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
   }
   const onReported = (id: number) => {
     setItems((cur) => cur.map((p) => (p.id === id ? { ...p, report: true } : p)))
@@ -884,15 +877,15 @@ export default function App() {
         <Topbar page={page} onNavigate={navigate} onScan={() => navigate("scan")} />
         <main className="main-content">
           {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} />}
-          {page === "shelf" && <ShelfPage items={items} checkingIds={checkingIds} onOpen={setOpen} onCheck={startCheck} onAdd={() => navigate("catalog")} />}
+          {page === "shelf" && <ShelfPage items={items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => navigate("catalog")} />}
           {page === "scan" && <ScanPage onContinue={setOpen} />}
-          {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} onCheck={startCheck} />}
+          {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} />}
           {page === "report" && <ReportPage onOpen={setOpen} />}
           {page === "profile" && <ProfilePage />}
         </main>
       </div>
       <BottomNav page={page} onNavigate={navigate} />
-      {open && <ProductDrawer key={open.id} product={open} onClose={() => setOpen(null)} onChecked={onChecked} onReported={onReported} onOpen={setOpen} />}
+      {open && <ProductDrawer key={open.id} product={open} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onReported={onReported} onOpen={setOpen} />}
     </div>
   )
 }
