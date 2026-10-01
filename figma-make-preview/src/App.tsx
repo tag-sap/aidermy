@@ -60,39 +60,61 @@ function toneOf(score: number | null, verdict: Verdict | null): "good" | "warn" 
   if (score == null) return "neutral"
   return score >= 80 ? "good" : score >= 60 ? "warn" : "bad"
 }
-function ParticleCanvas() {
+function ParticleCanvas({ tint = "rgba(214,242,100," }: { tint?: string }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const cv = ref.current
     if (!cv) return
     const ctx = cv.getContext("2d")
     if (!ctx) return
-    let raf = 0
-    let pts: { x: number; y: number; vx: number; vy: number; r: number }[] = []
-    const build = () => {
-      const w = cv.clientWidth, h = cv.clientHeight
-      cv.width = w; cv.height = h
-      const n = Math.max(14, Math.min(50, Math.round((w * h) / 26000)))
-      pts = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.16, vy: (Math.random() - 0.5) * 0.16, r: Math.random() * 1.5 + 0.6 }))
+    let W = 0, H = 0, raf = 0, live = true
+    let pts: { x: number; y: number; vx: number; vy: number; bx: number; by: number; r: number }[] = []
+    const MESH = 120, PUSH = 180
+    const m = { x: -9e4, y: -9e4 }
+    function build() {
+      const n = Math.round(Math.max(18, Math.min(60, (W * H) / 22000)))
+      pts = Array.from({ length: n }, () => { const bx = (Math.random() - 0.5) * 0.16; const by = (Math.random() - 0.5) * 0.16; return { x: Math.random() * W, y: Math.random() * H, vx: bx, vy: by, bx, by, r: Math.random() * 1.5 + 0.7 } })
     }
-    const tick = () => {
-      const w = cv.clientWidth, h = cv.clientHeight
-      ctx.clearRect(0, 0, w, h)
-      ctx.fillStyle = "rgba(214,242,100,0.55)"
+    function size() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const p = cv!.parentElement
+      W = p ? p.clientWidth : window.innerWidth
+      H = p ? p.clientHeight : window.innerHeight
+      cv!.width = Math.round(W * dpr); cv!.height = Math.round(H * dpr)
+      cv!.style.width = W + "px"; cv!.style.height = H + "px"
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0); build()
+    }
+    const onMove = (e: PointerEvent) => { const r = cv!.getBoundingClientRect(); m.x = e.clientX - r.left; m.y = e.clientY - r.top }
+    const onLeave = () => { m.x = -9e4; m.y = -9e4 }
+    window.addEventListener("pointermove", onMove, { passive: true })
+    window.addEventListener("pointerleave", onLeave)
+    function frame() {
+      ctx!.clearRect(0, 0, W, H)
       for (const p of pts) {
+        const dx = p.x - m.x, dy = p.y - m.y, d2 = dx * dx + dy * dy
+        if (d2 < PUSH * PUSH) { const d = Math.sqrt(d2) || 1; const f = 1 - d / PUSH; p.vx += (dx / d) * f * f * 1.4; p.vy += (dy / d) * f * f * 1.4 }
+        p.vx += (p.bx - p.vx) * 0.03; p.vy += (p.by - p.vy) * 0.03
         p.x += p.vx; p.y += p.vy
-        if (p.x < 0 || p.x > w) p.vx *= -1
-        if (p.y < 0 || p.y > h) p.vy *= -1
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill()
+        if (p.x < -30) p.x = W + 30; else if (p.x > W + 30) p.x = -30
+        if (p.y < -30) p.y = H + 30; else if (p.y > H + 30) p.y = -30
       }
-      raf = requestAnimationFrame(tick)
+      ctx!.lineWidth = 0.7
+      for (let a = 0; a < pts.length; a++) for (let b = a + 1; b < pts.length; b++) {
+        const A = pts[a], B = pts[b], ex = A.x - B.x, ey = A.y - B.y, dd = ex * ex + ey * ey
+        if (dd < MESH * MESH) { const k = 1 - Math.sqrt(dd) / MESH; ctx!.strokeStyle = tint + (k * 0.13).toFixed(3) + ")"; ctx!.beginPath(); ctx!.moveTo(A.x, A.y); ctx!.lineTo(B.x, B.y); ctx!.stroke() }
+      }
+      for (const t of pts) { const near = Math.max(0, 1 - Math.hypot(t.x - m.x, t.y - m.y) / 200); ctx!.fillStyle = tint + (0.3 + near * 0.18).toFixed(3) + ")"; ctx!.beginPath(); ctx!.arc(t.x, t.y, t.r + near * 1.4, 0, 6.283); ctx!.fill() }
+      if (live) raf = requestAnimationFrame(frame)
     }
-    build(); tick()
-    const onR = () => build()
-    window.addEventListener("resize", onR)
-    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onR) }
-  }, [])
-  return <canvas ref={ref} className="particles" aria-hidden="true" />
+    size(); frame()
+    let rt = 0
+    const onResize = () => { clearTimeout(rt); rt = window.setTimeout(size, 160) }
+    window.addEventListener("resize", onResize)
+    const onVis = () => { if (document.hidden) { live = false; cancelAnimationFrame(raf) } else if (!live) { live = true; frame() } }
+    document.addEventListener("visibilitychange", onVis)
+    return () => { live = false; cancelAnimationFrame(raf); window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerleave", onLeave); window.removeEventListener("resize", onResize); document.removeEventListener("visibilitychange", onVis) }
+  }, [tint])
+  return <canvas ref={ref} aria-hidden="true" className="particles" />
 }
 
 const STATE_LABEL: Record<ProductState, string> = { using: "Сейчас использую", want: "Хочу попробовать", finished: "Закончились" }
@@ -188,12 +210,12 @@ const MOBILE_NAV: { id: Page; icon: IconName; label: string }[] = [
   { id: "report", icon: "chart", label: "Отчёт" },
 ]
 
-function Sidebar({ page, onNavigate, user, onAuth, onPricing }: {
-  page: Page; onNavigate: (p: Page) => void; user: User | null; onAuth: () => void; onPricing: () => void
+function Sidebar({ page, onNavigate, user, onAuth, onPricing, onPoints }: {
+  page: Page; onNavigate: (p: Page) => void; user: User | null; onAuth: () => void; onPricing: () => void; onPoints: () => void
 }) {
   return (
     <aside className="sidebar">
-      <div className="brand"><span className="brand__mark">а</span><strong>айдерми</strong></div>
+      <div className="brand"><strong>айдерми</strong></div>
       <nav className="nav-list">
         {NAV.map((item) => {
           const locked = item.id === "report"
@@ -210,7 +232,8 @@ function Sidebar({ page, onNavigate, user, onAuth, onPricing }: {
           <span className="sidebar-card__icon"><Icon name="coins" /></span>
           <strong>{user.points} баллов</strong>
           <p>Тариф {PLANS.find((p) => p.key === user.plan)?.title} · {PLANS.find((p) => p.key === user.plan)?.monthlyPoints} баллов/мес.</p>
-          <button type="button" className="sidebar-card__btn" onClick={onPricing}>Управлять подпиской</button>
+          <button type="button" className="sidebar-card__btn" onClick={onPoints}>Пополнить баллы</button>
+          <button type="button" className="sidebar-card__btn sidebar-card__btn--ghost" onClick={onPricing}>Управлять подпиской</button>
         </div>
       ) : (
         <div className="sidebar-card">
@@ -229,21 +252,34 @@ function Sidebar({ page, onNavigate, user, onAuth, onPricing }: {
   )
 }
 
-function GlobalBar({ query, onQuery, user, onAuth, onPricing, onLogout, onNavigate }: {
-  query: string; onQuery: (v: string) => void; user: User | null; onAuth: () => void; onPricing: () => void; onLogout: () => void; onNavigate: (p: Page) => void
+function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout, onNavigate, onOpen }: {
+  query: string; onQuery: (v: string) => void; user: User | null; onAuth: () => void; onPricing: () => void; onPoints: () => void; onLogout: () => void; onNavigate: (p: Page) => void; onOpen: (p: Product) => void
 }) {
+  const [focused, setFocused] = useState(false)
+  const needle = query.trim().toLowerCase()
+  const matches = needle ? products.filter((p) => [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(needle)).slice(0, 6) : []
   return (
     <header className="globalbar">
-      <div className="globalbar__brand"><span className="brand__mark brand__mark--sm">а</span><strong>айдерми</strong></div>
-      <div className="search search--top">
+      <div className="search search--top search--autocomplete">
         <Icon name="search" size={17} />
-        <input value={query} onChange={(e) => { onQuery(e.target.value); onNavigate("catalog") }} placeholder="Название, бренд или актив…" />
+        <input value={query} onChange={(e) => onQuery(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => window.setTimeout(() => setFocused(false), 150)} placeholder="Название, бренд или актив…" />
         {query && <button type="button" onClick={() => onQuery("")} className="search__clear" aria-label="Очистить"><Icon name="close" size={15} /></button>}
+        {focused && query && (
+          <div className="autocomplete">
+            {matches.map((p) => (
+              <button key={p.id} type="button" className="autocomplete__item" onMouseDown={(e) => { e.preventDefault(); onOpen(p); onQuery(""); setFocused(false) }}>
+                <img src={p.image} alt="" />
+                <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+              </button>
+            ))}
+            <button type="button" className="autocomplete__all" onMouseDown={(e) => { e.preventDefault(); onNavigate("catalog"); setFocused(false) }}>Смотреть все результаты в каталоге →</button>
+          </div>
+        )}
       </div>
       <div className="globalbar__actions">
         {user ? (
           <>
-            <button type="button" className="points-chip" onClick={onPricing}><Icon name="coins" size={16} /><strong>{user.points}</strong><span>баллов · {PLANS.find((p) => p.key === user.plan)?.title}</span></button>
+            <button type="button" className="points-chip" onClick={onPoints}><Icon name="coins" size={16} /><strong>{user.points}</strong><span>баллов · {PLANS.find((p) => p.key === user.plan)?.title}</span></button>
             <button type="button" className="icon-btn" onClick={onLogout} aria-label="Выйти"><Icon name="logout" size={18} /></button>
           </>
         ) : (
@@ -260,7 +296,7 @@ function Topbar({ page, onNavigate, onScan, user, onAuth }: {
   const title = NAV.find((n) => n.id === page)?.label ?? ""
   return (
     <header className="topbar">
-      <span className="topbar__brand"><span className="brand__mark brand__mark--sm">а</span><strong>айдерми</strong></span>
+      <span className="topbar__brand"><strong>айдерми</strong></span>
       <span className="topbar__title">{title}</span>
       <div className="topbar__actions">
         <button type="button" className="icon-btn" onClick={onScan} aria-label="Сканировать"><Icon name="scan" size={19} /></button>
@@ -335,7 +371,6 @@ function HomePage({ onNavigate, onOpen, onScan, user }: {
 }) {
   const using = products.filter((p) => p.state === "using").slice(0, 4)
   const recent = products.filter((p) => p.checked).slice(0, 6)
-  const trend = shelfReport.compatibilityHistory.map((h) => h.shelfAverage)
   return (
     <div className="page">
       <section className="hero">
@@ -356,11 +391,7 @@ function HomePage({ onNavigate, onOpen, onScan, user }: {
           <p className="eyebrow">Моя полка · сводка</p>
           <div className="report-preview">
             <div className="report-preview__num"><strong>{shelfReport.average}</strong><span>%</span></div>
-            <div className="report-preview__side">
-              <p className="report-preview__label">средняя совместимость полки</p>
-              <Sparkline values={trend} />
-              <p className="report-preview__hint">по {shelfReport.compatibilityHistory.length} проверенным продуктам</p>
-            </div>
+            <p className="report-preview__label">средняя совместимость полки</p>
           </div>
         </section>
 
@@ -412,6 +443,7 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd }: {
     if (!el) return
     const CARD_W = 150, GAP = 12
     const measure = () => {
+      if (window.innerWidth <= 760) { setCardsPerShelf(2); return }
       const available = Math.max(CARD_W, el.clientWidth - 8)
       setCardsPerShelf(Math.max(1, Math.floor((available + GAP) / (CARD_W + GAP))))
     }
@@ -456,6 +488,7 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd }: {
     const scored = shelved.filter((p) => p.score != null)
     return scored.length ? Math.round(scored.reduce((s, p) => s + (p.score ?? 0), 0) / scored.length) : null
   })()
+  const shelfVerdict = avg == null ? "—" : avg >= 80 ? "Отлично" : avg >= 60 ? "Осторожно" : "Конфликт"
 
   return (
     <div className="page">
@@ -473,32 +506,34 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd }: {
         })}
       </div>
 
-      <div className="shelf-summary">
-        <div><strong>{shelved.length}</strong><span>средств на полке</span></div>
-        <div><strong>{avg != null ? `${avg}%` : "—"}</strong><span>средняя совместимость</span></div>
-        <div><strong>{cabinet.hasScoring ? "✓" : "—"}</strong><span>скоринг</span></div>
-      </div>
+      <div key={active} className="shelf-anim">
+        <div className="shelf-summary">
+          <div><strong>{shelved.length}</strong><span>средств на полке</span></div>
+          <div><strong>{avg != null ? `${avg}%` : "—"}</strong><span>средняя совместимость</span></div>
+          <div><strong>{shelfVerdict}</strong><span>как сочетаются средства</span></div>
+        </div>
 
-      <div className="shelf-rack-wrap" ref={wrapRef}>
-        {groupedShelves.map((shelf, si) => (
-          <div className="shelf" key={si}>
-            <div className="shelf__row">
-              {shelf.map((group, gi) => (
-                <div className="shelf__group" key={gi}>
-                  <span className="shelf__group-label">{group.cat}</span>
-                  <div className="shelf__group-cards">
-                    {group.cells.map((c) => <ProductCard key={c.product.id} product={c.product} checking={checkingIds.has(c.product.id)} onOpen={() => onOpen(c.product)} />)}
+        <div className="shelf-rack-wrap" ref={wrapRef}>
+          {groupedShelves.map((shelf, si) => (
+            <div className="shelf" key={si}>
+              <div className="shelf__row">
+                {shelf.map((group, gi) => (
+                  <div className="shelf__group" key={gi}>
+                    <span className="shelf__group-label">{group.cat}</span>
+                    <div className="shelf__group-cards">
+                      {group.cells.map((c) => <ProductCard key={c.product.id} product={c.product} checking={checkingIds.has(c.product.id)} onOpen={() => onOpen(c.product)} />)}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {si === groupedShelves.length - 1 && (
-                <button type="button" className="shelf-add" onClick={onAdd} aria-label="Добавить продукт"><Icon name="plus" size={26} /></button>
-              )}
+                ))}
+                {si === groupedShelves.length - 1 && (
+                  <button type="button" className="shelf-add" onClick={onAdd} aria-label="Добавить продукт"><Icon name="plus" size={26} /></button>
+                )}
+              </div>
+              <div className="shelf-plank" />
             </div>
-            <div className="shelf-plank"><span /><span /></div>
-          </div>
-        ))}
-        {shelved.length === 0 && <p className="empty">Полка пуста. Добавьте первое средство.</p>}
+          ))}
+          {shelved.length === 0 && <p className="empty">Полка пуста. Добавьте первое средство.</p>}
+        </div>
       </div>
     </div>
   )
@@ -552,8 +587,8 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
 }
 type ScanMethod = "photo" | "inci" | "link" | "manual"
 
-function ScanPage({ onContinue }: { onContinue: (p: Product) => void }) {
-  const [method, setMethod] = useState<ScanMethod>("photo")
+function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => void; initialMethod?: ScanMethod }) {
+  const [method, setMethod] = useState<ScanMethod>(initialMethod ?? "photo")
   const [phase, setPhase] = useState<"input" | "recognizing" | "ready">("input")
   const [brand, setBrand] = useState("")
   const [name, setName] = useState("")
@@ -565,18 +600,19 @@ function ScanPage({ onContinue }: { onContinue: (p: Product) => void }) {
   const METHODS: { id: ScanMethod; title: string; desc: string; icon: IconName }[] = [
     { id: "photo", title: "Скан по фото упаковки", desc: "Распознаём продукт по фото этикетки", icon: "camera" },
     { id: "inci", title: "Скан по составу", desc: "Внести название, бренд и состав", icon: "drop" },
-    { id: "link", title: "Скан по вставленной ссылке", desc: "Вставить ссылку на продукт", icon: "link" },
+    { id: "link", title: "Вставить ссылку", desc: "Вставить ссылку на продукт", icon: "link" },
     { id: "manual", title: "Ручной ввод", desc: "Название, бренд и состав вручную", icon: "pencil" },
   ]
 
-  const canRun = brand.trim().length > 0 && name.trim().length > 0 && (method === "photo" ? photoAdded : method === "link" ? url.trim().length > 0 : inci.trim().length > 0)
+  const needManualFields = method === "inci" || method === "manual"
+  const canRun = method === "photo" ? photoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
 
   const run = () => {
     if (!canRun) return
     setPhase("recognizing")
     window.setTimeout(() => {
       const base = products.find((p) => p.brand.toLowerCase() === brand.trim().toLowerCase()) ?? products[6]
-      const p: Product = { ...base, id: 900 + Math.floor(Math.random() * 90), brand: brand.trim(), name: name.trim() || base.name, image: base.image, checked: false, report: false, score: null, verdict: null, state: "want" }
+      const p: Product = { ...base, id: 900 + Math.floor(Math.random() * 90), brand: brand.trim() || base.brand, name: name.trim() || base.name, image: base.image, checked: false, report: false, score: null, verdict: null, state: "want" }
       setResult(p)
       setPhase("ready")
     }, 1400)
@@ -584,8 +620,9 @@ function ScanPage({ onContinue }: { onContinue: (p: Product) => void }) {
 
   const takePhoto = () => {
     setPhotoAdded(true)
-    setBrand("COSRX")
-    setName("Advanced Snail 96 Mucin Power Essence")
+    const base = products[6]
+    setBrand(base.brand)
+    setName(base.name)
   }
 
   return (
@@ -604,10 +641,12 @@ function ScanPage({ onContinue }: { onContinue: (p: Product) => void }) {
           </div>
 
           <section className="panel scan-form">
-            <div className="scan-form__row">
-              <label><span>Бренд *</span><input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Например, COSRX" /></label>
-              <label><span>Название *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Advanced Snail 96" /></label>
-            </div>
+            {needManualFields && (
+              <div className="scan-form__row">
+                <label><span>Бренд *</span><input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Например, COSRX" /></label>
+                <label><span>Название *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Advanced Snail 96" /></label>
+              </div>
+            )}
 
             {method === "photo" && (
               <div className="scan-dropzone" onClick={takePhoto}>
@@ -650,8 +689,12 @@ function ScanPage({ onContinue }: { onContinue: (p: Product) => void }) {
               {result.verdict && <VerdictPill verdict={result.verdict} score={result.score} />}
             </div>
           </div>
+          <div className="scan-form__row scan-ready__edit">
+            <label><span>Бренд</span><input value={brand} onChange={(e) => setBrand(e.target.value)} /></label>
+            <label><span>Название</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
+          </div>
           <div className="scan-ready__actions">
-            <Button icon="sparkle" onClick={() => onContinue(result)}>Продолжить анализ</Button>
+            <Button icon="sparkle" onClick={() => onContinue({ ...result, brand: brand.trim() || result.brand, name: name.trim() || result.name })}>Продолжить анализ</Button>
             <Button variant="ghost" onClick={() => setPhase("input")}>Не то — повторить</Button>
           </div>
         </div>
@@ -685,19 +728,14 @@ function CompatChart({ history }: { history: { step: number; label: string; shel
 }
 
 function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
-  const history = shelfReport.compatibilityHistory
   const want = products.filter((p) => p.state === "want").slice(0, 3)
   return (
     <div className="page">
       <PageHeading eyebrow="Сводка" title="Отчёт" lead="Быстрое понимание состояния вашей косметики." />
       <section className="report-hero">
         <div className="report-hero__num"><strong>{shelfReport.average}</strong><span>%</span></div>
-        <div className="report-hero__side">
-          <p>Средняя совместимость полки</p>
-          <CompatChart history={history} />
-        </div>
+        <p>Средняя совместимость полки</p>
       </section>
-      <p className="report-metric-note">Средняя совместимость средств на полке — по мере проверки продуктов (кумулятивно).</p>
       <div className="report-cols">
         <section className="panel">
           <h3 className="panel__h3">Что хорошо</h3>
@@ -931,15 +969,23 @@ function ProfilePage({ user, onAuth, onPricing, onLogout }: {
     </div>
   )
 }
-function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onReported, onOpen }: {
+function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onReported, onOpen, onGoToCatalog }: {
   product: Product; user: User | null; onAuth: () => void; onPricing: () => void; onClose: () => void;
-  onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void
+  onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
     product.checked && product.report ? "report" : product.checked ? "match" : "idle"
   )
   const [score, setScore] = useState<number | null>(product.score)
   const [verdict, setVerdict] = useState<Verdict | null>(product.verdict)
+  const [closing, setClosing] = useState(false)
+  const [rating, setRating] = useState(0)
+  const [review, setReview] = useState("")
+  const [anonymous, setAnonymous] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  const close = () => { setClosing(true); window.setTimeout(onClose, 200) }
+  const submitReview = () => { if (rating > 0) setSent(true) }
 
   const check = () => {
     setPhase("checking")
@@ -969,16 +1015,16 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
 
   return (
     <>
-      <div className="drawer-backdrop" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true">
-        <button type="button" className="drawer__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+      <div className={`drawer-backdrop ${closing ? "drawer-backdrop--closing" : ""}`} onClick={close} />
+      <aside className={`drawer ${closing ? "drawer--closing" : ""}`} role="dialog" aria-modal="true">
+        <button type="button" className="drawer__close" onClick={close} aria-label="Закрыть"><Icon name="close" size={18} /></button>
         <div className="drawer__scroll">
           <div className="drawer__hero">
             <img src={product.image} alt="" />
             <div className="drawer__hero-meta">
-              <p className="eyebrow">{product.brand}</p>
+              <button type="button" className="drawer__brand-link" onClick={() => onGoToCatalog(product.brand)}>{product.brand}</button>
               <h2>{product.name}</h2>
-              <p className="drawer__cat">{product.category}</p>
+              <button type="button" className="drawer__cat drawer__cat--link" onClick={() => onGoToCatalog(product.category)}>{product.category}</button>
             </div>
           </div>
 
@@ -1035,8 +1081,22 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               {similar.length > 0 && (<section><h4>Проверьте ещё</h4><div className="rec-list">{similar.map((p) => (<button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}><img src={p.image} alt="" loading="lazy" /><span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>{p.score != null && <ScoreBadge score={p.score} />}</button>))}</div></section>)}
             </div>
           )}
+
+          <div className="drawer__body drawer__review">
+            <h4>Оценка и отзыв</h4>
+            <div className="stars">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button key={n} type="button" className={`star ${rating >= n ? "star--on" : ""}`} onClick={() => setRating(n)} aria-label={`${n} звёзд`}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill={rating >= n ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3z" /></svg>
+                </button>
+              ))}
+            </div>
+            <textarea className="review-input" value={review} onChange={(e) => setReview(e.target.value)} placeholder="Поделитесь впечатлением о продукте…" rows={3} />
+            <label className="review-anon"><input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} /> Оставить анонимно</label>
+            <Button small onClick={submitReview} disabled={rating === 0}>{sent ? "Спасибо за отзыв!" : "Отправить отзыв"}</Button>
+          </div>
         </div>
-        <div className="drawer__footer"><Button variant="ghost" onClick={onClose}>Закрыть</Button></div>
+        <div className="drawer__footer"><Button variant="ghost" onClick={close}>Закрыть</Button></div>
       </aside>
     </>
   )
@@ -1127,32 +1187,84 @@ function LoadingScreen({ done }: { done: boolean }) {
     </div>
   )
 }
-function ShelfAddModal({ items, onClose, onAdd }: { items: Product[]; onClose: () => void; onAdd: (id: number) => void }) {
+function PointsModal({ user, onClose, onTopUp }: { user: User | null; onClose: () => void; onTopUp: (amount: number) => void }) {
+  const [done, setDone] = useState<number | null>(null)
+  const PACKAGES = [
+    { amount: 20, price: "99 ₽" },
+    { amount: 50, price: "199 ₽" },
+    { amount: 100, price: "349 ₽" },
+    { amount: 300, price: "899 ₽" },
+  ]
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+        <div className="points-modal">
+          <p className="eyebrow">Баллы</p>
+          <h2>Пополнить баллы</h2>
+          <p className="points-modal__hint">Сейчас у вас: <strong>{user?.points ?? 0} баллов</strong>. Выберите пакет.</p>
+          <div className="points-packages">
+            {PACKAGES.map((p) => (
+              <button key={p.amount} type="button" className="points-package" onClick={() => { onTopUp(p.amount); setDone(p.amount) }}>
+                <strong>+{p.amount}</strong><span>баллов</span><small>{p.price}</small>
+              </button>
+            ))}
+          </div>
+          {done != null && <p className="points-modal__done">✓ Добавлено {done} баллов</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ShelfAddModal({ items, onClose, onAdd, onScan }: { items: Product[]; onClose: () => void; onAdd: (id: number) => void; onScan: (m: ScanMethod) => void }) {
+  const [mode, setMode] = useState<"menu" | "catalog" | "auto">("menu")
   const [q, setQ] = useState("")
   const list = items.filter((p) => {
     const n = q.trim().toLowerCase()
+    if (mode === "auto") return p.score != null && p.score >= 80 && !p.state
     if (!n) return !p.state
     return [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(n)
-  })
+  }).slice(0, 8)
+  const title = mode === "catalog" ? "Из каталога" : mode === "auto" ? "Автоподбор" : "Добавить средство"
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
         <div className="add-modal">
           <p className="eyebrow">Моя полка</p>
-          <h2>Добавить средство</h2>
-          <p className="add-modal__hint">Найдите продукт в каталоге и добавьте его на полку.</p>
-          <div className="search"><Icon name="search" size={16} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Название, бренд или актив…" /></div>
-          <div className="add-modal__list">
-            {list.map((p) => (
-              <button key={p.id} type="button" className="rec" onClick={() => onAdd(p.id)}>
-                <img src={p.image} alt="" loading="lazy" />
-                <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-                <span className="add-modal__add"><Icon name="plus" size={16} /></span>
+          <h2>{title}</h2>
+          {mode === "menu" && (
+            <>
+              <button type="button" className="add-menu__auto" onClick={() => setMode("auto")}>
+                <span className="add-menu__auto-icon"><Icon name="sparkle" size={22} /></span>
+                <span><strong>Автоподбор продукта</strong><small>Подберём средства под вашу кожу и полку</small></span>
+                <Icon name="chevron" size={18} />
               </button>
-            ))}
-            {list.length === 0 && <p className="empty">Ничего не нашлось.</p>}
-          </div>
+              <div className="add-menu__grid">
+                <button type="button" className="add-menu__opt" onClick={() => setMode("catalog")}><Icon name="box" size={18} /><span>Из каталога</span></button>
+                <button type="button" className="add-menu__opt" onClick={() => onScan("photo")}><Icon name="camera" size={18} /><span>По фото упаковки</span></button>
+                <button type="button" className="add-menu__opt" onClick={() => onScan("inci")}><Icon name="drop" size={18} /><span>По фото состава</span></button>
+                <button type="button" className="add-menu__opt" onClick={() => onScan("manual")}><Icon name="pencil" size={18} /><span>Ручной ввод</span></button>
+              </div>
+            </>
+          )}
+          {(mode === "catalog" || mode === "auto") && (
+            <>
+              <button type="button" className="add-modal__back" onClick={() => setMode("menu")}><Icon name="back" size={15} /> Назад</button>
+              {mode === "catalog" && <div className="search"><Icon name="search" size={16} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Название, бренд или актив…" /></div>}
+              <div className="add-modal__list">
+                {list.map((p) => (
+                  <button key={p.id} type="button" className="rec" onClick={() => onAdd(p.id)}>
+                    <img src={p.image} alt="" loading="lazy" />
+                    <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+                    <span className="add-modal__add"><Icon name="plus" size={16} /></span>
+                  </button>
+                ))}
+                {list.length === 0 && <p className="empty">Ничего не нашлось.</p>}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -1169,10 +1281,22 @@ export default function App() {
   const [authModal, setAuthModal] = useState<null | "login" | "register">(null)
   const [pricingOpen, setPricingOpen] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [pointsOpen, setPointsOpen] = useState(false)
+  const [scanMethod, setScanMethod] = useState<ScanMethod | null>(null)
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState("")
 
   useEffect(() => { const t = window.setTimeout(() => setLoading(false), 1200); return () => window.clearTimeout(t) }, [])
+
+  // Блокируем прокрутку фона, когда открыт drawer или модалка.
+  useEffect(() => {
+    const locked = open != null || authModal != null || pricingOpen || addModalOpen || pointsOpen
+    if (locked) {
+      const prev = document.body.style.overflow
+      document.body.style.overflow = "hidden"
+      return () => { document.body.style.overflow = prev }
+    }
+  }, [open, authModal, pricingOpen, addModalOpen, pointsOpen])
 
   const navigate = (p: Page) => {
     if (p === "shelf" && !user) { setAuthModal("login"); return }
@@ -1180,6 +1304,7 @@ export default function App() {
       if (!user) { setAuthModal("login"); return }
       if (user.plan !== "pro") { setPricingOpen(true); return }
     }
+    if (p === "scan") setScanMethod(null)
     setPage(p)
     window.scrollTo({ top: 0 })
   }
@@ -1202,19 +1327,29 @@ export default function App() {
     setItems((cur) => cur.map((p) => (p.id === id && !p.state ? { ...p, state: "want" } : p)))
     setAddModalOpen(false)
   }
+  const handleTopUp = (amount: number) => {
+    setUser((u) => (u ? { ...u, points: u.points + amount } : u))
+  }
+  const handleScanFromAdd = (m: ScanMethod) => {
+    setAddModalOpen(false)
+    setScanMethod(m)
+    setPage("scan")
+    window.scrollTo({ top: 0 })
+  }
+  const goToCatalog = (q: string) => { setQuery(q); setPage("catalog"); window.scrollTo({ top: 0 }) }
 
   return (
     <div className="app-shell">
       <LoadingScreen done={!loading} />
-      <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} />
+      <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} />
       <div className="workspace">
         <Topbar page={page} onNavigate={navigate} onScan={() => navigate("scan")} user={user} onAuth={() => setAuthModal("login")} />
-        <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onNavigate={navigate} />
+        <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} />
         <main className="main-content">
           <div key={page} className="page-anim">
             {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} />}
             {page === "shelf" && <ShelfPage items={items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} />}
-            {page === "scan" && <ScanPage onContinue={setOpen} />}
+            {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
             {page === "report" && user?.plan === "pro" && <ReportPage onOpen={setOpen} />}
             {page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} />}
@@ -1222,10 +1357,11 @@ export default function App() {
         </main>
       </div>
       <BottomNav page={page} onNavigate={navigate} />
-      {open && <ProductDrawer key={open.id} product={open} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onReported={onReported} onOpen={setOpen} />}
+      {open && <ProductDrawer key={open.id} product={open} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
-      {addModalOpen && <ShelfAddModal items={items} onClose={() => setAddModalOpen(false)} onAdd={handleAddToShelf} />}
+      {pointsOpen && <PointsModal user={user} onClose={() => setPointsOpen(false)} onTopUp={handleTopUp} />}
+      {addModalOpen && <ShelfAddModal items={items} onClose={() => setAddModalOpen(false)} onAdd={handleAddToShelf} onScan={handleScanFromAdd} />}
     </div>
   )
 }
