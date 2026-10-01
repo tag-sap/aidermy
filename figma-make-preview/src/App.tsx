@@ -1,1338 +1,807 @@
-import { useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  products,
+  skinProfile,
+  shelfReport,
+  QUIZ,
+  CATEGORIES,
+  type Page,
+  type Product,
+  type ProductState,
+  type Verdict,
+} from "./data"
 
-type Page = "home" | "catalog" | "shelf" | "scan" | "report" | "profile"
-type ProductState = "saved" | "owned" | "finished"
+type IconName =
+  | "home" | "shelf" | "scan" | "search" | "chart" | "user"
+  | "arrow" | "chevron" | "close" | "check" | "plus" | "sparkle"
+  | "drop" | "shield" | "file" | "bookmark" | "box" | "alert" | "camera"
 
-type Product = {
-  id: number
-  brand: string
-  name: string
-  category: string
-  score: number
-  verdict: "Подходит" | "С осторожностью" | "Не подходит"
-  image: string
-  tags: string[]
-  state?: ProductState
-}
-
-const products: Product[] = [
-  {
-    id: 1,
-    brand: "COSRX",
-    name: "Advanced Snail 96 Mucin Power Essence",
-    category: "Эссенция",
-    score: 92,
-    verdict: "Подходит",
-    image:
-      "https://images.unsplash.com/photo-1616750819456-5cdee9b85d22?auto=format&fit=crop&w=520&q=85",
-    tags: ["Увлажнение", "Восстановление"],
-    state: "owned",
-  },
-  {
-    id: 2,
-    brand: "Beauty of Joseon",
-    name: "Relief Sun Rice + Probiotics SPF50+",
-    category: "Солнцезащита",
-    score: 86,
-    verdict: "Подходит",
-    image:
-      "https://images.unsplash.com/photo-1585652757141-8837d676fac8?auto=format&fit=crop&w=520&q=85",
-    tags: ["SPF", "Без отдушки"],
-    state: "saved",
-  },
-  {
-    id: 3,
-    brand: "The Ordinary",
-    name: "Niacinamide 10% + Zinc 1%",
-    category: "Сыворотка",
-    score: 71,
-    verdict: "С осторожностью",
-    image:
-      "https://images.unsplash.com/photo-1580870069867-74c57ee1bb07?auto=format&fit=crop&w=520&q=85",
-    tags: ["Ниацинамид", "Себорегуляция"],
-    state: "finished",
-  },
-  {
-    id: 4,
-    brand: "CeraVe",
-    name: "Hydrating Facial Cleanser",
-    category: "Очищение",
-    score: 88,
-    verdict: "Подходит",
-    image:
-      "https://images.unsplash.com/photo-1567721913486-6585f069b332?auto=format&fit=crop&w=520&q=85",
-    tags: ["Церамиды", "Сухая кожа"],
-  },
-  {
-    id: 5,
-    brand: "Paula’s Choice",
-    name: "Skin Perfecting 2% BHA Liquid",
-    category: "Эксфолиант",
-    score: 58,
-    verdict: "С осторожностью",
-    image:
-      "https://images.unsplash.com/photo-1613803745799-ba6c10aace85?auto=format&fit=crop&w=520&q=85",
-    tags: ["BHA", "Активы"],
-  },
-  {
-    id: 6,
-    brand: "Some By Mi",
-    name: "AHA BHA PHA 30 Days Miracle Toner",
-    category: "Тонер",
-    score: 34,
-    verdict: "Не подходит",
-    image:
-      "https://images.unsplash.com/photo-1739980155900-36562bcb7857?auto=format&fit=crop&w=520&q=85",
-    tags: ["Кислоты", "Отдушка"],
-  },
-]
-
-const pageNames: Record<Page, string> = {
-  home: "Главная",
-  catalog: "Каталог",
-  shelf: "Моя полка",
-  scan: "Сканировать",
-  report: "Отчёт",
-  profile: "Профиль кожи",
-}
-
-function Icon({
-  name,
-  size = 20,
-}: {
-  name: "home" | "search" | "shelf" | "report" | "scan" | "plus" | "arrow" | "chevron" | "close" | "check" | "bookmark" | "box" | "history" | "filter" | "more" | "info" | "profile" | "drop"
-  size?: number
-}) {
-  const paths: Record<string, ReactNode> = {
-    home: (
-      <>
-        <path d="m3 10 9-7 9 7" />
-        <path d="M5 9v11h14V9M9 20v-6h6v6" />
-      </>
-    ),
-    search: (
-      <>
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-4-4" />
-      </>
-    ),
-    shelf: (
-      <>
-        <path d="M4 4h6v16H4zM14 4h6v16h-6z" />
-        <path d="M6.5 8h1M16.5 8h1" />
-      </>
-    ),
-    report: (
-      <>
-        <path d="M5 20V10M12 20V4M19 20v-7" />
-        <path d="M3 20h18" />
-      </>
-    ),
-    scan: (
-      <>
-        <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
-        <path d="M8 12h8" />
-      </>
-    ),
-    plus: (
-      <>
-        <path d="M12 5v14M5 12h14" />
-      </>
-    ),
-    arrow: <path d="m5 12 14 0m-5-5 5 5-5 5" />,
-    chevron: <path d="m9 18 6-6-6-6" />,
-    close: <path d="m6 6 12 12M18 6 6 18" />,
-    check: <path d="m5 12 4 4L19 6" />,
-    bookmark: <path d="M6 4h12v17l-6-4-6 4z" />,
-    box: (
-      <>
-        <path d="m4 7 8-4 8 4v10l-8 4-8-4z" />
-        <path d="m4 7 8 4 8-4M12 11v10" />
-      </>
-    ),
-    history: (
-      <>
-        <path d="M4 12a8 8 0 1 0 2-5.3L4 9" />
-        <path d="M4 4v5h5M12 8v5l3 2" />
-      </>
-    ),
-    filter: (
-      <>
-        <path d="M4 6h16M7 12h10M10 18h4" />
-      </>
-    ),
-    more: (
-      <>
-        <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
-        <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
-        <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
-      </>
-    ),
-    info: (
-      <>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 11v6M12 7h.01" />
-      </>
-    ),
-    profile: (
-      <>
-        <circle cx="12" cy="8" r="4" />
-        <path d="M4.5 20c.7-4 3.2-6 7.5-6s6.8 2 7.5 6" />
-      </>
-    ),
-    drop: <path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11Z" />,
+function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+  const paths: Record<IconName, ReactNode> = {
+    home: (<><path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9M9 20v-6h6v6" /></>),
+    shelf: (<><path d="M4 4h6v16H4zM14 4h6v16h-6z" /><path d="M6.5 9h1M16.5 9h1" /></>),
+    scan: (<><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h10" /></>),
+    search: (<><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>),
+    chart: (<><path d="M4 20V10M10 20V4M16 20v-6M21 20H3" /></>),
+    user: (<><circle cx="12" cy="8" r="4" /><path d="M4 20c0-3 3-5 8-5s8 2 8 5" /></>),
+    arrow: (<><path d="M5 12h14M13 6l6 6-6 6" /></>),
+    chevron: (<path d="m9 6 6 6-6 6" />),
+    close: (<path d="M18 6 6 18M6 6l12 12" />),
+    check: (<path d="m5 12 4 4L19 6" />),
+    plus: (<path d="M12 5v14M5 12h14" />),
+    sparkle: (<path d="M12 3l1.7 4.6L18 9l-4.3 1.4L12 15l-1.7-4.6L6 9l4.3-1.4L12 3zM19 14l.9 2.4L22 17l-2.1.6L19 20l-.9-2.4L16 17l2.1-.6L19 14z" />),
+    drop: (<path d="M12 3s6 5.5 6 10a6 6 0 0 1-12 0c0-4.5 6-10 6-10z" />),
+    shield: (<><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" /><path d="m9 12 2 2 4-4" /></>),
+    file: (<><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 13h6M9 17h6" /></>),
+    bookmark: (<path d="M6 3h12v18l-6-4-6 4z" />),
+    box: (<><path d="M21 8 12 3 3 8v8l9 5 9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></>),
+    alert: (<><path d="M12 3 2 20h20L12 3z" /><path d="M12 9v5M12 17.5v.5" /></>),
+    camera: (<><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></>),
   }
   return (
-    <svg
-      aria-hidden="true"
-      className="icon"
-      fill="none"
-      height={size}
-      viewBox="0 0 24 24"
-      width={size}
-    >
-      <g
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      >
-        {paths[name]}
-      </g>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths[name]}
     </svg>
   )
 }
 
+// Частицы/сеть — фирменный «ингредиенты → связи → кожа» (canvas, без glow-перегруза).
+function ParticleCanvas({ tint = "rgba(214,242,100," }: { tint?: string }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const cv = ref.current
+    if (!cv) return
+    const ctx = cv.getContext("2d")
+    if (!ctx) return
+    let W = 0, H = 0, raf = 0, live = true
+    let pts: { x: number; y: number; vx: number; vy: number; bx: number; by: number; r: number }[] = []
+    const MESH = 120, PUSH = 180
+    const m = { x: -9e4, y: -9e4 }
+    function build() {
+      const n = Math.round(Math.max(18, Math.min(60, (W * H) / 22000)))
+      pts = Array.from({ length: n }, () => {
+        const bx = (Math.random() - 0.5) * 0.16
+        const by = (Math.random() - 0.5) * 0.16
+        return { x: Math.random() * W, y: Math.random() * H, vx: bx, vy: by, bx, by, r: Math.random() * 1.5 + 0.7 }
+      })
+    }
+    function size() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const p = cv!.parentElement
+      W = p ? p.clientWidth : window.innerWidth
+      H = p ? p.clientHeight : window.innerHeight
+      cv!.width = Math.round(W * dpr)
+      cv!.height = Math.round(H * dpr)
+      cv!.style.width = W + "px"
+      cv!.style.height = H + "px"
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0)
+      build()
+    }
+    const onMove = (e: PointerEvent) => { const r = cv!.getBoundingClientRect(); m.x = e.clientX - r.left; m.y = e.clientY - r.top }
+    const onLeave = () => { m.x = -9e4; m.y = -9e4 }
+    window.addEventListener("pointermove", onMove, { passive: true })
+    window.addEventListener("pointerleave", onLeave)
+    function frame() {
+      ctx!.clearRect(0, 0, W, H)
+      for (const p of pts) {
+        const dx = p.x - m.x, dy = p.y - m.y, d2 = dx * dx + dy * dy
+        if (d2 < PUSH * PUSH) { const d = Math.sqrt(d2) || 1; const f = 1 - d / PUSH; p.vx += (dx / d) * f * f * 1.4; p.vy += (dy / d) * f * f * 1.4 }
+        p.vx += (p.bx - p.vx) * 0.03
+        p.vy += (p.by - p.vy) * 0.03
+        p.x += p.vx; p.y += p.vy
+        if (p.x < -30) p.x = W + 30; else if (p.x > W + 30) p.x = -30
+        if (p.y < -30) p.y = H + 30; else if (p.y > H + 30) p.y = -30
+      }
+      ctx!.lineWidth = 0.7
+      for (let a = 0; a < pts.length; a++) for (let b = a + 1; b < pts.length; b++) {
+        const A = pts[a], B = pts[b], ex = A.x - B.x, ey = A.y - B.y, dd = ex * ex + ey * ey
+        if (dd < MESH * MESH) { const k = 1 - Math.sqrt(dd) / MESH; ctx!.strokeStyle = tint + (k * 0.13).toFixed(3) + ")"; ctx!.beginPath(); ctx!.moveTo(A.x, A.y); ctx!.lineTo(B.x, B.y); ctx!.stroke() }
+      }
+      for (const t of pts) {
+        const near = Math.max(0, 1 - Math.hypot(t.x - m.x, t.y - m.y) / 200)
+        ctx!.fillStyle = tint + (0.3 + near * 0.18).toFixed(3) + ")"
+        ctx!.beginPath(); ctx!.arc(t.x, t.y, t.r + near * 1.4, 0, 6.283); ctx!.fill()
+      }
+      if (live) raf = requestAnimationFrame(frame)
+    }
+    size(); frame()
+    let rt = 0
+    const onResize = () => { clearTimeout(rt); rt = window.setTimeout(size, 160) }
+    window.addEventListener("resize", onResize)
+    const onVis = () => { if (document.hidden) { live = false; cancelAnimationFrame(raf) } else if (!live) { live = true; frame() } }
+    document.addEventListener("visibilitychange", onVis)
+    return () => { live = false; cancelAnimationFrame(raf); window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerleave", onLeave); window.removeEventListener("resize", onResize); document.removeEventListener("visibilitychange", onVis) }
+  }, [tint])
+  return <canvas ref={ref} aria-hidden="true" className="particles" />
+}
+
+type Tone = "good" | "warn" | "bad" | "neutral"
+
+function toneOf(score: number | null, verdict: Verdict | null): Tone {
+  if (verdict === "Подходит") return "good"
+  if (verdict === "Не подходит") return "bad"
+  if (verdict === "С осторожностью") return "warn"
+  if (score != null && score >= 80) return "good"
+  if (score != null && score >= 60) return "warn"
+  if (score != null) return "bad"
+  return "neutral"
+}
+
+const STATE_LABEL: Record<ProductState, string> = {
+  using: "Сейчас использую",
+  want: "Хочу попробовать",
+  finished: "Закончились",
+}
+
 function Button({
   children,
-  variant = "primary",
   onClick,
+  variant = "primary",
+  icon,
+  small,
   className = "",
 }: {
   children: ReactNode
-  variant?: "primary" | "secondary" | "ghost" | "icon"
   onClick?: () => void
+  variant?: "primary" | "secondary" | "ghost"
+  icon?: IconName
+  small?: boolean
   className?: string
 }) {
   return (
-    <button
-      className={`button button--${variant} ${className}`}
-      onClick={onClick}
-      type="button"
-    >
+    <button type="button" onClick={onClick} className={`btn btn--${variant} ${small ? "btn--small" : ""} ${className}`}>
+      {icon && <Icon name={icon} size={small ? 15 : 17} />}
       {children}
     </button>
   )
 }
 
-function Badge({
-  children,
-  tone = "neutral",
-}: {
-  children: ReactNode
-  tone?: string
-}) {
-  return <span className={`badge badge--${tone}`}>{children}</span>
+function VerdictPill({ verdict, score }: { verdict: Verdict | null; score: number | null }) {
+  if (verdict == null) return null
+  const tone = toneOf(score, verdict)
+  return <span className={`pill pill--${tone}`}>{verdict}</span>
 }
 
-function Score({ value, large = false }: { value: number large?: boolean }) {
-  const tone = value >= 80 ? "good" : value >= 50 ? "warn" : "bad"
+function ScoreBadge({ score }: { score: number | null }) {
+  if (score == null) return null
+  const tone = toneOf(score, null)
+  return <span className={`score-badge score-badge--${tone}`}>{score}%</span>
+}
+
+function Avatar({ size = 34 }: { size?: number }) {
   return (
-    <span className={`score score--${tone} ${large ? "score--large" : ""}`}>
-      {value}
+    <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.42 }}>
+      {skinProfile.initials}
     </span>
   )
 }
 
-function Verdict({ value }: { value: Product["verdict"] }) {
-  const tone =
-    value === "Подходит" ? "good" : value === "С осторожностью" ? "warn" : "bad"
+function ScoreRing({ score, label = "совместимость" }: { score: number; label?: string }) {
+  const size = 148, stroke = 8
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const [progress, setProgress] = useState(0)
+  useEffect(() => { const id = requestAnimationFrame(() => setProgress(score)); return () => cancelAnimationFrame(id) }, [score])
+  const tone = toneOf(score, null)
   return (
-    <Badge tone={tone}>
-      <span className="badge-dot" />
-      {value}
-    </Badge>
-  )
-}
-
-function Search({
-  value,
-  onChange,
-  placeholder = "Найти по названию, бренду или ингредиенту",
-}: {
-  value: string
-  onChange: (value: string) => void
-  placeholder?: string
-}) {
-  return (
-    <label className="search">
-      <Icon name="search" />
-      <input
-        aria-label="Поиск"
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        type="search"
-        value={value}
-      />
-      <kbd>⌘ K</kbd>
-    </label>
-  )
-}
-
-function Tabs({
-  items,
-  active,
-  onChange,
-}: {
-  items: { id: string label: string count?: number }[]
-  active: string
-  onChange: (id: string) => void
-}) {
-  return (
-    <div className="tabs" role="tablist">
-      {items.map((item) => (
-        <button
-          className={active === item.id ? "tab tab--active" : "tab"}
-          key={item.id}
-          onClick={() => onChange(item.id)}
-          role="tab"
-          type="button"
-        >
-          {item.label}
-          {item.count !== undefined && <span>{item.count}</span>}
-        </button>
-      ))}
+    <div className="score-ring" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="score-ring__svg">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" className="score-ring__track" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" className={`score-ring__val score-ring__val--${tone}`} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c - (progress / 100) * c} style={{ transition: "stroke-dashoffset 1.1s cubic-bezier(.16,1,.3,1)" }} />
+      </svg>
+      <div className="score-ring__center">
+        <strong>{progress}%</strong>
+        <span>{label}</span>
+      </div>
     </div>
   )
 }
 
 function ProductCard({
   product,
+  checking = false,
   onOpen,
-  onStateChange,
+  onCheck,
 }: {
   product: Product
-  onOpen: () => void
-  onStateChange: (state: ProductState) => void
+  checking?: boolean
+  onOpen?: () => void
+  onCheck?: () => void
 }) {
-  const stateLabels: Record<ProductState, string> = {
-    saved: "Хочу попробовать",
-    owned: "Сейчас использую",
-    finished: "Закончилось",
-  }
+  const checked = product.checked !== false && product.score != null
   return (
-    <article className="product-card">
-      <button className="product-card__open" onClick={onOpen} type="button">
-        <div className="product-card__image">
-          <img alt="" src={product.image} />
-          <Score value={product.score} />
+    <article className="pcard">
+      <button type="button" className="pcard__main" onClick={onOpen} aria-label={product.name}>
+        <div className="pcard__img">
+          <img src={product.image} alt="" loading="lazy" />
+          <ScoreBadge score={product.score} />
+          {product.state && <span className={`pcard__state pcard__state--${product.state}`} />}
         </div>
-        <div className="product-card__content">
-          <p className="eyebrow">{product.brand}</p>
-          <h3>{product.name}</h3>
-          <p className="muted">{product.category}</p>
-          <Verdict value={product.verdict} />
+        <div className="pcard__body">
+          <p className="pcard__brand">{product.brand}</p>
+          <h3 className="pcard__name">{product.name}</h3>
+          <p className="pcard__cat">{product.category}</p>
         </div>
       </button>
-      {product.state ? (
-        <button
-          className={`state-control state-control--${product.state}`}
-          onClick={() =>
-            onStateChange(
-              product.state === "saved"
-                ? "owned"
-                : product.state === "owned"
-                  ? "finished"
-                  : "saved",
-            )
-          }
-          type="button"
-        >
-          <Icon
-            name={
-              product.state === "saved"
-                ? "bookmark"
-                : product.state === "owned"
-                  ? "box"
-                  : "history"
-            }
-            size={16}
-          />
-          {stateLabels[product.state]}
-          <Icon name="chevron" size={15} />
-        </button>
-      ) : (
-        <Button
-          className="product-card__add"
-          onClick={() => onStateChange("saved")}
-          variant="secondary"
-        >
-          <Icon name="plus" size={16} />
-          На полку
-        </Button>
-      )}
+      <div className="pcard__foot">
+        {checked ? (
+          <>
+            <VerdictPill verdict={product.verdict} score={product.score} />
+            <button type="button" className="pcard__link" onClick={onOpen}>Отчёт <Icon name="chevron" size={13} /></button>
+          </>
+        ) : checking ? (
+          <span className="pcard__checking"><span className="spin" /> Проверяем…</span>
+        ) : (
+          <button type="button" className="pcard__check" onClick={onCheck}>
+            <Icon name="sparkle" size={13} /> Проверить совместимость
+          </button>
+        )}
+      </div>
     </article>
   )
 }
 
-function Header({
-  page,
-  query,
-  setQuery,
-  onNavigate,
-}: {
-  page: Page
-  query: string
-  setQuery: (value: string) => void
-  onNavigate: (page: Page) => void
-}) {
+const NAV: { id: Page; icon: IconName; label: string }[] = [
+  { id: "home", icon: "home", label: "Главная" },
+  { id: "shelf", icon: "shelf", label: "Моя полка" },
+  { id: "scan", icon: "scan", label: "Сканировать" },
+  { id: "catalog", icon: "search", label: "Каталог" },
+  { id: "report", icon: "chart", label: "Отчёт" },
+  { id: "profile", icon: "user", label: "Профиль" },
+]
+
+const MOBILE_NAV: { id: Page; icon: IconName; label: string }[] = [
+  { id: "home", icon: "home", label: "Главная" },
+  { id: "shelf", icon: "shelf", label: "Полка" },
+  { id: "scan", icon: "scan", label: "Сканировать" },
+  { id: "catalog", icon: "search", label: "Каталог" },
+  { id: "report", icon: "chart", label: "Отчёт" },
+]
+
+function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) => void }) {
   return (
-    <header className="topbar">
-      <div className="mobile-title">
-        <span className="logo-mark">A</span>
+    <aside className="sidebar">
+      <div className="brand">
+        <span className="brand__mark">A</span>
         <strong>Aidermy</strong>
       </div>
-      <div className="topbar__title">
-        <p className="eyebrow">Рабочее пространство</p>
-        <strong>{pageNames[page]}</strong>
+      <nav className="nav-list">
+        {NAV.map((item) => (
+          <button key={item.id} type="button" className={`nav-item ${page === item.id ? "nav-item--active" : ""}`} onClick={() => onNavigate(item.id)}>
+            <Icon name={item.icon} /> {item.label}
+          </button>
+        ))}
+      </nav>
+      <div className="sidebar-card">
+        <span className="sidebar-card__icon"><Icon name="sparkle" /></span>
+        <strong>Интеллектуальная проверка</strong>
+        <p>Состав → связи → совместимость с вашей кожей.</p>
       </div>
-      <Search onChange={setQuery} value={query} />
-      <Button
-        className="scan-button"
-        onClick={() => onNavigate("scan")}
-        variant="secondary"
-      >
-        <Icon name="scan" />
-        Сканировать
-      </Button>
-      <button aria-label="Профиль" className="avatar" type="button">
-        АК
+      <button type="button" className="profile-mini" onClick={() => onNavigate("profile")}>
+        <Avatar size={30} />
+        <span><strong>{skinProfile.name}</strong><small>{skinProfile.skinType}</small></span>
+        <Icon name="chevron" size={15} />
       </button>
+    </aside>
+  )
+}
+
+function Topbar({ page, onNavigate, onScan }: { page: Page; onNavigate: (p: Page) => void; onScan: () => void }) {
+  const title = NAV.find((n) => n.id === page)?.label ?? ""
+  return (
+    <header className="topbar">
+      <span className="topbar__brand"><span className="brand__mark brand__mark--sm">A</span><strong>Aidermy</strong></span>
+      <span className="topbar__title">{title}</span>
+      <div className="topbar__actions">
+        <button type="button" className="icon-btn" onClick={onScan} aria-label="Сканировать"><Icon name="scan" size={19} /></button>
+        <button type="button" className="icon-btn" onClick={() => onNavigate("profile")} aria-label="Профиль"><Avatar size={28} /></button>
+      </div>
     </header>
   )
 }
 
-function Sidebar({
-  page,
-  onNavigate,
-}: {
-  page: Page
-  onNavigate: (page: Page) => void
-}) {
-  const navItems: {
-    id: Page
-    icon: Parameters<typeof Icon>[0]["name"]
-    label: string
-  }[] = [
-    { id: "home", icon: "home", label: "Главная" },
-    { id: "shelf", icon: "shelf", label: "Моя полка" },
-    { id: "scan", icon: "scan", label: "Сканировать" },
-    { id: "catalog", icon: "search", label: "Каталог" },
-    { id: "profile", icon: "profile", label: "Профиль" },
-  ]
-  const mobileNavItems: {
-    id: Page | "scan"
-    icon: Parameters<typeof Icon>[0]["name"]
-    label: string
-  }[] = [
-    { id: "home", icon: "home", label: "Главная" },
-    { id: "shelf", icon: "shelf", label: "Полка" },
-    { id: "scan", icon: "scan", label: "Сканировать" },
-    { id: "catalog", icon: "search", label: "Каталог" },
-    { id: "profile", icon: "profile", label: "Профиль" },
-  ]
+function BottomNav({ page, onNavigate }: { page: Page; onNavigate: (p: Page) => void }) {
   return (
-    <>
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="logo-mark">A</span>
-          <strong>Aidermy</strong>
-        </div>
-        <nav className="nav-list">
-          {navItems.map((item) => (
-            <button
-              className={
-                page === item.id ? "nav-item nav-item--active" : "nav-item"
-              }
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              type="button"
-            >
-              <Icon name={item.icon} />
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-card">
-          <span className="sidebar-card__icon">
-            <Icon name="scan" />
-          </span>
-          <strong>Быстрая проверка</strong>
-          <p>Сфотографируйте состав — разберём за минуту.</p>
-          <Button onClick={() => onNavigate("scan")} variant="secondary">
-            Открыть сканер
-          </Button>
-        </div>
-        <div className="profile-mini">
-          <span className="avatar">АК</span>
-          <span>
-            <strong>Анна К.</strong>
-            <small>Комбинированная кожа</small>
-          </span>
-          <Icon name="more" />
-        </div>
-      </aside>
-      <nav className="bottom-nav">
-        {mobileNavItems.map((item) => (
-          <button
-            className={
-              item.id === "scan"
-                ? "bottom-nav__item bottom-nav__item--scan"
-                : page === item.id
-                  ? "bottom-nav__item bottom-nav__item--active"
-                  : "bottom-nav__item"
-            }
-            key={item.id}
-            onClick={() => onNavigate(item.id)}
-            type="button"
-          >
-            <span className="bottom-nav__icon">
-              <Icon name={item.icon} />
-            </span>
+    <nav className="bottom-nav">
+      {MOBILE_NAV.map((item) => {
+        const isScan = item.id === "scan"
+        const active = page === item.id
+        return (
+          <button key={item.id} type="button" className={`bottom-nav__item ${isScan ? "bottom-nav__item--scan" : ""} ${active ? "bottom-nav__item--active" : ""}`} onClick={() => onNavigate(item.id)} aria-label={item.label}>
+            <span className="bottom-nav__icon"><Icon name={item.icon} size={isScan ? 24 : 21} /></span>
             <span>{item.label}</span>
           </button>
-        ))}
-      </nav>
-    </>
+        )
+      })}
+    </nav>
+  )
+}
+
+function SectionHead({ eyebrow, title, action, actionLabel }: { eyebrow: string; title: string; action?: () => void; actionLabel?: string }) {
+  return (
+    <div className="section-head">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+      </div>
+      {action && actionLabel && <Button variant="ghost" small onClick={action}>{actionLabel} <Icon name="arrow" size={14} /></Button>}
+    </div>
+  )
+}
+
+function Sparkline({ values }: { values: number[] }) {
+  const w = 120, h = 40
+  const min = Math.min(...values), max = Math.max(...values)
+  const pts = values.map((v, i) => `${(i / (values.length - 1)) * w},${h - ((v - min) / (max - min || 1)) * (h - 4) - 2}`).join(" ")
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="sparkline" aria-hidden="true">
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 
 function HomePage({
   onNavigate,
   onOpen,
+  onScan,
 }: {
-  onNavigate: (page: Page) => void
+  onNavigate: (p: Page) => void
   onOpen: (p: Product) => void
+  onScan: () => void
 }) {
+  const using = products.filter((p) => p.state === "using").slice(0, 4)
+  const recent = products.filter((p) => p.checked).slice(0, 6)
   return (
-    <div className="page-stack">
-      <section className="welcome-row">
-        <div>
-          <p className="eyebrow">Ваше пространство ухода</p>
-          <h1>Доброе утро, Анна</h1>
-          <p className="lead">
-            Проверяйте косметику с учётом того, что важно именно вашей коже.
-          </p>
+    <div className="page">
+      <section className="hero">
+        <ParticleCanvas />
+        <div className="hero__inner">
+          <p className="eyebrow">Доброе утро, {skinProfile.name}</p>
+          <h1 className="hero__title">Косметика, которая<br />действительно подходит</h1>
+          <p className="hero__lead">Aidermy связывает состав с вашей кожей и показывает, что сработает, а что нет.</p>
+          <div className="hero__actions">
+            <Button icon="scan" onClick={onScan}>Сканировать состав</Button>
+            <Button variant="secondary" icon="search" onClick={() => onNavigate("catalog")}>Найти в каталоге</Button>
+          </div>
         </div>
-        <Button
-          className="home-scan-button"
-          onClick={() => onNavigate("scan")}
-        >
-          <Icon name="scan" /> Сканировать состав
-        </Button>
       </section>
 
-      <section className="home-hero-grid">
-        <article className="skin-profile-card">
-          <div className="skin-profile-card__head">
-            <span className="skin-profile-card__icon">
-              <Icon name="profile" size={24} />
-            </span>
-            <div>
-              <p className="eyebrow">Профиль кожи</p>
-              <h2>Комбинированная, чувствительная</h2>
+      <div className="grid-2">
+        <section className="panel panel--click" onClick={() => onNavigate("report")}>
+          <p className="eyebrow">Моя полка · сводка</p>
+          <div className="report-preview">
+            <div className="report-preview__num">
+              <strong>{shelfReport.average}</strong><span>%</span>
             </div>
-            <Button onClick={() => onNavigate("profile")} variant="ghost">
-              Изменить <Icon name="chevron" size={16} />
-            </Button>
-          </div>
-          <div className="profile-factors">
-            <span>
-              <small>Основные цели</small>
-              <strong>Барьер · Увлажнение</strong>
-            </span>
-            <span>
-              <small>Чувствительность</small>
-              <strong>Повышенная</strong>
-            </span>
-            <span>
-              <small>Избегать</small>
-              <strong>Отдушки · Спирт</strong>
-            </span>
-          </div>
-          <p className="profile-note">
-            Match каждого продукта рассчитывается по этому профилю и вашей
-            текущей полке.
-          </p>
-        </article>
-        <article className="scan-card">
-          <span className="scan-card__icon">
-            <Icon name="scan" size={28} />
-          </span>
-          <div>
-            <p className="eyebrow">Быстрая проверка</p>
-            <h2>Узнайте, подходит ли состав</h2>
-            <p>Наведите камеру на этикетку или загрузите фотографию.</p>
-          </div>
-          <Button onClick={() => onNavigate("scan")}>
-            Открыть сканер <Icon name="arrow" />
-          </Button>
-        </article>
-      </section>
-
-      <section className="metrics-grid metrics-grid--home">
-        <article className="metric metric--accent">
-          <div>
-            <p>На полке</p>
-            <strong>12</strong>
-            <small>3 заканчиваются</small>
-          </div>
-          <span>
-            <Icon name="shelf" size={24} />
-          </span>
-        </article>
-        <article className="metric">
-          <div>
-            <p>Средний Match</p>
-            <strong>84</strong>
-            <small className="positive">+6 за месяц</small>
-          </div>
-          <span>
-            <Icon name="report" size={24} />
-          </span>
-        </article>
-        <article className="metric">
-          <div>
-            <p>Разобрано</p>
-            <strong>37</strong>
-            <small>продуктов</small>
-          </div>
-          <span>
-            <Icon name="check" size={24} />
-          </span>
-        </article>
-      </section>
-
-      <div className="content-grid">
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Последние проверки</p>
-              <h2>Недавно разобрали</h2>
+            <div className="report-preview__side">
+              <p className="report-preview__label">средняя совместимость</p>
+              <Sparkline values={shelfReport.trend} />
+              <p className="report-preview__hint">по 12 проверенным продуктам</p>
             </div>
-            <Button onClick={() => onNavigate("catalog")} variant="ghost">
-              Все продукты <Icon name="arrow" />
-            </Button>
-          </div>
-          <div className="compact-list">
-            {products.slice(0, 3).map((product) => (
-              <button
-                className="compact-product"
-                key={product.id}
-                onClick={() => onOpen(product)}
-                type="button"
-              >
-                <img alt="" src={product.image} />
-                <span>
-                  <strong>{product.name}</strong>
-                  <small>
-                    {product.brand} · {product.category}
-                  </small>
-                </span>
-                <Verdict value={product.verdict} />
-                <Score value={product.score} />
-                <Icon name="chevron" />
-              </button>
-            ))}
           </div>
         </section>
 
-        <aside className="panel routine">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Моя полка</p>
-              <h2>Статус ухода</h2>
-            </div>
-            <Badge tone="good">10 из 12 подходят</Badge>
+        <section className="panel">
+          <p className="eyebrow">Профиль кожи</p>
+          <h3 className="panel__h3">{skinProfile.skinType}</h3>
+          <div className="chips">
+            {skinProfile.goals.map((g) => <span key={g} className="chip">{g}</span>)}
+            <span className="chip chip--warn">чувствительная</span>
           </div>
-          {["Очищение", "Тонер", "Сыворотка", "Увлажнение"].map(
-            (step, index) => (
-              <div className="routine-step" key={step}>
-                <span
-                  className={
-                    index < 2 ? "step-number step-number--done" : "step-number"
-                  }
-                >
-                  {index < 2 ? <Icon name="check" size={14} /> : index + 1}
-                </span>
-                <span>
-                  <strong>{step}</strong>
-                  <small>
-                    {index === 0
-                      ? "CeraVe Cleanser"
-                      : index === 1
-                        ? "Pyunkang Yul"
-                        : index === 2
-                          ? "The Ordinary"
-                          : "COSRX Snail 96"}
-                  </small>
-                </span>
-                <Icon name="chevron" size={16} />
-              </div>
-            ),
-          )}
-        </aside>
+          <Button variant="ghost" small icon="user" onClick={() => onNavigate("profile")} className="mt">
+            Изменить опрос
+          </Button>
+        </section>
       </div>
+
+      <section className="block">
+        <SectionHead eyebrow="Недавно" title="Проверенные продукты" action={() => onNavigate("catalog")} actionLabel="Все" />
+        <div className="hscroll">
+          {recent.map((p) => <ProductCard key={p.id} product={p} onOpen={() => onOpen(p)} />)}
+        </div>
+      </section>
+
+      <section className="block">
+        <SectionHead eyebrow="Моя полка" title="Сейчас использую" action={() => onNavigate("shelf")} actionLabel="Полка" />
+        <div className="hscroll">
+          {using.map((p) => <ProductCard key={p.id} product={p} onOpen={() => onOpen(p)} />)}
+        </div>
+      </section>
+
+      <section className="block">
+        <SectionHead eyebrow="Рекомендации" title="Проверьте ещё" action={() => onNavigate("catalog")} actionLabel="Каталог" />
+        <div className="rec-list">
+          {products.filter((p) => p.state === "want").slice(0, 3).map((p) => (
+            <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
+              <img src={p.image} alt="" loading="lazy" />
+              <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+              {p.score != null && <ScoreBadge score={p.score} />}
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   )
 }
 
-function CatalogPage({
-  items,
-  onOpen,
-  onStateChange,
-  onNavigate,
-}: {
-  items: Product[]
-  onOpen: (p: Product) => void
-  onStateChange: (id: number, state: ProductState) => void
-  onNavigate: (page: Page) => void
-}) {
-  const [active, setActive] = useState("all")
+function PageHeading({ eyebrow, title, lead, action }: { eyebrow: string; title: string; lead?: string; action?: ReactNode }) {
   return (
-    <div className="page-stack">
-      <section className="page-heading">
-        <div>
-          <p className="eyebrow">База продуктов</p>
-          <h1>Каталог косметики</h1>
-          <p className="lead">
-            Проверяйте составы и находите продукты под особенности вашей кожи.
-          </p>
-        </div>
-        <Button onClick={() => onNavigate("scan")}>
-          <Icon name="scan" /> Проверить состав
-        </Button>
-      </section>
-      <Tabs
-        active={active}
-        items={[
-          { id: "all", label: "Все", count: 1284 },
-          { id: "face", label: "Для лица", count: 743 },
-          { id: "spf", label: "SPF", count: 186 },
-          { id: "clean", label: "Очищение", count: 212 },
-          { id: "body", label: "Для тела", count: 143 },
-        ]}
-        onChange={setActive}
-      />
-      <div className="catalog-toolbar">
-        <p>
-          <strong>{items.length} продуктов</strong>
-          <span>Подобраны с учётом вашего профиля</span>
-        </p>
-        <div>
-          <Button variant="secondary">
-            <Icon name="filter" /> Фильтры <Badge>2</Badge>
-          </Button>
-          <Button variant="secondary">
-            По совместимости <Icon name="chevron" size={16} />
-          </Button>
-        </div>
+    <div className="page-head">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+        {lead && <p className="lead">{lead}</p>}
       </div>
-      {items.length > 0 ? (
-        <div className="product-grid">
-          {items.map((product) => (
-            <ProductCard
-              key={product.id}
-              onOpen={() => onOpen(product)}
-              onStateChange={(state) => onStateChange(product.id, state)}
-              product={product}
-            />
-          ))}
+      {action}
+    </div>
+  )
+}
+
+function ShelfBoard({ category, items, onOpen }: { category: string; items: Product[]; onOpen: (p: Product) => void }) {
+  const scored = items.filter((p) => p.score != null)
+  const avg = scored.length ? Math.round(scored.reduce((s, p) => s + (p.score ?? 0), 0) / scored.length) : null
+  return (
+    <section className="shelf-board">
+      <div className="shelf-board__head">
+        <h3>{category}</h3>
+        <span>{items.length} средств{avg != null ? ` · совместимость ${avg}%` : ""}</span>
+      </div>
+      <div className="shelf-board__rack">
+        {items.map((p) => <ProductCard key={p.id} product={p} onOpen={() => onOpen(p)} />)}
+      </div>
+      <div className="shelf-board__bar"><span /><span /></div>
+    </section>
+  )
+}
+
+function ShelfPage({ onOpen, onAdd }: { onOpen: (p: Product) => void; onAdd: () => void }) {
+  const [filter, setFilter] = useState<"all" | ProductState>("all")
+  const states: { id: "all" | ProductState; label: string }[] = [
+    { id: "all", label: "Все" },
+    { id: "using", label: "Сейчас использую" },
+    { id: "want", label: "Хочу попробовать" },
+    { id: "finished", label: "Закончились" },
+  ]
+  const shelved = products.filter((p) => p.state)
+  const filtered = filter === "all" ? shelved : shelved.filter((p) => p.state === filter)
+  const usingCount = products.filter((p) => p.state === "using").length
+  return (
+    <div className="page">
+      <PageHeading
+        eyebrow="Уход"
+        title="Моя полка"
+        lead="Полка растёт вместе с уходом: категории и статусы — отдельные измерения."
+        action={<Button icon="plus" onClick={onAdd}>Добавить средство</Button>}
+      />
+      <div className="shelf-summary">
+        <div><strong>{usingCount}</strong><span>сейчас использую</span></div>
+        <div><strong>{shelfReport.average}%</strong><span>средняя совместимость</span></div>
+        <div><strong>{shelfReport.attention.length}</strong><span>на что обратить внимание</span></div>
+      </div>
+      <div className="tabs">
+        {states.map((s) => (
+          <button key={s.id} type="button" className={`tab ${filter === s.id ? "tab--active" : ""}`} onClick={() => setFilter(s.id)}>{s.label}</button>
+        ))}
+      </div>
+      {CATEGORIES.map((cat) => {
+        const items = filtered.filter((p) => p.category === cat)
+        if (!items.length) return null
+        return <ShelfBoard key={cat} category={cat} items={items} onOpen={onOpen} />
+      })}
+    </div>
+  )
+}
+
+function CatalogPage({ onOpen, onAdd }: { onOpen: (p: Product) => void; onAdd: (p: Product) => void }) {
+  const [query, setQuery] = useState("")
+  const [cat, setCat] = useState<string>("Все")
+  const list = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return products.filter((p) => {
+      if (cat !== "Все" && p.category !== cat) return false
+      if (!needle) return true
+      return [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(needle)
+    })
+  }, [query, cat])
+  return (
+    <div className="page">
+      <PageHeading eyebrow="База продуктов" title="Каталог" lead="Проверяйте составы и находите продукты под особенности вашей кожи." />
+      <div className="search">
+        <Icon name="search" size={18} />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Название, бренд или актив…" />
+        {query && <button type="button" onClick={() => setQuery("")} className="search__clear" aria-label="Очистить"><Icon name="close" size={15} /></button>}
+      </div>
+      <div className="tabs">
+        {["Все", ...CATEGORIES].map((c) => (
+          <button key={c} type="button" className={`tab ${cat === c ? "tab--active" : ""}`} onClick={() => setCat(c)}>{c}</button>
+        ))}
+      </div>
+      <div className="product-grid">
+        {list.map((p) => (
+          <div key={p.id} className="product-grid__cell">
+            <ProductCard product={p} onOpen={() => onOpen(p)} onCheck={() => onAdd(p)} />
+          </div>
+        ))}
+      </div>
+      {list.length === 0 && <p className="empty">Ничего не нашлось. Попробуйте другой запрос.</p>}
+    </div>
+  )
+}
+
+function ScanPage({ onOpenReport }: { onOpenReport: (p: Product) => void }) {
+  const [phase, setPhase] = useState<"input" | "checking" | "result">("input")
+  const [inci, setInci] = useState("")
+  const sample = products[6]
+  const run = () => {
+    setPhase("checking")
+    window.setTimeout(() => setPhase("result"), 1300)
+  }
+  return (
+    <div className="page">
+      <PageHeading eyebrow="Проверка" title="Сканировать состав" lead="Фото упаковки или INCI-список — свяжем состав с вашей кожей." />
+      {phase !== "result" ? (
+        <div className="scan">
+          <div className="scan__drop">
+            <span className="scan__drop-icon"><Icon name="camera" size={26} /></span>
+            <h3>Сфотографируйте упаковку</h3>
+            <p>Или вставьте состав вручную — определим продукт и его ингредиенты.</p>
+            <Button variant="secondary" icon="camera" onClick={run}>Загрузить фото</Button>
+          </div>
+          <div className="scan__divider">или</div>
+          <div className="scan__form">
+            <label>Состав (INCI)</label>
+            <textarea value={inci} onChange={(e) => setInci(e.target.value)} placeholder="Aqua, Glycerin, Niacinamide…" rows={4} />
+            <Button icon="sparkle" onClick={run} className="w-full">Проверить совместимость</Button>
+          </div>
+        </div>
+      ) : phase === "checking" ? (
+        <div className="scan-status">
+          <span className="spin spin--lg" />
+          <h3>Анализируем состав…</h3>
+          <p>Сопоставляем ингредиенты с вашим профилем кожи.</p>
         </div>
       ) : (
-        <EmptyState
-          title="Ничего не найдено"
-          text="Попробуйте изменить запрос или сбросить фильтры."
-        />
+        <div className="result">
+          <div className="result__top">
+            <ScoreRing score={sample.score ?? 0} />
+            <div className="result__meta">
+              <p className="eyebrow">{sample.brand}</p>
+              <h2>{sample.name}</h2>
+              <VerdictPill verdict={sample.verdict} score={sample.score} />
+              <p className="result__summary">Состав подходит вашему профилю: базовые активы совместимы, противопоказаний не найдено.</p>
+            </div>
+          </div>
+          <div className="result__sections">
+            <div className="panel">
+              <h4>Что хорошо</h4>
+              <ul className="check-list"><li><Icon name="check" size={14} /> Увлажняющие компоненты поддерживают барьер</li><li><Icon name="check" size={14} /> Без отдушки — не конфликтует с непереносимостями</li><li><Icon name="check" size={14} /> Нет агрессивных кислот</li></ul>
+            </div>
+            <div className="panel">
+              <h4>На что обратить внимание</h4>
+              <ul className="check-list check-list--warn"><li><Icon name="alert" size={14} /> Муцин улитки — следите за реакцией при чувствительности</li></ul>
+            </div>
+          </div>
+          <div className="result__actions">
+            <Button icon="file" onClick={() => onOpenReport(sample)}>Посмотреть полный отчёт</Button>
+            <Button variant="secondary" icon="shelf" onClick={() => setPhase("input")}>Добавить на полку</Button>
+          </div>
+        </div>
       )}
     </div>
   )
 }
 
-function ShelfPage({
-  items,
-  onOpen,
-  onStateChange,
-}: {
-  items: Product[]
-  onOpen: (p: Product) => void
-  onStateChange: (id: number, state: ProductState) => void
-}) {
-  const [active, setActive] = useState("all")
-  const [category, setCategory] = useState("Все")
-  const categories = [
-    "Все",
-    "Очищение",
-    "Тонер",
-    "Сыворотка",
-    "Эссенция",
-    "SPF",
-  ]
-  const byStatus =
-    active === "all" ? items : items.filter((item) => item.state === active)
-  const visible =
-    category === "Все"
-      ? byStatus
-      : byStatus.filter((item) =>
-          category === "SPF"
-            ? item.category === "Солнцезащита"
-            : item.category === category,
-        )
+function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
+  const bars = shelfReport.trend
+  const want = products.filter((p) => p.state === "want").slice(0, 3)
   return (
-    <div className="page-stack">
-      <section className="page-heading">
-        <div>
-          <p className="eyebrow">Ваши средства</p>
-          <h1>Моя полка</h1>
-          <p className="lead">
-            Соберите уход по этапам и следите за статусом каждого продукта.
-          </p>
+    <div className="page">
+      <PageHeading eyebrow="Сводка" title="Отчёт" lead="Быстрое понимание состояния вашей косметики." />
+      <section className="report-hero">
+        <div className="report-hero__num"><strong>{shelfReport.average}</strong><span>%</span></div>
+        <div className="report-hero__side">
+          <p>Средняя совместимость полки</p>
+          <div className="trend">
+            {bars.map((v, i) => <span key={i} style={{ height: `${((v - 70) / 30) * 100}%` }} />)}
+          </div>
+          <small>совместимость по проверенным продуктам</small>
         </div>
-        <Button>
-          <Icon name="plus" /> Добавить продукт
-        </Button>
       </section>
-      <Tabs
-        active={active}
-        items={[
-          { id: "all", label: "Все", count: items.length },
-          {
-            id: "owned",
-            label: "Сейчас использую",
-            count: items.filter((p) => p.state === "owned").length,
-          },
-          {
-            id: "saved",
-            label: "Хочу попробовать",
-            count: items.filter((p) => p.state === "saved").length,
-          },
-          {
-            id: "finished",
-            label: "Закончилось",
-            count: items.filter((p) => p.state === "finished").length,
-          },
-        ]}
-        onChange={setActive}
-      />
-      <div className="shelf-categories" aria-label="Категории ухода">
-        {categories.map((item) => {
-          const count =
-            item === "Все"
-              ? items.length
-              : items.filter((product) =>
-                  item === "SPF"
-                    ? product.category === "Солнцезащита"
-                    : product.category === item,
-                ).length
+      <div className="report-cols">
+        <section className="panel">
+          <h3 className="panel__h3">Что хорошо</h3>
+          <ul className="obs">
+            {shelfReport.good.map((g) => <li key={g}><Icon name="check" size={15} /><span>{g}</span></li>)}
+          </ul>
+        </section>
+        <section className="panel">
+          <h3 className="panel__h3">На что обратить внимание</h3>
+          <ul className="obs obs--warn">
+            {shelfReport.attention.map((g) => <li key={g}><Icon name="alert" size={15} /><span>{g}</span></li>)}
+          </ul>
+        </section>
+      </div>
+      <section className="block">
+        <SectionHead eyebrow="Дальше" title="Проверьте ещё" />
+        <div className="rec-list">
+          {want.map((p) => (
+            <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
+              <img src={p.image} alt="" loading="lazy" />
+              <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+              {p.score != null && <ScoreBadge score={p.score} />}
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function Questionnaire({ onDone }: { onDone: () => void }) {
+  const [step, setStep] = useState(0)
+  const [answers, setAnswers] = useState<Record<string, string[]>>({})
+  const stepData = QUIZ[step]
+  const isSingle = stepData.type === "single"
+  const current = answers[stepData.id] ?? []
+  const toggle = (id: string) => {
+    setAnswers((prev) => {
+      const cur = prev[stepData.id] ?? []
+      if (isSingle) return { ...prev, [stepData.id]: [id] }
+      return { ...prev, [stepData.id]: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] }
+    })
+  }
+  const canNext = current.length > 0
+  return (
+    <div className="quiz">
+      <div className="quiz__progress"><span style={{ width: `${((step + 1) / QUIZ.length) * 100}%` }} /></div>
+      <p className="eyebrow">Шаг {step + 1} из {QUIZ.length}</p>
+      <h2 className="quiz__title">{stepData.title}</h2>
+      {stepData.hint && <p className="quiz__hint">{stepData.hint}</p>}
+      <div className="quiz__options">
+        {stepData.options.map((o) => {
+          const on = current.includes(o.id)
           return (
-            <button
-              className={
-                category === item
-                  ? "category-chip category-chip--active"
-                  : "category-chip"
-              }
-              key={item}
-              onClick={() => setCategory(item)}
-              type="button"
-            >
-              <span className="category-chip__icon">
-                <Icon
-                  name={
-                    item === "Все" ? "shelf" : item === "SPF" ? "check" : "drop"
-                  }
-                  size={18}
-                />
-              </span>
-              <span>
-                <strong>{item}</strong>
-                <small>{count} продуктов</small>
-              </span>
+            <button key={o.id} type="button" className={`quiz__opt ${on ? "quiz__opt--on" : ""}`} onClick={() => toggle(o.id)}>
+              <span>{o.label}</span>
+              {on && <Icon name="check" size={16} />}
             </button>
           )
         })}
       </div>
-      <div className="shelf-summary">
-        <div>
-          <span className="summary-icon">
-            <Icon name="info" />
-          </span>
-          <p>
-            <strong>Полка выглядит хорошо</strong>
-            <small>
-              10 из 12 продуктов подходят вашему профилю. Проверьте 2 средства с
-              активами.
-            </small>
-          </p>
-        </div>
-        <Button variant="ghost">
-          Посмотреть рекомендации <Icon name="arrow" />
-        </Button>
-      </div>
-      {visible.length ? (
-        <div className="product-grid">
-          {visible.map((product) => (
-            <ProductCard
-              key={product.id}
-              onOpen={() => onOpen(product)}
-              onStateChange={(state) => onStateChange(product.id, state)}
-              product={product}
-            />
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          title="Здесь пока пусто"
-          text="Добавьте продукт или перенесите его из другой категории."
-        />
-      )}
-    </div>
-  )
-}
-
-function ScanPage({ onComplete }: { onComplete: () => void }) {
-  const [method, setMethod] = useState<"photo" | "text">("photo")
-  const [fileName, setFileName] = useState("")
-  const [ingredients, setIngredients] = useState("")
-
-  const canAnalyze = method === "photo" ? Boolean(fileName) : ingredients.trim().length > 20
-
-  return (
-    <div className="page-stack scan-page">
-      <section className="page-heading">
-        <div>
-          <p className="eyebrow">Новая проверка</p>
-          <h1>Сканировать состав</h1>
-          <p className="lead">
-            Добавьте фото этикетки или вставьте список INCI — Aidermy сопоставит
-            формулу с вашим профилем и полкой.
-          </p>
-        </div>
-        <Badge tone="good">Профиль активен</Badge>
-      </section>
-
-      <div className="scan-workspace">
-        <section className="scan-stage">
-          <div className="scan-methods" role="tablist">
-            <button
-              className={method === "photo" ? "scan-method scan-method--active" : "scan-method"}
-              onClick={() => setMethod("photo")}
-              role="tab"
-              type="button"
-            >
-              <Icon name="scan" size={18} />
-              Фото состава
-            </button>
-            <button
-              className={method === "text" ? "scan-method scan-method--active" : "scan-method"}
-              onClick={() => setMethod("text")}
-              role="tab"
-              type="button"
-            >
-              <Icon name="report" size={18} />
-              Вставить INCI
-            </button>
-          </div>
-
-          {method === "photo" ? (
-            <div className={fileName ? "scan-dropzone scan-dropzone--ready" : "scan-dropzone"}>
-              <span className="scan-frame" aria-hidden="true">
-                <span />
-                <Icon name={fileName ? "check" : "scan"} size={34} />
-              </span>
-              <div>
-                <p className="eyebrow">{fileName ? "Фото готово" : "Этикетка с составом"}</p>
-                <h2>{fileName || "Расположите список ингредиентов в кадре"}</h2>
-                <p>
-                  {fileName
-                    ? "Проверьте, что текст виден целиком, и запустите анализ."
-                    : "Подойдёт чёткое фото в JPG, PNG или HEIC без бликов."}
-                </p>
-              </div>
-              <label className="button button--secondary upload-control">
-                <Icon name="plus" size={17} />
-                {fileName ? "Заменить фото" : "Загрузить фото"}
-                <input
-                  accept="image/*"
-                  onChange={(event) => setFileName(event.target.files?.[0]?.name || "")}
-                  type="file"
-                />
-              </label>
-            </div>
-          ) : (
-            <label className="inci-field">
-              <span>
-                <strong>Список ингредиентов</strong>
-                <small>{ingredients.length} символов</small>
-              </span>
-              <textarea
-                onChange={(event) => setIngredients(event.target.value)}
-                placeholder="Aqua, Glycerin, Niacinamide, Panthenol..."
-                value={ingredients}
-              />
-            </label>
-          )}
-
-          <div className="scan-action">
-            <span>
-              <Icon name="info" size={17} />
-              Фото используется только для распознавания состава
-            </span>
-            <Button
-              className={!canAnalyze ? "button--disabled" : ""}
-              onClick={canAnalyze ? onComplete : undefined}
-            >
-              Анализировать состав <Icon name="arrow" />
-            </Button>
-          </div>
-        </section>
-
-        <aside className="scan-aside">
-          <p className="eyebrow">Что учтём</p>
-          <h2>Персональный контекст</h2>
-          <div className="scan-context-list">
-            <article>
-              <span><Icon name="profile" /></span>
-              <div>
-                <strong>Профиль кожи</strong>
-                <small>Комбинированная · чувствительная</small>
-              </div>
-              <Icon name="check" size={17} />
-            </article>
-            <article>
-              <span><Icon name="drop" /></span>
-              <div>
-                <strong>Цели ухода</strong>
-                <small>Барьер · увлажнение · ровный тон</small>
-              </div>
-              <Icon name="check" size={17} />
-            </article>
-            <article>
-              <span><Icon name="shelf" /></span>
-              <div>
-                <strong>Текущая полка</strong>
-                <small>12 средств · проверка конфликтов</small>
-              </div>
-              <Icon name="check" size={17} />
-            </article>
-          </div>
-          <div className="scan-tip">
-            <span>01</span>
-            <p>
-              <strong>Для точного результата</strong>
-              <small>Снимайте состав прямо, при ровном свете и без обрезанных строк.</small>
-            </p>
-          </div>
-        </aside>
-      </div>
-    </div>
-  )
-}
-
-function ReportPage({ product }: { product: Product }) {
-  return (
-    <div className="page-stack">
-      <section className="page-heading">
-        <div>
-          <p className="eyebrow">Персональный разбор продукта</p>
-          <h1>Отчёт о продукте</h1>
-          <p className="lead">
-            Состав разобран с учётом вашего профиля кожи и текущего ухода.
-          </p>
-        </div>
-        <Button variant="secondary">Сохранить отчёт</Button>
-      </section>
-      <section className="product-report-hero">
-        <img alt="" src={product.image} />
-        <div className="product-report-hero__copy">
-          <p className="eyebrow">
-            {product.brand} · {product.category}
-          </p>
-          <h2>{product.name}</h2>
-          <div className="report-verdict">
-            <Score large value={product.score} />
-            <span>
-              <Verdict value={product.verdict} />
-              <strong>Высокий Match с вашим профилем</strong>
-              <small>
-                Поддерживает барьер и не конфликтует с продуктами на полке.
-              </small>
-            </span>
-          </div>
-        </div>
-        <div className="report-context">
-          <p className="eyebrow">Основа анализа</p>
-          <span>
-            <Icon name="profile" size={17} /> Комбинированная кожа
-          </span>
-          <span>
-            <Icon name="drop" size={17} /> Чувствительность
-          </span>
-          <span>
-            <Icon name="shelf" size={17} /> 12 средств на полке
-          </span>
-        </div>
-      </section>
-      <section className="report-summary-grid">
-        <article>
-          <span>01</span>
-          <div>
-            <small>Барьер кожи</small>
-            <strong>Поддерживает</strong>
-          </div>
-          <Badge tone="good">Сильная сторона</Badge>
-        </article>
-        <article>
-          <span>02</span>
-          <div>
-            <small>Риск реакции</small>
-            <strong>Низкий</strong>
-          </div>
-          <Badge tone="good">Без отдушки</Badge>
-        </article>
-        <article>
-          <span>03</span>
-          <div>
-            <small>Совместимость</small>
-            <strong>Конфликтов нет</strong>
-          </div>
-          <Badge>С вашей полкой</Badge>
-        </article>
-      </section>
-      <div className="report-grid product-report-grid">
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Формула</p>
-              <h2>Что работает для вашей кожи</h2>
-            </div>
-            <Badge>{product.tags.length + 3} ключевых компонентов</Badge>
-          </div>
-          <div className="report-ingredient-list">
-            {[
-              [
-                "Муцин улитки, 96%",
-                "Увлажняет и помогает восстановлению",
-                "Подходит",
-              ],
-              ["Бетаин", "Снижает потерю влаги", "Подходит"],
-              ["Пантенол", "Успокаивает чувствительную кожу", "Подходит"],
-              ["Аргинин", "Поддерживает защитный барьер", "Нейтрально"],
-            ].map(([name, description, status], index) => (
-              <div key={name}>
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <p>
-                  <strong>{name}</strong>
-                  <small>{description}</small>
-                </p>
-                <Badge tone={status === "Подходит" ? "good" : "neutral"}>
-                  {status}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        </section>
-        <aside className="panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Применение</p>
-              <h2>Как встроить в уход</h2>
-            </div>
-          </div>
-          <div className="insight">
-            <span>01</span>
-            <p>
-              <strong>После тонера</strong>
-              <small>Нанесите 1–2 нажатия на слегка влажную кожу.</small>
-            </p>
-          </div>
-          <div className="insight">
-            <span>02</span>
-            <p>
-              <strong>Утром и вечером</strong>
-              <small>Можно использовать ежедневно, затем закрыть кремом.</small>
-            </p>
-          </div>
-          <div className="report-note">
-            <Icon name="info" size={18} />
-            <p>
-              <strong>Учтено в отчёте</strong>
-              <small>
-                На полке нет активов, конфликтующих с этой эссенцией.
-              </small>
-            </p>
-          </div>
-        </aside>
+      <div className="quiz__nav">
+        {step > 0 && <Button variant="ghost" onClick={() => setStep(step - 1)}>Назад</Button>}
+        <div className="quiz__nav-spacer" />
+        {step < QUIZ.length - 1 ? (
+          <Button disabled={!canNext} onClick={() => setStep(step + 1)}>Далее <Icon name="arrow" size={15} /></Button>
+        ) : (
+          <Button disabled={!canNext} onClick={onDone}>Завершить <Icon name="check" size={15} /></Button>
+        )}
       </div>
     </div>
   )
 }
 
 function ProfilePage() {
+  const [quiz, setQuiz] = useState(false)
+  if (quiz) {
+    return (
+      <div className="page">
+        <PageHeading eyebrow="Профиль" title="Опрос кожи" lead="Несколько шагов — и профиль станет точнее." />
+        <Questionnaire onDone={() => setQuiz(false)} />
+      </div>
+    )
+  }
   return (
-    <div className="page-stack">
-      <section className="page-heading">
-        <div>
-          <p className="eyebrow">Персонализация Match</p>
-          <h1>Профиль кожи</h1>
-          <p className="lead">
-            Эти данные используются при разборе каждого состава.
-          </p>
-        </div>
-        <Button variant="secondary">Редактировать</Button>
-      </section>
-      <section className="profile-page-grid">
-        <article className="panel profile-overview">
-          <span className="profile-overview__mark">АК</span>
-          <div>
-            <p className="eyebrow">Текущий профиль</p>
-            <h2>Комбинированная кожа</h2>
-            <p className="lead">
-              Повышенная чувствительность · обновлён 12 мая
-            </p>
+    <div className="page">
+      <PageHeading
+        eyebrow="Профиль"
+        title="Профиль кожи"
+        lead="На основе профиля рассчитывается совместимость каждого продукта."
+        action={<Button icon="user" onClick={() => setQuiz(true)}>Изменить опрос</Button>}
+      />
+      <div className="profile-grid">
+        <section className="panel">
+          <p className="eyebrow">Тип кожи</p>
+          <h3 className="panel__h3">{skinProfile.skinType}</h3>
+          <div className="chips">
+            {skinProfile.goals.map((g) => <span key={g} className="chip">{g}</span>)}
           </div>
-        </article>
-        <article className="panel profile-detail">
-          <p className="eyebrow">Цели ухода</p>
-          <h2>Барьер и увлажнение</h2>
-          <div>
-            <Badge tone="good">Восстановление</Badge>
-            <Badge>Ровный тон</Badge>
-            <Badge>Комфорт</Badge>
+        </section>
+        <section className="panel">
+          <p className="eyebrow">Чувствительность</p>
+          <h3 className="panel__h3">{skinProfile.sensitivity}</h3>
+          <p className="panel__note">Избегает: {skinProfile.avoid.join(", ")}</p>
+        </section>
+        <section className="panel">
+          <p className="eyebrow">Активное лечение</p>
+          <ul className="kv">{skinProfile.therapy.map((t) => <li key={t}>{t}</li>)}</ul>
+        </section>
+        <section className="panel">
+          <p className="eyebrow">Непереносимости</p>
+          <div className="chips">
+            {skinProfile.intolerances.map((t) => <span key={t} className="chip chip--warn">{t}</span>)}
           </div>
-        </article>
-        <article className="panel profile-detail">
-          <p className="eyebrow">Особенности</p>
-          <h2>На что смотрит Aidermy</h2>
-          <div>
-            <Badge tone="warn">Чувствительность</Badge>
-            <Badge tone="bad">Отдушки</Badge>
-            <Badge tone="bad">Сушащий спирт</Badge>
-          </div>
-        </article>
+        </section>
+      </div>
+      <section className="block">
+        <p className="profile-note">Match каждого продукта рассчитывается по этому профилю и вашей текущей полке. Реальная математика живёт в scoring engine V1 — здесь показан результат для preview.</p>
       </section>
     </div>
   )
 }
 
-function EmptyState({ title, text }: { title: string text: string }) {
+function ProductModal({ product, onClose }: { product: Product; onClose: () => void }) {
+  const [added, setAdded] = useState(false)
+  const safe = product.tags.length ? product.tags.map((t) => `${t} — совместимо с вашим профилем`) : ["Базовый состав без явных конфликтов"]
+  const caution =
+    product.verdict === "Не подходит"
+      ? ["Содержит активы, агрессивные для чувствительной кожи", "Конфликт с текущим ретиноидом в полке"]
+      : product.verdict === "С осторожностью"
+        ? ["Возможна реакция при сочетании с ретиноидом", "Начинайте с низкой частоты применения"]
+        : ["Явных противопоказаний не найдено"]
+  const actives = [
+    { name: "Гиалуроновая кислота", conc: "средняя", effect: "удерживает влагу" },
+    { name: "Ниацинамид", conc: "низкая", effect: "выравнивает тон" },
+    { name: "Пантенол", conc: "средняя", effect: "успокаивает" },
+  ]
+  const similar = products.filter((p) => p.category === product.category && p.id !== product.id).slice(0, 3)
   return (
-    <div className="empty-state">
-      <span>
-        <Icon name="search" size={26} />
-      </span>
-      <h2>{title}</h2>
-      <p>{text}</p>
-      <Button variant="secondary">Сбросить фильтры</Button>
-    </div>
-  )
-}
-
-function ProductModal({
-  product,
-  onClose,
-}: {
-  product: Product
-  onClose: () => void
-}) {
-  return (
-    <div className="modal-backdrop" onMouseDown={onClose} role="presentation">
-      <div
-        aria-modal="true"
-        className="modal"
-        onMouseDown={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <div className="modal__header">
-          <Badge>Карточка продукта</Badge>
-          <Button onClick={onClose} variant="icon">
-            <Icon name="close" />
-          </Button>
-        </div>
-        <div className="modal__product">
-          <img alt="" src={product.image} />
-          <div>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+        <div className="modal__hero">
+          <img src={product.image} alt="" />
+          <div className="modal__hero-meta">
             <p className="eyebrow">{product.brand}</p>
             <h2>{product.name}</h2>
-            <p className="muted">{product.category} · 100 мл</p>
-            <div className="modal__verdict">
-              <Score large value={product.score} />
-              <span>
-                <Verdict value={product.verdict} />
-                <small>Совместимость с вашим профилем</small>
-              </span>
-            </div>
+            <VerdictPill verdict={product.verdict} score={product.score} />
           </div>
         </div>
-        <div className="modal__tabs">
-          <button className="active" type="button">
-            Обзор
-          </button>
-          <button type="button">Состав</button>
-          <button type="button">Как использовать</button>
+        <div className="modal__score">
+          {product.score != null && <ScoreRing score={product.score} label="совместимость" />}
+          <p>Состав проанализирован относительно вашего профиля кожи и текущей полки.</p>
         </div>
         <div className="modal__body">
           <section>
-            <h3>Почему подходит</h3>
-            <ul className="check-list">
-              <li>
-                <Icon name="check" size={16} />
-                <span>
-                  <strong>Поддерживает защитный барьер</strong>
-                  <small>
-                    Церамиды и увлажняющие компоненты подходят вашему типу кожи.
-                  </small>
-                </span>
-              </li>
-              <li>
-                <Icon name="check" size={16} />
-                <span>
-                  <strong>Без конфликтов с рутиной</strong>
-                  <small>Можно сочетать с продуктами на вашей полке.</small>
-                </span>
-              </li>
+            <h4>Что хорошо</h4>
+            <ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul>
+          </section>
+          <section>
+            <h4>На что обратить внимание</h4>
+            <ul className="obs obs--warn">{caution.map((s) => <li key={s}><Icon name="alert" size={15} /><span>{s}</span></li>)}</ul>
+          </section>
+          <section>
+            <h4>Ключевые компоненты</h4>
+            <ul className="actives">
+              {actives.map((a) => (
+                <li key={a.name}><span className="actives__name">{a.name}</span><span className="actives__effect">{a.effect}</span><span className="actives__conc">{a.conc}</span></li>
+              ))}
             </ul>
           </section>
           <section>
-            <h3>Ключевые компоненты</h3>
-            <div className="ingredient-list">
-              {["Ниацинамид", "Пантенол", "Гиалуроновая кислота"].map(
-                (name, index) => (
-                  <div key={name}>
-                    <span>{index + 1}</span>
-                    <p>
-                      <strong>{name}</strong>
-                      <small>
-                        {index === 0
-                          ? "Выравнивает тон"
-                          : index === 1
-                            ? "Успокаивает"
-                            : "Удерживает влагу"}
-                      </small>
-                    </p>
-                    <Badge tone="good">OK</Badge>
-                  </div>
-                ),
-              )}
-            </div>
+            <h4>Состав (INCI)</h4>
+            <p className="inci">Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.</p>
           </section>
+          {similar.length > 0 && (
+            <section>
+              <h4>Проверьте ещё</h4>
+              <div className="rec-list">
+                {similar.map((p) => (
+                  <button key={p.id} type="button" className="rec" onClick={() => onClose()}>
+                    <img src={p.image} alt="" loading="lazy" />
+                    <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+                    {p.score != null && <ScoreBadge score={p.score} />}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
         <div className="modal__footer">
-          <Button variant="secondary">
-            <Icon name="bookmark" /> Сохранить
+          <Button variant={added ? "secondary" : "primary"} icon={added ? "check" : "shelf"} onClick={() => setAdded(true)}>
+            {added ? "Добавлено на полку" : "Добавить на полку"}
           </Button>
-          <Button>
-            <Icon name="plus" /> Добавить на полку
-          </Button>
+          <Button variant="ghost" onClick={onClose}>Закрыть</Button>
         </div>
       </div>
     </div>
@@ -1341,71 +810,33 @@ function ProductModal({
 
 export default function App() {
   const [page, setPage] = useState<Page>("home")
-  const [query, setQuery] = useState("")
-  const [selected, setSelected] = useState<Product | null>(null)
-  const [items, setItems] = useState(products)
+  const [open, setOpen] = useState<Product | null>(null)
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    if (!needle) return items
-    return items.filter((item) =>
-      [item.name, item.brand, item.category, ...item.tags]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle),
-    )
-  }, [items, query])
-
-  function changeState(id: number, state: ProductState) {
-    setItems((current) =>
-      current.map((item) => (item.id === id ? { ...item, state } : item)),
-    )
-  }
-
-  function navigate(next: Page) {
-    setPage(next)
-    window.scrollTo({ top: 0, behavior: "smooth" })
-  }
+  const navigate = (p: Page) => { setPage(p); window.scrollTo({ top: 0 }) }
 
   return (
     <div className="app-shell">
-      <Sidebar onNavigate={navigate} page={page} />
+      <Sidebar page={page} onNavigate={navigate} />
       <div className="workspace">
-        <Header
-          onNavigate={navigate}
-          page={page}
-          query={query}
-          setQuery={setQuery}
-        />
+        <Topbar page={page} onNavigate={navigate} onScan={() => navigate("scan")} />
         <main className="main-content">
-          {page === "home" && (
-            <HomePage onNavigate={navigate} onOpen={setSelected} />
-          )}
-          {page === "catalog" && (
-            <CatalogPage
-              items={filtered}
-              onNavigate={navigate}
-              onOpen={setSelected}
-              onStateChange={changeState}
-            />
-          )}
-          {page === "shelf" && (
-            <ShelfPage
-              items={filtered.filter((item) => item.state)}
-              onOpen={setSelected}
-              onStateChange={changeState}
-            />
-          )}
-          {page === "scan" && (
-            <ScanPage onComplete={() => navigate("report")} />
-          )}
-          {page === "report" && <ReportPage product={items[0]} />}
+          {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} />}
+          {page === "shelf" && <ShelfPage onOpen={setOpen} onAdd={() => navigate("catalog")} />}
+          {page === "scan" && <ScanPage onOpenReport={setOpen} />}
+          {page === "catalog" && <CatalogPage onOpen={setOpen} onAdd={setOpen} />}
+          {page === "report" && <ReportPage onOpen={setOpen} />}
           {page === "profile" && <ProfilePage />}
         </main>
       </div>
-      {selected && (
-        <ProductModal onClose={() => setSelected(null)} product={selected} />
-      )}
+      <BottomNav page={page} onNavigate={navigate} />
+      {open && <ProductModal product={open} onClose={() => setOpen(null)} />}
     </div>
   )
 }
+
+
+
+
+
+
+
