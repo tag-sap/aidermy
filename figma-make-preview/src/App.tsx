@@ -1,20 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
-  products,
-  skinProfile,
-  shelfReport,
-  QUIZ,
-  CATEGORIES,
-  type Page,
-  type Product,
-  type ProductState,
-  type Verdict,
+  products, skinProfile, shelfReport, CATEGORIES,
+  SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
+  ACID_OPTIONS, PROCEDURE_OPTIONS, PROCEDURE_PERIODS, INTOLERANCE_OPTIONS, GOALS_OPTIONS,
+  type Page, type Product, type ProductState, type Verdict, type QuizBranch, type QuizQuestion, type QuizOption,
 } from "./data"
 
 type IconName =
   | "home" | "shelf" | "scan" | "search" | "chart" | "user"
   | "arrow" | "chevron" | "close" | "check" | "plus" | "sparkle"
-  | "drop" | "shield" | "file" | "bookmark" | "box" | "alert" | "camera"
+  | "drop" | "shield" | "file" | "bookmark" | "box" | "alert" | "camera" | "upload" | "back"
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -25,6 +20,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     chart: (<><path d="M4 20V10M10 20V4M16 20v-6M21 20H3" /></>),
     user: (<><circle cx="12" cy="8" r="4" /><path d="M4 20c0-3 3-5 8-5s8 2 8 5" /></>),
     arrow: (<><path d="M5 12h14M13 6l6 6-6 6" /></>),
+    back: (<><path d="M19 12H5M11 6l-6 6 6 6" /></>),
     chevron: (<path d="m9 6 6 6-6 6" />),
     close: (<path d="M18 6 6 18M6 6l12 12" />),
     check: (<path d="m5 12 4 4L19 6" />),
@@ -37,6 +33,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     box: (<><path d="M21 8 12 3 3 8v8l9 5 9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></>),
     alert: (<><path d="M12 3 2 20h20L12 3z" /><path d="M12 9v5M12 17.5v.5" /></>),
     camera: (<><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></>),
+    upload: (<><path d="M12 16V4M6 10l6-6 6 6" /><path d="M4 20h16" /></>),
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -44,8 +41,6 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     </svg>
   )
 }
-
-// Частицы/сеть — фирменный «ингредиенты → связи → кожа» (canvas, без glow-перегруза).
 function ParticleCanvas({ tint = "rgba(214,242,100," }: { tint?: string }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
@@ -59,23 +54,16 @@ function ParticleCanvas({ tint = "rgba(214,242,100," }: { tint?: string }) {
     const m = { x: -9e4, y: -9e4 }
     function build() {
       const n = Math.round(Math.max(18, Math.min(60, (W * H) / 22000)))
-      pts = Array.from({ length: n }, () => {
-        const bx = (Math.random() - 0.5) * 0.16
-        const by = (Math.random() - 0.5) * 0.16
-        return { x: Math.random() * W, y: Math.random() * H, vx: bx, vy: by, bx, by, r: Math.random() * 1.5 + 0.7 }
-      })
+      pts = Array.from({ length: n }, () => { const bx = (Math.random() - 0.5) * 0.16; const by = (Math.random() - 0.5) * 0.16; return { x: Math.random() * W, y: Math.random() * H, vx: bx, vy: by, bx, by, r: Math.random() * 1.5 + 0.7 } })
     }
     function size() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       const p = cv!.parentElement
       W = p ? p.clientWidth : window.innerWidth
       H = p ? p.clientHeight : window.innerHeight
-      cv!.width = Math.round(W * dpr)
-      cv!.height = Math.round(H * dpr)
-      cv!.style.width = W + "px"
-      cv!.style.height = H + "px"
-      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0)
-      build()
+      cv!.width = Math.round(W * dpr); cv!.height = Math.round(H * dpr)
+      cv!.style.width = W + "px"; cv!.style.height = H + "px"
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0); build()
     }
     const onMove = (e: PointerEvent) => { const r = cv!.getBoundingClientRect(); m.x = e.clientX - r.left; m.y = e.clientY - r.top }
     const onLeave = () => { m.x = -9e4; m.y = -9e4 }
@@ -86,8 +74,7 @@ function ParticleCanvas({ tint = "rgba(214,242,100," }: { tint?: string }) {
       for (const p of pts) {
         const dx = p.x - m.x, dy = p.y - m.y, d2 = dx * dx + dy * dy
         if (d2 < PUSH * PUSH) { const d = Math.sqrt(d2) || 1; const f = 1 - d / PUSH; p.vx += (dx / d) * f * f * 1.4; p.vy += (dy / d) * f * f * 1.4 }
-        p.vx += (p.bx - p.vx) * 0.03
-        p.vy += (p.by - p.vy) * 0.03
+        p.vx += (p.bx - p.vx) * 0.03; p.vy += (p.by - p.vy) * 0.03
         p.x += p.vx; p.y += p.vy
         if (p.x < -30) p.x = W + 30; else if (p.x > W + 30) p.x = -30
         if (p.y < -30) p.y = H + 30; else if (p.y > H + 30) p.y = -30
@@ -97,11 +84,7 @@ function ParticleCanvas({ tint = "rgba(214,242,100," }: { tint?: string }) {
         const A = pts[a], B = pts[b], ex = A.x - B.x, ey = A.y - B.y, dd = ex * ex + ey * ey
         if (dd < MESH * MESH) { const k = 1 - Math.sqrt(dd) / MESH; ctx!.strokeStyle = tint + (k * 0.13).toFixed(3) + ")"; ctx!.beginPath(); ctx!.moveTo(A.x, A.y); ctx!.lineTo(B.x, B.y); ctx!.stroke() }
       }
-      for (const t of pts) {
-        const near = Math.max(0, 1 - Math.hypot(t.x - m.x, t.y - m.y) / 200)
-        ctx!.fillStyle = tint + (0.3 + near * 0.18).toFixed(3) + ")"
-        ctx!.beginPath(); ctx!.arc(t.x, t.y, t.r + near * 1.4, 0, 6.283); ctx!.fill()
-      }
+      for (const t of pts) { const near = Math.max(0, 1 - Math.hypot(t.x - m.x, t.y - m.y) / 200); ctx!.fillStyle = tint + (0.3 + near * 0.18).toFixed(3) + ")"; ctx!.beginPath(); ctx!.arc(t.x, t.y, t.r + near * 1.4, 0, 6.283); ctx!.fill() }
       if (live) raf = requestAnimationFrame(frame)
     }
     size(); frame()
@@ -116,7 +99,6 @@ function ParticleCanvas({ tint = "rgba(214,242,100," }: { tint?: string }) {
 }
 
 type Tone = "good" | "warn" | "bad" | "neutral"
-
 function toneOf(score: number | null, verdict: Verdict | null): Tone {
   if (verdict === "Подходит") return "good"
   if (verdict === "Не подходит") return "bad"
@@ -126,89 +108,46 @@ function toneOf(score: number | null, verdict: Verdict | null): Tone {
   if (score != null) return "bad"
   return "neutral"
 }
-
-const STATE_LABEL: Record<ProductState, string> = {
-  using: "Сейчас использую",
-  want: "Хочу попробовать",
-  finished: "Закончились",
-}
-
-function Button({
-  children,
-  onClick,
-  variant = "primary",
-  icon,
-  small,
-  className = "",
-}: {
-  children: ReactNode
-  onClick?: () => void
-  variant?: "primary" | "secondary" | "ghost"
-  icon?: IconName
-  small?: boolean
-  className?: string
+const STATE_LABEL: Record<ProductState, string> = { using: "Сейчас использую", want: "Хочу попробовать", finished: "Закончились" }
+function Button({ children, onClick, variant = "primary", icon, small, className = "", disabled }: {
+  children: ReactNode; onClick?: () => void; variant?: "primary" | "secondary" | "ghost"; icon?: IconName; small?: boolean; className?: string; disabled?: boolean
 }) {
   return (
-    <button type="button" onClick={onClick} className={`btn btn--${variant} ${small ? "btn--small" : ""} ${className}`}>
+    <button type="button" onClick={onClick} disabled={disabled} className={`btn btn--${variant} ${small ? "btn--small" : ""} ${className}`}>
       {icon && <Icon name={icon} size={small ? 15 : 17} />}
       {children}
     </button>
   )
 }
-
 function VerdictPill({ verdict, score }: { verdict: Verdict | null; score: number | null }) {
   if (verdict == null) return null
-  const tone = toneOf(score, verdict)
-  return <span className={`pill pill--${tone}`}>{verdict}</span>
+  return <span className={`pill pill--${toneOf(score, verdict)}`}>{verdict}</span>
 }
-
 function ScoreBadge({ score }: { score: number | null }) {
   if (score == null) return null
-  const tone = toneOf(score, null)
-  return <span className={`score-badge score-badge--${tone}`}>{score}%</span>
+  return <span className={`score-badge score-badge--${toneOf(score, null)}`}>{score}%</span>
 }
-
 function Avatar({ size = 34 }: { size?: number }) {
-  return (
-    <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.42 }}>
-      {skinProfile.initials}
-    </span>
-  )
+  return <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.42 }}>{skinProfile.initials}</span>
 }
-
 function ScoreRing({ score, label = "совместимость" }: { score: number; label?: string }) {
-  const size = 148, stroke = 8
-  const r = (size - stroke) / 2
-  const c = 2 * Math.PI * r
+  const size = 148, stroke = 8, r = (size - stroke) / 2, c = 2 * Math.PI * r
   const [progress, setProgress] = useState(0)
   useEffect(() => { const id = requestAnimationFrame(() => setProgress(score)); return () => cancelAnimationFrame(id) }, [score])
-  const tone = toneOf(score, null)
   return (
     <div className="score-ring" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="score-ring__svg">
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" className="score-ring__track" strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" className={`score-ring__val score-ring__val--${tone}`} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c - (progress / 100) * c} style={{ transition: "stroke-dashoffset 1.1s cubic-bezier(.16,1,.3,1)" }} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" className={`score-ring__val score-ring__val--${toneOf(score, null)}`} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c - (progress / 100) * c} style={{ transition: "stroke-dashoffset 1.1s cubic-bezier(.16,1,.3,1)" }} />
       </svg>
-      <div className="score-ring__center">
-        <strong>{progress}%</strong>
-        <span>{label}</span>
-      </div>
+      <div className="score-ring__center"><strong>{progress}%</strong><span>{label}</span></div>
     </div>
   )
 }
-
-function ProductCard({
-  product,
-  checking = false,
-  onOpen,
-  onCheck,
-}: {
-  product: Product
-  checking?: boolean
-  onOpen?: () => void
-  onCheck?: () => void
+function ProductCard({ product, checking = false, onOpen, onCheck }: {
+  product: Product; checking?: boolean; onOpen?: () => void; onCheck?: () => void
 }) {
-  const checked = product.checked !== false && product.score != null
+  const checked = product.checked === true && product.score != null
   return (
     <article className="pcard">
       <button type="button" className="pcard__main" onClick={onOpen} aria-label={product.name}>
@@ -227,7 +166,7 @@ function ProductCard({
         {checked ? (
           <>
             <VerdictPill verdict={product.verdict} score={product.score} />
-            <button type="button" className="pcard__link" onClick={onOpen}>Отчёт <Icon name="chevron" size={13} /></button>
+            <button type="button" className="pcard__link" onClick={onOpen}>{product.report ? "Отчёт" : "Подробнее"} <Icon name="chevron" size={13} /></button>
           </>
         ) : checking ? (
           <span className="pcard__checking"><span className="spin" /> Проверяем…</span>
@@ -249,7 +188,6 @@ const NAV: { id: Page; icon: IconName; label: string }[] = [
   { id: "report", icon: "chart", label: "Отчёт" },
   { id: "profile", icon: "user", label: "Профиль" },
 ]
-
 const MOBILE_NAV: { id: Page; icon: IconName; label: string }[] = [
   { id: "home", icon: "home", label: "Главная" },
   { id: "shelf", icon: "shelf", label: "Полка" },
@@ -261,10 +199,7 @@ const MOBILE_NAV: { id: Page; icon: IconName; label: string }[] = [
 function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) => void }) {
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <span className="brand__mark">A</span>
-        <strong>Aidermy</strong>
-      </div>
+      <div className="brand"><span className="brand__mark">A</span><strong>Aidermy</strong></div>
       <nav className="nav-list">
         {NAV.map((item) => (
           <button key={item.id} type="button" className={`nav-item ${page === item.id ? "nav-item--active" : ""}`} onClick={() => onNavigate(item.id)}>
@@ -285,7 +220,6 @@ function Sidebar({ page, onNavigate }: { page: Page; onNavigate: (p: Page) => vo
     </aside>
   )
 }
-
 function Topbar({ page, onNavigate, onScan }: { page: Page; onNavigate: (p: Page) => void; onScan: () => void }) {
   const title = NAV.find((n) => n.id === page)?.label ?? ""
   return (
@@ -299,7 +233,6 @@ function Topbar({ page, onNavigate, onScan }: { page: Page; onNavigate: (p: Page
     </header>
   )
 }
-
 function BottomNav({ page, onNavigate }: { page: Page; onNavigate: (p: Page) => void }) {
   return (
     <nav className="bottom-nav">
@@ -316,22 +249,24 @@ function BottomNav({ page, onNavigate }: { page: Page; onNavigate: (p: Page) => 
     </nav>
   )
 }
-
 function SectionHead({ eyebrow, title, action, actionLabel }: { eyebrow: string; title: string; action?: () => void; actionLabel?: string }) {
   return (
     <div className="section-head">
-      <div>
-        <p className="eyebrow">{eyebrow}</p>
-        <h2>{title}</h2>
-      </div>
+      <div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div>
       {action && actionLabel && <Button variant="ghost" small onClick={action}>{actionLabel} <Icon name="arrow" size={14} /></Button>}
     </div>
   )
 }
-
+function PageHeading({ eyebrow, title, lead, action }: { eyebrow: string; title: string; lead?: string; action?: ReactNode }) {
+  return (
+    <div className="page-head">
+      <div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{lead && <p className="lead">{lead}</p>}</div>
+      {action}
+    </div>
+  )
+}
 function Sparkline({ values }: { values: number[] }) {
-  const w = 120, h = 40
-  const min = Math.min(...values), max = Math.max(...values)
+  const w = 120, h = 40, min = Math.min(...values), max = Math.max(...values)
   const pts = values.map((v, i) => `${(i / (values.length - 1)) * w},${h - ((v - min) / (max - min || 1)) * (h - 4) - 2}`).join(" ")
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="sparkline" aria-hidden="true">
@@ -340,17 +275,10 @@ function Sparkline({ values }: { values: number[] }) {
   )
 }
 
-function HomePage({
-  onNavigate,
-  onOpen,
-  onScan,
-}: {
-  onNavigate: (p: Page) => void
-  onOpen: (p: Product) => void
-  onScan: () => void
-}) {
+function HomePage({ onNavigate, onOpen, onScan }: { onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void }) {
   const using = products.filter((p) => p.state === "using").slice(0, 4)
   const recent = products.filter((p) => p.checked).slice(0, 6)
+  const trend = shelfReport.compatibilityHistory.map((h) => h.shelfAverage)
   return (
     <div className="page">
       <section className="hero">
@@ -360,7 +288,7 @@ function HomePage({
           <h1 className="hero__title">Косметика, которая<br />действительно подходит</h1>
           <p className="hero__lead">Aidermy связывает состав с вашей кожей и показывает, что сработает, а что нет.</p>
           <div className="hero__actions">
-            <Button icon="scan" onClick={onScan}>Сканировать состав</Button>
+            <Button icon="camera" onClick={onScan}>Сканировать упаковку</Button>
             <Button variant="secondary" icon="search" onClick={() => onNavigate("catalog")}>Найти в каталоге</Button>
           </div>
         </div>
@@ -370,13 +298,11 @@ function HomePage({
         <section className="panel panel--click" onClick={() => onNavigate("report")}>
           <p className="eyebrow">Моя полка · сводка</p>
           <div className="report-preview">
-            <div className="report-preview__num">
-              <strong>{shelfReport.average}</strong><span>%</span>
-            </div>
+            <div className="report-preview__num"><strong>{shelfReport.average}</strong><span>%</span></div>
             <div className="report-preview__side">
-              <p className="report-preview__label">средняя совместимость</p>
-              <Sparkline values={shelfReport.trend} />
-              <p className="report-preview__hint">по 12 проверенным продуктам</p>
+              <p className="report-preview__label">средняя совместимость полки</p>
+              <Sparkline values={trend} />
+              <p className="report-preview__hint">по {shelfReport.compatibilityHistory.length} проверенным продуктам</p>
             </div>
           </div>
         </section>
@@ -388,9 +314,7 @@ function HomePage({
             {skinProfile.goals.map((g) => <span key={g} className="chip">{g}</span>)}
             <span className="chip chip--warn">чувствительная</span>
           </div>
-          <Button variant="ghost" small icon="user" onClick={() => onNavigate("profile")} className="mt">
-            Изменить опрос
-          </Button>
+          <Button variant="ghost" small icon="user" onClick={() => onNavigate("profile")} className="mt">Изменить опрос</Button>
         </section>
       </div>
 
@@ -423,38 +347,9 @@ function HomePage({
     </div>
   )
 }
-
-function PageHeading({ eyebrow, title, lead, action }: { eyebrow: string; title: string; lead?: string; action?: ReactNode }) {
-  return (
-    <div className="page-head">
-      <div>
-        <p className="eyebrow">{eyebrow}</p>
-        <h1>{title}</h1>
-        {lead && <p className="lead">{lead}</p>}
-      </div>
-      {action}
-    </div>
-  )
-}
-
-function ShelfBoard({ category, items, onOpen }: { category: string; items: Product[]; onOpen: (p: Product) => void }) {
-  const scored = items.filter((p) => p.score != null)
-  const avg = scored.length ? Math.round(scored.reduce((s, p) => s + (p.score ?? 0), 0) / scored.length) : null
-  return (
-    <section className="shelf-board">
-      <div className="shelf-board__head">
-        <h3>{category}</h3>
-        <span>{items.length} средств{avg != null ? ` · совместимость ${avg}%` : ""}</span>
-      </div>
-      <div className="shelf-board__rack">
-        {items.map((p) => <ProductCard key={p.id} product={p} onOpen={() => onOpen(p)} />)}
-      </div>
-      <div className="shelf-board__bar"><span /><span /></div>
-    </section>
-  )
-}
-
-function ShelfPage({ onOpen, onAdd }: { onOpen: (p: Product) => void; onAdd: () => void }) {
+function ShelfPage({ items, checkingIds, onOpen, onCheck, onAdd }: {
+  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onCheck: (id: number) => void; onAdd: () => void
+}) {
   const [filter, setFilter] = useState<"all" | ProductState>("all")
   const states: { id: "all" | ProductState; label: string }[] = [
     { id: "all", label: "Все" },
@@ -462,20 +357,18 @@ function ShelfPage({ onOpen, onAdd }: { onOpen: (p: Product) => void; onAdd: () 
     { id: "want", label: "Хочу попробовать" },
     { id: "finished", label: "Закончились" },
   ]
-  const shelved = products.filter((p) => p.state)
+  const shelved = items.filter((p) => p.state)
   const filtered = filter === "all" ? shelved : shelved.filter((p) => p.state === filter)
-  const usingCount = products.filter((p) => p.state === "using").length
+  const usingCount = items.filter((p) => p.state === "using").length
+  const scored = items.filter((p) => p.state && p.score != null)
+  const avg = scored.length ? Math.round(scored.reduce((s, p) => s + (p.score ?? 0), 0) / scored.length) : null
   return (
     <div className="page">
-      <PageHeading
-        eyebrow="Уход"
-        title="Моя полка"
-        lead="Полка растёт вместе с уходом: категории и статусы — отдельные измерения."
-        action={<Button icon="plus" onClick={onAdd}>Добавить средство</Button>}
-      />
+      <PageHeading eyebrow="Уход" title="Моя полка" lead="Полка растёт вместе с уходом: категории и статусы — отдельные измерения."
+        action={<Button icon="plus" onClick={onAdd}>Добавить средство</Button>} />
       <div className="shelf-summary">
         <div><strong>{usingCount}</strong><span>сейчас использую</span></div>
-        <div><strong>{shelfReport.average}%</strong><span>средняя совместимость</span></div>
+        <div><strong>{avg != null ? `${avg}%` : "—"}</strong><span>средняя совместимость</span></div>
         <div><strong>{shelfReport.attention.length}</strong><span>на что обратить внимание</span></div>
       </div>
       <div className="tabs">
@@ -484,25 +377,44 @@ function ShelfPage({ onOpen, onAdd }: { onOpen: (p: Product) => void; onAdd: () 
         ))}
       </div>
       {CATEGORIES.map((cat) => {
-        const items = filtered.filter((p) => p.category === cat)
-        if (!items.length) return null
-        return <ShelfBoard key={cat} category={cat} items={items} onOpen={onOpen} />
+        const list = filtered.filter((p) => p.category === cat)
+        if (!list.length) return null
+        const catAvg = list.filter((p) => p.score != null).length ? Math.round(list.filter((p) => p.score != null).reduce((s, p) => s + (p.score ?? 0), 0) / list.filter((p) => p.score != null).length) : null
+        return (
+          <section key={cat} className="shelf-board">
+            <div className="shelf-board__head">
+              <h3>{cat}</h3>
+              <span>{list.length} средств{catAvg != null ? ` · ${catAvg}%` : ""}</span>
+            </div>
+            <div className="shelf-board__rack">
+              {list.map((p) => (
+                <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} onCheck={() => onCheck(p.id)} />
+              ))}
+              <button type="button" className="shelf-add" onClick={onAdd} aria-label="Добавить продукт">
+                <Icon name="plus" size={26} />
+              </button>
+            </div>
+            <div className="shelf-plank"><span /><span /></div>
+          </section>
+        )
       })}
     </div>
   )
 }
 
-function CatalogPage({ onOpen, onAdd }: { onOpen: (p: Product) => void; onAdd: (p: Product) => void }) {
+function CatalogPage({ items, checkingIds, onOpen, onCheck }: {
+  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onCheck: (id: number) => void
+}) {
   const [query, setQuery] = useState("")
   const [cat, setCat] = useState<string>("Все")
   const list = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    return products.filter((p) => {
+    return items.filter((p) => {
       if (cat !== "Все" && p.category !== cat) return false
       if (!needle) return true
       return [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(needle)
     })
-  }, [query, cat])
+  }, [items, query, cat])
   return (
     <div className="page">
       <PageHeading eyebrow="База продуктов" title="Каталог" lead="Проверяйте составы и находите продукты под особенности вашей кожи." />
@@ -518,72 +430,64 @@ function CatalogPage({ onOpen, onAdd }: { onOpen: (p: Product) => void; onAdd: (
       </div>
       <div className="product-grid">
         {list.map((p) => (
-          <div key={p.id} className="product-grid__cell">
-            <ProductCard product={p} onOpen={() => onOpen(p)} onCheck={() => onAdd(p)} />
-          </div>
+          <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} onCheck={() => onCheck(p.id)} />
         ))}
       </div>
       {list.length === 0 && <p className="empty">Ничего не нашлось. Попробуйте другой запрос.</p>}
     </div>
   )
 }
-
-function ScanPage({ onOpenReport }: { onOpenReport: (p: Product) => void }) {
-  const [phase, setPhase] = useState<"input" | "checking" | "result">("input")
+function ScanPage({ onContinue }: { onContinue: (p: Product) => void }) {
+  const [phase, setPhase] = useState<"input" | "recognizing" | "ready">("input")
   const [inci, setInci] = useState("")
   const sample = products[6]
-  const run = () => {
-    setPhase("checking")
-    window.setTimeout(() => setPhase("result"), 1300)
-  }
+  const run = () => { setPhase("recognizing"); window.setTimeout(() => setPhase("ready"), 1500) }
   return (
     <div className="page">
-      <PageHeading eyebrow="Проверка" title="Сканировать состав" lead="Фото упаковки или INCI-список — свяжем состав с вашей кожей." />
-      {phase !== "result" ? (
+      <PageHeading eyebrow="Проверка" title="Сканировать продукт" lead="Сфотографируйте упаковку — определим продукт и продолжим анализ." />
+      {phase === "input" && (
         <div className="scan">
-          <div className="scan__drop">
-            <span className="scan__drop-icon"><Icon name="camera" size={26} /></span>
-            <h3>Сфотографируйте упаковку</h3>
-            <p>Или вставьте состав вручную — определим продукт и его ингредиенты.</p>
-            <Button variant="secondary" icon="camera" onClick={run}>Загрузить фото</Button>
+          <div className="scan__main">
+            <div className="scan__drop">
+              <span className="scan__drop-icon"><Icon name="camera" size={30} /></span>
+              <h3>Сфотографируйте упаковку</h3>
+              <p>Наведите камеру на этикетку — распознаем продукт и состав.</p>
+              <div className="scan__drop-actions">
+                <Button icon="camera" onClick={run}>Сделать фото</Button>
+                <Button variant="secondary" icon="upload" onClick={run}>Загрузить изображение</Button>
+              </div>
+            </div>
           </div>
-          <div className="scan__divider">или</div>
-          <div className="scan__form">
-            <label>Состав (INCI)</label>
+          <div className="scan__alt">
+            <p className="eyebrow">Другой способ</p>
+            <h3>Вставить состав вручную</h3>
+            <p className="scan__alt-hint">Если фото недоступно — вставьте INCI-список.</p>
             <textarea value={inci} onChange={(e) => setInci(e.target.value)} placeholder="Aqua, Glycerin, Niacinamide…" rows={4} />
-            <Button icon="sparkle" onClick={run} className="w-full">Проверить совместимость</Button>
+            <Button icon="sparkle" onClick={run} className="w-full">Проверить состав</Button>
           </div>
         </div>
-      ) : phase === "checking" ? (
+      )}
+      {phase === "recognizing" && (
         <div className="scan-status">
           <span className="spin spin--lg" />
-          <h3>Анализируем состав…</h3>
-          <p>Сопоставляем ингредиенты с вашим профилем кожи.</p>
+          <h3>Распознаём продукт…</h3>
+          <p>Определяем бренд и название по фото упаковки.</p>
         </div>
-      ) : (
-        <div className="result">
-          <div className="result__top">
-            <ScoreRing score={sample.score ?? 0} />
-            <div className="result__meta">
-              <p className="eyebrow">{sample.brand}</p>
-              <h2>{sample.name}</h2>
+      )}
+      {phase === "ready" && (
+        <div className="scan-ready panel">
+          <p className="eyebrow">Продукт определён</p>
+          <div className="scan-ready__row">
+            <img src={sample.image} alt="" />
+            <div>
+              <h3>{sample.name}</h3>
+              <p>{sample.brand} · {sample.category}</p>
               <VerdictPill verdict={sample.verdict} score={sample.score} />
-              <p className="result__summary">Состав подходит вашему профилю: базовые активы совместимы, противопоказаний не найдено.</p>
             </div>
           </div>
-          <div className="result__sections">
-            <div className="panel">
-              <h4>Что хорошо</h4>
-              <ul className="check-list"><li><Icon name="check" size={14} /> Увлажняющие компоненты поддерживают барьер</li><li><Icon name="check" size={14} /> Без отдушки — не конфликтует с непереносимостями</li><li><Icon name="check" size={14} /> Нет агрессивных кислот</li></ul>
-            </div>
-            <div className="panel">
-              <h4>На что обратить внимание</h4>
-              <ul className="check-list check-list--warn"><li><Icon name="alert" size={14} /> Муцин улитки — следите за реакцией при чувствительности</li></ul>
-            </div>
-          </div>
-          <div className="result__actions">
-            <Button icon="file" onClick={() => onOpenReport(sample)}>Посмотреть полный отчёт</Button>
-            <Button variant="secondary" icon="shelf" onClick={() => setPhase("input")}>Добавить на полку</Button>
+          <div className="scan-ready__actions">
+            <Button icon="sparkle" onClick={() => onContinue(sample)}>Продолжить анализ</Button>
+            <Button variant="ghost" onClick={() => setPhase("input")}>Не то — повторить</Button>
           </div>
         </div>
       )}
@@ -591,8 +495,33 @@ function ScanPage({ onOpenReport }: { onOpenReport: (p: Product) => void }) {
   )
 }
 
+function CompatChart({ history }: { history: { step: number; label: string; shelfAverage: number }[] }) {
+  const w = 560, h = 180, padL = 34, padR = 14, padT = 16, padB = 34
+  const n = history.length
+  const x = (i: number) => padL + (i / (n - 1)) * (w - padL - padR)
+  const y = (v: number) => padT + (1 - v / 100) * (h - padT - padB)
+  const pts = history.map((p, i) => `${x(i)},${y(p.shelfAverage)}`)
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="compat-chart" role="img" aria-label="Средняя совместимость полки по мере проверки продуктов">
+      {[0, 25, 50, 75, 100].map((v) => (
+        <g key={v}>
+          <line x1={padL} y1={y(v)} x2={w - padR} y2={y(v)} stroke="var(--border)" strokeWidth="1" />
+          <text x={padL - 6} y={y(v) + 3} textAnchor="end" className="compat-chart__axis">{v}</text>
+        </g>
+      ))}
+      <polyline points={pts.join(" ")} fill="none" stroke="var(--good)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {history.map((p, i) => (
+        <g key={p.step}>
+          <circle cx={x(i)} cy={y(p.shelfAverage)} r="4" fill="var(--surface)" stroke="var(--good)" strokeWidth="2" />
+          <text x={x(i)} y={h - 12} textAnchor="middle" className="compat-chart__label">{p.step}</text>
+        </g>
+      ))}
+    </svg>
+  )
+}
+
 function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
-  const bars = shelfReport.trend
+  const history = shelfReport.compatibilityHistory
   const want = products.filter((p) => p.state === "want").slice(0, 3)
   return (
     <div className="page">
@@ -601,24 +530,18 @@ function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
         <div className="report-hero__num"><strong>{shelfReport.average}</strong><span>%</span></div>
         <div className="report-hero__side">
           <p>Средняя совместимость полки</p>
-          <div className="trend">
-            {bars.map((v, i) => <span key={i} style={{ height: `${((v - 70) / 30) * 100}%` }} />)}
-          </div>
-          <small>совместимость по проверенным продуктам</small>
+          <CompatChart history={history} />
         </div>
       </section>
+      <p className="report-metric-note">Средняя совместимость средств на полке — по мере проверки продуктов (кумулятивно).</p>
       <div className="report-cols">
         <section className="panel">
           <h3 className="panel__h3">Что хорошо</h3>
-          <ul className="obs">
-            {shelfReport.good.map((g) => <li key={g}><Icon name="check" size={15} /><span>{g}</span></li>)}
-          </ul>
+          <ul className="obs">{shelfReport.good.map((g) => <li key={g}><Icon name="check" size={15} /><span>{g}</span></li>)}</ul>
         </section>
         <section className="panel">
           <h3 className="panel__h3">На что обратить внимание</h3>
-          <ul className="obs obs--warn">
-            {shelfReport.attention.map((g) => <li key={g}><Icon name="alert" size={15} /><span>{g}</span></li>)}
-          </ul>
+          <ul className="obs obs--warn">{shelfReport.attention.map((g) => <li key={g}><Icon name="alert" size={15} /><span>{g}</span></li>)}</ul>
         </section>
       </div>
       <section className="block">
@@ -636,183 +559,323 @@ function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
     </div>
   )
 }
+function OptionChips({ options, selected, onToggle }: { options: QuizOption[]; selected: string[]; onToggle: (id: string) => void }) {
+  return (
+    <div className="quiz__options">
+      {options.map((o) => {
+        const on = selected.includes(o.id)
+        return (
+          <button key={o.id} type="button" className={`quiz__opt ${on ? "quiz__opt--on" : ""}`} onClick={() => onToggle(o.id)}>
+            <span>{o.label}</span>
+            {on && <Icon name="check" size={16} />}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
-function Questionnaire({ onDone }: { onDone: () => void }) {
+function Questionnaire({ onDone }: { onDone: (p: { skinType: string }) => void }) {
   const [step, setStep] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string[]>>({})
-  const stepData = QUIZ[step]
-  const isSingle = stepData.type === "single"
-  const current = answers[stepData.id] ?? []
-  const toggle = (id: string) => {
-    setAnswers((prev) => {
-      const cur = prev[stepData.id] ?? []
-      if (isSingle) return { ...prev, [stepData.id]: [id] }
-      return { ...prev, [stepData.id]: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] }
-    })
-  }
-  const canNext = current.length > 0
+  const [skinType, setSkinType] = useState<string | null>(null)
+  const [age, setAge] = useState<string | null>(null)
+  const [cards, setCards] = useState<string[]>([])
+  const [answers, setAnswers] = useState<Record<string, Record<string, string[]>>>({})
+  const [therapy, setTherapy] = useState<string[]>([])
+  const [retinoid, setRetinoid] = useState<string | null>(null)
+  const [acids, setAcids] = useState<string[]>([])
+  const [procedures, setProcedures] = useState<Record<string, string>>({})
+  const [intolerances, setIntolerances] = useState<string[]>([])
+  const [goals, setGoals] = useState<string[]>([])
+
+  const steps = useMemo(() => {
+    const s: { id: string; card?: QuizBranch }[] = [{ id: "skin" }, { id: "concerns" }]
+    for (const c of cards) { const b = CONCERN_CARDS.find((x) => x.id === c); if (b) s.push({ id: "concern", card: b }) }
+    s.push({ id: "therapy" }, { id: "procedures" }, { id: "intolerances" }, { id: "goals" }, { id: "summary" })
+    return s
+  }, [cards])
+
+  const idx = Math.min(step, steps.length - 1)
+  const current = steps[idx]
+  const total = steps.length
+
+  const toggleList = (list: string[], set: (v: string[]) => void, id: string) => set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
+
+  const canNext = (() => {
+    if (current.id === "skin") return skinType != null
+    if (current.id === "concern") return current.card!.questions.every((q) => (answers[current.card!.id]?.[q.id]?.length ?? 0) > 0)
+    if (current.id === "goals") return goals.length > 0
+    return true
+  })()
+
+  const next = () => setStep((s) => Math.min(s + 1, total - 1))
+  const back = () => setStep((s) => Math.max(s - 1, 0))
+
+  const TITLES: Record<string, string> = { skin: "Тип кожи", concerns: "Что беспокоит", therapy: "Активное лечение", procedures: "Процедуры", intolerances: "Непереносимости", goals: "Цели ухода", summary: "Готово" }
+  const title = current.id === "concern" ? current.card!.shortLabel : TITLES[current.id] ?? ""
+
   return (
     <div className="quiz">
-      <div className="quiz__progress"><span style={{ width: `${((step + 1) / QUIZ.length) * 100}%` }} /></div>
-      <p className="eyebrow">Шаг {step + 1} из {QUIZ.length}</p>
-      <h2 className="quiz__title">{stepData.title}</h2>
-      {stepData.hint && <p className="quiz__hint">{stepData.hint}</p>}
-      <div className="quiz__options">
-        {stepData.options.map((o) => {
-          const on = current.includes(o.id)
-          return (
-            <button key={o.id} type="button" className={`quiz__opt ${on ? "quiz__opt--on" : ""}`} onClick={() => toggle(o.id)}>
-              <span>{o.label}</span>
-              {on && <Icon name="check" size={16} />}
-            </button>
-          )
-        })}
-      </div>
+      <div className="quiz__progress"><span style={{ width: `${((idx + 1) / total) * 100}%` }} /></div>
+      <p className="eyebrow">Шаг {idx + 1} из {total}</p>
+      <h2 className="quiz__title">{title}</h2>
+
+      {current.id === "skin" && (
+        <>
+          <p className="quiz__hint">Какой у вас тип кожи?</p>
+          <OptionChips options={SKIN_TYPE_OPTIONS} selected={skinType ? [skinType] : []} onToggle={(id) => setSkinType(id)} />
+          <p className="quiz__hint">Ваш возраст</p>
+          <OptionChips options={AGE_OPTIONS} selected={age ? [age] : []} onToggle={(id) => setAge(id)} />
+        </>
+      )}
+
+      {current.id === "concerns" && (
+        <>
+          <p className="quiz__hint">Выберите всё, что актуально — по каждому пункту зададим уточняющий вопрос.</p>
+          <OptionChips options={CONCERN_CARDS.map((c) => ({ id: c.id, label: c.label }))} selected={cards} onToggle={(id) => toggleList(cards, setCards, id)} />
+        </>
+      )}
+
+      {current.id === "concern" && current.card && (
+        <div className="quiz__branch">
+          {current.card.questions.map((q) => (
+            <div key={q.id}>
+              <p className="quiz__hint">{q.label}</p>
+              <OptionChips options={q.options} selected={answers[current.card!.id]?.[q.id] ?? []} onToggle={(id) => {
+                setAnswers((prev) => { const cur = prev[current.card!.id]?.[q.id] ?? []; const nxt = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]; return { ...prev, [current.card!.id]: { ...prev[current.card!.id], [q.id]: nxt } } })
+              }} />
+            </div>
+          ))}
+        </div>
+      )}
+      {current.id === "therapy" && (
+        <div className="quiz__branch">
+          <p className="quiz__hint">Используете ли активное лечение?</p>
+          <OptionChips options={THERAPY_OPTIONS} selected={therapy} onToggle={(id) => toggleList(therapy, setTherapy, id)} />
+          {therapy.includes("topical_retinoid") && (<><p className="quiz__hint">Какой ретиноид?</p><OptionChips options={RETINOID_OPTIONS} selected={retinoid ? [retinoid] : []} onToggle={(id) => setRetinoid(id)} /></>)}
+          {therapy.includes("acid_therapy") && (<><p className="quiz__hint">Какие кислоты?</p><OptionChips options={ACID_OPTIONS} selected={acids} onToggle={(id) => toggleList(acids, setAcids, id)} /></>)}
+        </div>
+      )}
+
+      {current.id === "procedures" && (
+        <div className="quiz__branch">
+          <p className="quiz__hint">Были ли недавно процедуры? Для выбранных уточните период.</p>
+          {PROCEDURE_OPTIONS.map((o) => {
+            const on = procedures[o.id] != null
+            return (
+              <div key={o.id} className="quiz__proc">
+                <button type="button" className={`quiz__opt ${on ? "quiz__opt--on" : ""}`} onClick={() => setProcedures((prev) => { const c = { ...prev }; if (c[o.id]) delete c[o.id]; else c[o.id] = "<7"; return c })}>
+                  <span>{o.label}</span>{on && <Icon name="check" size={16} />}
+                </button>
+                {on && (
+                  <div className="quiz__proc-periods">
+                    {PROCEDURE_PERIODS.map((p) => (
+                      <button key={p.id} type="button" className={`chip ${procedures[o.id] === p.id ? "chip--on" : ""}`} onClick={() => setProcedures((prev) => ({ ...prev, [o.id]: p.id }))}>{p.label}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {current.id === "intolerances" && (
+        <>
+          <p className="quiz__hint">Есть ингредиенты, которые вы избегаете?</p>
+          <OptionChips options={INTOLERANCE_OPTIONS} selected={intolerances} onToggle={(id) => toggleList(intolerances, setIntolerances, id)} />
+        </>
+      )}
+
+      {current.id === "goals" && (
+        <>
+          <p className="quiz__hint">Главное, к чему хотите прийти.</p>
+          <OptionChips options={GOALS_OPTIONS} selected={goals} onToggle={(id) => toggleList(goals, setGoals, id)} />
+        </>
+      )}
+
+      {current.id === "summary" && (
+        <div className="quiz__summary">
+          <div className="quiz__summary-row"><span>Тип кожи</span><strong>{SKIN_TYPE_OPTIONS.find((o) => o.id === skinType)?.label ?? "—"}</strong></div>
+          <div className="quiz__summary-row"><span>Возраст</span><strong>{AGE_OPTIONS.find((o) => o.id === age)?.label ?? "—"}</strong></div>
+          <div className="quiz__summary-row"><span>Проблемы</span><strong>{cards.length ? cards.map((c) => CONCERN_CARDS.find((b) => b.id === c)?.shortLabel).join(", ") : "—"}</strong></div>
+          <div className="quiz__summary-row"><span>Лечение</span><strong>{therapy.length && !therapy.includes("none") ? therapy.map((t) => THERAPY_OPTIONS.find((o) => o.id === t)?.label).join(", ") : "—"}</strong></div>
+          <div className="quiz__summary-row"><span>Процедуры</span><strong>{Object.keys(procedures).length ? Object.keys(procedures).map((p) => PROCEDURE_OPTIONS.find((o) => o.id === p)?.label).join(", ") : "—"}</strong></div>
+          <div className="quiz__summary-row"><span>Непереносимости</span><strong>{intolerances.length ? intolerances.map((i) => INTOLERANCE_OPTIONS.find((o) => o.id === i)?.label).join(", ") : "—"}</strong></div>
+          <div className="quiz__summary-row"><span>Цели</span><strong>{goals.map((g) => GOALS_OPTIONS.find((o) => o.id === g)?.label).join(", ")}</strong></div>
+          <p className="quiz__summary-note">Этот профиль будет использоваться для расчёта совместимости каждого продукта.</p>
+        </div>
+      )}
+
+
       <div className="quiz__nav">
-        {step > 0 && <Button variant="ghost" onClick={() => setStep(step - 1)}>Назад</Button>}
+        {idx > 0 && <Button variant="ghost" icon="back" onClick={back}>Назад</Button>}
         <div className="quiz__nav-spacer" />
-        {step < QUIZ.length - 1 ? (
-          <Button disabled={!canNext} onClick={() => setStep(step + 1)}>Далее <Icon name="arrow" size={15} /></Button>
+        {current.id === "summary" ? (
+          <Button icon="check" onClick={() => onDone({ skinType: skinType ?? "Нормальная" })}>Сохранить профиль</Button>
         ) : (
-          <Button disabled={!canNext} onClick={onDone}>Завершить <Icon name="check" size={15} /></Button>
+          <Button disabled={!canNext} onClick={next}>Далее <Icon name="arrow" size={15} /></Button>
         )}
       </div>
     </div>
   )
 }
 
+
+
+
+
+
+
 function ProfilePage() {
   const [quiz, setQuiz] = useState(false)
+  const [skinType, setSkinType] = useState(skinProfile.skinType)
   if (quiz) {
     return (
       <div className="page">
         <PageHeading eyebrow="Профиль" title="Опрос кожи" lead="Несколько шагов — и профиль станет точнее." />
-        <Questionnaire onDone={() => setQuiz(false)} />
+        <Questionnaire onDone={(p) => { setSkinType(SKIN_TYPE_OPTIONS.find((o) => o.id === p.skinType)?.label ?? p.skinType); setQuiz(false) }} />
       </div>
     )
   }
   return (
     <div className="page">
-      <PageHeading
-        eyebrow="Профиль"
-        title="Профиль кожи"
-        lead="На основе профиля рассчитывается совместимость каждого продукта."
-        action={<Button icon="user" onClick={() => setQuiz(true)}>Изменить опрос</Button>}
-      />
+      <PageHeading eyebrow="Профиль" title="Профиль кожи" lead="На основе профиля рассчитывается совместимость каждого продукта."
+        action={<Button icon="user" onClick={() => setQuiz(true)}>Изменить опрос</Button>} />
       <div className="profile-grid">
-        <section className="panel">
-          <p className="eyebrow">Тип кожи</p>
-          <h3 className="panel__h3">{skinProfile.skinType}</h3>
-          <div className="chips">
-            {skinProfile.goals.map((g) => <span key={g} className="chip">{g}</span>)}
-          </div>
-        </section>
-        <section className="panel">
-          <p className="eyebrow">Чувствительность</p>
-          <h3 className="panel__h3">{skinProfile.sensitivity}</h3>
-          <p className="panel__note">Избегает: {skinProfile.avoid.join(", ")}</p>
-        </section>
-        <section className="panel">
-          <p className="eyebrow">Активное лечение</p>
-          <ul className="kv">{skinProfile.therapy.map((t) => <li key={t}>{t}</li>)}</ul>
-        </section>
-        <section className="panel">
-          <p className="eyebrow">Непереносимости</p>
-          <div className="chips">
-            {skinProfile.intolerances.map((t) => <span key={t} className="chip chip--warn">{t}</span>)}
-          </div>
-        </section>
+        <section className="panel"><p className="eyebrow">Тип кожи</p><h3 className="panel__h3">{skinType}</h3><div className="chips">{skinProfile.goals.map((g) => <span key={g} className="chip">{g}</span>)}</div></section>
+        <section className="panel"><p className="eyebrow">Чувствительность</p><h3 className="panel__h3">{skinProfile.sensitivity}</h3><p className="panel__note">Избегает: {skinProfile.avoid.join(", ")}</p></section>
+        <section className="panel"><p className="eyebrow">Активное лечение</p><ul className="kv">{skinProfile.therapy.map((t) => <li key={t}>{t}</li>)}</ul></section>
+        <section className="panel"><p className="eyebrow">Непереносимости</p><div className="chips">{skinProfile.intolerances.map((t) => <span key={t} className="chip chip--warn">{t}</span>)}</div></section>
       </div>
-      <section className="block">
-        <p className="profile-note">Match каждого продукта рассчитывается по этому профилю и вашей текущей полке. Реальная математика живёт в scoring engine V1 — здесь показан результат для preview.</p>
-      </section>
+      <section className="block"><p className="profile-note">Match каждого продукта рассчитывается по этому профилю и вашей текущей полке. Реальная математика живёт в scoring engine V1 — здесь показан результат для preview.</p></section>
     </div>
   )
 }
 
-function ProductModal({ product, onClose }: { product: Product; onClose: () => void }) {
-  const [added, setAdded] = useState(false)
-  const safe = product.tags.length ? product.tags.map((t) => `${t} — совместимо с вашим профилем`) : ["Базовый состав без явных конфликтов"]
-  const caution =
-    product.verdict === "Не подходит"
-      ? ["Содержит активы, агрессивные для чувствительной кожи", "Конфликт с текущим ретиноидом в полке"]
-      : product.verdict === "С осторожностью"
-        ? ["Возможна реакция при сочетании с ретиноидом", "Начинайте с низкой частоты применения"]
-        : ["Явных противопоказаний не найдено"]
+function ProductDrawer({ product, onClose, onChecked, onReported, onOpen }: {
+  product: Product; onClose: () => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void
+}) {
+  const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
+    product.checked && product.report ? "report" : product.checked ? "match" : "idle"
+  )
+  const [score, setScore] = useState<number | null>(product.score)
+  const [verdict, setVerdict] = useState<Verdict | null>(product.verdict)
+
+  const check = () => {
+    setPhase("checking")
+    window.setTimeout(() => {
+      const s = 60 + ((product.id * 13) % 35)
+      const v: Verdict = s >= 80 ? "Подходит" : s >= 60 ? "С осторожностью" : "Не подходит"
+      setScore(s); setVerdict(v); setPhase("match")
+      onChecked(product.id, s, v)
+    }, 1300)
+  }
+  const showReport = () => { setPhase("generating"); window.setTimeout(() => { setPhase("report"); onReported(product.id) }, 1600) }
+
+  const safe = product.tags.length ? product.tags.map((t) => `${t} — совместимо с профилем`) : ["Базовый состав без явных конфликтов"]
+  const caution = verdict === "Не подходит" ? ["Содержит активы, агрессивные для чувствительной кожи", "Конфликт с текущим ретиноидом"] : verdict === "С осторожностью" ? ["Возможна реакция при сочетании с ретиноидом", "Начинайте с низкой частоты"] : ["Явных противопоказаний не найдено"]
   const actives = [
     { name: "Гиалуроновая кислота", conc: "средняя", effect: "удерживает влагу" },
     { name: "Ниацинамид", conc: "низкая", effect: "выравнивает тон" },
     { name: "Пантенол", conc: "средняя", effect: "успокаивает" },
   ]
   const similar = products.filter((p) => p.category === product.category && p.id !== product.id).slice(0, 3)
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
-        <div className="modal__hero">
-          <img src={product.image} alt="" />
-          <div className="modal__hero-meta">
-            <p className="eyebrow">{product.brand}</p>
-            <h2>{product.name}</h2>
-            <VerdictPill verdict={product.verdict} score={product.score} />
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-modal="true">
+        <button type="button" className="drawer__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+        <div className="drawer__scroll">
+          <div className="drawer__hero">
+            <img src={product.image} alt="" />
+            <div className="drawer__hero-meta">
+              <p className="eyebrow">{product.brand}</p>
+              <h2>{product.name}</h2>
+              <p className="drawer__cat">{product.category}</p>
+            </div>
           </div>
-        </div>
-        <div className="modal__score">
-          {product.score != null && <ScoreRing score={product.score} label="совместимость" />}
-          <p>Состав проанализирован относительно вашего профиля кожи и текущей полки.</p>
-        </div>
-        <div className="modal__body">
-          <section>
-            <h4>Что хорошо</h4>
-            <ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul>
-          </section>
-          <section>
-            <h4>На что обратить внимание</h4>
-            <ul className="obs obs--warn">{caution.map((s) => <li key={s}><Icon name="alert" size={15} /><span>{s}</span></li>)}</ul>
-          </section>
-          <section>
-            <h4>Ключевые компоненты</h4>
-            <ul className="actives">
-              {actives.map((a) => (
-                <li key={a.name}><span className="actives__name">{a.name}</span><span className="actives__effect">{a.effect}</span><span className="actives__conc">{a.conc}</span></li>
-              ))}
-            </ul>
-          </section>
-          <section>
-            <h4>Состав (INCI)</h4>
-            <p className="inci">Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.</p>
-          </section>
-          {similar.length > 0 && (
-            <section>
-              <h4>Проверьте ещё</h4>
-              <div className="rec-list">
-                {similar.map((p) => (
-                  <button key={p.id} type="button" className="rec" onClick={() => onClose()}>
-                    <img src={p.image} alt="" loading="lazy" />
-                    <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-                    {p.score != null && <ScoreBadge score={p.score} />}
-                  </button>
-                ))}
-              </div>
-            </section>
+
+          {phase === "idle" && (
+            <div className="drawer__body">
+              <p className="drawer__note">Состав (INCI)</p>
+              <p className="inci">Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.</p>
+              <div className="drawer__cta"><Button icon="sparkle" className="w-full" onClick={check}>Проверить совместимость</Button></div>
+            </div>
           )}
+
+          {phase === "checking" && (
+            <div className="drawer__body drawer__body--center">
+              <span className="spin spin--lg" />
+              <h3>Проверяем совместимость…</h3>
+              <p>Сопоставляем состав с вашим профилем кожи и текущей полкой.</p>
+            </div>
+          )}
+
+          {phase === "match" && (
+            <div className="drawer__body">
+              <div className="drawer__score">
+                {score != null && <ScoreRing score={score} label="совместимость" />}
+                <div><VerdictPill verdict={verdict} score={score} /><p className="drawer__score-note">Детерминированная проверка состава относительно вашего профиля.</p></div>
+              </div>
+              <section><h4>Что хорошо</h4><ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul></section>
+              <section><h4>На что обратить внимание</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><Icon name="alert" size={15} /><span>{s}</span></li>)}</ul></section>
+              <div className="drawer__cta"><Button icon="file" className="w-full" onClick={showReport}>Показать отчёт</Button></div>
+            </div>
+          )}
+
+          {phase === "generating" && (
+            <div className="drawer__body drawer__body--center">
+              <span className="spin spin--lg" />
+              <h3>Генерируем AI-отчёт…</h3>
+              <p>Объясняем полученный результат на основе состава.</p>
+            </div>
+          )}
+          {phase === "report" && (
+            <div className="drawer__body">
+              <div className="drawer__report-head"><p className="eyebrow">Отчёт по продукту</p>{score != null && <ScoreBadge score={score} />}</div>
+              <p className="drawer__report-summary">Результат {score}% — {verdict?.toLowerCase()}. Состав в целом соответствует вашему профилю: увлажняющие и успокаивающие компоненты поддерживают барьер, агрессивных активов нет.</p>
+              <section><h4>Почему такой результат</h4><ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul></section>
+              <section><h4>Проблемные моменты</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><Icon name="alert" size={15} /><span>{s}</span></li>)}</ul></section>
+              <section><h4>Ключевые компоненты</h4><ul className="actives">{actives.map((a) => (<li key={a.name}><span className="actives__name">{a.name}</span><span className="actives__effect">{a.effect}</span><span className="actives__conc">{a.conc}</span></li>))}</ul></section>
+              <section><h4>Состав (INCI)</h4><p className="inci">Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.</p></section>
+              {similar.length > 0 && (<section><h4>Проверьте ещё</h4><div className="rec-list">{similar.map((p) => (<button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}><img src={p.image} alt="" loading="lazy" /><span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>{p.score != null && <ScoreBadge score={p.score} />}</button>))}</div></section>)}
+            </div>
+          )}
+
         </div>
-        <div className="modal__footer">
-          <Button variant={added ? "secondary" : "primary"} icon={added ? "check" : "shelf"} onClick={() => setAdded(true)}>
-            {added ? "Добавлено на полку" : "Добавить на полку"}
-          </Button>
-          <Button variant="ghost" onClick={onClose}>Закрыть</Button>
-        </div>
-      </div>
-    </div>
+        <div className="drawer__footer"><Button variant="ghost" onClick={onClose}>Закрыть</Button></div>
+      </aside>
+    </>
   )
 }
-
 export default function App() {
+  const [items, setItems] = useState<Product[]>(products)
   const [page, setPage] = useState<Page>("home")
   const [open, setOpen] = useState<Product | null>(null)
+  const [checkingIds, setCheckingIds] = useState<Set<number>>(new Set())
 
   const navigate = (p: Page) => { setPage(p); window.scrollTo({ top: 0 }) }
+
+  const mockScore = (id: number) => 60 + ((id * 13) % 35)
+  const verdictOf = (s: number): Verdict => (s >= 80 ? "Подходит" : s >= 60 ? "С осторожностью" : "Не подходит")
+
+  const startCheck = (id: number) => {
+    setCheckingIds((prev) => new Set(prev).add(id))
+    window.setTimeout(() => {
+      setItems((cur) => cur.map((p) => { if (p.id !== id) return p; const s = mockScore(p.id); return { ...p, checked: true, score: s, verdict: verdictOf(s) } }))
+      setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
+    }, 1300)
+  }
+  const onChecked = (id: number, score: number, verdict: Verdict) => {
+    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, checked: true, score, verdict } : p)))
+    setOpen((o) => (o && o.id === id ? { ...o, checked: true, score, verdict } : o))
+  }
+  const onReported = (id: number) => {
+    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, report: true } : p)))
+    setOpen((o) => (o && o.id === id ? { ...o, report: true } : o))
+  }
 
   return (
     <div className="app-shell">
@@ -821,22 +884,18 @@ export default function App() {
         <Topbar page={page} onNavigate={navigate} onScan={() => navigate("scan")} />
         <main className="main-content">
           {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} />}
-          {page === "shelf" && <ShelfPage onOpen={setOpen} onAdd={() => navigate("catalog")} />}
-          {page === "scan" && <ScanPage onOpenReport={setOpen} />}
-          {page === "catalog" && <CatalogPage onOpen={setOpen} onAdd={setOpen} />}
+          {page === "shelf" && <ShelfPage items={items} checkingIds={checkingIds} onOpen={setOpen} onCheck={startCheck} onAdd={() => navigate("catalog")} />}
+          {page === "scan" && <ScanPage onContinue={setOpen} />}
+          {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} onCheck={startCheck} />}
           {page === "report" && <ReportPage onOpen={setOpen} />}
           {page === "profile" && <ProfilePage />}
         </main>
       </div>
       <BottomNav page={page} onNavigate={navigate} />
-      {open && <ProductModal product={open} onClose={() => setOpen(null)} />}
+      {open && <ProductDrawer key={open.id} product={open} onClose={() => setOpen(null)} onChecked={onChecked} onReported={onReported} onOpen={setOpen} />}
     </div>
   )
 }
-
-
-
-
 
 
 
