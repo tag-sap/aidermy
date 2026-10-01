@@ -14,7 +14,7 @@ type IconName =
   | "home" | "shelf" | "scan" | "search" | "chart" | "user"
   | "arrow" | "chevron" | "close" | "check" | "plus" | "sparkle"
   | "drop" | "shield" | "file" | "bookmark" | "box" | "alert" | "camera" | "upload" | "back"
-  | "link" | "pencil" | "coins" | "crown" | "logout" | "lock"
+  | "link" | "pencil" | "coins" | "crown" | "logout" | "lock" | "send" | "mail"
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -45,6 +45,8 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     crown: (<path d="M4 7l4 4 4-6 4 6 4-4-2 12H6L4 7z" />),
     logout: (<><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4" /><path d="M16 8l4 4-4 4M20 12H9" /></>),
     lock: (<><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>),
+    send: (<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7z" /></>),
+    mail: (<><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m2 6 10 7 10-7" /></>),
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -217,7 +219,7 @@ function Sidebar({ page, onNavigate, user, onAuth, onPricing, onPoints }: {
           return (
             <button key={item.id} type="button" className={`nav-item ${page === item.id ? "nav-item--active" : ""}`} onClick={() => onNavigate(item.id)}>
               <Icon name={item.icon} /> {item.label}
-              {locked && user?.plan !== "pro" && <Icon name="lock" size={14} />}
+              {locked && <Icon name="lock" size={14} />}
             </button>
           )
         })}
@@ -285,8 +287,8 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
   )
 }
 
-function Topbar({ page, onNavigate, onScan, user, onAuth }: {
-  page: Page; onNavigate: (p: Page) => void; onScan: () => void; user: User | null; onAuth: () => void
+function Topbar({ page, onNavigate, onHelp, user, onAuth }: {
+  page: Page; onNavigate: (p: Page) => void; onHelp: () => void; user: User | null; onAuth: () => void
 }) {
   const title = NAV.find((n) => n.id === page)?.label ?? ""
   return (
@@ -294,7 +296,7 @@ function Topbar({ page, onNavigate, onScan, user, onAuth }: {
       <span className="topbar__brand"><strong>айдерми</strong></span>
       <span className="topbar__title">{title}</span>
       <div className="topbar__actions">
-        <button type="button" className="icon-btn" onClick={onScan} aria-label="Сканировать"><Icon name="scan" size={19} /></button>
+        <button type="button" className="icon-btn icon-btn--help" onClick={onHelp} aria-label="Помощь"><span className="help-mark">?</span></button>
         {user ? (
           <button type="button" className="icon-btn" onClick={() => onNavigate("profile")} aria-label="Профиль"><Avatar size={28} initials={user.initials} /></button>
         ) : (
@@ -538,6 +540,13 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
 }) {
   const [cabinet, setCabinet] = useState<"all" | CabinetKey>("all")
   const [cat, setCat] = useState<string>("Все")
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 400)
+    window.addEventListener("scroll", onScroll, { passive: true })
+    onScroll()
+    return () => window.removeEventListener("scroll", onScroll)
+  }, [])
   const activeCab = CABINETS.find((c) => c.key === cabinet) ?? null
   const cats = activeCab ? ["Все", ...activeCab.categories] : ["Все"]
   const list = useMemo(() => {
@@ -577,6 +586,9 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
         ))}
       </div>
       {list.length === 0 && <p className="empty">Ничего не нашлось. Попробуйте другой запрос.</p>}
+      {scrolled && (
+        <button type="button" className="to-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Наверх"><Icon name="chevron" size={18} /></button>
+      )}
     </div>
   )
 }
@@ -585,6 +597,7 @@ type ScanMethod = "photo" | "inci" | "link" | "manual"
 function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => void; initialMethod?: ScanMethod }) {
   const [method, setMethod] = useState<ScanMethod>(initialMethod ?? "photo")
   const [phase, setPhase] = useState<"input" | "recognizing" | "ready">("input")
+  const [picked, setPicked] = useState(false)
   const [brand, setBrand] = useState("")
   const [name, setName] = useState("")
   const [inci, setInci] = useState("")
@@ -623,46 +636,47 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
   return (
     <div className="page">
       <PageHeading eyebrow="Проверка" title="Сканировать продукт" lead="Выберите способ. Название и бренд обязательны — без них не определить продукт." />
-      {phase === "input" && (
-        <>
-          <div className="scan-methods">
-            {METHODS.map((m) => (
-              <button key={m.id} type="button" className={`scan-method ${method === m.id ? "scan-method--active" : ""}`} onClick={() => setMethod(m.id)}>
-                <span className="scan-method__icon"><Icon name={m.icon} size={20} /></span>
-                <strong>{m.title}</strong>
-                <small>{m.desc}</small>
-              </button>
-            ))}
-          </div>
+      {phase === "input" && !picked && (
+        <div className="scan-methods">
+          {METHODS.map((m) => (
+            <button key={m.id} type="button" className={`scan-method ${method === m.id ? "scan-method--active" : ""}`} onClick={() => { setMethod(m.id); setPicked(true) }}>
+              <span className="scan-method__icon"><Icon name={m.icon} size={20} /></span>
+              <strong>{m.title}</strong>
+              <small>{m.desc}</small>
+            </button>
+          ))}
+        </div>
+      )}
 
-          <section className="panel scan-form">
-            {needManualFields && (
-              <div className="scan-form__row">
-                <label><span>Бренд *</span><input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Например, COSRX" /></label>
-                <label><span>Название *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Advanced Snail 96" /></label>
-              </div>
-            )}
+      {phase === "input" && picked && (
+        <section className="panel scan-form">
+          <button type="button" className="scan-back" onClick={() => setPicked(false)}><Icon name="back" size={16} /> Выбрать способ</button>
+          {needManualFields && (
+            <div className="scan-form__row">
+              <label><span>Бренд *</span><input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Например, COSRX" /></label>
+              <label><span>Название *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Advanced Snail 96" /></label>
+            </div>
+          )}
 
-            {method === "photo" && (
-              <div className="scan-dropzone" onClick={takePhoto}>
-                <span className="scan__drop-icon"><Icon name="camera" size={26} /></span>
-                <strong>{photoAdded ? "Фото загружено ✓" : "Сфотографировать упаковку"}</strong>
-                <small>{photoAdded ? "Бренд и название распознаны — проверьте их выше." : "Наведите камеру на этикетку, чтобы распознать продукт и состав."}</small>
-              </div>
-            )}
-            {method === "inci" && (
-              <label className="scan-form__area"><span>Состав (INCI) *</span><textarea value={inci} onChange={(e) => setInci(e.target.value)} placeholder="Aqua, Glycerin, Niacinamide…" rows={4} /></label>
-            )}
-            {method === "link" && (
-              <label className="scan-form__area"><span>Ссылка на продукт *</span><input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></label>
-            )}
-            {method === "manual" && (
-              <label className="scan-form__area"><span>Состав (INCI) *</span><textarea value={inci} onChange={(e) => setInci(e.target.value)} placeholder="Вставьте полный состав…" rows={5} /></label>
-            )}
+          {method === "photo" && (
+            <div className="scan-dropzone" onClick={takePhoto}>
+              <span className="scan__drop-icon"><Icon name="camera" size={26} /></span>
+              <strong>{photoAdded ? "Фото загружено ✓" : "Сфотографировать упаковку"}</strong>
+              <small>{photoAdded ? "Продукт распознан — нажмите «Проверить»." : "Наведите камеру на этикетку, чтобы распознать продукт и состав."}</small>
+            </div>
+          )}
+          {method === "inci" && (
+            <label className="scan-form__area"><span>Состав (INCI) *</span><textarea value={inci} onChange={(e) => setInci(e.target.value)} placeholder="Aqua, Glycerin, Niacinamide…" rows={4} /></label>
+          )}
+          {method === "link" && (
+            <label className="scan-form__area"><span>Ссылка на продукт *</span><input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></label>
+          )}
+          {method === "manual" && (
+            <label className="scan-form__area"><span>Состав (INCI) *</span><textarea value={inci} onChange={(e) => setInci(e.target.value)} placeholder="Вставьте полный состав…" rows={5} /></label>
+          )}
 
-            <Button icon="sparkle" onClick={run} disabled={!canRun} className="w-full">Проверить</Button>
-          </section>
-        </>
+          <Button icon="sparkle" onClick={run} disabled={!canRun} className="w-full">Проверить</Button>
+        </section>
       )}
 
       {phase === "recognizing" && (
@@ -1274,6 +1288,34 @@ function ShelfAddModal({ items, onClose, onAdd, onScan }: { items: Product[]; on
 }
 
 
+function HelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+        <div className="help-modal">
+          <p className="eyebrow">айдерми</p>
+          <h2>Помощь</h2>
+          <p className="help-modal__hint">Есть вопрос или предложение? Напишите нам — ответим в ближайшее время.</p>
+          <div className="help-modal__links">
+            <a href="https://t.me/aidermy_news" target="_blank" rel="noopener noreferrer" className="help-modal__link">
+              <span className="help-modal__icon"><Icon name="send" size={18} /></span>
+              <span><strong>Telegram</strong><small>@aidermy_news</small></span>
+              <Icon name="chevron" size={16} />
+            </a>
+            <a href="mailto:lyr.ami.tag@gmail.com" className="help-modal__link">
+              <span className="help-modal__icon"><Icon name="mail" size={18} /></span>
+              <span><strong>Email</strong><small>lyr.ami.tag@gmail.com</small></span>
+              <Icon name="chevron" size={16} />
+            </a>
+          </div>
+          <Button variant="ghost" onClick={onClose} className="w-full">Закрыть</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [items, setItems] = useState<Product[]>(products)
   const [page, setPage] = useState<Page>("home")
@@ -1287,8 +1329,11 @@ export default function App() {
   const [scanMethod, setScanMethod] = useState<ScanMethod | null>(null)
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState("")
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [toast, setToast] = useState("")
 
   useEffect(() => { const t = window.setTimeout(() => setLoading(false), 1200); return () => window.clearTimeout(t) }, [])
+  useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(""), 2200); return () => window.clearTimeout(t) }, [toast])
 
   // Блокируем прокрутку фона, когда открыт drawer или модалка.
   useEffect(() => {
@@ -1302,10 +1347,7 @@ export default function App() {
 
   const navigate = (p: Page) => {
     if (p === "shelf" && !user) { setAuthModal("login"); return }
-    if (p === "report") {
-      if (!user) { setAuthModal("login"); return }
-      if (user.plan !== "pro") { setPricingOpen(true); return }
-    }
+    if (p === "report") { setToast("Раздел «Отчёт» скоро появится"); return }
     if (p === "scan") setScanMethod(null)
     setPage(p)
     window.scrollTo({ top: 0 })
@@ -1345,7 +1387,7 @@ export default function App() {
       <LoadingScreen done={!loading} />
       <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} />
       <div className="workspace">
-        <Topbar page={page} onNavigate={navigate} onScan={() => navigate("scan")} user={user} onAuth={() => setAuthModal("login")} />
+        <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} />
         <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} />
         <main className="main-content">
           <div key={page} className="page-anim">
@@ -1353,7 +1395,6 @@ export default function App() {
             {page === "shelf" && <ShelfPage items={items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
-            {page === "report" && user?.plan === "pro" && <ReportPage onOpen={setOpen} />}
             {page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} />}
           </div>
         </main>
@@ -1364,6 +1405,8 @@ export default function App() {
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
       {pointsOpen && <PointsModal user={user} onClose={() => setPointsOpen(false)} onTopUp={handleTopUp} />}
       {addModalOpen && <ShelfAddModal items={items} onClose={() => setAddModalOpen(false)} onAdd={handleAddToShelf} onScan={handleScanFromAdd} />}
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+      {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }

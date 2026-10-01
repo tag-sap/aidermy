@@ -114,7 +114,7 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .icon-btn:hover { border-color: var(--border-strong); }
 
 .bottom-nav {
-  display: none; position: fixed; inset: auto 0 0; z-index: 30; height: 66px;
+  display: none; position: fixed; inset: auto 0 0; z-index: 30; height: calc(66px + env(safe-area-inset-bottom, 0px));
   grid-template-columns: repeat(5, 1fr); align-items: stretch;
   padding-bottom: env(safe-area-inset-bottom, 0px);
   border-top: 1px solid var(--border); background: rgba(255,255,255,0.96); backdrop-filter: blur(12px);
@@ -473,10 +473,12 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
   .result__top { flex-direction: column; align-items: flex-start; }
   .report-hero { flex-direction: column; align-items: flex-start; }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .shelf__group { flex: 0 0 47%; min-width: 0; padding: 8px; }
+  .shelf__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+  .shelf__group { display: contents; }
+  .shelf__group-label { display: none; }
+  .shelf__group-cards { display: contents; }
   .shelf__group-cards .pcard { width: 100%; min-width: 0; height: 220px; }
-  .shelf__group-cards { flex-direction: column; }
-  .shelf-add { flex: 0 0 47%; width: auto; height: 220px; }
+  .shelf-add { width: 100%; height: 220px; }
   .modal-backdrop { align-items: flex-end; padding: 0; }
   .modal { max-width: none; border-radius: 20px 20px 0 0; max-height: 90dvh; }
   .matrix__row { grid-template-columns: 1.7fr 1fr 1fr 1fr; }
@@ -552,3 +554,27 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .review-input:focus { border-color: var(--border-strong); }
 .review-anon { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-soft); cursor: pointer; }
 .review-anon input { accent-color: var(--ink); }
+
+/* ===== Хелп, сканирование (назад), скролл-наверх, тост ===== */
+.icon-btn--help { border-color: var(--border); }
+.help-mark { font-size: 17px; font-weight: 700; line-height: 1; }
+
+.help-modal { display: grid; gap: 14px; padding: 28px; }
+.help-modal h2 { font-size: 26px; }
+.help-modal__hint { color: var(--ink-soft); font-size: 13px; }
+.help-modal__links { display: grid; gap: 10px; }
+.help-modal__link { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); transition: border-color .15s; }
+.help-modal__link:hover { border-color: var(--border-strong); }
+.help-modal__icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: var(--lime); color: var(--ink); flex-shrink: 0; }
+.help-modal__link > span:nth-child(2) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.help-modal__link strong { font-size: 14px; }
+.help-modal__link small { color: var(--ink-soft); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.scan-back { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-soft); font-size: 13px; font-weight: 600; width: fit-content; }
+.scan-back:hover { color: var(--ink); }
+
+.to-top { position: fixed; right: 18px; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); z-index: 40; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow); color: var(--ink); transition: background .15s, border-color .15s; }
+.to-top:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.to-top svg { transform: rotate(-90deg); }
+
+.toast { position: fixed; left: 50%; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 90; padding: 10px 18px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 13px; font-weight: 600; box-shadow: 0 12px 34px rgba(0,0,0,.2); animation: pop .25s ease; white-space: nowrap; max-width: calc(100vw - 32px); text-align: center; }
