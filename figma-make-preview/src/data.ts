@@ -31,15 +31,15 @@ export const products: Product[] = [
   { id: 5, brand: "The Ordinary", name: "Niacinamide 10% + Zinc 1%", category: "Сыворотка", score: 71, verdict: "С осторожностью", image: IMG("photo-1580870069867-74c57ee1bb07"), tags: ["Ниацинамид"], state: "using", checked: true },
   { id: 6, brand: "COSRX", name: "Advanced Snail 96 Mucin Power Essence", category: "Сыворотка", score: 92, verdict: "Подходит", image: IMG("photo-1616750819456-5cdee9b85d22"), tags: ["Восстановление"], state: "using", checked: true, report: true },
   { id: 7, brand: "Beauty of Joseon", name: "Glow Serum: Propolis + Niacinamide", category: "Сыворотка", score: 84, verdict: "Подходит", image: IMG("photo-1608248597279-f99d160bfcbc"), tags: ["Сияние"], state: "want", checked: true },
-  { id: 8, brand: "The Ordinary", name: "Hyaluronic Acid 2% + B5", category: "Сыворотка", score: 82, verdict: "Подходит", image: IMG("photo-1620916566882-33a4d2b0e0c7"), tags: ["Гиалурон"], state: "finished", checked: true },
+  { id: 8, brand: "The Ordinary", name: "Hyaluronic Acid 2% + B5", category: "Сыворотка", score: 82, verdict: "Подходит", image: IMG("photo-1613803745799-ba6c10aace85"), tags: ["Гиалурон"], state: "finished", checked: true },
   { id: 9, brand: "COSRX", name: "Advanced Snail 92 All in one Cream", category: "Увлажнение", score: 89, verdict: "Подходит", image: IMG("photo-1601049676869-702ea24cfd58"), tags: ["Питание"], state: "using", checked: true, report: true },
   { id: 10, brand: "CeraVe", name: "Moisturizing Cream", category: "Увлажнение", score: 86, verdict: "Подходит", image: IMG("photo-1608248543803-ba4f8c70ae0b"), tags: ["Церамиды"], state: "using", checked: true },
   { id: 11, brand: "Beauty of Joseon", name: "Relief Sun Rice + Probiotics SPF50+", category: "Защита", score: 86, verdict: "Подходит", image: IMG("photo-1585652757141-8837d676fac8"), tags: ["SPF", "Без отдушки"], state: "using", checked: true },
   { id: 12, brand: "La Roche-Posay", name: "Anthelios UVMune 400 SPF50+", category: "Защита", score: 91, verdict: "Подходит", image: IMG("photo-1556228720-195a672e8a03"), tags: ["SPF", "UVA"], state: "want", checked: true },
   { id: 13, brand: "Paula's Choice", name: "Skin Perfecting 2% BHA Liquid", category: "Эксфолиант", score: 58, verdict: "С осторожностью", image: IMG("photo-1613803745799-ba6c10aace85"), tags: ["BHA"], state: "want", checked: true },
   { id: 14, brand: "The Ordinary", name: "AHA 30% + BHA 2% Peeling Solution", category: "Эксфолиант", score: 44, verdict: "Не подходит", image: IMG("photo-1608571423902-eed4a5ad8108"), tags: ["Кислоты"], checked: true },
-  { id: 15, brand: "Innisfree", name: "Green Tea Seed Serum", category: "Сыворотка", score: null, verdict: null, image: IMG("photo-1605371924599-2d036cd08ff3"), tags: ["Антиоксиданты"], checked: false },
-  { id: 16, brand: "Klairs", name: "Supple Preparation Facial Toner", category: "Тонер", score: null, verdict: null, image: IMG("photo-1605371924599-2d036cd08ff3"), tags: ["Успокоение"], state: "want", checked: false },
+  { id: 15, brand: "Innisfree", name: "Green Tea Seed Serum", category: "Сыворотка", score: null, verdict: null, image: IMG("photo-1580870069867-74c57ee1bb07"), tags: ["Антиоксиданты"], checked: false },
+  { id: 16, brand: "Klairs", name: "Supple Preparation Facial Toner", category: "Тонер", score: null, verdict: null, image: IMG("photo-1567721913486-6585f069b332"), tags: ["Успокоение"], state: "want", checked: false },
 ]
 
 export const skinProfile = {
