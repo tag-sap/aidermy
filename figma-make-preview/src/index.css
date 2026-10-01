@@ -441,3 +441,31 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px
   .modal__verdict span small { display: none; }
   .modal__footer .button { flex: 1; }
 }
+
+/* V2 preview: защита от горизонтального скролла на мобильных.
+   Grid-столбцы 1fr = minmax(auto,1fr) не сжимаются ниже min-content;
+   заменяем на minmax(0,1fr), а flex-элементам даём min-width:0. */
+@media (max-width: 760px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+  .page-stack,
+  .content-grid,
+  .home-hero-grid,
+  .report-grid,
+  .profile-page-grid,
+  .scan-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .metrics-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .compact-product {
+    grid-template-columns: 46px minmax(0, 1fr) 36px 16px;
+  }
+  .welcome-row > div,
+  .page-heading > div {
+    min-width: 0;
+  }
+}
