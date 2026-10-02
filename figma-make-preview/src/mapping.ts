@@ -95,6 +95,24 @@ export function mapHistoryItem(h: { id: number; product_name?: string; score?: n
   }
 }
 
+export function mapRecommendation(r: { id?: number; slug?: string; name?: string; brand?: string; image_url?: string; score?: number | null }, category: string): Product {
+  const score = r.score ?? null
+  return {
+    id: r.id ?? 0,
+    brand: r.brand || "",
+    name: r.name || "Продукт",
+    cabinet: "face",
+    category,
+    score,
+    verdict: mapVerdict(score),
+    image: r.image_url || placeholderImage(r.id ?? 0),
+    tags: category ? [category] : [],
+    checked: score != null,
+    report: false,
+    slug: r.slug,
+  }
+}
+
 // Профиль для /api/check — собирается из статичного skinProfile (демо).
 export function buildProfile() {
   return {

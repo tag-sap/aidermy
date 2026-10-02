@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
 import { api, setToken, getToken } from "./api"
-import { mapApiProduct, mapShelfItem, mapHistoryItem, buildProfile } from "./mapping"
+import { mapApiProduct, mapShelfItem, mapHistoryItem, mapRecommendation, buildProfile } from "./mapping"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -1454,15 +1454,18 @@ function PointsModal({ user, onClose, onTopUp }: { user: User | null; onClose: (
 function ShelfAddModal({ items, onClose, onAdd, onScan }: { items: Product[]; onClose: () => void; onAdd: (id: number) => void; onScan: (m: ScanMethod) => void }) {
   const [mode, setMode] = useState<"menu" | "catalog" | "auto">("menu")
   const [q, setQ] = useState("")
+  const [recCat, setRecCat] = useState("")
   const [recs, setRecs] = useState<Product[]>([])
+  const [recsLoading, setRecsLoading] = useState(false)
   useEffect(() => {
-    if (mode !== "auto" || !getToken()) return
-    api.shelfRecommend("face", "").then((r) => {
-      setRecs((r.recommendations || []).map(mapApiProduct))
-    }).catch(() => setRecs([]))
-  }, [mode])
+    if (mode !== "auto" || !recCat || !getToken()) { setRecs([]); return }
+    setRecsLoading(true)
+    api.shelfRecommend("face", recCat).then((r) => {
+      setRecs((r.recommendations || []).map((x) => mapRecommendation(x as Parameters<typeof mapRecommendation>[0], recCat)))
+    }).catch(() => setRecs([])).finally(() => setRecsLoading(false))
+  }, [mode, recCat])
   const list = mode === "auto"
-    ? recs.filter((p) => !p.state).slice(0, 8)
+    ? recs.slice(0, 8)
     : items.filter((p) => {
         const n = q.trim().toLowerCase()
         if (!n) return !p.state
@@ -1495,15 +1498,24 @@ function ShelfAddModal({ items, onClose, onAdd, onScan }: { items: Product[]; on
             <>
               <button type="button" className="add-modal__back" onClick={() => setMode("menu")}><Icon name="back" size={15} /> Назад</button>
               {mode === "catalog" && <div className="search"><Icon name="search" size={16} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Название, бренд или актив…" /></div>}
+              {mode === "auto" && (
+                <div className="tabs tabs--cats">
+                  {(CABINETS.find((c) => c.key === "face")?.categories || []).slice(0, 10).map((c) => (
+                    <button key={c} type="button" className={`tab ${recCat === c ? "tab--active" : ""}`} onClick={() => setRecCat(c)}>{c}</button>
+                  ))}
+                </div>
+              )}
               <div className="add-modal__list">
-                {list.map((p) => (
+                {recsLoading ? (
+                  <p className="empty">Подбираем…</p>
+                ) : list.map((p) => (
                   <button key={p.id} type="button" className="rec" onClick={() => onAdd(p.id)}>
                     <img src={p.image} alt="" loading="lazy" />
                     <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
                     <span className="add-modal__add"><Icon name="plus" size={16} /></span>
                   </button>
                 ))}
-                {list.length === 0 && <p className="empty">Ничего не нашлось.</p>}
+                {!recsLoading && list.length === 0 && <p className="empty">{mode === "auto" ? "Выберите категорию для подбора." : "Ничего не нашлось."}</p>}
               </div>
             </>
           )}
@@ -1632,13 +1644,15 @@ export default function App() {
 
   // Блокируем прокрутку фона, когда открыт drawer или модалка.
   useEffect(() => {
-    const locked = open != null || authModal != null || pricingOpen || addModalOpen || pointsOpen
+    const locked = open != null || authModal != null || pricingOpen || addModalOpen || pointsOpen || removeProduct != null || clearCabinet != null
     if (locked) {
-      const prev = document.body.style.overflow
+      const prevBody = document.body.style.overflow
+      const prevHtml = document.documentElement.style.overflow
       document.body.style.overflow = "hidden"
-      return () => { document.body.style.overflow = prev }
+      document.documentElement.style.overflow = "hidden"
+      return () => { document.body.style.overflow = prevBody; document.documentElement.style.overflow = prevHtml }
     }
-  }, [open, authModal, pricingOpen, addModalOpen, pointsOpen])
+  }, [open, authModal, pricingOpen, addModalOpen, pointsOpen, removeProduct, clearCabinet])
 
   const navigate = (p: Page) => {
     if (p === "shelf" && !user) { setAuthModal("login"); return }
