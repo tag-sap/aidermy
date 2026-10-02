@@ -176,7 +176,7 @@ export const api = {
     return request<{ cabinets: ShelfCabinet[] }>("/shelf")
   },
   async addToShelf(slug: string, category: string, cabinet: string) {
-    return request<{ status: string; duplicate?: boolean; item?: unknown }>("/shelf", {
+    return request<{ status: string; duplicate?: boolean; item?: { id?: number; product_id?: number } }>("/shelf", {
       method: "POST",
       body: JSON.stringify({ slug, category, cabinet }),
     })
@@ -192,6 +192,24 @@ export const api = {
   },
   async resetShelf() {
     return request<{ status: string; deleted?: number }>("/shelf/reset", { method: "POST", body: "{}" })
+  },
+  async removalFeedback(slug: string, reason: string) {
+    return request("/shelf/removal-feedback", { method: "POST", body: JSON.stringify({ slug, reason }) })
+  },
+  async deleteBatch(ids: number[]) {
+    return request<{ status: string; deleted?: number }>("/shelf/delete-batch", { method: "POST", body: JSON.stringify({ ids }) })
+  },
+  async recheck(productId: number) {
+    return request<{ score: number; analysis: unknown }>(`/shelf/recheck/${productId}`, { method: "POST" })
+  },
+  async updateShelfCategory(shelfId: number, category: string) {
+    return request(`/shelf/${shelfId}`, { method: "PATCH", body: JSON.stringify({ category }) })
+  },
+  async shelfRecommend(cabinet: string, category: string) {
+    return request<{ cabinet: string; category: string; recommendations: ApiProduct[] }>("/shelf/recommend", { method: "POST", body: JSON.stringify({ cabinet, category }) })
+  },
+  async history() {
+    return request<unknown[]>("/auth/history")
   },
 
   // ===== скан по ссылке =====
@@ -210,7 +228,7 @@ export const api = {
     return request("/composition/recognize", { method: "POST", body: JSON.stringify(payload) })
   },
   async check(payload: Record<string, unknown>) {
-    return request("/check", { method: "POST", body: JSON.stringify(payload) })
+    return request<CheckResult>("/check", { method: "POST", body: JSON.stringify(payload) })
   },
   async checkWithIngredients(payload: Record<string, unknown>) {
     return request<CheckResult>("/check-with-ingredients", { method: "POST", body: JSON.stringify(payload) })

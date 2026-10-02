@@ -1107,14 +1107,15 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const check = async () => {
     setPhase("checking")
     onChecking(product.id)
-    const inci = "Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol."
     try {
-      const res = await api.checkWithIngredients({
-        product_name: product.name,
-        skin_type: skinProfile.skinType,
-        profile: buildProfile(),
-        ingredients: inci,
-      })
+      let res
+      if (product.slug) {
+        // Продукт из каталога — проверяем по имени; бэкенд сохранит анализ (для полки).
+        res = await api.check({ product_name: product.name, skin_type: skinProfile.skinType, profile: buildProfile() })
+      } else {
+        const inci = "Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol."
+        res = await api.checkWithIngredients({ product_name: product.name, skin_type: skinProfile.skinType, profile: buildProfile(), ingredients: inci })
+      }
       const s = res.score ?? 60
       const v: Verdict = res.verdict === "Подходит" ? "Подходит" : res.verdict === "Не подходит" ? "Не подходит" : "Осторожно"
       setScore(s); setVerdict(v); setSafeList(res.safe_ingredients || []); setCautionList(res.caution_ingredients || []); setPhase("match")
@@ -1412,12 +1413,20 @@ function PointsModal({ user, onClose, onTopUp }: { user: User | null; onClose: (
 function ShelfAddModal({ items, onClose, onAdd, onScan }: { items: Product[]; onClose: () => void; onAdd: (id: number) => void; onScan: (m: ScanMethod) => void }) {
   const [mode, setMode] = useState<"menu" | "catalog" | "auto">("menu")
   const [q, setQ] = useState("")
-  const list = items.filter((p) => {
-    const n = q.trim().toLowerCase()
-    if (mode === "auto") return p.score != null && p.score >= 80 && !p.state
-    if (!n) return !p.state
-    return [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(n)
-  }).slice(0, 8)
+  const [recs, setRecs] = useState<Product[]>([])
+  useEffect(() => {
+    if (mode !== "auto" || !getToken()) return
+    api.shelfRecommend("face", "").then((r) => {
+      setRecs((r.recommendations || []).map(mapApiProduct))
+    }).catch(() => setRecs([]))
+  }, [mode])
+  const list = mode === "auto"
+    ? recs.filter((p) => !p.state).slice(0, 8)
+    : items.filter((p) => {
+        const n = q.trim().toLowerCase()
+        if (!n) return !p.state
+        return [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(n)
+      }).slice(0, 8)
   const title = mode === "catalog" ? "Из каталога" : mode === "auto" ? "Автоподбор" : "Добавить средство"
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -1496,6 +1505,7 @@ export default function App() {
   const [items, setItems] = useState<Product[]>(products)
   const [shelfItems, setShelfItems] = useState<Product[]>([])
   const [removeProduct, setRemoveProduct] = useState<Product | null>(null)
+  const [removeReason, setRemoveReason] = useState("")
   const [clearCabinet, setClearCabinet] = useState<CabinetKey | null>(null)
   const [page, setPage] = useState<Page>("home")
   const [open, setOpen] = useState<Product | null>(null)
@@ -1607,20 +1617,31 @@ export default function App() {
   }
   const handleAddToShelf = async (id: number) => {
     const p = items.find((x) => x.id === id)
+    let shelfId: number | undefined
     if (p?.slug && getToken()) {
-      try { await api.addToShelf(p.slug, p.category || "", p.cabinet || "face") } catch { /* ignore */ }
+      // На полке только проверенные: если ещё не проверен — авто-проверяем перед добавлением.
+      if (!p.checked) {
+        try { await api.check({ product_name: p.name, skin_type: skinProfile.skinType, profile: buildProfile() }) } catch { /* ignore */ }
+      }
+      try {
+        const res = await api.addToShelf(p.slug, p.category || "", p.cabinet || "face")
+        shelfId = res.item?.id
+      } catch { /* ignore */ }
     }
-    setItems((cur) => cur.map((x) => (x.id === id && !x.state ? { ...x, state: "want" } : x)))
+    setItems((cur) => cur.map((x) => (x.id === id ? { ...x, state: "using", shelf_id: shelfId ?? x.shelf_id } : x)))
+    setOpen((o) => (o && o.id === id ? { ...o, state: "using", shelf_id: shelfId ?? o.shelf_id } : o))
     setAddModalOpen(false)
     loadShelf()
   }
   const handleRemoveFromShelf = async () => {
     const p = removeProduct
-    if (p?.shelf_id && getToken()) {
-      try { await api.removeFromShelf(p.shelf_id) } catch { /* ignore */ }
+    if (getToken()) {
+      if (p?.slug && removeReason) { try { await api.removalFeedback(p.slug, removeReason) } catch { /* ignore */ } }
+      if (p?.shelf_id) { try { await api.removeFromShelf(p.shelf_id) } catch { /* ignore */ } }
     }
     setItems((cur) => cur.map((x) => (x.id === p?.id ? { ...x, state: undefined, shelf_id: undefined } : x)))
     setRemoveProduct(null)
+    setRemoveReason("")
     loadShelf()
   }
   const handleClearShelf = async () => {
@@ -1676,7 +1697,12 @@ export default function App() {
             <div className="auth-modal">
               <p className="eyebrow">Моя полка</p>
               <h2>Убрать продукт?</h2>
-              <p className="auth-modal__hint">{removeProduct.brand} · {removeProduct.name}. Продукт будет удалён с полки.</p>
+              <p className="auth-modal__hint">{removeProduct.brand} · {removeProduct.name}. Почему убираете?</p>
+              <div className="remove-reasons">
+                {["Не подошёл", "Вызвал реакцию", "Хочу попробовать новое", "Другое"].map((r) => (
+                  <button key={r} type="button" className={`chip ${removeReason === r ? "chip--on" : ""}`} onClick={() => setRemoveReason(r)}>{r}</button>
+                ))}
+              </div>
               <Button className="w-full" onClick={handleRemoveFromShelf}>Убрать с полки</Button>
               <Button variant="ghost" onClick={() => setRemoveProduct(null)} className="w-full">Отмена</Button>
             </div>

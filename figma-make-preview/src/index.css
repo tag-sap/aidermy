@@ -605,3 +605,7 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .pcard { position: relative; }
 .pcard__remove { position: absolute; top: 8px; right: 8px; z-index: 2; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.92); border: 1px solid var(--border); color: var(--ink-soft); }
 .pcard__remove:hover { color: var(--bad); border-color: var(--bad); }
+
+/* ===== Причины удаления ===== */
+.remove-reasons { display: flex; flex-wrap: wrap; gap: 6px; }
+.remove-reasons .chip { cursor: pointer; border: 1px solid transparent; }
