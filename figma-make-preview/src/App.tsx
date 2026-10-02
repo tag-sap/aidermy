@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
 import { api, setToken, getToken } from "./api"
-import { mapApiProduct, buildProfile } from "./mapping"
+import { mapApiProduct, mapShelfItem, buildProfile } from "./mapping"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -478,11 +478,12 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd }: {
 
   const cells = useMemo(() => {
     const out: { product: Product; cat: string }[] = []
-    for (const cat of cabinet.categories) {
+    const cats = Array.from(new Set(shelved.map((p) => p.category)))
+    for (const cat of cats) {
       for (const p of shelved) if (p.category === cat) out.push({ product: p, cat })
     }
     return out
-  }, [shelved, cabinet])
+  }, [shelved])
 
   const shelves = useMemo(() => {
     const out: typeof cells[] = []
@@ -640,9 +641,28 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
   const needManualFields = method === "inci" || method === "manual"
   const canRun = method === "photo" ? photoAdded : method === "inci" ? brand.trim().length > 0 && name.trim().length > 0 && inciPhotoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
 
-  const run = () => {
+  const run = async () => {
     if (!canRun) return
     setPhase("recognizing")
+    if (method === "link") {
+      try {
+        const res = await api.importUrl(url.trim())
+        const prod = res.product || {}
+        const base = products[6]
+        const p: Product = { ...base, id: prod.id ?? 900 + Math.floor(Math.random() * 90), brand: prod.brand || "Продукт", name: prod.name || "Продукт", image: prod.image_url || base.image, category: prod.category || base.category, checked: false, report: false, score: null, verdict: null, state: "want", slug: prod.slug }
+        setBrand(prod.brand || "")
+        setName(prod.name || "")
+        setInci(prod.ingredients_raw || "")
+        setResult(p)
+        setPhase("ready")
+      } catch {
+        const base = products[6]
+        const p: Product = { ...base, id: 900 + Math.floor(Math.random() * 90), brand: brand.trim() || base.brand, name: name.trim() || base.name, image: base.image, checked: false, report: false, score: null, verdict: null, state: "want" }
+        setResult(p)
+        setPhase("ready")
+      }
+      return
+    }
     window.setTimeout(() => {
       const base = products.find((p) => p.brand.toLowerCase() === brand.trim().toLowerCase()) ?? products[6]
       const p: Product = { ...base, id: 900 + Math.floor(Math.random() * 90), brand: brand.trim() || base.brand, name: name.trim() || base.name, image: base.image, checked: false, report: false, score: null, verdict: null, state: "want" }
@@ -1062,6 +1082,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const [sent, setSent] = useState(false)
   const [safeList, setSafeList] = useState<string[]>([])
   const [cautionList, setCautionList] = useState<string[]>([])
+  const [reportText, setReportText] = useState("")
 
   const close = () => { setClosing(true); window.setTimeout(onClose, 200) }
   const submitReview = async () => {
@@ -1099,10 +1120,15 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
     }
   }
 
-  const showReport = () => {
+  const showReport = async () => {
     if (!user) { onAuth(); return }
     if (user.plan === "free") { onPricing(); return }
-    setPhase("generating"); window.setTimeout(() => { setPhase("report"); onReported(product.id) }, 1600)
+    setPhase("generating")
+    if (product.slug) {
+      try { const res = await api.analysisReport(product.slug); setReportText(res.review || "") } catch { setReportText("") }
+    }
+    setPhase("report")
+    onReported(product.id)
   }
 
   const safe = safeList.length ? safeList : (product.tags.length ? product.tags.map((t) => `${t} — совместимо с профилем`) : ["Базовый состав без явных конфликтов"])
@@ -1174,7 +1200,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
           {phase === "report" && (
             <div className="drawer__body">
               <div className="drawer__report-head"><p className="eyebrow">Отчёт по продукту</p>{score != null && <ScoreBadge score={score} />}</div>
-              <p className="drawer__report-summary">Результат {score}% — {verdict?.toLowerCase()}. Состав в целом соответствует вашему профилю: увлажняющие и успокаивающие компоненты поддерживают барьер, агрессивных активов нет.</p>
+              <p className="drawer__report-summary">{reportText || `Результат ${score}% — ${verdict?.toLowerCase()}. Состав в целом соответствует вашему профилю: увлажняющие и успокаивающие компоненты поддерживают барьер, агрессивных активов нет.`}</p>
               <section><h4>Почему такой результат</h4><ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul></section>
               <section><h4>Проблемные моменты</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><Icon name="alert" size={15} /><span>{s}</span></li>)}</ul></section>
               <section><h4>Ключевые компоненты</h4><ul className="actives">{actives.map((a) => (<li key={a.name}><span className="actives__name">{a.name}</span><span className="actives__effect">{a.effect}</span><span className="actives__conc">{a.conc}</span></li>))}</ul></section>
@@ -1450,6 +1476,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 
 export default function App() {
   const [items, setItems] = useState<Product[]>(products)
+  const [shelfItems, setShelfItems] = useState<Product[]>([])
   const [page, setPage] = useState<Page>("home")
   const [open, setOpen] = useState<Product | null>(null)
   const [checkingIds, setCheckingIds] = useState<Set<number>>(new Set())
@@ -1489,18 +1516,27 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  // Полка: отмечаем продукты пользователя как «использую».
-  useEffect(() => {
+  // Полка: грузим реальные шкафы и отмечаем продукты как «использую».
+  const loadShelf = () => {
     if (!getToken()) return
     api.shelf()
       .then((res) => {
         const shelfIds = new Set<number>()
-        const cabinets = (res as { cabinets: { categories?: { items?: { product_id?: number }[] }[] }[] }).cabinets || []
-        for (const cab of cabinets) for (const cat of cab.categories || []) for (const it of cat.items || []) if (it.product_id != null) shelfIds.add(it.product_id)
+        const mapped: Product[] = []
+        for (const cab of res.cabinets || []) {
+          for (const cat of cab.categories || []) {
+            for (const it of cat.items || []) {
+              if (it.product_id != null) shelfIds.add(it.product_id)
+              mapped.push(mapShelfItem(it))
+            }
+          }
+        }
+        if (mapped.length) setShelfItems(mapped)
         if (shelfIds.size) setItems((cur) => cur.map((p) => (shelfIds.has(p.id) ? { ...p, state: "using" } : p)))
       })
       .catch(() => {})
-  }, [])
+  }
+  useEffect(() => { loadShelf() }, [])
 
   // Блокируем прокрутку фона, когда открыт drawer или модалка.
   useEffect(() => {
@@ -1534,9 +1570,14 @@ export default function App() {
   const handleLogin = (u: User) => { setUser(u); setAuthModal(null) }
   const handleLogout = () => { setToken(null); setUser(null); if (page === "shelf" || page === "report") setPage("home") }
   const handleSelectPlan = (p: Plan) => { setUser((u) => (u ? { ...u, plan: p, points: PLANS.find((x) => x.key === p)?.monthlyPoints ?? u.points } : u)) }
-  const handleAddToShelf = (id: number) => {
-    setItems((cur) => cur.map((p) => (p.id === id && !p.state ? { ...p, state: "want" } : p)))
+  const handleAddToShelf = async (id: number) => {
+    const p = items.find((x) => x.id === id)
+    if (p?.slug && getToken()) {
+      try { await api.addToShelf(p.slug, p.category || "", p.cabinet || "face") } catch { /* ignore */ }
+    }
+    setItems((cur) => cur.map((x) => (x.id === id && !x.state ? { ...x, state: "want" } : x)))
     setAddModalOpen(false)
+    loadShelf()
   }
   const handleTopUp = (amount: number) => {
     setUser((u) => (u ? { ...u, points: u.points + amount } : u))
@@ -1559,7 +1600,7 @@ export default function App() {
         <main className="main-content">
           <div key={page} className="page-anim">
             {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} />}
-            {page === "shelf" && <ShelfPage items={items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} />}
+            {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
             {page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} />}

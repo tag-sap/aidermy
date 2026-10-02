@@ -1,5 +1,5 @@
 // mapping.ts — преобразование данных backend (FastAPI) в типы фронтенда V2.
-import type { ApiProduct } from "./api"
+import type { ApiProduct, ShelfItem } from "./api"
 import type { Product, CabinetKey, Verdict } from "./data"
 
 function placeholderImage(id: number): string {
@@ -50,6 +50,27 @@ export function mapApiProduct(api: ApiProduct): Product {
     checked: score != null,
     report: false,
     slug: api.slug,
+  }
+}
+
+export function mapShelfItem(item: ShelfItem): Product {
+  const { brand, name } = splitProductName(item.name || "", item.brand)
+  const score = item.score ?? null
+  const verdict = mapVerdict(score)
+  return {
+    id: item.product_id,
+    brand,
+    name: name || item.name || "Продукт",
+    cabinet: (item.cabinet as CabinetKey) || inferCabinet(item.category, name),
+    category: item.category || "",
+    score,
+    verdict,
+    image: item.image_url || placeholderImage(item.product_id),
+    tags: item.category ? [item.category] : [],
+    state: "using",
+    checked: score != null,
+    report: item.has_report ?? false,
+    slug: item.slug,
   }
 }
 

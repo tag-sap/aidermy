@@ -58,6 +58,32 @@ export type Review = {
   created_at?: string
 }
 
+export type ShelfItem = {
+  id: number
+  shelf_id: number
+  product_id: number
+  cabinet: string
+  category: string
+  added_at?: string
+  name: string
+  brand?: string
+  image_url?: string
+  slug?: string
+  ingredients?: string
+  score?: number | null
+  has_report?: boolean
+  needs_recheck?: boolean
+}
+
+export type ShelfCategory = { key: string; title: string; items: ShelfItem[]; compatibility?: number | null }
+export type ShelfCabinet = {
+  key: string
+  title: string
+  has_scoring: boolean
+  compatibility?: number | null
+  categories: ShelfCategory[]
+}
+
 export class ApiError extends Error {
   status: number
   constructor(message: string, status: number) {
@@ -128,10 +154,21 @@ export const api = {
 
   // ===== полка =====
   async shelf() {
-    return request<{ cabinets: unknown[] }>("/shelf")
+    return request<{ cabinets: ShelfCabinet[] }>("/shelf")
   },
-  async addToShelf(payload: Record<string, unknown>) {
-    return request("/shelf", { method: "POST", body: JSON.stringify(payload) })
+  async addToShelf(slug: string, category: string, cabinet: string) {
+    return request<{ status: string; duplicate?: boolean; item?: unknown }>("/shelf", {
+      method: "POST",
+      body: JSON.stringify({ slug, category, cabinet }),
+    })
+  },
+
+  // ===== скан по ссылке =====
+  async importUrl(url: string) {
+    return request<{ success: boolean; product: { name?: string; brand?: string; image_url?: string; category?: string; ingredients_raw?: string; slug?: string; id?: number } }>("/products/import-url", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    })
   },
 
   // ===== сканирование / проверка =====
@@ -147,8 +184,11 @@ export const api = {
   async checkWithIngredients(payload: Record<string, unknown>) {
     return request<CheckResult>("/check-with-ingredients", { method: "POST", body: JSON.stringify(payload) })
   },
-  async analysisReport(payload: Record<string, unknown>) {
-    return request("/analysis/report", { method: "POST", body: JSON.stringify(payload) })
+  async analysisReport(slug: string) {
+    return request<{ score: number; review: string; active_ingredients?: unknown; how_to_use?: unknown; expectations?: unknown }>("/analysis/report", {
+      method: "POST",
+      body: JSON.stringify({ slug }),
+    })
   },
 
   // ===== отзывы =====
