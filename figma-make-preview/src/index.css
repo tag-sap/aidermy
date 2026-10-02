@@ -609,3 +609,11 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 /* ===== Причины удаления ===== */
 .remove-reasons { display: flex; flex-wrap: wrap; gap: 6px; }
 .remove-reasons .chip { cursor: pointer; border: 1px solid transparent; }
+
+/* ===== Выбор карточек на полке + смена категории ===== */
+.pcard--selected { border-color: var(--good); box-shadow: 0 0 0 2px var(--good-bg); }
+.pcard__select { position: absolute; top: 8px; right: 8px; z-index: 2; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.92); border: 1px solid var(--border); color: var(--ink-faint); }
+.pcard__select--on { background: var(--good); border-color: var(--good); color: #fff; }
+.drawer__cat-edit { display: flex; align-items: center; gap: 10px; padding: 10px 22px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.drawer__cat-edit label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); }
+.drawer__cat-edit select { flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; font-size: 13px; outline: 0; background: var(--surface); }

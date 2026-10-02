@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
 import { api, setToken, getToken } from "./api"
-import { mapApiProduct, mapShelfItem, buildProfile } from "./mapping"
+import { mapApiProduct, mapShelfItem, mapHistoryItem, buildProfile } from "./mapping"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -179,16 +179,19 @@ function ProductName({ name }: { name: string }) {
   )
 }
 
-function ProductCard({ product, checking = false, onOpen, onRemove }: {
-  product: Product; checking?: boolean; onOpen?: () => void; onRemove?: () => void
+function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, selected }: {
+  product: Product; checking?: boolean; onOpen?: () => void; onRemove?: () => void; onSelect?: () => void; selected?: boolean
 }) {
   const checked = product.checked === true && product.score != null
   return (
-    <article className="pcard">
-      {onRemove && (
+    <article className={`pcard ${selected ? "pcard--selected" : ""}`}>
+      {onRemove && !onSelect && (
         <button type="button" className="pcard__remove" onClick={(e) => { e.stopPropagation(); onRemove() }} aria-label="Убрать с полки"><Icon name="close" size={14} /></button>
       )}
-      <button type="button" className="pcard__main" onClick={onOpen} aria-label={product.name}>
+      {onSelect && (
+        <button type="button" className={`pcard__select ${selected ? "pcard__select--on" : ""}`} onClick={(e) => { e.stopPropagation(); onSelect() }} aria-label="Выбрать">{selected ? <Icon name="check" size={14} /> : null}</button>
+      )}
+      <button type="button" className="pcard__main" onClick={onSelect ? onSelect : onOpen} aria-label={product.name}>
         <div className="pcard__img">
           <img src={product.image} alt="" loading="lazy" />
           <ScoreBadge score={product.score} />
@@ -389,11 +392,11 @@ function HScroll({ children }: { children: ReactNode }) {
     </div>
   )
 }
-function HomePage({ onNavigate, onOpen, onScan, user, items }: {
-  onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]
+function HomePage({ onNavigate, onOpen, onScan, user, items, history }: {
+  onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]; history: Product[]
 }) {
   const using = items.filter((p) => p.state === "using").slice(0, 4)
-  const recent = items.filter((p) => p.checked).slice(0, 6)
+  const recent = (history.length ? history : items.filter((p) => p.checked)).slice(0, 6)
   const shelvedScored = items.filter((p) => p.state && p.score != null)
   const avg = shelvedScored.length ? Math.round(shelvedScored.reduce((s, p) => s + (p.score ?? 0), 0) / shelvedScored.length) : null
   const recommended = items.filter((p) => p.score != null && !p.state).sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 3)
@@ -457,12 +460,18 @@ function HomePage({ onNavigate, onOpen, onScan, user, items }: {
     </div>
   )
 }
-function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear }: {
-  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void
+function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear, onDeleteBatch }: {
+  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void; onDeleteBatch: (ids: number[]) => void
 }) {
   const [active, setActive] = useState<CabinetKey>("face")
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const wrapRef = useRef<HTMLDivElement>(null)
   const [cardsPerShelf, setCardsPerShelf] = useState(5)
+
+  const toggleSelect = (shelfId: number) => {
+    setSelected((prev) => { const n = new Set(prev); if (n.has(shelfId)) n.delete(shelfId); else n.add(shelfId); return n })
+  }
 
   useEffect(() => {
     const el = wrapRef.current
@@ -520,7 +529,20 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear }: {
   return (
     <div className="page">
       <PageHeading eyebrow="Уход" title="Моя полка" lead="Шкафы по зонам ухода. Полка сама раскладывается под ширину экрана — категории обводятся пунктиром."
-        action={<div className="page-head__actions"><Button icon="plus" onClick={onAdd}>Добавить средство</Button>{shelved.length > 0 && <Button variant="ghost" onClick={() => onClear(active)}>Очистить полку</Button>}</div>} />
+        action={<div className="page-head__actions">
+          {selectMode ? (
+            <>
+              <Button variant="ghost" onClick={() => { onDeleteBatch(Array.from(selected)); setSelectMode(false); setSelected(new Set()) }} disabled={selected.size === 0}>Удалить выбранные ({selected.size})</Button>
+              <Button variant="ghost" onClick={() => { setSelectMode(false); setSelected(new Set()) }}>Готово</Button>
+            </>
+          ) : (
+            <>
+              <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
+              {shelved.length > 0 && <Button variant="ghost" onClick={() => setSelectMode(true)}>Выбрать</Button>}
+              {shelved.length > 0 && <Button variant="ghost" onClick={() => onClear(active)}>Очистить полку</Button>}
+            </>
+          )}
+        </div>} />
 
       <div className="cabinet-tabs">
         {CABINETS.map((c) => {
@@ -548,7 +570,9 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear }: {
                   <div className="shelf__group" key={gi}>
                     <span className="shelf__group-label">{group.cat}</span>
                     <div className="shelf__group-cards">
-                      {group.cells.map((c) => <ProductCard key={c.product.id} product={c.product} checking={checkingIds.has(c.product.id)} onOpen={() => onOpen(c.product)} onRemove={() => onRemove(c.product)} />)}
+                      {group.cells.map((c) => selectMode
+                        ? <ProductCard key={c.product.id} product={c.product} onSelect={() => toggleSelect(c.product.shelf_id ?? c.product.id)} selected={selected.has(c.product.shelf_id ?? c.product.id)} />
+                        : <ProductCard key={c.product.id} product={c.product} checking={checkingIds.has(c.product.id)} onOpen={() => onOpen(c.product)} onRemove={() => onRemove(c.product)} />)}
                     </div>
                   </div>
                 ))}
@@ -1072,10 +1096,10 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
     </div>
   )
 }
-function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove }: {
+function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit }: {
   product: Product; user: User | null; onAuth: () => void; onPricing: () => void; onClose: () => void;
   onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void;
-  onAddToShelf: (id: number) => void; onRemove: (p: Product) => void
+  onAddToShelf: (id: number) => void; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
     product.checked && product.report ? "report" : product.checked ? "match" : "idle"
@@ -1163,11 +1187,21 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
           </div>
 
+          {product.shelf_id && (
+            <div className="drawer__cat-edit">
+              <label>Категория</label>
+              <select value={product.category} onChange={(e) => onCategoryEdit(product.shelf_id!, e.target.value)}>
+                {(CABINETS.find((c) => c.key === product.cabinet)?.categories || []).map((c) => <option key={c} value={c}>{c}</option>)}
+                {!(CABINETS.find((c) => c.key === product.cabinet)?.categories || []).includes(product.category) && <option value={product.category}>{product.category}</option>}
+              </select>
+            </div>
+          )}
+
           {phase === "idle" && (
             <div className="drawer__body">
               <p className="drawer__note">Состав (INCI)</p>
               <p className="inci">Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.</p>
-              <div className="drawer__cta"><Button icon="sparkle" className="w-full" onClick={check}>Проверить совместимость</Button></div>
+              <div className="drawer__cta"><Button icon="sparkle" className="w-full" onClick={check}>{product.needs_recheck ? "Перепроверить" : "Проверить совместимость"}</Button></div>
             </div>
           )}
 
@@ -1504,6 +1538,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 export default function App() {
   const [items, setItems] = useState<Product[]>(products)
   const [shelfItems, setShelfItems] = useState<Product[]>([])
+  const [historyItems, setHistoryItems] = useState<Product[]>([])
   const [removeProduct, setRemoveProduct] = useState<Product | null>(null)
   const [removeReason, setRemoveReason] = useState("")
   const [clearCabinet, setClearCabinet] = useState<CabinetKey | null>(null)
@@ -1576,6 +1611,17 @@ export default function App() {
       .catch(() => {})
   }
   useEffect(() => { loadShelf() }, [])
+
+  // История проверок (для главной — «Проверенные продукты»).
+  useEffect(() => {
+    if (!getToken()) return
+    api.history()
+      .then((h) => {
+        const mapped = (h || []).map((x) => mapHistoryItem(x as Parameters<typeof mapHistoryItem>[0])).filter((p) => p.name && p.name !== "Продукт")
+        if (mapped.length) setHistoryItems(mapped)
+      })
+      .catch(() => {})
+  }, [])
 
   // Блокируем прокрутку фона, когда открыт drawer или модалка.
   useEffect(() => {
@@ -1651,6 +1697,19 @@ export default function App() {
     setClearCabinet(null)
     loadShelf()
   }
+  const handleDeleteBatch = async (ids: number[]) => {
+    if (ids.length && getToken()) {
+      try { await api.deleteBatch(ids) } catch { /* ignore */ }
+    }
+    setItems((cur) => cur.map((x) => (ids.includes(x.shelf_id ?? -1) ? { ...x, state: undefined, shelf_id: undefined } : x)))
+    loadShelf()
+  }
+  const handleCategoryEdit = async (shelfId: number, category: string) => {
+    if (shelfId && getToken()) {
+      try { await api.updateShelfCategory(shelfId, category) } catch { /* ignore */ }
+    }
+    loadShelf()
+  }
   const handleTopUp = async (amount: number) => {
     if (getToken()) {
       try { const r = await api.topUp(amount); setUser((u) => (u ? { ...u, points: r.balance } : u)) } catch { setUser((u) => (u ? { ...u, points: u.points + amount } : u)) }
@@ -1675,8 +1734,8 @@ export default function App() {
         <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />
         <main className="main-content">
           <div key={page} className="page-anim">
-            {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} />}
-            {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} />}
+            {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} history={historyItems} />}
+            {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
             {page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} />}
@@ -1684,7 +1743,7 @@ export default function App() {
         </main>
       </div>
       <BottomNav page={page} onNavigate={navigate} />
-      {open && <ProductDrawer key={open.id} product={open} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} />}
+      {open && <ProductDrawer key={open.id} product={open} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
       {pointsOpen && <PointsModal user={user} onClose={() => setPointsOpen(false)} onTopUp={handleTopUp} />}

@@ -72,6 +72,26 @@ export function mapShelfItem(item: ShelfItem): Product {
     report: item.has_report ?? false,
     slug: item.slug,
     shelf_id: item.shelf_id,
+    needs_recheck: item.needs_recheck ?? false,
+  }
+}
+
+export function mapHistoryItem(h: { id: number; product_name?: string; score?: number | null; verdict?: string; slug?: string; image_url?: string }): Product {
+  const { brand, name } = splitProductName(h.product_name || "", undefined)
+  const score = h.score ?? null
+  return {
+    id: h.id,
+    brand,
+    name: name || h.product_name || "Продукт",
+    cabinet: inferCabinet("", name),
+    category: "",
+    score,
+    verdict: mapVerdict(score, h.verdict),
+    image: h.image_url || placeholderImage(h.id),
+    tags: [],
+    checked: score != null,
+    report: false,
+    slug: h.slug,
   }
 }
 
