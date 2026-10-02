@@ -1113,6 +1113,13 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const [sent, setSent] = useState(false)
   const [safeList, setSafeList] = useState<string[]>([])
   const [cautionList, setCautionList] = useState<string[]>([])
+  const [adding, setAdding] = useState(false)
+
+  const addToShelf = async () => {
+    setAdding(true)
+    await onAddToShelf(product.id)
+    setAdding(false)
+  }
   const [reportText, setReportText] = useState("")
 
   const close = () => { setClosing(true); window.setTimeout(onClose, 200) }
@@ -1269,7 +1276,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
           {product.shelf_id ? (
             <Button variant="ghost" onClick={() => onRemove(product)}>Убрать с полки</Button>
           ) : (
-            <Button variant="secondary" icon="plus" onClick={() => onAddToShelf(product.id)}>На полку</Button>
+            <Button variant="secondary" icon="plus" onClick={addToShelf} disabled={adding}>{adding ? "Добавляем…" : "На полку"}</Button>
           )}
           <Button variant="ghost" onClick={close}>Закрыть</Button>
         </div>
@@ -1677,6 +1684,7 @@ export default function App() {
     setItems((cur) => cur.map((x) => (x.id === id ? { ...x, state: "using", shelf_id: shelfId ?? x.shelf_id } : x)))
     setOpen((o) => (o && o.id === id ? { ...o, state: "using", shelf_id: shelfId ?? o.shelf_id } : o))
     setAddModalOpen(false)
+    setToast("Добавлено на полку ✓")
     loadShelf()
   }
   const handleRemoveFromShelf = async () => {
