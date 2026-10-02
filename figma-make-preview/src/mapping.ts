@@ -71,6 +71,7 @@ export function mapShelfItem(item: ShelfItem): Product {
     checked: score != null,
     report: item.has_report ?? false,
     slug: item.slug,
+    shelf_id: item.shelf_id,
   }
 }
 

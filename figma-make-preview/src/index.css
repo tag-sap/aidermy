@@ -600,3 +600,8 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .auth-modal__divider::before, .auth-modal__divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .google-btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 42px; padding: 0 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); font-size: 13px; font-weight: 700; color: var(--ink); transition: border-color .15s, background .15s; }
 .google-btn:hover { border-color: var(--border-strong); background: var(--surface-2); }
+
+/* ===== Удаление карточки с полки ===== */
+.pcard { position: relative; }
+.pcard__remove { position: absolute; top: 8px; right: 8px; z-index: 2; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.92); border: 1px solid var(--border); color: var(--ink-soft); }
+.pcard__remove:hover { color: var(--bad); border-color: var(--bad); }

@@ -179,12 +179,15 @@ function ProductName({ name }: { name: string }) {
   )
 }
 
-function ProductCard({ product, checking = false, onOpen }: {
-  product: Product; checking?: boolean; onOpen?: () => void
+function ProductCard({ product, checking = false, onOpen, onRemove }: {
+  product: Product; checking?: boolean; onOpen?: () => void; onRemove?: () => void
 }) {
   const checked = product.checked === true && product.score != null
   return (
     <article className="pcard">
+      {onRemove && (
+        <button type="button" className="pcard__remove" onClick={(e) => { e.stopPropagation(); onRemove() }} aria-label="Убрать с полки"><Icon name="close" size={14} /></button>
+      )}
       <button type="button" className="pcard__main" onClick={onOpen} aria-label={product.name}>
         <div className="pcard__img">
           <img src={product.image} alt="" loading="lazy" />
@@ -451,8 +454,8 @@ function HomePage({ onNavigate, onOpen, onScan, user }: {
     </div>
   )
 }
-function ShelfPage({ items, checkingIds, onOpen, onAdd }: {
-  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onAdd: () => void
+function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear }: {
+  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void
 }) {
   const [active, setActive] = useState<CabinetKey>("face")
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -514,7 +517,7 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd }: {
   return (
     <div className="page">
       <PageHeading eyebrow="Уход" title="Моя полка" lead="Шкафы по зонам ухода. Полка сама раскладывается под ширину экрана — категории обводятся пунктиром."
-        action={<Button icon="plus" onClick={onAdd}>Добавить средство</Button>} />
+        action={<div className="page-head__actions"><Button icon="plus" onClick={onAdd}>Добавить средство</Button>{shelved.length > 0 && <Button variant="ghost" onClick={() => onClear(active)}>Очистить полку</Button>}</div>} />
 
       <div className="cabinet-tabs">
         {CABINETS.map((c) => {
@@ -542,7 +545,7 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd }: {
                   <div className="shelf__group" key={gi}>
                     <span className="shelf__group-label">{group.cat}</span>
                     <div className="shelf__group-cards">
-                      {group.cells.map((c) => <ProductCard key={c.product.id} product={c.product} checking={checkingIds.has(c.product.id)} onOpen={() => onOpen(c.product)} />)}
+                      {group.cells.map((c) => <ProductCard key={c.product.id} product={c.product} checking={checkingIds.has(c.product.id)} onOpen={() => onOpen(c.product)} onRemove={() => onRemove(c.product)} />)}
                     </div>
                   </div>
                 ))}
@@ -1066,9 +1069,10 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
     </div>
   )
 }
-function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onReported, onOpen, onGoToCatalog }: {
+function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove }: {
   product: Product; user: User | null; onAuth: () => void; onPricing: () => void; onClose: () => void;
-  onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void
+  onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void;
+  onAddToShelf: (id: number) => void; onRemove: (p: Product) => void
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
     product.checked && product.report ? "report" : product.checked ? "match" : "idle"
@@ -1223,7 +1227,14 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             <Button small onClick={submitReview} disabled={rating === 0}>{sent ? "Спасибо за отзыв!" : "Отправить отзыв"}</Button>
           </div>
         </div>
-        <div className="drawer__footer"><Button variant="ghost" onClick={close}>Закрыть</Button></div>
+        <div className="drawer__footer">
+          {product.shelf_id ? (
+            <Button variant="ghost" onClick={() => onRemove(product)}>Убрать с полки</Button>
+          ) : (
+            <Button variant="secondary" icon="plus" onClick={() => onAddToShelf(product.id)}>На полку</Button>
+          )}
+          <Button variant="ghost" onClick={close}>Закрыть</Button>
+        </div>
       </aside>
     </>
   )
@@ -1480,6 +1491,8 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 export default function App() {
   const [items, setItems] = useState<Product[]>(products)
   const [shelfItems, setShelfItems] = useState<Product[]>([])
+  const [removeProduct, setRemoveProduct] = useState<Product | null>(null)
+  const [clearCabinet, setClearCabinet] = useState<CabinetKey | null>(null)
   const [page, setPage] = useState<Page>("home")
   const [open, setOpen] = useState<Product | null>(null)
   const [checkingIds, setCheckingIds] = useState<Set<number>>(new Set())
@@ -1590,6 +1603,22 @@ export default function App() {
     setAddModalOpen(false)
     loadShelf()
   }
+  const handleRemoveFromShelf = async () => {
+    const p = removeProduct
+    if (p?.shelf_id && getToken()) {
+      try { await api.removeFromShelf(p.shelf_id) } catch { /* ignore */ }
+    }
+    setItems((cur) => cur.map((x) => (x.id === p?.id ? { ...x, state: undefined, shelf_id: undefined } : x)))
+    setRemoveProduct(null)
+    loadShelf()
+  }
+  const handleClearShelf = async () => {
+    if (clearCabinet && getToken()) {
+      try { await api.clearShelf(clearCabinet) } catch { /* ignore */ }
+    }
+    setClearCabinet(null)
+    loadShelf()
+  }
   const handleTopUp = (amount: number) => {
     setUser((u) => (u ? { ...u, points: u.points + amount } : u))
   }
@@ -1611,7 +1640,7 @@ export default function App() {
         <main className="main-content">
           <div key={page} className="page-anim">
             {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} />}
-            {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} />}
+            {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
             {page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} />}
@@ -1619,12 +1648,40 @@ export default function App() {
         </main>
       </div>
       <BottomNav page={page} onNavigate={navigate} />
-      {open && <ProductDrawer key={open.id} product={open} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} />}
+      {open && <ProductDrawer key={open.id} product={open} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
       {pointsOpen && <PointsModal user={user} onClose={() => setPointsOpen(false)} onTopUp={handleTopUp} />}
       {addModalOpen && <ShelfAddModal items={items} onClose={() => setAddModalOpen(false)} onAdd={handleAddToShelf} onScan={handleScanFromAdd} />}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+      {removeProduct && (
+        <div className="modal-backdrop" onClick={() => setRemoveProduct(null)}>
+          <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal__close" onClick={() => setRemoveProduct(null)} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+            <div className="auth-modal">
+              <p className="eyebrow">Моя полка</p>
+              <h2>Убрать продукт?</h2>
+              <p className="auth-modal__hint">{removeProduct.brand} · {removeProduct.name}. Продукт будет удалён с полки.</p>
+              <Button className="w-full" onClick={handleRemoveFromShelf}>Убрать с полки</Button>
+              <Button variant="ghost" onClick={() => setRemoveProduct(null)} className="w-full">Отмена</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {clearCabinet && (
+        <div className="modal-backdrop" onClick={() => setClearCabinet(null)}>
+          <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal__close" onClick={() => setClearCabinet(null)} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+            <div className="auth-modal">
+              <p className="eyebrow">Моя полка</p>
+              <h2>Очистить полку?</h2>
+              <p className="auth-modal__hint">Все продукты из текущего шкафа будут удалены с полки.</p>
+              <Button className="w-full" onClick={handleClearShelf}>Очистить</Button>
+              <Button variant="ghost" onClick={() => setClearCabinet(null)} className="w-full">Отмена</Button>
+            </div>
+          </div>
+        </div>
+      )}
       {toast && <div className="toast">{toast}</div>}
     </div>
   )

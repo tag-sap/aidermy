@@ -162,6 +162,18 @@ export const api = {
       body: JSON.stringify({ slug, category, cabinet }),
     })
   },
+  async removeFromShelf(shelfId: number) {
+    return request<{ status: string; deleted?: number }>(`/shelf/${shelfId}`, { method: "DELETE" })
+  },
+  async clearShelf(cabinet: string, category = "") {
+    return request<{ status: string; deleted?: number }>("/shelf/clear", {
+      method: "POST",
+      body: JSON.stringify({ cabinet, category }),
+    })
+  },
+  async resetShelf() {
+    return request<{ status: string; deleted?: number }>("/shelf/reset", { method: "POST", body: "{}" })
+  },
 
   // ===== скан по ссылке =====
   async importUrl(url: string) {

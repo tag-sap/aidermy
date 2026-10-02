@@ -21,6 +21,7 @@ export type Product = {
   checked?: boolean
   report?: boolean
   slug?: string
+  shelf_id?: number
 }
 
 export type Cabinet = { key: CabinetKey; title: string; short: string; hasScoring: boolean; categories: string[] }
