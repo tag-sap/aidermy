@@ -594,3 +594,9 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .topbar__points { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 12px; font-weight: 700; }
 .topbar__points svg { color: var(--good); }
 .account-bar__actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ===== Google OAuth + разделитель ===== */
+.auth-modal__divider { display: flex; align-items: center; gap: 10px; color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.auth-modal__divider::before, .auth-modal__divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.google-btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 42px; padding: 0 16px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); font-size: 13px; font-weight: 700; color: var(--ink); transition: border-color .15s, background .15s; }
+.google-btn:hover { border-color: var(--border-strong); background: var(--surface-2); }
