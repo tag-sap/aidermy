@@ -33,6 +33,31 @@ export type ApiProduct = {
   analysis?: unknown
 }
 
+export type CheckResult = {
+  score: number
+  verdict: string
+  summary: string
+  pending?: boolean
+  safe_ingredients: string[]
+  caution_ingredients: string[]
+  slug?: string
+  image_url?: string
+  report?: string
+  how_to_use?: { application?: string; time?: string; note?: string }
+  expectations?: { when?: string; normal?: string; danger?: string }
+}
+
+export type Review = {
+  id: number
+  product_id: number
+  user_id?: number | null
+  author_name?: string
+  rating: number
+  text?: string
+  is_anonymous?: boolean
+  created_at?: string
+}
+
 export class ApiError extends Error {
   status: number
   constructor(message: string, status: number) {
@@ -119,13 +144,22 @@ export const api = {
   async check(payload: Record<string, unknown>) {
     return request("/check", { method: "POST", body: JSON.stringify(payload) })
   },
+  async checkWithIngredients(payload: Record<string, unknown>) {
+    return request<CheckResult>("/check-with-ingredients", { method: "POST", body: JSON.stringify(payload) })
+  },
+  async analysisReport(payload: Record<string, unknown>) {
+    return request("/analysis/report", { method: "POST", body: JSON.stringify(payload) })
+  },
 
   // ===== отзывы =====
-  async reviews(productId: number) {
-    return request(`/community/reviews?product_id=${productId}`)
+  async reviews(slug: string) {
+    return request<{ reviews: Review[] }>(`/community/reviews?slug=${encodeURIComponent(slug)}`)
   },
-  async addReview(payload: Record<string, unknown>) {
-    return request("/community/reviews", { method: "POST", body: JSON.stringify(payload) })
+  async addReview(slug: string, rating: number, text: string, anonymous: boolean) {
+    return request("/community/reviews", {
+      method: "POST",
+      body: JSON.stringify({ slug, rating, text, visibility: anonymous ? "ANONYMOUS" : "PUBLIC" }),
+    })
   },
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
 import { api, setToken, getToken } from "./api"
+import { mapApiProduct, buildProfile } from "./mapping"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -650,16 +651,39 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
     }, 1400)
   }
 
-  const takePhoto = () => {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error("read error"))
+    reader.readAsDataURL(file)
+  })
+  const pickPhoto = () => fileRef.current?.click()
+
+  const takePhoto = async (file: File) => {
     setPhotoAdded(true)
-    const base = products[6]
-    setBrand(base.brand)
-    setName(base.name)
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      const res = (await api.identify({ images: [dataUrl] })) as { identified?: { brand?: string; product_name?: string; name?: string }; product?: { name?: string; brand?: string } }
+      const ident = res.identified || {}
+      setBrand(ident.brand || res.product?.brand || "COSRX")
+      setName(ident.product_name || ident.name || res.product?.name || "Advanced Snail 96 Mucin Power Essence")
+    } catch {
+      setBrand("COSRX")
+      setName("Advanced Snail 96 Mucin Power Essence")
+    }
   }
 
-  const takeInciPhoto = () => {
+  const takeInciPhoto = async (file: File) => {
     setInciPhotoAdded(true)
-    setInci("Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.")
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      const res = (await api.compositionRecognize({ images: [dataUrl] })) as { normalized_ingredients?: string[] }
+      const ingr = res.normalized_ingredients || []
+      setInci(ingr.length ? ingr.join(", ") : "Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.")
+    } catch {
+      setInci("Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.")
+    }
   }
 
   return (
@@ -688,14 +712,14 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
           )}
 
           {method === "photo" && (
-            <div className="scan-dropzone" onClick={takePhoto}>
+            <div className="scan-dropzone" onClick={pickPhoto}>
               <span className="scan__drop-icon"><Icon name="camera" size={26} /></span>
               <strong>{photoAdded ? "Фото загружено ✓" : "Сфотографировать упаковку"}</strong>
               <small>{photoAdded ? "Продукт распознан — нажмите «Проверить»." : "Наведите камеру на этикетку, чтобы распознать продукт и состав."}</small>
             </div>
           )}
           {method === "inci" && (
-            <div className="scan-dropzone" onClick={takeInciPhoto}>
+            <div className="scan-dropzone" onClick={pickPhoto}>
               <span className="scan__drop-icon"><Icon name="camera" size={26} /></span>
               <strong>{inciPhotoAdded ? "Состав распознан ✓" : "Сфотографировать состав"}</strong>
               <small>{inciPhotoAdded ? "Состав определён — нажмите «Проверить»." : "Наведите камеру на список состава (INCI) на упаковке."}</small>
@@ -709,6 +733,13 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
           )}
 
           <Button icon="sparkle" onClick={run} disabled={!canRun} className="w-full">Проверить</Button>
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (!file) return
+            if (method === "photo") takePhoto(file)
+            else if (method === "inci") takeInciPhoto(file)
+            e.target.value = ""
+          }} />
         </section>
       )}
 
@@ -1029,19 +1060,43 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const [review, setReview] = useState("")
   const [anonymous, setAnonymous] = useState(false)
   const [sent, setSent] = useState(false)
+  const [safeList, setSafeList] = useState<string[]>([])
+  const [cautionList, setCautionList] = useState<string[]>([])
 
   const close = () => { setClosing(true); window.setTimeout(onClose, 200) }
-  const submitReview = () => { if (rating > 0) setSent(true) }
+  const submitReview = async () => {
+    if (rating <= 0) return
+    if (product.slug) {
+      try { await api.addReview(product.slug, rating, review, anonymous) } catch { /* ignore */ }
+    }
+    setSent(true)
+  }
 
-  const check = () => {
+  useEffect(() => {
+    if (product.slug) api.reviews(product.slug).catch(() => {})
+  }, [product.slug])
+
+  const check = async () => {
     setPhase("checking")
     onChecking(product.id)
-    window.setTimeout(() => {
+    const inci = "Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol."
+    try {
+      const res = await api.checkWithIngredients({
+        product_name: product.name,
+        skin_type: skinProfile.skinType,
+        profile: buildProfile(),
+        ingredients: inci,
+      })
+      const s = res.score ?? 60
+      const v: Verdict = res.verdict === "Подходит" ? "Подходит" : res.verdict === "Не подходит" ? "Не подходит" : "Осторожно"
+      setScore(s); setVerdict(v); setSafeList(res.safe_ingredients || []); setCautionList(res.caution_ingredients || []); setPhase("match")
+      onChecked(product.id, s, v)
+    } catch {
       const s = 60 + ((product.id * 13) % 35)
       const v: Verdict = s >= 80 ? "Подходит" : s >= 60 ? "Осторожно" : "Не подходит"
       setScore(s); setVerdict(v); setPhase("match")
       onChecked(product.id, s, v)
-    }, 1300)
+    }
   }
 
   const showReport = () => {
@@ -1050,8 +1105,8 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
     setPhase("generating"); window.setTimeout(() => { setPhase("report"); onReported(product.id) }, 1600)
   }
 
-  const safe = product.tags.length ? product.tags.map((t) => `${t} — совместимо с профилем`) : ["Базовый состав без явных конфликтов"]
-  const caution = verdict === "Не подходит" ? ["Содержит активы, агрессивные для чувствительной кожи", "Конфликт с текущим ретиноидом"] : verdict === "Осторожно" ? ["Возможна реакция при сочетании с ретиноидом", "Начинайте с низкой частоты"] : ["Явных противопоказаний не найдено"]
+  const safe = safeList.length ? safeList : (product.tags.length ? product.tags.map((t) => `${t} — совместимо с профилем`) : ["Базовый состав без явных конфликтов"])
+  const caution = cautionList.length ? cautionList : (verdict === "Не подходит" ? ["Содержит активы, агрессивные для чувствительной кожи", "Конфликт с текущим ретиноидом"] : verdict === "Осторожно" ? ["Возможна реакция при сочетании с ретиноидом", "Начинайте с низкой частоты"] : ["Явных противопоказаний не найдено"])
   const actives = [
     { name: "Гиалуроновая кислота", conc: "средняя", effect: "удерживает влагу" },
     { name: "Ниацинамид", conc: "низкая", effect: "выравнивает тон" },
@@ -1422,6 +1477,29 @@ export default function App() {
         setUser({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan: "plus", points: 40 })
       })
       .catch(() => setToken(null))
+  }, [])
+
+  // Загрузка реальных продуктов из каталога (фолбэк — mock).
+  useEffect(() => {
+    api.catalog({ limit: 200, sort: "popular" })
+      .then((res) => {
+        const mapped = (res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт")
+        if (mapped.length) setItems(mapped)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Полка: отмечаем продукты пользователя как «использую».
+  useEffect(() => {
+    if (!getToken()) return
+    api.shelf()
+      .then((res) => {
+        const shelfIds = new Set<number>()
+        const cabinets = (res as { cabinets: { categories?: { items?: { product_id?: number }[] }[] }[] }).cabinets || []
+        for (const cab of cabinets) for (const cat of cab.categories || []) for (const it of cat.items || []) if (it.product_id != null) shelfIds.add(it.product_id)
+        if (shelfIds.size) setItems((cur) => cur.map((p) => (shelfIds.has(p.id) ? { ...p, state: "using" } : p)))
+      })
+      .catch(() => {})
   }, [])
 
   // Блокируем прокрутку фона, когда открыт drawer или модалка.

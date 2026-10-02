@@ -20,6 +20,7 @@ export type Product = {
   state?: ProductState
   checked?: boolean
   report?: boolean
+  slug?: string
 }
 
 export type Cabinet = { key: CabinetKey; title: string; short: string; hasScoring: boolean; categories: string[] }
