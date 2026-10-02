@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
 import { api, setToken, getToken } from "./api"
-import { mapApiProduct, mapShelfItem, mapHistoryItem, mapRecommendation, buildProfile } from "./mapping"
+import { mapApiProduct, mapShelfItem, mapRecommendation, buildProfile } from "./mapping"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -392,11 +392,11 @@ function HScroll({ children }: { children: ReactNode }) {
     </div>
   )
 }
-function HomePage({ onNavigate, onOpen, onScan, user, items, history }: {
-  onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]; history: Product[]
+function HomePage({ onNavigate, onOpen, onScan, user, items }: {
+  onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]
 }) {
   const using = items.filter((p) => p.state === "using").slice(0, 4)
-  const recent = (history.length ? history : items.filter((p) => p.checked)).slice(0, 6)
+  const recent = items.filter((p) => p.checked).slice(0, 6)
   const shelvedScored = items.filter((p) => p.state && p.score != null)
   const avg = shelvedScored.length ? Math.round(shelvedScored.reduce((s, p) => s + (p.score ?? 0), 0) / shelvedScored.length) : null
   const recommended = items.filter((p) => p.score != null && !p.state).sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 3)
@@ -901,7 +901,7 @@ function OptionChips({ options, selected, onToggle }: { options: QuizOption[]; s
     </div>
   )
 }
-function Questionnaire({ onDone }: { onDone: (p: { skinType: string }) => void }) {
+function Questionnaire({ onDone }: { onDone: (p: { skinType: string; age?: string; concerns?: string[]; allergies?: string[] }) => void }) {
   const [step, setStep] = useState(0)
   const [skinType, setSkinType] = useState<string | null>(null)
   const [age, setAge] = useState<string | null>(null)
@@ -1036,7 +1036,12 @@ function Questionnaire({ onDone }: { onDone: (p: { skinType: string }) => void }
         {idx > 0 && <Button variant="ghost" icon="back" onClick={back}>Назад</Button>}
         <div className="quiz__nav-spacer" />
         {current.id === "summary" ? (
-          <Button icon="check" onClick={() => onDone({ skinType: skinType ?? "Нормальная" })}>Сохранить профиль</Button>
+          <Button icon="check" onClick={() => onDone({
+            skinType: skinType ?? "normal",
+            age: age ?? undefined,
+            concerns: cards.map((c) => CONCERN_CARDS.find((b) => b.id === c)?.label ?? c),
+            allergies: intolerances.map((i) => INTOLERANCE_OPTIONS.find((o) => o.id === i)?.label ?? i),
+          })}>Сохранить профиль</Button>
         ) : (
           <Button disabled={!canNext} onClick={next}>Далее <Icon name="arrow" size={15} /></Button>
         )}
@@ -1053,7 +1058,14 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
     return (
       <div className="page">
         <PageHeading eyebrow="Профиль" title="Опрос кожи" lead="Несколько шагов — и профиль станет точнее." />
-        <Questionnaire onDone={(p) => { setSkinType(SKIN_TYPE_OPTIONS.find((o) => o.id === p.skinType)?.label ?? p.skinType); setQuiz(false) }} />
+        <Questionnaire onDone={(p) => {
+          const skinTypeLabel = SKIN_TYPE_OPTIONS.find((o) => o.id === p.skinType)?.label ?? p.skinType
+          setSkinType(skinTypeLabel)
+          setQuiz(false)
+          if (getToken()) {
+            api.saveProfile({ skinType: skinTypeLabel, age: p.age ?? "", concerns: p.concerns ?? [], allergies: p.allergies ?? [], customText: "" }).catch(() => {})
+          }
+        }} />
       </div>
     )
   }
@@ -1557,7 +1569,6 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 export default function App() {
   const [items, setItems] = useState<Product[]>(products)
   const [shelfItems, setShelfItems] = useState<Product[]>([])
-  const [historyItems, setHistoryItems] = useState<Product[]>([])
   const [removeProduct, setRemoveProduct] = useState<Product | null>(null)
   const [removeReason, setRemoveReason] = useState("")
   const [clearCabinet, setClearCabinet] = useState<CabinetKey | null>(null)
@@ -1630,17 +1641,6 @@ export default function App() {
       .catch(() => {})
   }
   useEffect(() => { loadShelf() }, [])
-
-  // История проверок (для главной — «Проверенные продукты»).
-  useEffect(() => {
-    if (!getToken()) return
-    api.history()
-      .then((h) => {
-        const mapped = (h || []).map((x) => mapHistoryItem(x as Parameters<typeof mapHistoryItem>[0])).filter((p) => p.name && p.name !== "Продукт")
-        if (mapped.length) setHistoryItems(mapped)
-      })
-      .catch(() => {})
-  }, [])
 
   // Блокируем прокрутку фона, когда открыт drawer или модалка.
   useEffect(() => {
@@ -1756,7 +1756,7 @@ export default function App() {
         <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />
         <main className="main-content">
           <div key={page} className="page-anim">
-            {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} history={historyItems} />}
+            {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} />}
             {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}

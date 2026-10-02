@@ -141,6 +141,15 @@ export const api = {
   async me() {
     return request<ApiUser>("/auth/me")
   },
+  async saveProfile(profile: Record<string, unknown>) {
+    return request<{ status: string }>("/auth/profile", {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    })
+  },
+  async getProfile() {
+    return request<{ profile?: Record<string, unknown>; structured?: Record<string, unknown> }>("/auth/profile/me")
+  },
 
   // ===== баланс / подписка =====
   async balance() {
