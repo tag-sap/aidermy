@@ -15,6 +15,8 @@ export type ApiUser = {
   concerns?: string[]
   allergies?: string[]
   avatar_url?: string | null
+  balance?: number
+  plan?: string
 }
 
 export type ApiProduct = {
@@ -138,6 +140,23 @@ export const api = {
   },
   async me() {
     return request<ApiUser>("/auth/me")
+  },
+
+  // ===== баланс / подписка =====
+  async balance() {
+    return request<{ balance: number; plan: string; monthly_points: number }>("/balance")
+  },
+  async topUp(amount: number) {
+    return request<{ balance: number; plan: string; monthly_points: number }>("/balance/topup", {
+      method: "POST",
+      body: JSON.stringify({ amount }),
+    })
+  },
+  async subscription(plan: string) {
+    return request<{ balance: number; plan: string; monthly_points: number }>("/subscription", {
+      method: "POST",
+      body: JSON.stringify({ plan }),
+    })
   },
 
   // ===== каталог / продукты =====

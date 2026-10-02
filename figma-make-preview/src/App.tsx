@@ -389,11 +389,14 @@ function HScroll({ children }: { children: ReactNode }) {
     </div>
   )
 }
-function HomePage({ onNavigate, onOpen, onScan, user }: {
-  onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null
+function HomePage({ onNavigate, onOpen, onScan, user, items }: {
+  onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]
 }) {
-  const using = products.filter((p) => p.state === "using").slice(0, 4)
-  const recent = products.filter((p) => p.checked).slice(0, 6)
+  const using = items.filter((p) => p.state === "using").slice(0, 4)
+  const recent = items.filter((p) => p.checked).slice(0, 6)
+  const shelvedScored = items.filter((p) => p.state && p.score != null)
+  const avg = shelvedScored.length ? Math.round(shelvedScored.reduce((s, p) => s + (p.score ?? 0), 0) / shelvedScored.length) : null
+  const recommended = items.filter((p) => p.score != null && !p.state).sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 3)
   return (
     <div className="page">
       <section className="hero">
@@ -413,7 +416,7 @@ function HomePage({ onNavigate, onOpen, onScan, user }: {
         <section className="panel panel--click" onClick={() => onNavigate("report")}>
           <p className="eyebrow">Моя полка · сводка</p>
           <div className="report-preview">
-            <div className="report-preview__num"><strong>{shelfReport.average}</strong><span>%</span></div>
+            <div className="report-preview__num"><strong>{avg ?? "—"}</strong><span>{avg != null ? "%" : ""}</span></div>
             <p className="report-preview__label">средняя совместимость полки</p>
           </div>
         </section>
@@ -442,7 +445,7 @@ function HomePage({ onNavigate, onOpen, onScan, user }: {
       <section className="block">
         <SectionHead eyebrow="Рекомендации" title="Проверьте ещё" action={() => onNavigate("catalog")} actionLabel="Каталог" />
         <div className="rec-list">
-          {products.filter((p) => p.state === "want").slice(0, 3).map((p) => (
+          {recommended.map((p) => (
             <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
               <img src={p.image} alt="" loading="lazy" />
               <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
@@ -1065,7 +1068,7 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
         <section className="panel"><p className="eyebrow">Активное лечение</p><ul className="kv">{skinProfile.therapy.map((t) => <li key={t}>{t}</li>)}</ul></section>
         <section className="panel"><p className="eyebrow">Непереносимости</p><div className="chips">{skinProfile.intolerances.map((t) => <span key={t} className="chip chip--warn">{t}</span>)}</div></section>
       </div>
-      <section className="block"><p className="profile-note">Match каждого продукта рассчитывается по этому профилю и вашей текущей полке. Реальная математика живёт в scoring engine V1 — здесь показан результат для preview.</p></section>
+      <section className="block"><p className="profile-note">Совместимость каждого продукта рассчитывается по этому профилю и текущей полке. Чем точнее заполнен профиль, тем точнее результат проверки.</p></section>
     </div>
   )
 }
@@ -1259,7 +1262,8 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
         const res = await api.login(email.trim(), pass)
         setToken(res.access_token)
         const displayName = res.user.name || email.trim().split("@")[0]
-        onSuccess({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan: "plus", points: 40 })
+        const plan: Plan = res.user.plan === "pro" || res.user.plan === "plus" ? res.user.plan : "free"
+        onSuccess({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: res.user.balance || 0 })
       } else {
         await api.register(email.trim(), pass, name.trim())
         setSent(true)
@@ -1525,7 +1529,8 @@ export default function App() {
     api.me()
       .then((u) => {
         const displayName = u.name || u.email?.split("@")[0] || "Пользователь"
-        setUser({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan: "plus", points: 40 })
+        const plan: Plan = u.plan === "pro" || u.plan === "plus" ? u.plan : "free"
+        setUser({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: u.balance || 0 })
       })
       .catch(() => setToken(null))
   }, [])
@@ -1593,7 +1598,13 @@ export default function App() {
 
   const handleLogin = (u: User) => { setUser(u); setAuthModal(null) }
   const handleLogout = () => { setToken(null); setUser(null); if (page === "shelf" || page === "report") setPage("home") }
-  const handleSelectPlan = (p: Plan) => { setUser((u) => (u ? { ...u, plan: p, points: PLANS.find((x) => x.key === p)?.monthlyPoints ?? u.points } : u)) }
+  const handleSelectPlan = async (p: Plan) => {
+    if (getToken()) {
+      try { const r = await api.subscription(p); setUser((u) => (u ? { ...u, plan: p, points: r.balance } : u)) } catch { setUser((u) => (u ? { ...u, plan: p } : u)) }
+    } else {
+      setUser((u) => (u ? { ...u, plan: p } : u))
+    }
+  }
   const handleAddToShelf = async (id: number) => {
     const p = items.find((x) => x.id === id)
     if (p?.slug && getToken()) {
@@ -1619,8 +1630,12 @@ export default function App() {
     setClearCabinet(null)
     loadShelf()
   }
-  const handleTopUp = (amount: number) => {
-    setUser((u) => (u ? { ...u, points: u.points + amount } : u))
+  const handleTopUp = async (amount: number) => {
+    if (getToken()) {
+      try { const r = await api.topUp(amount); setUser((u) => (u ? { ...u, points: r.balance } : u)) } catch { setUser((u) => (u ? { ...u, points: u.points + amount } : u)) }
+    } else {
+      setUser((u) => (u ? { ...u, points: u.points + amount } : u))
+    }
   }
   const handleScanFromAdd = (m: ScanMethod) => {
     setAddModalOpen(false)
@@ -1639,7 +1654,7 @@ export default function App() {
         <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />
         <main className="main-content">
           <div key={page} className="page-anim">
-            {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} />}
+            {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} />}
             {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
