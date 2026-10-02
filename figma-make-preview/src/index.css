@@ -188,8 +188,8 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .hero .btn--secondary:hover { background: #23221a; }
 .report-preview { display: flex; align-items: center; gap: 18px; }
 .report-preview__num { display: flex; align-items: baseline; }
-.report-preview__num strong { font-family: var(--font-display); font-size: 52px; font-weight: 400; letter-spacing: -0.03em; }
-.report-preview__num span { font-size: 24px; color: var(--ink-soft); }
+.report-preview__num strong { font-family: var(--font-display); font-size: clamp(64px, 7vw, 88px); font-weight: 400; letter-spacing: -0.03em; line-height: 1; }
+.report-preview__num span { font-size: clamp(30px, 3.5vw, 42px); color: var(--ink-soft); line-height: 1; }
 .report-preview__side { flex: 1; min-width: 0; }
 .report-preview__label { color: var(--ink-soft); font-size: 12.5px; font-weight: 600; }
 .report-preview__hint { color: var(--ink-faint); font-size: 11.5px; margin-top: 4px; }
@@ -206,7 +206,7 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .score-ring__center strong { font-family: var(--font-display); font-weight: 400; font-size: 40px; letter-spacing: -0.03em; line-height: 1; }
 .score-ring__center span { margin-top: 4px; color: var(--ink-faint); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
 
-.pcard { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 15px; overflow: hidden; min-width: 0; }
+.pcard { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 15px; overflow: hidden; min-width: 0; transition: border-radius .35s ease, box-shadow .2s ease; -webkit-backface-visibility: hidden; backface-visibility: hidden; }
 .pcard__main { display: flex; flex-direction: column; width: 100%; }
 .pcard__img { position: relative; aspect-ratio: 4/3.1; background: var(--surface-2); overflow: hidden; }
 .pcard__img img { width: 100%; height: 100%; object-fit: cover; }
@@ -484,8 +484,10 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
   .shelf-add { width: 100%; height: 220px; }
   .modal-backdrop { align-items: flex-end; padding: 0; }
   .modal { max-width: none; border-radius: 20px 20px 0 0; max-height: 90dvh; }
-  .matrix__row { grid-template-columns: 1.7fr 1fr 1fr 1fr; }
-  .matrix__row > span { padding: 9px 6px; font-size: 11px; }
+  .matrix { overflow-x: auto; }
+  .matrix__row { grid-template-columns: 180px 1fr 1fr 1fr; min-width: 440px; }
+  .matrix__row > span { padding: 9px 8px; font-size: 11px; white-space: nowrap; }
+  .matrix__row > span:first-child { white-space: normal; }
 }
 
 @media (max-width: 430px) {
@@ -586,3 +588,8 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .shelf-fab { position: fixed; right: 18px; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); z-index: 40; width: 54px; height: 54px; display: none; place-items: center; border-radius: 50%; background: var(--lime); color: var(--ink); box-shadow: 0 12px 30px rgba(0,0,0,.2); transition: transform .12s; }
 .shelf-fab:active { transform: scale(.94); }
 @media (max-width: 900px) { .shelf-fab { display: grid; } }
+
+/* ===== Баланс в мобильной шапке + кнопки профиля ===== */
+.topbar__points { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 12px; font-weight: 700; }
+.topbar__points svg { color: var(--good); }
+.account-bar__actions { display: flex; gap: 10px; flex-wrap: wrap; }

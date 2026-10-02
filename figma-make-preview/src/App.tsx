@@ -305,8 +305,8 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
   )
 }
 
-function Topbar({ page, onNavigate, onHelp, user, onAuth }: {
-  page: Page; onNavigate: (p: Page) => void; onHelp: () => void; user: User | null; onAuth: () => void
+function Topbar({ page, onNavigate, onHelp, user, onAuth, onPoints }: {
+  page: Page; onNavigate: (p: Page) => void; onHelp: () => void; user: User | null; onAuth: () => void; onPoints: () => void
 }) {
   const title = NAV.find((n) => n.id === page)?.label ?? ""
   return (
@@ -314,6 +314,9 @@ function Topbar({ page, onNavigate, onHelp, user, onAuth }: {
       <span className="topbar__brand"><strong>айдерми</strong></span>
       <span className="topbar__title">{title}</span>
       <div className="topbar__actions">
+        {user && (
+          <button type="button" className="topbar__points" onClick={onPoints} aria-label="Пополнить баллы"><Icon name="coins" size={15} /><strong>{user.points}</strong></button>
+        )}
         <button type="button" className="icon-btn icon-btn--help" onClick={onHelp} aria-label="Помощь"><span className="help-mark">?</span></button>
         {user ? (
           <button type="button" className="icon-btn" onClick={() => onNavigate("profile")} aria-label="Профиль"><Avatar size={28} initials={user.initials} /></button>
@@ -417,7 +420,7 @@ function HomePage({ onNavigate, onOpen, onScan, user }: {
             {skinProfile.goals.map((g) => <span key={g} className="chip">{g}</span>)}
             <span className="chip chip--warn">чувствительная</span>
           </div>
-          <Button variant="ghost" small icon="user" onClick={() => onNavigate("profile")} className="mt">Изменить опрос</Button>
+          <Button variant="ghost" small icon="user" onClick={() => onNavigate("profile")} className="mt">Перепройти опрос</Button>
         </section>
       </div>
 
@@ -959,8 +962,8 @@ function Questionnaire({ onDone }: { onDone: (p: { skinType: string }) => void }
     </div>
   )
 }
-function ProfilePage({ user, onAuth, onPricing, onLogout }: {
-  user: User | null; onAuth: () => void; onPricing: () => void; onLogout: () => void
+function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
+  user: User | null; onAuth: () => void; onPricing: () => void; onLogout: () => void; onPoints: () => void
 }) {
   const [quiz, setQuiz] = useState(false)
   const [skinType, setSkinType] = useState(skinProfile.skinType)
@@ -993,10 +996,13 @@ function ProfilePage({ user, onAuth, onPricing, onLogout }: {
   return (
     <div className="page">
       <PageHeading eyebrow="Профиль" title="Профиль кожи" lead="На основе профиля рассчитывается совместимость каждого продукта."
-        action={<div className="page-head__actions"><Button icon="user" onClick={() => setQuiz(true)}>Изменить опрос</Button><Button variant="ghost" icon="logout" onClick={onLogout}>Выйти</Button></div>} />
+        action={<div className="page-head__actions"><Button icon="user" onClick={() => setQuiz(true)}>Перепройти опрос</Button><Button variant="ghost" icon="logout" onClick={onLogout}>Выйти</Button></div>} />
       <div className="account-bar">
         <div><p className="eyebrow">Аккаунт</p><strong>{user.name}</strong><span>{user.points} баллов · тариф {plan?.title}</span></div>
-        <Button variant="secondary" icon="crown" onClick={onPricing}>Управлять подпиской</Button>
+        <div className="account-bar__actions">
+          <Button variant="secondary" icon="coins" onClick={onPoints}>Пополнить баллы</Button>
+          <Button variant="ghost" icon="crown" onClick={onPricing}>Управлять подпиской</Button>
+        </div>
       </div>
       <div className="profile-grid">
         <section className="panel"><p className="eyebrow">Тип кожи</p><h3 className="panel__h3">{skinType}</h3><div className="chips">{skinProfile.goals.map((g) => <span key={g} className="chip">{g}</span>)}</div></section>
@@ -1417,7 +1423,7 @@ export default function App() {
       <LoadingScreen done={!loading} />
       <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} />
       <div className="workspace">
-        <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} />
+        <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} onPoints={() => setPointsOpen(true)} />
         <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />
         <main className="main-content">
           <div key={page} className="page-anim">
@@ -1425,7 +1431,7 @@ export default function App() {
             {page === "shelf" && <ShelfPage items={items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
-            {page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} />}
+            {page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} />}
           </div>
         </main>
       </div>
