@@ -1,0 +1,139 @@
+// api.ts — клиент к реальному backend (FastAPI).
+// BASE = "/api" — nginx проксирует /api/ на 127.0.0.1:8000, поэтому работает
+// и на /ver2/ (сейчас), и с корня (после миграции).
+
+const BASE = "/api"
+
+export const TOKEN_KEY = "aidermy_token"
+
+export type ApiUser = {
+  id: number
+  email: string
+  name: string
+  skin_type?: string | null
+  age?: string | null
+  concerns?: string[]
+  allergies?: string[]
+  avatar_url?: string | null
+}
+
+export type ApiProduct = {
+  id: number
+  name: string
+  slug: string
+  image_url: string
+  ingredients?: string
+  category?: string
+  subcategory?: string
+  taxonomy_category?: string
+  brand?: string
+  rating?: number | null
+  rating_count?: number
+  score?: number | null
+  analysis?: unknown
+}
+
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = { ...(options.headers as Record<string, string> | undefined) }
+  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null
+  if (token) headers["Authorization"] = `Bearer ${token}`
+  if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json"
+
+  let res: Response
+  try {
+    res = await fetch(BASE + path, { ...options, headers })
+  } catch {
+    throw new ApiError("Нет соединения с сервером", 0)
+  }
+
+  if (!res.ok) {
+    let detail = `Ошибка ${res.status}`
+    try {
+      const data = await res.json()
+      detail = (data as { detail?: string; message?: string }).detail || (data as { message?: string }).message || detail
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(detail, res.status)
+  }
+
+  if (res.status === 204) return undefined as T
+  return (await res.json()) as T
+}
+
+export const api = {
+  // ===== auth =====
+  async register(email: string, password: string, name: string) {
+    return request<{ message: string; email: string }>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, name }),
+    })
+  },
+  async login(email: string, password: string) {
+    const body = new URLSearchParams({ username: email, password })
+    return request<{ access_token: string; token_type: string; user: ApiUser }>("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    })
+  },
+  async me() {
+    return request<ApiUser>("/auth/me")
+  },
+
+  // ===== каталог / продукты =====
+  async catalog(params: Record<string, string | number> = {}) {
+    const qs = new URLSearchParams(params as Record<string, string>).toString()
+    return request<{ products: ApiProduct[]; total: number; limit: number; offset: number }>(`/catalog${qs ? "?" + qs : ""}`)
+  },
+  async products(q = "") {
+    return request<{ products: ApiProduct[] }>(`/products?q=${encodeURIComponent(q)}`)
+  },
+  async product(slug: string) {
+    return request<{ product: ApiProduct; score: number | null; analysis: unknown; on_shelf: unknown; community: unknown }>(`/products/${slug}`)
+  },
+
+  // ===== полка =====
+  async shelf() {
+    return request<{ cabinets: unknown[] }>("/shelf")
+  },
+  async addToShelf(payload: Record<string, unknown>) {
+    return request("/shelf", { method: "POST", body: JSON.stringify(payload) })
+  },
+
+  // ===== сканирование / проверка =====
+  async identify(payload: Record<string, unknown>) {
+    return request("/product/identify", { method: "POST", body: JSON.stringify(payload) })
+  },
+  async compositionRecognize(payload: Record<string, unknown>) {
+    return request("/composition/recognize", { method: "POST", body: JSON.stringify(payload) })
+  },
+  async check(payload: Record<string, unknown>) {
+    return request("/check", { method: "POST", body: JSON.stringify(payload) })
+  },
+
+  // ===== отзывы =====
+  async reviews(productId: number) {
+    return request(`/community/reviews?product_id=${productId}`)
+  },
+  async addReview(payload: Record<string, unknown>) {
+    return request("/community/reviews", { method: "POST", body: JSON.stringify(payload) })
+  },
+}
+
+export function getToken(): string | null {
+  return typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null
+}
+export function setToken(token: string | null) {
+  if (typeof window === "undefined") return
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}

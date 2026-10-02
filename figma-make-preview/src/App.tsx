@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
+import { api, setToken, getToken } from "./api"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -1152,9 +1153,48 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [pass, setPass] = useState("")
-  const submit = () => {
-    onSuccess({ name: name.trim() || "Ольга", initials: (name.trim() || "Ольга").slice(0, 2).toUpperCase(), plan: "plus", points: 40 })
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  const submit = async () => {
+    setError("")
+    if (!email.trim() || !pass) { setError("Введите email и пароль"); return }
+    if (mode === "register" && !name.trim()) { setError("Введите имя"); return }
+    setLoading(true)
+    try {
+      if (mode === "login") {
+        const res = await api.login(email.trim(), pass)
+        setToken(res.access_token)
+        const displayName = res.user.name || email.trim().split("@")[0]
+        onSuccess({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan: "plus", points: 40 })
+      } else {
+        await api.register(email.trim(), pass, name.trim())
+        setSent(true)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка")
+    } finally {
+      setLoading(false)
+    }
   }
+
+  if (sent) {
+    return (
+      <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+          <div className="auth-modal">
+            <p className="eyebrow">айдерми</p>
+            <h2>Проверьте почту</h2>
+            <p className="auth-modal__hint">Мы отправили письмо для подтверждения на {email}. После подтверждения войдите в аккаунт.</p>
+            <Button variant="ghost" onClick={onClose} className="w-full">Закрыть</Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
@@ -1168,7 +1208,8 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
           )}
           <label className="field"><span>Email</span><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /></label>
           <label className="field"><span>Пароль</span><input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" /></label>
-          <Button className="w-full" onClick={submit}>{mode === "login" ? "Войти" : "Зарегистрироваться"}</Button>
+          {error && <p className="auth-modal__error">{error}</p>}
+          <Button className="w-full" onClick={submit} disabled={loading}>{loading ? "Подождите…" : mode === "login" ? "Войти" : "Зарегистрироваться"}</Button>
           <button type="button" className="auth-modal__switch" onClick={() => onSwitch(mode === "login" ? "register" : "login")}>
             {mode === "login" ? "Нет аккаунта? Зарегистрируйтесь" : "Уже есть аккаунт? Войдите"}
           </button>
@@ -1371,6 +1412,18 @@ export default function App() {
   useEffect(() => { const t = window.setTimeout(() => setLoading(false), 1200); return () => window.clearTimeout(t) }, [])
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(""), 2200); return () => window.clearTimeout(t) }, [toast])
 
+  // Восстановление сессии по сохранённому токену.
+  useEffect(() => {
+    const token = getToken()
+    if (!token) return
+    api.me()
+      .then((u) => {
+        const displayName = u.name || u.email?.split("@")[0] || "Пользователь"
+        setUser({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan: "plus", points: 40 })
+      })
+      .catch(() => setToken(null))
+  }, [])
+
   // Блокируем прокрутку фона, когда открыт drawer или модалка.
   useEffect(() => {
     const locked = open != null || authModal != null || pricingOpen || addModalOpen || pointsOpen
@@ -1401,7 +1454,7 @@ export default function App() {
   }
 
   const handleLogin = (u: User) => { setUser(u); setAuthModal(null) }
-  const handleLogout = () => { setUser(null); if (page === "shelf" || page === "report") setPage("home") }
+  const handleLogout = () => { setToken(null); setUser(null); if (page === "shelf" || page === "report") setPage("home") }
   const handleSelectPlan = (p: Plan) => { setUser((u) => (u ? { ...u, plan: p, points: PLANS.find((x) => x.key === p)?.monthlyPoints ?? u.points } : u)) }
   const handleAddToShelf = (id: number) => {
     setItems((cur) => cur.map((p) => (p.id === id && !p.state ? { ...p, state: "want" } : p)))

@@ -387,6 +387,7 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .field input:focus { border-color: var(--border-strong); }
 .auth-modal__switch { color: var(--ink-soft); font-size: 12.5px; text-align: center; }
 .auth-modal__switch:hover { color: var(--ink); text-decoration: underline; }
+.auth-modal__error { color: var(--bad); font-size: 12.5px; }
 
 .add-modal { display: grid; gap: 14px; padding: 28px; }
 .add-modal h2 { font-size: 26px; }
