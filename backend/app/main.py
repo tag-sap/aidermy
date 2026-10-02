@@ -35,6 +35,7 @@ from .services import check_product_with_ai, check_product_with_ingredients, sea
 from .database import init_db, get_all_ingredients, get_all_check_history, save_check_result, get_check_stats, get_connection, PRODUCTS_DB, upsert_imported_product, save_ingredients
 from .auth_routes import router as auth_router
 from .community_routes import router as community_router
+from .billing_routes import router as billing_router
 from .admin_routes import setup_admin_routes
 from typing import Optional, List
 from .auth import get_current_user_optional, get_current_user
@@ -94,6 +95,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(community_router)
+app.include_router(billing_router)
 
 # Регистрируем админ-роуты
 setup_admin_routes(app)
@@ -474,6 +476,14 @@ async def check_product(
         
         user_id = current_user.get('id') if current_user else None
         product_id = existing_product['id'] if existing_product else None
+
+        # Списание балла за проверку (Слой 1).
+        if user_id:
+            try:
+                from .database import change_balance
+                change_balance(user_id, -1, "spend", f"Проверка: {request.product_name[:60]}")
+            except Exception:
+                pass
 
         # Сохраняем СИСТЕМНУЮ проверку (Слой 1) в актуальный User Analysis.
         # Описание (report) НЕ сохраняется здесь — оно запрашивается отдельно.

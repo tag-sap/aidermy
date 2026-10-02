@@ -67,6 +67,8 @@ class UserResponse(BaseModel):
     custom_text: Optional[str] = None
     avatar_url: Optional[str] = None
     created_at: str
+    balance: int = 0
+    plan: str = "free"
 
 
 class UserAccountUpdate(BaseModel):
@@ -216,7 +218,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
             custom_text=user.get("custom_text"),
             avatar_url=user.get("avatar_url"),
-            created_at=user["created_at"]
+            created_at=user["created_at"],
+            balance=user.get("balance") or 0,
+            plan=user.get("plan") or "free",
         )
     }
 
@@ -233,7 +237,9 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         allergies=current_user.get("allergies", "").split(",") if current_user.get("allergies") else [],
         custom_text=current_user.get("custom_text"),
         avatar_url=current_user.get("avatar_url"),
-        created_at=current_user["created_at"]
+        created_at=current_user["created_at"],
+        balance=current_user.get("balance") or 0,
+        plan=current_user.get("plan") or "free",
     )
 
 

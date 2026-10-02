@@ -224,7 +224,25 @@ def init_db():
         # analysis.created_at >= users.profile_updated_at (а не по каждому полю анкеты).
         if 'profile_updated_at' not in user_columns:
             cursor.execute('ALTER TABLE users ADD COLUMN profile_updated_at TIMESTAMP')
-    
+        # Баланс и тариф (billing)
+        if 'balance' not in user_columns:
+            cursor.execute('ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0')
+        if 'plan' not in user_columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'free'")
+
+    # === BILLING: журнал операций с балансом ===
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS balance_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            type TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            note TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_balance_tx_user ON balance_transactions (user_id)')
+
     # === COMMUNITY INTELLIGENCE ===
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS reviews (
@@ -1299,3 +1317,54 @@ def delete_expired_analyses() -> int:
     deleted = cursor.rowcount
     conn.close()
     return deleted
+
+# === BILLING (баланс и подписка) ===
+PLAN_MONTHLY_POINTS = {"free": 20, "plus": 40, "pro": 60}
+
+
+def get_balance(user_id: int) -> dict:
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    row = cursor.execute("SELECT balance, plan FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    balance = int(row["balance"] or 0) if row else 0
+    plan = (row["plan"] or "free") if row else "free"
+    return {"balance": balance, "plan": plan, "monthly_points": PLAN_MONTHLY_POINTS.get(plan, 20)}
+
+
+def change_balance(user_id: int, delta: int, tx_type: str, note: str = "") -> int:
+    """Изменяет баланс (delta может быть отрицательным) и пишет журнал.
+    Возвращает новый баланс. При нехватке средств возвращает None."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    row = cursor.execute("SELECT balance FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        conn.close()
+        return None
+    current = int(row["balance"] or 0)
+    new = current + delta
+    if new < 0:
+        conn.close()
+        return None
+    cursor.execute("UPDATE users SET balance = ? WHERE id = ?", (new, user_id))
+    cursor.execute(
+        "INSERT INTO balance_transactions (user_id, type, amount, note) VALUES (?, ?, ?, ?)",
+        (user_id, tx_type, delta, note),
+    )
+    conn.commit()
+    conn.close()
+    return new
+
+
+def set_user_plan(user_id: int, plan: str) -> dict:
+    """Меняет тариф и начисляет ежемесячные баллы тарифа (одноразово при смене)."""
+    if plan not in PLAN_MONTHLY_POINTS:
+        plan = "free"
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET plan = ? WHERE id = ?", (plan, user_id))
+    conn.commit()
+    conn.close()
+    bonus = PLAN_MONTHLY_POINTS.get(plan, 20)
+    change_balance(user_id, bonus, "plan_bonus", f"Ежемесячные баллы тарифа {plan}")
+    return get_balance(user_id)

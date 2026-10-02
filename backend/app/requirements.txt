@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+httpx
+jinja2
+authlib
+yagmail
+python-jose[cryptography]
+email-validator
+python-multipart
+itsdangerous
+authlib
+yagmail
+scrapling[fetchers]>=0.4.15,<0.5
