@@ -160,6 +160,23 @@ function ScoreRing({ score, label = "совместимость" }: { score: num
     </div>
   )
 }
+function ProductName({ name }: { name: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    const w = wrapRef.current, t = textRef.current
+    if (!w || !t) return
+    const diff = t.scrollWidth - w.clientWidth
+    w.style.setProperty("--marquee-dist", `${-diff}px`)
+    w.classList.toggle("pcard__name-wrap--marquee", diff > 0)
+  }, [name])
+  return (
+    <div className="pcard__name-wrap" ref={wrapRef}>
+      <span className="pcard__name" ref={textRef}>{name}</span>
+    </div>
+  )
+}
+
 function ProductCard({ product, checking = false, onOpen }: {
   product: Product; checking?: boolean; onOpen?: () => void
 }) {
@@ -174,7 +191,7 @@ function ProductCard({ product, checking = false, onOpen }: {
         </div>
         <div className="pcard__body">
           <p className="pcard__brand">{product.brand}</p>
-          <h3 className="pcard__name">{product.name}</h3>
+          <ProductName name={product.name} />
           <p className="pcard__cat">{product.category}</p>
         </div>
       </button>
@@ -249,8 +266,8 @@ function Sidebar({ page, onNavigate, user, onAuth, onPricing, onPoints }: {
   )
 }
 
-function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout, onNavigate, onOpen }: {
-  query: string; onQuery: (v: string) => void; user: User | null; onAuth: () => void; onPricing: () => void; onPoints: () => void; onLogout: () => void; onNavigate: (p: Page) => void; onOpen: (p: Product) => void
+function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout, onNavigate, onOpen, onHelp }: {
+  query: string; onQuery: (v: string) => void; user: User | null; onAuth: () => void; onPricing: () => void; onPoints: () => void; onLogout: () => void; onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onHelp: () => void
 }) {
   const [focused, setFocused] = useState(false)
   const needle = query.trim().toLowerCase()
@@ -274,6 +291,7 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
         )}
       </div>
       <div className="globalbar__actions">
+        <button type="button" className="icon-btn icon-btn--help" onClick={onHelp} aria-label="Помощь"><span className="help-mark">?</span></button>
         {user ? (
           <>
             <button type="button" className="points-chip" onClick={onPoints}><Icon name="coins" size={16} /><strong>{user.points}</strong><span>баллов · {PLANS.find((p) => p.key === user.plan)?.title}</span></button>
@@ -532,6 +550,7 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd }: {
           {shelved.length === 0 && <p className="empty">Полка пуста. Добавьте первое средство.</p>}
         </div>
       </div>
+      <button type="button" className="shelf-fab" onClick={onAdd} aria-label="Добавить продукт"><Icon name="plus" size={24} /></button>
     </div>
   )
 }
@@ -603,17 +622,18 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
   const [inci, setInci] = useState("")
   const [url, setUrl] = useState("")
   const [photoAdded, setPhotoAdded] = useState(false)
+  const [inciPhotoAdded, setInciPhotoAdded] = useState(false)
   const [result, setResult] = useState<Product | null>(null)
 
   const METHODS: { id: ScanMethod; title: string; desc: string; icon: IconName }[] = [
     { id: "photo", title: "Скан по фото упаковки", desc: "Распознаём продукт по фото этикетки", icon: "camera" },
-    { id: "inci", title: "Скан по составу", desc: "Внести название, бренд и состав", icon: "drop" },
+    { id: "inci", title: "Скан по составу", desc: "Фото списка состава (INCI)", icon: "drop" },
     { id: "link", title: "Вставить ссылку", desc: "Вставить ссылку на продукт", icon: "link" },
     { id: "manual", title: "Ручной ввод", desc: "Название, бренд и состав вручную", icon: "pencil" },
   ]
 
   const needManualFields = method === "inci" || method === "manual"
-  const canRun = method === "photo" ? photoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
+  const canRun = method === "photo" ? photoAdded : method === "inci" ? brand.trim().length > 0 && name.trim().length > 0 && inciPhotoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
 
   const run = () => {
     if (!canRun) return
@@ -631,6 +651,11 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
     const base = products[6]
     setBrand(base.brand)
     setName(base.name)
+  }
+
+  const takeInciPhoto = () => {
+    setInciPhotoAdded(true)
+    setInci("Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.")
   }
 
   return (
@@ -666,7 +691,11 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
             </div>
           )}
           {method === "inci" && (
-            <label className="scan-form__area"><span>Состав (INCI) *</span><textarea value={inci} onChange={(e) => setInci(e.target.value)} placeholder="Aqua, Glycerin, Niacinamide…" rows={4} /></label>
+            <div className="scan-dropzone" onClick={takeInciPhoto}>
+              <span className="scan__drop-icon"><Icon name="camera" size={26} /></span>
+              <strong>{inciPhotoAdded ? "Состав распознан ✓" : "Сфотографировать состав"}</strong>
+              <small>{inciPhotoAdded ? "Состав определён — нажмите «Проверить»." : "Наведите камеру на список состава (INCI) на упаковке."}</small>
+            </div>
           )}
           {method === "link" && (
             <label className="scan-form__area"><span>Ссылка на продукт *</span><input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></label>
@@ -702,6 +731,7 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
             <label><span>Бренд</span><input value={brand} onChange={(e) => setBrand(e.target.value)} /></label>
             <label><span>Название</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
           </div>
+          <label className="scan-form__area"><span>Состав (INCI)</span><textarea value={inci} onChange={(e) => setInci(e.target.value)} rows={3} placeholder="Состав определится автоматически…" /></label>
           <div className="scan-ready__actions">
             <Button icon="sparkle" onClick={() => onContinue({ ...result, brand: brand.trim() || result.brand, name: name.trim() || result.name })}>Продолжить анализ</Button>
             <Button variant="ghost" onClick={() => setPhase("input")}>Не то — повторить</Button>
@@ -1388,7 +1418,7 @@ export default function App() {
       <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} />
       <div className="workspace">
         <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} />
-        <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} />
+        <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />
         <main className="main-content">
           <div key={page} className="page-anim">
             {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} />}
