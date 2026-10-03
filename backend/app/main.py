@@ -1355,6 +1355,7 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     )
 
     analysis = {
+        "id": (saved or {}).get("id"),
         "verdict": result.get("verdict") or "",
         "summary": result.get("summary") or "",
         "score": int(result.get("score") or 0),

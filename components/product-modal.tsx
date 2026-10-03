@@ -21,6 +21,7 @@ type ProductDetail = {
   }
   score: number | null
   analysis: {
+    id?: number | null
     verdict?: string
     summary?: string
     score?: number
@@ -218,6 +219,7 @@ export function ProductModal({
       how_to_use: a.how_to_use ?? undefined,
       expectations: a.expectations ?? undefined,
       report: a.report ?? undefined,
+      analysis_id: a.id ?? null,
     }
     onOpenReport(result)
   }
@@ -328,6 +330,12 @@ export function ProductModal({
                 <span className="text-xs font-medium text-foreground/80">{data?.analysis?.verdict || 'Проверено'}</span>
               </div>
             )}
+
+            {hasAnalysis && data?.analysis?.summary ? (
+              <p className="mt-2 text-xs leading-relaxed text-foreground/70">
+                {data?.analysis?.summary}
+              </p>
+            ) : null}
 
             {error && product && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
 

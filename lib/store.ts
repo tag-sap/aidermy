@@ -44,6 +44,7 @@ export type CheckResult = {
   skin_type_recommendation?: string
   slug?: string
   image_url?: string
+  analysis_id?: number | null
   createdAt: number
   active_ingredients?: {
     name: string

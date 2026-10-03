@@ -149,7 +149,7 @@ export function ResultSheet({
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ slug: result.slug }),
+        body: JSON.stringify({ slug: result.slug, analysis_id: result.analysis_id ?? null }),
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.detail || 'Не удалось подготовить подробный анализ')
@@ -267,11 +267,19 @@ export function ResultSheet({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {result.active_ingredients && (
                     <Section icon={Sparkles} title="Ключевой ингредиент" className="border-purple-100/50">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-sm font-medium text-foreground/80">{result.active_ingredients.name}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">#{result.active_ingredients.position}</span>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium leading-snug text-foreground/80">{result.active_ingredients.name}</p>
+                        {typeof result.active_ingredients.concentration === 'string' && result.active_ingredients.concentration ? (
+                          <p className="text-[11px] leading-snug text-muted-foreground/70">Концентрация: {result.active_ingredients.concentration}</p>
+                        ) : null}
+                        {typeof result.active_ingredients.effectiveness === 'string' && result.active_ingredients.effectiveness ? (
+                          <p className="text-[11px] leading-snug text-muted-foreground/70">Эффективность: {result.active_ingredients.effectiveness}</p>
+                        ) : null}
+                        {typeof result.active_ingredients.position === 'number' && result.active_ingredients.position > 0 ? (
+                          <p className="text-[10px] leading-snug text-muted-foreground/50">Позиция в составе: #{result.active_ingredients.position}</p>
+                        ) : null}
                       </div>
-                      <p className="text-xs text-muted-foreground/60 font-light mt-1">
+                      <p className="text-xs text-muted-foreground/60 font-light mt-1.5">
                         Значимый для вашего анализа компонент
                       </p>
                     </Section>
