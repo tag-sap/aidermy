@@ -27,6 +27,7 @@ export type ProductAnalysis = {
   how_to_use?: { application: string; time: string; note: string } | null
   expectations?: { when: string; normal: string; danger: string } | null
   report?: string | null
+  id?: number | null
 }
 
 export type AnalysisState =
@@ -56,7 +57,7 @@ export function deriveAnalysisState(args: {
       kind: 'ANALYZED',
       score,
       analysis: args.analysis as ProductAnalysis,
-      hasReport: Boolean(args.analysis?.report),
+      hasReport: Boolean(args.analysis?.id),
     }
   }
   return { kind: 'NOT_ANALYZED' }

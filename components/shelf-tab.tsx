@@ -284,7 +284,7 @@ export function ShelfTab({
       setCabinets((prev) =>
         updateItemBySlug(prev, item.slug, {
           score: d.score,
-          has_report: Boolean(d.analysis?.report),
+          has_report: Boolean(d.analysis?.id),
           needs_recheck: false,
         }),
       )

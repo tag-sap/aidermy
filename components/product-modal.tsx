@@ -225,6 +225,7 @@ export function ProductModal({
   }
 
   const hasAnalysis = typeof data?.score === 'number' && data?.analysis != null
+  const hasReport = typeof data?.analysis?.id === 'number'
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
@@ -331,7 +332,7 @@ export function ProductModal({
               </div>
             )}
 
-            {hasAnalysis && data?.analysis?.summary ? (
+            {hasReport && data?.analysis?.summary ? (
               <p className="mt-2 text-xs leading-relaxed text-foreground/70">
                 {data?.analysis?.summary}
               </p>
@@ -340,7 +341,7 @@ export function ProductModal({
             {error && product && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
 
             <div className="mt-4 flex flex-col gap-2">
-              {hasAnalysis ? (
+              {hasReport ? (
                 <button
                   onClick={openFullReport}
                   className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#D6F264] py-2.5 text-sm text-[#151515] transition-colors hover:bg-[#c8e64f]"
