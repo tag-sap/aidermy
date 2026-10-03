@@ -222,7 +222,7 @@ def _deterministic_analysis(
             _DETERMINISTIC_ENGINE = DecisionEngine()
         # Движок кэшируется, knowledge map передаётся извне (загружается один раз),
         # поэтому enrichment подхватывается, а БД не читается 60 раз подряд.
-        return _DETERMINISTIC_ENGINE.analyze(
+        result = _DETERMINISTIC_ENGINE.analyze(
             "",
             ingredients,
             profile,
@@ -230,6 +230,22 @@ def _deterministic_analysis(
             knowledge=knowledge,
             interactions=interactions,
         )
+        # Диагностика: фактический payload, который получил Score Engine.
+        try:
+            print(
+                f"[SCORE_ENGINE_INPUT] skin_type={(profile or {}).get('skin_type')!r} "
+                f"age={(profile or {}).get('age')!r} "
+                f"concerns={(profile or {}).get('concerns')!r} "
+                f"allergies={(profile or {}).get('allergies')!r} "
+                f"restrictions={(profile or {}).get('restrictions')!r} "
+                f"intolerances={(profile or {}).get('intolerances')!r} "
+                f"inci_head={(ingredients or '')[:140]!r} "
+                f"score={(result or {}).get('score')}",
+                flush=True,
+            )
+        except Exception:
+            pass
+        return result
     except Exception:
         return None
 
