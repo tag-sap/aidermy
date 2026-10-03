@@ -173,7 +173,7 @@ function ProductName({ name }: { name: string }) {
 function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, selected }: {
   product: Product; checking?: boolean; onOpen?: () => void; onRemove?: () => void; onSelect?: () => void; selected?: boolean
 }) {
-  const checked = product.checked === true && product.score != null
+  const checked = product.match != null
   return (
     <article className={`pcard ${selected ? "pcard--selected" : ""}`}>
       {onRemove && !onSelect && (
@@ -185,7 +185,7 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
       <button type="button" className="pcard__main" onClick={onSelect ? onSelect : onOpen} aria-label={product.name}>
         <div className="pcard__img">
           <img src={product.image} alt="" loading="lazy" />
-          <ScoreBadge score={product.score} />
+          {product.match && <ScoreBadge score={product.match.score} />}
           {product.state && <span className={`pcard__state pcard__state--${product.state}`} />}
         </div>
         <div className="pcard__body">
@@ -387,10 +387,10 @@ function HomePage({ onNavigate, onOpen, onScan, user, items }: {
   onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]
 }) {
   const using = items.filter((p) => p.state === "using").slice(0, 4)
-  const recent = items.filter((p) => p.checked).slice(0, 6)
-  const shelvedScored = items.filter((p) => p.state && p.score != null)
-  const avg = shelvedScored.length ? Math.round(shelvedScored.reduce((s, p) => s + (p.score ?? 0), 0) / shelvedScored.length) : null
-  const recommended = items.filter((p) => p.score != null && !p.state).sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 3)
+  const recent = items.filter((p) => p.match).slice(0, 6)
+  const shelvedScored = items.filter((p) => p.state && p.match != null)
+  const avg = shelvedScored.length ? Math.round(shelvedScored.reduce((s, p) => s + (p.match?.score ?? 0), 0) / shelvedScored.length) : null
+  const recommended = items.filter((p) => p.match != null && !p.state).sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 3)
   return (
     <div className="page">
       <section className="hero">
@@ -444,7 +444,7 @@ function HomePage({ onNavigate, onOpen, onScan, user, items }: {
             <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
               <img src={p.image} alt="" loading="lazy" />
               <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-              {p.score != null && <ScoreBadge score={p.score} />}
+              {p.match && <ScoreBadge score={p.match.score} />}
             </button>
           ))}
         </div>
@@ -513,8 +513,8 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear, onDel
   }, [shelves])
 
   const avg = (() => {
-    const scored = shelved.filter((p) => p.score != null)
-    return scored.length ? Math.round(scored.reduce((s, p) => s + (p.score ?? 0), 0) / scored.length) : null
+    const scored = shelved.filter((p) => p.match != null)
+    return scored.length ? Math.round(scored.reduce((s, p) => s + (p.match?.score ?? 0), 0) / scored.length) : null
   })()
   const shelfVerdict = avg == null ? "—" : avg >= 80 ? "Отлично" : avg >= 60 ? "Нормально" : "Есть конфликты"
 
@@ -677,14 +677,11 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
       name: n || "Продукт",
       cabinet: "face",
       category: "Специальный уход",
-      score,
-      verdict,
       image: image || products[6].image,
       tags: [],
-      checked: score != null,
-      report: false,
       state: "want",
       slug: productSlug,
+      match: score != null ? { score, verdict: verdict ?? undefined } : undefined,
     }
   }
 
@@ -845,7 +842,7 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
             <div>
               <h3>{result.name}</h3>
               <p>{result.brand} · {result.category}</p>
-              {result.verdict && <VerdictPill verdict={result.verdict} score={result.score} />}
+              {result.match?.verdict && <VerdictPill verdict={result.match.verdict as Verdict} score={result.match.score} />}
             </div>
           </div>
           <div className="scan-form__row scan-ready__edit">
@@ -913,7 +910,7 @@ function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
             <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
               <img src={p.image} alt="" loading="lazy" />
               <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-              {p.score != null && <ScoreBadge score={p.score} />}
+              {p.match && <ScoreBadge score={p.match.score} />}
             </button>
           ))}
         </div>
@@ -1151,17 +1148,17 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   onAddToShelf: (p: Product) => void; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
-    product.checked && product.report ? "report" : product.checked ? "match" : "idle"
+    product.match?.report ? "report" : product.match ? "match" : "idle"
   )
-  const [score, setScore] = useState<number | null>(product.score)
-  const [verdict, setVerdict] = useState<Verdict | null>(product.verdict)
+  const [score, setScore] = useState<number | null>(product.match?.score ?? null)
+  const [verdict, setVerdict] = useState<Verdict | null>((product.match?.verdict as Verdict) ?? null)
   const [closing, setClosing] = useState(false)
   const [rating, setRating] = useState(0)
   const [review, setReview] = useState("")
   const [anonymous, setAnonymous] = useState(false)
   const [sent, setSent] = useState(false)
-  const [safeList, setSafeList] = useState<string[]>([])
-  const [cautionList, setCautionList] = useState<string[]>([])
+  const [safeList, setSafeList] = useState<string[]>(product.match?.safe_ingredients || [])
+  const [cautionList, setCautionList] = useState<string[]>(product.match?.caution_ingredients || [])
   const [adding, setAdding] = useState(false)
 
   const addToShelf = async () => {
@@ -1200,15 +1197,18 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
           res = await api.check({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile() })
         }
       }
-      const s = res.score ?? 60
+      if (typeof res.score !== "number") {
+        // API не вернул score — проверка неуспешна, процент не показываем.
+        setPhase("idle")
+        return
+      }
+      const s = res.score
       const v: Verdict = res.verdict === "Подходит" ? "Подходит" : res.verdict === "Не подходит" ? "Не подходит" : "Допустимо"
       setScore(s); setVerdict(v); setSafeList(res.safe_ingredients || []); setCautionList(res.caution_ingredients || []); setPhase("match")
       onChecked(product.id, s, v)
     } catch {
-      const s = 60 + ((product.id * 13) % 35)
-      const v: Verdict = s >= 80 ? "Подходит" : s >= 60 ? "Допустимо" : "Не подходит"
-      setScore(s); setVerdict(v); setPhase("match")
-      onChecked(product.id, s, v)
+      // Ошибка проверки — не выдумываем fake/random процент.
+      setPhase("idle")
     }
   }
 
@@ -1307,7 +1307,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               <section><h4>Проблемные моменты</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><span>{s}</span></li>)}</ul></section>
               <section><h4>Ключевые компоненты</h4><ul className="actives">{actives.map((a) => (<li key={a.name}><span className="actives__name">{a.name}</span><span className="actives__effect">{a.effect}</span><span className="actives__conc">{a.conc}</span></li>))}</ul></section>
               <section><h4>Состав (INCI)</h4><p className="inci">{product.ingredients || "Состав не распознан"}</p></section>
-              {similar.length > 0 && (<section><h4>Проверьте ещё</h4><div className="rec-list">{similar.map((p) => (<button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}><img src={p.image} alt="" loading="lazy" /><span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>{p.score != null && <ScoreBadge score={p.score} />}</button>))}</div></section>)}
+              {similar.length > 0 && (<section><h4>Проверьте ещё</h4><div className="rec-list">{similar.map((p) => (<button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}><img src={p.image} alt="" loading="lazy" /><span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>{p.match && <ScoreBadge score={p.match.score} />}</button>))}</div></section>)}
             </div>
           )}
 
@@ -1722,13 +1722,13 @@ export default function App() {
 
   const onChecking = (id: number) => setCheckingIds((prev) => new Set(prev).add(id))
   const onChecked = (id: number, score: number, verdict: Verdict) => {
-    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, checked: true, score, verdict } : p)))
-    setOpen((o) => (o && o.id === id ? { ...o, checked: true, score, verdict } : o))
+    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: { score, verdict } } : p)))
+    setOpen((o) => (o && o.id === id ? { ...o, match: { score, verdict } } : o))
     setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
   }
   const onReported = (id: number) => {
-    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, report: true } : p)))
-    setOpen((o) => (o && o.id === id ? { ...o, report: true } : o))
+    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: p.match ? { ...p.match, report: " " } : undefined } : p)))
+    setOpen((o) => (o && o.id === id ? { ...o, match: o.match ? { ...o.match, report: " " } : undefined } : o))
   }
 
   const handleLogin = (u: User) => { setUser(u); setAuthModal(null) }
@@ -1751,7 +1751,7 @@ export default function App() {
       setAuthModal("login")
     } else {
       // На полке только проверенные: если ещё не проверен — авто-проверяем перед добавлением.
-      if (!p.checked) {
+      if (!p.match) {
         try { await api.check({ product_name: p.name, skin_type: getUserProfile().skinType, profile: buildProfile() }) } catch { /* ignore */ }
       }
       try {
