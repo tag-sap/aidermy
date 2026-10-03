@@ -481,7 +481,14 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
             print(f"[CHECK] enrichment apply failed: {exc!r}")
 
     # 2) Детерминированный скор — теперь на полной базе знаний (после research/enrichment).
-    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+    # Layer 2 — internal ingredient interactions (по ACTUAL normalized composition + KB).
+    interactions = None
+    try:
+        from .product_model import get_internal_interactions
+        interactions = get_internal_interactions({"ingredients": ingredients}) or None
+    except Exception:
+        interactions = None
+    deterministic = engine.analyze(product_name, ingredients, profile, skin_type, interactions=interactions)
 
     # 3) AI-отчёт (report) — человеческое объяснение причин («Почему»).
     #    Получает structured factors и НЕ переопределяет score/verdict.
