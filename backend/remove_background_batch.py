@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.remove_background import remove_background  # noqa: E402
 from app.database import get_connection, PRODUCTS_DB  # noqa: E402
+from app.image_storage import upload_image, processed_key  # noqa: E402
 
 
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "processed_images"
@@ -54,6 +55,8 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=0, help="Обработать не более N товаров (0 — все)")
     parser.add_argument("--out", type=str, default=str(DEFAULT_OUT), help="Каталог для результата")
     parser.add_argument("--timeout", type=float, default=20.0, help="Таймаут загрузки изображения, сек")
+    parser.add_argument("--upload", action="store_true", help="Загрузить обработанные PNG в Yandex Object Storage")
+    parser.add_argument("--update-db", action="store_true", help="Обновить image_url в products.db на обработанный (только с --upload)")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -78,7 +81,14 @@ def main() -> int:
     ok = 0
     skipped = 0
     errors = 0
+    uploaded = 0
     errors_log: list[str] = []
+
+    db_conn = None
+    db_cursor = None
+    if args.update_db:
+        db_conn = get_connection(PRODUCTS_DB)
+        db_cursor = db_conn.cursor()
 
     client = httpx.Client(timeout=args.timeout, follow_redirects=True, headers={
         "User-Agent": "aidermy-image-pipeline/1.0"
@@ -120,6 +130,22 @@ def main() -> int:
             continue
 
         out_path.write_bytes(result)
+
+        # Опционально: публикуем обработанный PNG в Object Storage и подменяем URL.
+        if args.upload:
+            try:
+                key_processed = processed_key(slug or f"product-{pid}")
+                url = upload_image(key_processed, result)
+                uploaded += 1
+                if args.update_db:
+                    db_cursor.execute(
+                        "UPDATE products SET image_url = ? WHERE id = ?",
+                        (url, pid),
+                    )
+                    db_conn.commit()
+            except Exception as exc:
+                errors_log.append(f"upload {pid} {safe_slug}: {exc}")
+
         processed.add(key)
         ok += 1
 
@@ -128,6 +154,8 @@ def main() -> int:
             print(f"  ... обработано {ok}", flush=True)
 
     client.close()
+    if db_conn is not None:
+        db_conn.close()
     save_state(state_path, processed)
 
     print("\n=== СТАТИСТИКА ===")
@@ -135,6 +163,8 @@ def main() -> int:
     print(f"обработано: {ok}")
     print(f"пропущено:  {skipped}")
     print(f"ошибок:     {errors}")
+    if args.upload:
+        print(f"загружено:  {uploaded}")
     print(f"\nРезультат:   {out_dir}")
     print(f"Оригиналы:   {originals_dir}")
     if errors_log:
