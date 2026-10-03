@@ -551,6 +551,7 @@ async def generate_full_report(
     profile: dict,
     skin_type: str = "Нормальная",
     product_type: str = "",
+    saved_analysis: dict | None = None,
 ) -> dict:
     """Генерирует ВСЕ блоки отчёта по готовому результату scoring engine.
 
@@ -558,11 +559,16 @@ async def generate_full_report(
     Процент/verdict НЕ пересчитываются — LLM только объясняет готовый результат
     и определяет ключевой ингредиент. canonical_category (product_type) — только
     контекст текста отчёта.
+
+    saved_analysis — уже рассчитанный User Analysis (score + factors). Если
+    передан, используется ОН (единый источник истины), а не повторный
+    deterministic-пересчёт (который мог бы дать другой процент из-за другого
+    профиля и тем самым породить расхождение Match vs Report).
     """
     from .decision_engine import DecisionEngine
 
     engine = DecisionEngine()
-    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+    deterministic = saved_analysis if saved_analysis else engine.analyze(product_name, ingredients, profile, skin_type)
     has_factors = bool(deterministic.get("positive_factors") or deterministic.get("negative_factors"))
 
     report = None
@@ -788,6 +794,21 @@ def build_active_ingredient(analysis: dict) -> dict | None:
     }
 
 
+def _ingredient_in_composition(name: str, ingredients: list) -> bool:
+    """True, если каноническое имя ингредиента реально присутствует в составе.
+
+    Защита от AI-галлюцинаций: ключевой ингредиент обязан быть в фактическом INCI.
+    """
+    from .ingredient_normalizer import canonicalize_ingredient_name
+
+    canon_name = canonicalize_ingredient_name(name)
+    if not canon_name:
+        return False
+    canon_set = {canonicalize_ingredient_name(i) for i in ingredients}
+    canon_set.discard("")
+    return any(canon_name in c or c in canon_name for c in canon_set if c)
+
+
 async def identify_key_ingredient_with_ai(product_name: str, ingredients: str | list) -> dict | None:
     """AI определяет КЛЮЧЕВОЙ (активный) ингредиент продукта.
 
@@ -849,6 +870,9 @@ async def identify_key_ingredient_with_ai(product_name: str, ingredients: str | 
                 parsed = extract_json_from_response(content)
                 if isinstance(parsed, dict) and parsed.get("name"):
                     name = str(parsed["name"]).strip()
+                    # Защита от галлюцинации: ключевой ингредиент обязан быть в составе.
+                    if not _ingredient_in_composition(name, ing_list):
+                        continue
                     position_raw = str(parsed.get("position") or "")
                     position = int(position_raw) if position_raw.isdigit() else 1
                     return {"name": name, "position": position}
