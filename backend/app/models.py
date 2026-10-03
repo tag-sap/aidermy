@@ -60,6 +60,7 @@ class CheckResponse(BaseModel):
     how_to_use: Optional[HowToUse] = None
     expectations: Optional[Expectations] = None
     report: Optional[str] = None
+    analysis_id: Optional[int] = None
 
 class CheckWithIngredientsRequest(BaseModel):
     product_name: str

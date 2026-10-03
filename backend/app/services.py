@@ -542,6 +542,8 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'expectations': sections.get('expectations'),
         'ingredient_claims': ingredient_claims or [],
         'research_status': research_status,
+        # Полный deterministic-результат Score Engine — источник истины для Report.
+        'deterministic': deterministic,
     }
 
 

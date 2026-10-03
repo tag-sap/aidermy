@@ -487,14 +487,16 @@ async def check_product(
 
         # Сохраняем СИСТЕМНУЮ проверку (Слой 1) в актуальный User Analysis.
         # Описание (report) НЕ сохраняется здесь — оно запрашивается отдельно.
+        analysis_id = None
         if user_id:
-            _save_system_analysis(
+            saved = _save_system_analysis(
                 current_user,
                 product_id=product_id,
                 slug=slug or "",
                 result=result,
                 profile_snapshot=request.profile.dict(),
             )
+            analysis_id = saved.get("id") if saved else None
 
         pending = bool(result.get("pending"))
         return CheckResponse(
@@ -510,6 +512,7 @@ async def check_product(
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
             report=result.get("report"),
+            analysis_id=analysis_id,
             pending=pending,
         )
     except Exception as e:
@@ -942,6 +945,7 @@ class ShelfClearRequest(BaseModel):
 
 class ShelfAnalyzeRequest(BaseModel):
     slug: str = ""
+    analysis_id: Optional[int] = None
 
 
 SHELF_CATEGORIES = ["Очищение", "Тонер", "Сыворотка", "Крем", "SPF", "Маска"]
@@ -989,6 +993,7 @@ def _save_system_analysis(user: dict, product_id: int | None, slug: str, result:
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
             profile_snapshot=_json.dumps(profile_snapshot or {}, ensure_ascii=False),
+            deterministic_json=_json.dumps(result.get("deterministic") or {}, ensure_ascii=False),
         )
     except Exception as exc:
         print(f"[ANALYSIS] save failed: {exc!r}")
@@ -1382,8 +1387,16 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
 
     name = (product.get("name") or "").replace("\n", " ").strip()
 
-    # Источник — актуальный User Analysis.
-    score, analysis = score_product(current_user, product)
+    # Источник — конкретный User Analysis (analysis_id из Clean Result) либо
+    # актуальный по slug (legacy). Report НЕ пересчитывает Score Engine.
+    from .database import get_analysis_by_id
+    if request.analysis_id:
+        analysis = get_analysis_by_id(current_user["id"], request.analysis_id)
+        if not analysis:
+            raise HTTPException(status_code=404, detail="Анализ не найден")
+        score = analysis.get("score")
+    else:
+        score, analysis = score_product(current_user, product)
     if score is None:
         raise HTTPException(status_code=409, detail="Анализ ещё не выполнен — сначала проверьте совместимость.")
 
@@ -1403,7 +1416,14 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     skin_type = profile.get("skin_type") or "Нормальная"
     product_type = classify_product(product).get("canonical_category") or ""
     try:
-        full = await generate_full_report(name, product.get("ingredients") or "", profile, skin_type, product_type)
+        full = await generate_full_report(
+            name,
+            product.get("ingredients") or "",
+            profile,
+            skin_type,
+            product_type,
+            saved_analysis=analysis,
+        )
     except Exception as exc:
         print(f"[REVIEW] failed: {exc!r}")
         raise HTTPException(status_code=502, detail="Не удалось сформировать отчёт") from exc

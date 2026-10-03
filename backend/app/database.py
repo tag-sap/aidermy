@@ -1042,8 +1042,9 @@ def _analysis_json_obj(value):
 
 
 def _analysis_to_dict(row) -> dict:
+    import json as _json
     d = dict(row)
-    return {
+    result = {
         "id": d.get("id"),
         "verdict": d.get("verdict") or "",
         "summary": d.get("summary") or "",
@@ -1057,7 +1058,12 @@ def _analysis_to_dict(row) -> dict:
         "created_at": d.get("created_at"),
         "expires_at": d.get("expires_at"),
     }
-
+    det = d.get("deterministic_json")
+    if det:
+        try:
+            result["deterministic"] = _json.loads(det) if isinstance(det, str) else det
+        except Exception:
+            pass
     return result
 
 
@@ -1107,6 +1113,7 @@ def upsert_analysis(
     how_to_use=None,
     expectations=None,
     profile_snapshot: str = "{}",
+    deterministic_json: str | None = None,
     ttl_days: int | None = ANALYSIS_TTL_DAYS,
 ) -> dict:
     """Сохранение СИСТЕМНОЙ проверки (Слой 1). Обновляет/создаёт одну запись на
@@ -1132,13 +1139,13 @@ def upsert_analysis(
                 slug = ?, score = ?, verdict = ?, summary = ?, report = NULL,
                 safe_ingredients = ?, caution_ingredients = ?,
                 active_ingredients = ?, how_to_use = ?, expectations = ?,
-                profile_snapshot = ?, created_at = ?, expires_at = ?
+                profile_snapshot = ?, deterministic_json = ?, created_at = ?, expires_at = ?
                WHERE id = ?""",
             (
                 slug, int(score), verdict, summary,
                 safe_json, caution_json,
                 active_json, how_json, exp_json,
-                profile_snapshot or "{}", now, expires, existing["id"],
+                profile_snapshot or "{}", deterministic_json, now, expires, existing["id"],
             ),
         )
         analysis_id = existing["id"]
@@ -1147,12 +1154,12 @@ def upsert_analysis(
             """INSERT INTO analysis (
                 user_id, product_id, slug, score, verdict, summary, report,
                 safe_ingredients, caution_ingredients, active_ingredients,
-                how_to_use, expectations, profile_snapshot, created_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                how_to_use, expectations, profile_snapshot, deterministic_json, created_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 user_id, product_id, slug, int(score), verdict, summary,
                 safe_json, caution_json, active_json, how_json, exp_json,
-                profile_snapshot or "{}", now, expires,
+                profile_snapshot or "{}", deterministic_json, now, expires,
             ),
         )
         analysis_id = cursor.lastrowid
@@ -1161,6 +1168,15 @@ def upsert_analysis(
     row = cursor.execute("SELECT * FROM analysis WHERE id = ?", (analysis_id,)).fetchone()
     conn.close()
     return _analysis_to_dict(row) if row else {}
+
+
+def get_analysis_by_id(user_id: int, analysis_id: int):
+    """Возвращает User Analysis по ID (с парсингом deterministic_json)."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    row = cursor.execute("SELECT * FROM analysis WHERE id = ? AND user_id = ?", (analysis_id, user_id)).fetchone()
+    conn.close()
+    return _analysis_to_dict(row) if row else None
 
 
 def get_current_analysis(user_id: int, product_id: int | None = None, slug: str = ""):
