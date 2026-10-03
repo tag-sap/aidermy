@@ -50,6 +50,7 @@ export function mapApiProduct(api: ApiProduct): Product {
     checked: score != null,
     report: false,
     slug: api.slug,
+    ingredients: api.ingredients || "",
   }
 }
 
@@ -73,6 +74,7 @@ export function mapShelfItem(item: ShelfItem): Product {
     slug: item.slug,
     shelf_id: item.shelf_id,
     needs_recheck: item.needs_recheck ?? false,
+    ingredients: item.ingredients || "",
   }
 }
 

@@ -23,6 +23,7 @@ export type Product = {
   slug?: string
   shelf_id?: number
   needs_recheck?: boolean
+  ingredients?: string
 }
 
 export type Cabinet = { key: CabinetKey; title: string; short: string; hasScoring: boolean; categories: string[] }
@@ -230,6 +231,7 @@ export const PROCEDURE_OPTIONS: QuizOption[] = [
   { id: "recent_fillers", label: "Филлеры" },
   { id: "recent_biorevitalization", label: "Биоревитализация" },
   { id: "recent_mesotherapy", label: "Мезотерапия" },
+  { id: "recent_peeling", label: "Пилинг" },
   { id: "none", label: "Ничего не было" },
 ]
 
@@ -254,6 +256,7 @@ export const GOALS_OPTIONS: QuizOption[] = [
   { id: "barrier", label: "Восстановить барьер кожи" },
   { id: "hydration", label: "Увлажнить кожу" },
   { id: "sebum", label: "Убрать жирный блеск" },
+  { id: "acne", label: "Убрать акне" },
   { id: "brightening", label: "Выровнять тон" },
   { id: "anti_age", label: "Разгладить морщины" },
   { id: "calm", label: "Успокоить кожу" },

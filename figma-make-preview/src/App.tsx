@@ -587,7 +587,9 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
 }) {
   const [cabinet, setCabinet] = useState<"all" | CabinetKey>("all")
   const [cat, setCat] = useState<string>("Все")
+  const [search, setSearch] = useState(query)
   const [scrolled, setScrolled] = useState(false)
+  useEffect(() => { setSearch(query) }, [query])
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 400)
     window.addEventListener("scroll", onScroll, { passive: true })
@@ -597,14 +599,14 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
   const activeCab = CABINETS.find((c) => c.key === cabinet) ?? null
   const cats = activeCab ? ["Все", ...activeCab.categories] : ["Все"]
   const list = useMemo(() => {
-    const needle = query.trim().toLowerCase()
+    const needle = search.trim().toLowerCase()
     return items.filter((p) => {
       if (cabinet !== "all" && p.cabinet !== cabinet) return false
       if (cat !== "Все" && p.category !== cat) return false
       if (!needle) return true
       return [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(needle)
     })
-  }, [items, query, cabinet, cat])
+  }, [items, search, cabinet, cat])
 
   useEffect(() => { setCat("Все") }, [cabinet])
 
@@ -613,8 +615,8 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
       <PageHeading eyebrow="База продуктов" title="Каталог" lead="Проверяйте составы и находите продукты под особенности вашей кожи." />
       <div className="search">
         <Icon name="search" size={18} />
-        <input value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Название, бренд или актив…" />
-        {query && <button type="button" onClick={() => onQuery("")} className="search__clear" aria-label="Очистить"><Icon name="close" size={15} /></button>}
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Название, бренд или актив…" />
+        {search && <button type="button" onClick={() => setSearch("")} className="search__clear" aria-label="Очистить"><Icon name="close" size={15} /></button>}
       </div>
       <div className="tabs">
         <button type="button" className={`tab ${cabinet === "all" ? "tab--active" : ""}`} onClick={() => setCabinet("all")}>Все</button>
@@ -709,8 +711,14 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
         const checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile })
         setResult(buildResult(brand.trim(), name.trim(), imageUrl || checkRes.image_url || "", slug || checkRes.slug, checkRes as { score?: number | null; verdict?: string }))
       } else {
-        // inci / manual — анализируем распознанный/введённый состав
-        const checkRes = await api.checkWithIngredients({ product_name: name.trim(), brand: brand.trim(), skin_type: skinType, profile, ingredients: inci })
+        // inci / manual — анализируем распознанный/введённый состав; если состава
+        // нет (не распознался) — проверяем по названию (бэкенд возьмёт INCI из БД).
+        let checkRes
+        if (inci.trim()) {
+          checkRes = await api.checkWithIngredients({ product_name: name.trim(), brand: brand.trim(), skin_type: skinType, profile, ingredients: inci })
+        } else {
+          checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile })
+        }
         setResult(buildResult(brand.trim(), name.trim(), "", "", checkRes as { score?: number | null; verdict?: string }))
       }
       setPhase("ready")
@@ -756,9 +764,9 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
       const dataUrl = await readFileAsDataUrl(file)
       const res = (await api.compositionRecognize({ images: [dataUrl] })) as { normalized_ingredients?: string[] }
       const ingr = res.normalized_ingredients || []
-      setInci(ingr.length ? ingr.join(", ") : "Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.")
+      setInci(ingr.length ? ingr.join(", ") : "")
     } catch {
-      setInci("Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.")
+      setInci("")
     } finally {
       setBusy(false)
     }
@@ -1185,8 +1193,12 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
         // Продукт из каталога — проверяем по имени; бэкенд сохранит анализ (для полки).
         res = await api.check({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile() })
       } else {
-        const inci = "Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol."
-        res = await api.checkWithIngredients({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile(), ingredients: inci })
+        const inci = product.ingredients || ""
+        if (inci.trim()) {
+          res = await api.checkWithIngredients({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile(), ingredients: inci })
+        } else {
+          res = await api.check({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile() })
+        }
       }
       const s = res.score ?? 60
       const v: Verdict = res.verdict === "Подходит" ? "Подходит" : res.verdict === "Не подходит" ? "Не подходит" : "Допустимо"
@@ -1248,7 +1260,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
           {phase === "idle" && (
             <div className="drawer__body">
               <p className="drawer__note">Состав (INCI)</p>
-              <p className="inci">Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.</p>
+              <p className="inci">{product.ingredients || "Состав не распознан"}</p>
               <div className="drawer__cta"><Button icon="sparkle" className="w-full" onClick={check}>{product.needs_recheck ? "Перепроверить" : "Проверить совместимость"}</Button></div>
             </div>
           )}
@@ -1294,7 +1306,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               <section><h4>Почему такой результат</h4><ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul></section>
               <section><h4>Проблемные моменты</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><span>{s}</span></li>)}</ul></section>
               <section><h4>Ключевые компоненты</h4><ul className="actives">{actives.map((a) => (<li key={a.name}><span className="actives__name">{a.name}</span><span className="actives__effect">{a.effect}</span><span className="actives__conc">{a.conc}</span></li>))}</ul></section>
-              <section><h4>Состав (INCI)</h4><p className="inci">Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.</p></section>
+              <section><h4>Состав (INCI)</h4><p className="inci">{product.ingredients || "Состав не распознан"}</p></section>
               {similar.length > 0 && (<section><h4>Проверьте ещё</h4><div className="rec-list">{similar.map((p) => (<button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}><img src={p.image} alt="" loading="lazy" /><span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>{p.score != null && <ScoreBadge score={p.score} />}</button>))}</div></section>)}
             </div>
           )}
@@ -1681,8 +1693,8 @@ export default function App() {
             }
           }
         }
-        if (mapped.length) setShelfItems(mapped)
-        if (shelfIds.size) setItems((cur) => cur.map((p) => (shelfIds.has(p.id) ? { ...p, state: "using" } : p)))
+        setShelfItems(mapped)
+        setItems((cur) => cur.map((p) => (shelfIds.has(p.id) ? { ...p, state: "using" } : p)))
       })
       .catch(() => {})
   }
@@ -1771,6 +1783,9 @@ export default function App() {
     if (clearCabinet && getToken()) {
       try { await api.clearShelf(clearCabinet) } catch { /* ignore */ }
     }
+    // Мгновенно убираем с полки локально, не дожидаясь перезагрузки.
+    setShelfItems((cur) => cur.filter((p) => p.cabinet !== clearCabinet))
+    setItems((cur) => cur.map((p) => (p.cabinet === clearCabinet ? { ...p, state: undefined, shelf_id: undefined } : p)))
     setClearCabinet(null)
     loadShelf()
   }

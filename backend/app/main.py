@@ -1403,7 +1403,14 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     skin_type = profile.get("skin_type") or "Нормальная"
     product_type = classify_product(product).get("canonical_category") or ""
     try:
-        full = await generate_full_report(name, product.get("ingredients") or "", profile, skin_type, product_type)
+        full = await generate_full_report(
+            name,
+            product.get("ingredients") or "",
+            profile,
+            skin_type,
+            product_type,
+            saved_analysis=analysis,
+        )
     except Exception as exc:
         print(f"[REVIEW] failed: {exc!r}")
         raise HTTPException(status_code=502, detail="Не удалось сформировать отчёт") from exc

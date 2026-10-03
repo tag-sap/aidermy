@@ -551,6 +551,7 @@ async def generate_full_report(
     profile: dict,
     skin_type: str = "Нормальная",
     product_type: str = "",
+    saved_analysis: dict | None = None,
 ) -> dict:
     """Генерирует ВСЕ блоки отчёта по готовому результату scoring engine.
 
@@ -558,11 +559,16 @@ async def generate_full_report(
     Процент/verdict НЕ пересчитываются — LLM только объясняет готовый результат
     и определяет ключевой ингредиент. canonical_category (product_type) — только
     контекст текста отчёта.
+
+    saved_analysis — уже рассчитанный User Analysis (score + factors). Если
+    передан, используется ОН (единый источник истины), а не повторный
+    deterministic-пересчёт (который мог бы дать другой процент из-за другого
+    профиля и тем самым породить расхождение Match vs Report).
     """
     from .decision_engine import DecisionEngine
 
     engine = DecisionEngine()
-    deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+    deterministic = saved_analysis if saved_analysis else engine.analyze(product_name, ingredients, profile, skin_type)
     has_factors = bool(deterministic.get("positive_factors") or deterministic.get("negative_factors"))
 
     report = None
