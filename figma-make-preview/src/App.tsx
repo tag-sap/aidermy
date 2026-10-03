@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
 import { api, setToken, getToken } from "./api"
-import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile } from "./mapping"
+import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -258,7 +258,7 @@ function Sidebar({ page, onNavigate, user, onAuth, onPricing, onPoints }: {
       )}
       <button type="button" className="profile-mini" onClick={() => onNavigate("profile")}>
         <Avatar size={30} initials={user?.initials ?? "Г"} />
-        <span><strong>{user?.name ?? "Гость"}</strong><small>{user ? skinProfile.skinType : "Тип кожи не задан"}</small></span>
+        <span><strong>{user?.name ?? "Гость"}</strong><small>{user ? getUserProfile().skinType : "Тип кожи не задан"}</small></span>
         <Icon name="chevron" size={15} />
       </button>
     </aside>
@@ -407,7 +407,7 @@ function HomePage({ onNavigate, onOpen, onScan, user, items }: {
       </section>
 
       <div className="grid-2">
-        <section className="panel panel--click" onClick={() => onNavigate("report")}>
+        <section className="panel panel--click" onClick={() => onNavigate("shelf")}>
           <p className="eyebrow">Моя полка · сводка</p>
           <div className="report-preview">
             <div className="report-preview__num"><strong>{avg ?? "—"}</strong><span>{avg != null ? "%" : ""}</span></div>
@@ -417,10 +417,11 @@ function HomePage({ onNavigate, onOpen, onScan, user, items }: {
 
         <section className="panel">
           <p className="eyebrow">Профиль кожи</p>
-          <h3 className="panel__h3">{skinProfile.skinType}</h3>
+          <h3 className="panel__h3">{getUserProfile().skinType}</h3>
           <div className="chips">
-            {skinProfile.goals.map((g) => <span key={g} className="chip">{g}</span>)}
-            <span className="chip chip--warn">чувствительная</span>
+            {getUserProfile().concerns.slice(0, 3).map((g) => <span key={g} className="chip">{g}</span>)}
+            {getUserProfile().allergies.slice(0, 2).map((t) => <span key={t} className="chip">{t}</span>)}
+            {getUserProfile().concerns.length === 0 && getUserProfile().allergies.length === 0 && <span className="chip">Профиль не заполнен</span>}
           </div>
           <Button variant="ghost" small icon="user" onClick={() => onNavigate("profile")} className="mt">Перепройти опрос</Button>
         </section>
@@ -688,7 +689,7 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
   const run = async () => {
     if (!canRun) return
     setPhase("recognizing")
-    const skinType = skinProfile.skinType
+    const skinType = getUserProfile().skinType
     const profile = buildProfile()
     try {
       if (method === "link") {
@@ -894,7 +895,7 @@ function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
         </section>
         <section className="panel">
           <h3 className="panel__h3">На что обратить внимание</h3>
-          <ul className="obs obs--warn">{shelfReport.attention.map((g) => <li key={g}><Icon name="alert" size={15} /><span>{g}</span></li>)}</ul>
+          <ul className="obs obs--warn">{shelfReport.attention.map((g) => <li key={g}><span>{g}</span></li>)}</ul>
         </section>
       </div>
       <section className="block">
@@ -1019,7 +1020,7 @@ function Questionnaire({ onDone }: { onDone: (p: { skinType: string; age?: strin
                 <button type="button" className={`quiz__opt ${on ? "quiz__opt--on" : ""}`} onClick={() => setProcedures((prev) => { const c = { ...prev }; if (c[o.id]) delete c[o.id]; else c[o.id] = "<7"; return c })}>
                   <span>{o.label}</span>{on && <Icon name="check" size={16} />}
                 </button>
-                {on && (
+                {on && o.id !== "none" && (
                   <div className="quiz__proc-periods">
                     {PROCEDURE_PERIODS.map((p) => (
                       <button key={p.id} type="button" className={`chip ${procedures[o.id] === p.id ? "chip--on" : ""}`} onClick={() => setProcedures((prev) => ({ ...prev, [o.id]: p.id }))}>{p.label}</button>
@@ -1080,13 +1081,15 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
   user: User | null; onAuth: () => void; onPricing: () => void; onLogout: () => void; onPoints: () => void
 }) {
   const [quiz, setQuiz] = useState(false)
-  const [skinType, setSkinType] = useState(skinProfile.skinType)
+  const [skinType, setSkinType] = useState(getUserProfile().skinType)
   if (quiz) {
     return (
       <div className="page">
         <PageHeading eyebrow="Профиль" title="Опрос кожи" lead="Несколько шагов — и профиль станет точнее." />
         <Questionnaire onDone={(p) => {
           const skinTypeLabel = SKIN_TYPE_OPTIONS.find((o) => o.id === p.skinType)?.label ?? p.skinType
+          const pd = { skinType: skinTypeLabel, age: p.age ?? "", concerns: p.concerns ?? [], allergies: p.allergies ?? [], structured: null }
+          setUserProfile(pd)
           setSkinType(skinTypeLabel)
           setQuiz(false)
           if (getToken()) {
@@ -1126,10 +1129,9 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
         </div>
       </div>
       <div className="profile-grid">
-        <section className="panel"><p className="eyebrow">Тип кожи</p><h3 className="panel__h3">{skinType}</h3><div className="chips">{skinProfile.goals.map((g) => <span key={g} className="chip">{g}</span>)}</div></section>
-        <section className="panel"><p className="eyebrow">Чувствительность</p><h3 className="panel__h3">{skinProfile.sensitivity}</h3><p className="panel__note">Избегает: {skinProfile.avoid.join(", ")}</p></section>
-        <section className="panel"><p className="eyebrow">Активное лечение</p><ul className="kv">{skinProfile.therapy.map((t) => <li key={t}>{t}</li>)}</ul></section>
-        <section className="panel"><p className="eyebrow">Непереносимости</p><div className="chips">{skinProfile.intolerances.map((t) => <span key={t} className="chip chip--warn">{t}</span>)}</div></section>
+        <section className="panel"><p className="eyebrow">Тип кожи</p><h3 className="panel__h3">{skinType}</h3></section>
+        <section className="panel"><p className="eyebrow">Проблемы</p>{getUserProfile().concerns.length ? <div className="chips">{getUserProfile().concerns.map((g) => <span key={g} className="chip">{g}</span>)}</div> : <p className="panel__note">Не указаны</p>}</section>
+        <section className="panel"><p className="eyebrow">Непереносимости</p>{getUserProfile().allergies.length ? <div className="chips">{getUserProfile().allergies.map((t) => <span key={t} className="chip">{t}</span>)}</div> : <p className="panel__note">Не указаны</p>}</section>
       </div>
       <section className="block"><p className="profile-note">Совместимость каждого продукта рассчитывается по этому профилю и текущей полке. Чем точнее заполнен профиль, тем точнее результат проверки.</p></section>
     </div>
@@ -1181,10 +1183,10 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
       let res
       if (product.slug) {
         // Продукт из каталога — проверяем по имени; бэкенд сохранит анализ (для полки).
-        res = await api.check({ product_name: product.name, skin_type: skinProfile.skinType, profile: buildProfile() })
+        res = await api.check({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile() })
       } else {
         const inci = "Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol."
-        res = await api.checkWithIngredients({ product_name: product.name, skin_type: skinProfile.skinType, profile: buildProfile(), ingredients: inci })
+        res = await api.checkWithIngredients({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile(), ingredients: inci })
       }
       const s = res.score ?? 60
       const v: Verdict = res.verdict === "Подходит" ? "Подходит" : res.verdict === "Не подходит" ? "Не подходит" : "Допустимо"
@@ -1266,7 +1268,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
                 <div><VerdictPill verdict={verdict} score={score} /><p className="drawer__score-note">Детерминированная проверка состава относительно вашего профиля.</p></div>
               </div>
               <section><h4>Что хорошо</h4><ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul></section>
-              <section><h4>На что обратить внимание</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><Icon name="alert" size={15} /><span>{s}</span></li>)}</ul></section>
+              <section><h4>На что обратить внимание</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><span>{s}</span></li>)}</ul></section>
               <div className="drawer__cta">
                 {!user ? (
                   <Button icon="lock" className="w-full" onClick={showReport}>Показать отчёт — войдите</Button>
@@ -1290,7 +1292,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               <div className="drawer__report-head"><p className="eyebrow">Отчёт по продукту</p>{score != null && <ScoreBadge score={score} />}</div>
               <p className="drawer__report-summary">{reportText || `Результат ${score}% — ${verdict?.toLowerCase()}. Состав в целом соответствует вашему профилю: увлажняющие и успокаивающие компоненты поддерживают барьер, агрессивных активов нет.`}</p>
               <section><h4>Почему такой результат</h4><ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul></section>
-              <section><h4>Проблемные моменты</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><Icon name="alert" size={15} /><span>{s}</span></li>)}</ul></section>
+              <section><h4>Проблемные моменты</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><span>{s}</span></li>)}</ul></section>
               <section><h4>Ключевые компоненты</h4><ul className="actives">{actives.map((a) => (<li key={a.name}><span className="actives__name">{a.name}</span><span className="actives__effect">{a.effect}</span><span className="actives__conc">{a.conc}</span></li>))}</ul></section>
               <section><h4>Состав (INCI)</h4><p className="inci">Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.</p></section>
               {similar.length > 0 && (<section><h4>Проверьте ещё</h4><div className="rec-list">{similar.map((p) => (<button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}><img src={p.image} alt="" loading="lazy" /><span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>{p.score != null && <ScoreBadge score={p.score} />}</button>))}</div></section>)}
@@ -1637,6 +1639,21 @@ export default function App() {
         setUser({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: u.balance || 0 })
       })
       .catch(() => setToken(null))
+    api.getProfile()
+      .then((r) => {
+        const p = (r.profile || {}) as { skinType?: string; age?: string; concerns?: string[]; allergies?: string[]; structuredProfile?: unknown }
+        if (p.skinType || p.age || p.concerns?.length || p.allergies?.length) {
+          const pd = {
+            skinType: p.skinType || getUserProfile().skinType,
+            age: p.age || getUserProfile().age,
+            concerns: p.concerns || [],
+            allergies: p.allergies || [],
+            structured: p.structuredProfile || null,
+          }
+          setUserProfile(pd)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // Загрузка реальных продуктов из каталога (фолбэк — mock).
@@ -1723,7 +1740,7 @@ export default function App() {
     } else {
       // На полке только проверенные: если ещё не проверен — авто-проверяем перед добавлением.
       if (!p.checked) {
-        try { await api.check({ product_name: p.name, skin_type: skinProfile.skinType, profile: buildProfile() }) } catch { /* ignore */ }
+        try { await api.check({ product_name: p.name, skin_type: getUserProfile().skinType, profile: buildProfile() }) } catch { /* ignore */ }
       }
       try {
         const res = await api.addToShelf(p.slug, p.category || "", p.cabinet || "face")

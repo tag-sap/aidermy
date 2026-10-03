@@ -139,7 +139,7 @@ export const CONCERN_CARDS: QuizBranch[] = [
     { id: "sebum_type", label: "Что именно?", type: "multi", options: [
       { id: "excess_sebum", label: "Кожа быстро жирнеет" }, { id: "oily_t_zone", label: "Жирная Т-зона" },
       { id: "enlarged_pores", label: "Расширенные поры" }, { id: "visible_pores", label: "Видимые поры" },
-      { id: "blackheads", label: "Чёрные точки" }, { id: "sebaceous_filaments", label: "Сальные нити" },
+      { id: "blackheads", label: "Чёрные точки" },
     ] },
   ] },
   { id: "dryness", label: "Сухость / обезвоженность", shortLabel: "Сухость", questions: [
@@ -226,6 +226,10 @@ export const PROCEDURE_OPTIONS: QuizOption[] = [
   { id: "recent_microneedling", label: "Микронидлинг" },
   { id: "recent_dermabrasion", label: "Дермабразия" },
   { id: "recent_rfa", label: "RF / RFA" },
+  { id: "recent_botox", label: "Ботокс" },
+  { id: "recent_fillers", label: "Филлеры" },
+  { id: "recent_biorevitalization", label: "Биоревитализация" },
+  { id: "recent_mesotherapy", label: "Мезотерапия" },
   { id: "none", label: "Ничего не было" },
 ]
 
@@ -247,12 +251,12 @@ export const INTOLERANCE_OPTIONS: QuizOption[] = [
 ]
 
 export const GOALS_OPTIONS: QuizOption[] = [
-  { id: "barrier", label: "Восстановить барьер" },
-  { id: "hydration", label: "Увлажнение" },
-  { id: "sebum", label: "Себорегуляция" },
-  { id: "brightening", label: "Осветление тона" },
-  { id: "anti_age", label: "Антивозраст" },
-  { id: "calm", label: "Успокоение" },
+  { id: "barrier", label: "Восстановить барьер кожи" },
+  { id: "hydration", label: "Увлажнить кожу" },
+  { id: "sebum", label: "Убрать жирный блеск" },
+  { id: "brightening", label: "Выровнять тон" },
+  { id: "anti_age", label: "Разгладить морщины" },
+  { id: "calm", label: "Успокоить кожу" },
 ]
 
 export const shelfReport = {

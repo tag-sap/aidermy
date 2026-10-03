@@ -120,16 +120,39 @@ export function mapRecommendation(r: { id?: number; slug?: string; name?: string
   }
 }
 
-// Профиль для /api/check — собирается из статичного skinProfile (демо).
+// Профиль пользователя для /api/check. По умолчанию — демо-профиль,
+// но перезаписывается реальными данными анкеты через setUserProfile().
+let _userProfile: {
+  skinType: string; age: string; concerns: string[]; allergies: string[]; structured: unknown
+} = {
+  skinType: "Комбинированная",
+  age: "25-35",
+  concerns: [],
+  allergies: [],
+  structured: null,
+}
+
+export function setUserProfile(p: Partial<typeof _userProfile>) {
+  if (p.skinType) _userProfile.skinType = p.skinType
+  if (p.age) _userProfile.age = p.age
+  if (p.concerns) _userProfile.concerns = p.concerns
+  if (p.allergies) _userProfile.allergies = p.allergies
+  if (p.structured !== undefined) _userProfile.structured = p.structured
+}
+
+export function getUserProfile() {
+  return _userProfile
+}
+
 export function buildProfile() {
   return {
     name: "",
-    age: "25-35",
-    concerns: [] as string[],
-    allergies: [] as string[],
+    age: _userProfile.age || "25-35",
+    concerns: _userProfile.concerns || ([] as string[]),
+    allergies: _userProfile.allergies || ([] as string[]),
     custom_text: "",
     quiz_answers: null,
     skin_type_determined: null,
-    structured: null,
+    structured: _userProfile.structured || null,
   }
 }
