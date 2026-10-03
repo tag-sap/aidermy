@@ -24,11 +24,11 @@ export function splitProductName(raw: string, brand?: string): { brand: string; 
 
 export function mapVerdict(score: number | null, backendVerdict?: string): Verdict | null {
   if (backendVerdict === "Подходит") return "Подходит"
-  if (backendVerdict === "С осторожностью" || backendVerdict === "Нейтрально") return "Осторожно"
+  if (backendVerdict === "С осторожностью" || backendVerdict === "Нейтрально") return "Допустимо"
   if (backendVerdict === "Не подходит") return "Не подходит"
   if (score == null) return null
   if (score >= 80) return "Подходит"
-  if (score >= 60) return "Осторожно"
+  if (score >= 60) return "Допустимо"
   return "Не подходит"
 }
 
@@ -95,21 +95,28 @@ export function mapHistoryItem(h: { id: number; product_name?: string; score?: n
   }
 }
 
+function hashSlug(slug: string): number {
+  let h = 0
+  for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) | 0
+  return Math.abs(h) || 1
+}
+
 export function mapRecommendation(r: { id?: number; slug?: string; name?: string; brand?: string; image_url?: string; score?: number | null }, category: string): Product {
   const score = r.score ?? null
+  const slug = r.slug || ""
   return {
-    id: r.id ?? 0,
+    id: r.id ?? hashSlug(slug || r.name || "rec"),
     brand: r.brand || "",
     name: r.name || "Продукт",
     cabinet: "face",
     category,
     score,
     verdict: mapVerdict(score),
-    image: r.image_url || placeholderImage(r.id ?? 0),
+    image: r.image_url || placeholderImage(r.id ?? hashSlug(slug)),
     tags: category ? [category] : [],
     checked: score != null,
     report: false,
-    slug: r.slug,
+    slug,
   }
 }
 

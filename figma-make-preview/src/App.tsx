@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
 import { api, setToken, getToken } from "./api"
-import { mapApiProduct, mapShelfItem, mapRecommendation, buildProfile } from "./mapping"
+import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile } from "./mapping"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -59,7 +59,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 
 function toneOf(score: number | null, verdict: Verdict | null): "good" | "warn" | "bad" | "neutral" {
   if (verdict === "Подходит") return "good"
-  if (verdict === "Осторожно") return "warn"
+  if (verdict === "Допустимо") return "warn"
   if (verdict === "Не подходит") return "bad"
   if (score == null) return "neutral"
   return score >= 80 ? "good" : score >= 60 ? "warn" : "bad"
@@ -163,18 +163,9 @@ function ScoreRing({ score, label = "совместимость" }: { score: num
   )
 }
 function ProductName({ name }: { name: string }) {
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const textRef = useRef<HTMLSpanElement>(null)
-  useEffect(() => {
-    const w = wrapRef.current, t = textRef.current
-    if (!w || !t) return
-    const diff = t.scrollWidth - w.clientWidth
-    w.style.setProperty("--marquee-dist", `${-diff}px`)
-    w.classList.toggle("pcard__name-wrap--marquee", diff > 0)
-  }, [name])
   return (
-    <div className="pcard__name-wrap" ref={wrapRef}>
-      <span className="pcard__name" ref={textRef}>{name}</span>
+    <div className="pcard__name-wrap">
+      <span className="pcard__name">{name}</span>
     </div>
   )
 }
@@ -524,7 +515,7 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear, onDel
     const scored = shelved.filter((p) => p.score != null)
     return scored.length ? Math.round(scored.reduce((s, p) => s + (p.score ?? 0), 0) / scored.length) : null
   })()
-  const shelfVerdict = avg == null ? "—" : avg >= 80 ? "Отлично" : avg >= 60 ? "Осторожно" : "Конфликт"
+  const shelfVerdict = avg == null ? "—" : avg >= 80 ? "Отлично" : avg >= 60 ? "Нормально" : "Есть конфликты"
 
   return (
     <div className="page">
@@ -660,6 +651,9 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
   const [photoAdded, setPhotoAdded] = useState(false)
   const [inciPhotoAdded, setInciPhotoAdded] = useState(false)
   const [result, setResult] = useState<Product | null>(null)
+  const [slug, setSlug] = useState<string | undefined>(undefined)
+  const [imageUrl, setImageUrl] = useState("")
+  const [busy, setBusy] = useState(false)
 
   const METHODS: { id: ScanMethod; title: string; desc: string; icon: IconName }[] = [
     { id: "photo", title: "Скан по фото упаковки", desc: "Распознаём продукт по фото этикетки", icon: "camera" },
@@ -669,36 +663,61 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
   ]
 
   const needManualFields = method === "inci" || method === "manual"
-  const canRun = method === "photo" ? photoAdded : method === "inci" ? brand.trim().length > 0 && name.trim().length > 0 && inciPhotoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
+  const canRun = busy ? false : method === "photo" ? photoAdded : method === "inci" ? brand.trim().length > 0 && name.trim().length > 0 && inciPhotoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
+
+  const buildResult = (b: string, n: string, image: string, productSlug: string | undefined, res: { score?: number | null; verdict?: string } | undefined): Product => {
+    const score = res?.score ?? null
+    const verdict = mapVerdict(score, res?.verdict)
+    return {
+      id: 900 + Math.floor(Math.random() * 90),
+      brand: b || "Продукт",
+      name: n || "Продукт",
+      cabinet: "face",
+      category: "Специальный уход",
+      score,
+      verdict,
+      image: image || products[6].image,
+      tags: [],
+      checked: score != null,
+      report: false,
+      state: "want",
+      slug: productSlug,
+    }
+  }
 
   const run = async () => {
     if (!canRun) return
     setPhase("recognizing")
-    if (method === "link") {
-      try {
+    const skinType = skinProfile.skinType
+    const profile = buildProfile()
+    try {
+      if (method === "link") {
         const res = await api.importUrl(url.trim())
         const prod = res.product || {}
-        const base = products[6]
-        const p: Product = { ...base, id: prod.id ?? 900 + Math.floor(Math.random() * 90), brand: prod.brand || "Продукт", name: prod.name || "Продукт", image: prod.image_url || base.image, category: prod.category || base.category, checked: false, report: false, score: null, verdict: null, state: "want", slug: prod.slug }
-        setBrand(prod.brand || "")
-        setName(prod.name || "")
-        setInci(prod.ingredients_raw || "")
-        setResult(p)
-        setPhase("ready")
-      } catch {
-        const base = products[6]
-        const p: Product = { ...base, id: 900 + Math.floor(Math.random() * 90), brand: brand.trim() || base.brand, name: name.trim() || base.name, image: base.image, checked: false, report: false, score: null, verdict: null, state: "want" }
-        setResult(p)
-        setPhase("ready")
+        const b = prod.brand || brand.trim()
+        const n = prod.name || name.trim()
+        setBrand(b); setName(n); setInci(prod.ingredients_raw || "")
+        let checkRes
+        if (prod.ingredients_raw) {
+          checkRes = await api.checkWithIngredients({ product_name: n, skin_type: skinType, profile, ingredients: prod.ingredients_raw })
+        } else {
+          checkRes = await api.check({ product_name: n, skin_type: skinType, profile })
+        }
+        setResult(buildResult(b, n, prod.image_url || "", prod.slug, checkRes as { score?: number | null; verdict?: string }))
+      } else if (method === "photo") {
+        const checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile })
+        setResult(buildResult(brand.trim(), name.trim(), imageUrl || checkRes.image_url || "", slug || checkRes.slug, checkRes as { score?: number | null; verdict?: string }))
+      } else {
+        // inci / manual — анализируем распознанный/введённый состав
+        const checkRes = await api.checkWithIngredients({ product_name: name.trim(), brand: brand.trim(), skin_type: skinType, profile, ingredients: inci })
+        setResult(buildResult(brand.trim(), name.trim(), "", "", checkRes as { score?: number | null; verdict?: string }))
       }
-      return
-    }
-    window.setTimeout(() => {
-      const base = products.find((p) => p.brand.toLowerCase() === brand.trim().toLowerCase()) ?? products[6]
-      const p: Product = { ...base, id: 900 + Math.floor(Math.random() * 90), brand: brand.trim() || base.brand, name: name.trim() || base.name, image: base.image, checked: false, report: false, score: null, verdict: null, state: "want" }
-      setResult(p)
       setPhase("ready")
-    }, 1400)
+    } catch {
+      // fallback: без фейкового счёта — пользователь проверит вручную в карточке
+      setResult(buildResult(brand.trim() || "COSRX", name.trim() || "Advanced Snail 96 Mucin Power Essence", imageUrl, slug, undefined))
+      setPhase("ready")
+    }
   }
 
   const fileRef = useRef<HTMLInputElement>(null)
@@ -712,20 +731,26 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
 
   const takePhoto = async (file: File) => {
     setPhotoAdded(true)
+    setBusy(true)
     try {
       const dataUrl = await readFileAsDataUrl(file)
-      const res = (await api.identify({ images: [dataUrl] })) as { identified?: { brand?: string; product_name?: string; name?: string }; product?: { name?: string; brand?: string } }
+      const res = (await api.identify({ images: [dataUrl] })) as { identified?: { brand?: string; product_name?: string; name?: string }; product?: { name?: string; brand?: string; slug?: string; image_url?: string } }
       const ident = res.identified || {}
       setBrand(ident.brand || res.product?.brand || "COSRX")
       setName(ident.product_name || ident.name || res.product?.name || "Advanced Snail 96 Mucin Power Essence")
+      if (res.product?.slug) setSlug(res.product.slug)
+      if (res.product?.image_url) setImageUrl(res.product.image_url)
     } catch {
       setBrand("COSRX")
       setName("Advanced Snail 96 Mucin Power Essence")
+    } finally {
+      setBusy(false)
     }
   }
 
   const takeInciPhoto = async (file: File) => {
     setInciPhotoAdded(true)
+    setBusy(true)
     try {
       const dataUrl = await readFileAsDataUrl(file)
       const res = (await api.compositionRecognize({ images: [dataUrl] })) as { normalized_ingredients?: string[] }
@@ -733,6 +758,8 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
       setInci(ingr.length ? ingr.join(", ") : "Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.")
     } catch {
       setInci("Aqua, Glycerin, Butylene Glycol, Sodium Hyaluronate, Niacinamide, Panthenol, Allantoin, Carbomer, Phenoxyethanol.")
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -1111,7 +1138,7 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
 function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit }: {
   product: Product; user: User | null; onAuth: () => void; onPricing: () => void; onClose: () => void;
   onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void;
-  onAddToShelf: (id: number) => void; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void
+  onAddToShelf: (p: Product) => void; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
     product.checked && product.report ? "report" : product.checked ? "match" : "idle"
@@ -1129,7 +1156,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
 
   const addToShelf = async () => {
     setAdding(true)
-    await onAddToShelf(product.id)
+    await onAddToShelf(product)
     setAdding(false)
   }
   const [reportText, setReportText] = useState("")
@@ -1160,12 +1187,12 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
         res = await api.checkWithIngredients({ product_name: product.name, skin_type: skinProfile.skinType, profile: buildProfile(), ingredients: inci })
       }
       const s = res.score ?? 60
-      const v: Verdict = res.verdict === "Подходит" ? "Подходит" : res.verdict === "Не подходит" ? "Не подходит" : "Осторожно"
+      const v: Verdict = res.verdict === "Подходит" ? "Подходит" : res.verdict === "Не подходит" ? "Не подходит" : "Допустимо"
       setScore(s); setVerdict(v); setSafeList(res.safe_ingredients || []); setCautionList(res.caution_ingredients || []); setPhase("match")
       onChecked(product.id, s, v)
     } catch {
       const s = 60 + ((product.id * 13) % 35)
-      const v: Verdict = s >= 80 ? "Подходит" : s >= 60 ? "Осторожно" : "Не подходит"
+      const v: Verdict = s >= 80 ? "Подходит" : s >= 60 ? "Допустимо" : "Не подходит"
       setScore(s); setVerdict(v); setPhase("match")
       onChecked(product.id, s, v)
     }
@@ -1183,7 +1210,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   }
 
   const safe = safeList.length ? safeList : (product.tags.length ? product.tags.map((t) => `${t} — совместимо с профилем`) : ["Базовый состав без явных конфликтов"])
-  const caution = cautionList.length ? cautionList : (verdict === "Не подходит" ? ["Содержит активы, агрессивные для чувствительной кожи", "Конфликт с текущим ретиноидом"] : verdict === "Осторожно" ? ["Возможна реакция при сочетании с ретиноидом", "Начинайте с низкой частоты"] : ["Явных противопоказаний не найдено"])
+  const caution = cautionList.length ? cautionList : (verdict === "Не подходит" ? ["Содержит активы, агрессивные для чувствительной кожи", "Конфликт с текущим ретиноидом"] : verdict === "Допустимо" ? ["Возможна реакция при сочетании с ретиноидом", "Начинайте с низкой частоты"] : ["Явных противопоказаний не найдено"])
   const actives = [
     { name: "Гиалуроновая кислота", conc: "средняя", effect: "удерживает влагу" },
     { name: "Ниацинамид", conc: "низкая", effect: "выравнивает тон" },
@@ -1463,7 +1490,7 @@ function PointsModal({ user, onClose, onTopUp }: { user: User | null; onClose: (
   )
 }
 
-function ShelfAddModal({ items, onClose, onAdd, onScan }: { items: Product[]; onClose: () => void; onAdd: (id: number) => void; onScan: (m: ScanMethod) => void }) {
+function ShelfAddModal({ items, onClose, onAdd, onScan, onOpen }: { items: Product[]; onClose: () => void; onAdd: (p: Product) => void; onScan: (m: ScanMethod) => void; onOpen: (p: Product) => void }) {
   const [mode, setMode] = useState<"menu" | "catalog" | "auto">("menu")
   const [q, setQ] = useState("")
   const [recCat, setRecCat] = useState("")
@@ -1521,11 +1548,13 @@ function ShelfAddModal({ items, onClose, onAdd, onScan }: { items: Product[]; on
                 {recsLoading ? (
                   <p className="empty">Подбираем…</p>
                 ) : list.map((p) => (
-                  <button key={p.id} type="button" className="rec" onClick={() => onAdd(p.id)}>
-                    <img src={p.image} alt="" loading="lazy" />
-                    <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-                    <span className="add-modal__add"><Icon name="plus" size={16} /></span>
-                  </button>
+                  <div key={p.id} className="rec">
+                    <button type="button" className="rec__main" onClick={() => onOpen(p)}>
+                      <img src={p.image} alt="" loading="lazy" />
+                      <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+                    </button>
+                    <button type="button" className="add-modal__add" onClick={() => onAdd(p)} aria-label="Добавить"><Icon name="plus" size={16} /></button>
+                  </div>
                 ))}
                 {!recsLoading && list.length === 0 && <p className="empty">{mode === "auto" ? "Выберите категорию для подбора." : "Ничего не нашлось."}</p>}
               </div>
@@ -1682,10 +1711,16 @@ export default function App() {
       setUser((u) => (u ? { ...u, plan: p } : u))
     }
   }
-  const handleAddToShelf = async (id: number) => {
-    const p = items.find((x) => x.id === id)
+  const handleAddToShelf = async (p: Product) => {
+    const id = p.id
     let shelfId: number | undefined
-    if (p?.slug && getToken()) {
+    let error: string | null = null
+    if (!p?.slug) {
+      error = "Не удалось добавить: продукт не найден в базе."
+    } else if (!getToken()) {
+      error = "Войдите в аккаунт, чтобы добавлять на полку."
+      setAuthModal("login")
+    } else {
       // На полке только проверенные: если ещё не проверен — авто-проверяем перед добавлением.
       if (!p.checked) {
         try { await api.check({ product_name: p.name, skin_type: skinProfile.skinType, profile: buildProfile() }) } catch { /* ignore */ }
@@ -1693,8 +1728,11 @@ export default function App() {
       try {
         const res = await api.addToShelf(p.slug, p.category || "", p.cabinet || "face")
         shelfId = res.item?.id
-      } catch { /* ignore */ }
+      } catch (e) {
+        error = e instanceof Error ? e.message : "Не удалось добавить продукт."
+      }
     }
+    if (error) { setToast(error); return }
     setItems((cur) => cur.map((x) => (x.id === id ? { ...x, state: "using", shelf_id: shelfId ?? x.shelf_id } : x)))
     setOpen((o) => (o && o.id === id ? { ...o, state: "using", shelf_id: shelfId ?? o.shelf_id } : o))
     setAddModalOpen(false)
@@ -1769,7 +1807,7 @@ export default function App() {
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
       {pointsOpen && <PointsModal user={user} onClose={() => setPointsOpen(false)} onTopUp={handleTopUp} />}
-      {addModalOpen && <ShelfAddModal items={items} onClose={() => setAddModalOpen(false)} onAdd={handleAddToShelf} onScan={handleScanFromAdd} />}
+      {addModalOpen && <ShelfAddModal items={items} onClose={() => setAddModalOpen(false)} onAdd={handleAddToShelf} onScan={handleScanFromAdd} onOpen={(p) => { setAddModalOpen(false); setOpen(p) }} />}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {removeProduct && (
         <div className="modal-backdrop" onClick={() => setRemoveProduct(null)}>

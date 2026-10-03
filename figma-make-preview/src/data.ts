@@ -3,7 +3,7 @@
 
 export type Page = "home" | "shelf" | "scan" | "catalog" | "report" | "profile"
 export type ProductState = "using" | "want" | "finished"
-export type Verdict = "Подходит" | "Осторожно" | "Не подходит"
+export type Verdict = "Подходит" | "Допустимо" | "Не подходит"
 export type Plan = "free" | "plus" | "pro"
 export type CabinetKey = "face" | "hair" | "body" | "makeup" | "fragrance"
 
@@ -43,8 +43,8 @@ export const products: Product[] = [
   { id: 1, brand: "CeraVe", name: "Hydrating Facial Cleanser", cabinet: "face", category: "Очищение и демакияж", score: 88, verdict: "Подходит", image: IMG("photo-1567721913486-6585f069b332"), tags: ["Церамиды", "Мягкое"], state: "using", checked: true, report: true },
   { id: 2, brand: "La Roche-Posay", name: "Toleriane Caring Wash", cabinet: "face", category: "Очищение и демакияж", score: 90, verdict: "Подходит", image: IMG("photo-1608248543803-ba4f8c70ae0b"), tags: ["Без отдушки"], state: "want", checked: true },
   { id: 3, brand: "Some By Mi", name: "AHA BHA PHA 30 Days Miracle Toner", cabinet: "face", category: "Тонизирование", score: 34, verdict: "Не подходит", image: IMG("photo-1739980155900-36562bcb7857"), tags: ["Кислоты", "Отдушка"], state: "finished", checked: true, report: true },
-  { id: 4, brand: "Pyunkang Yul", name: "Essence Toner", cabinet: "face", category: "Тонизирование", score: 78, verdict: "Осторожно", image: IMG("photo-1620916566398-39f1143ab7be"), tags: ["Увлажнение"], state: "using", checked: true },
-  { id: 5, brand: "The Ordinary", name: "Niacinamide 10% + Zinc 1%", cabinet: "face", category: "Сыворотки", score: 71, verdict: "Осторожно", image: IMG("photo-1580870069867-74c57ee1bb07"), tags: ["Ниацинамид"], state: "using", checked: true },
+  { id: 4, brand: "Pyunkang Yul", name: "Essence Toner", cabinet: "face", category: "Тонизирование", score: 78, verdict: "Допустимо", image: IMG("photo-1620916566398-39f1143ab7be"), tags: ["Увлажнение"], state: "using", checked: true },
+  { id: 5, brand: "The Ordinary", name: "Niacinamide 10% + Zinc 1%", cabinet: "face", category: "Сыворотки", score: 71, verdict: "Допустимо", image: IMG("photo-1580870069867-74c57ee1bb07"), tags: ["Ниацинамид"], state: "using", checked: true },
   { id: 6, brand: "COSRX", name: "Advanced Snail 96 Mucin Power Essence", cabinet: "face", category: "Сыворотки", score: 92, verdict: "Подходит", image: IMG("photo-1616750819456-5cdee9b85d22"), tags: ["Восстановление"], state: "using", checked: true, report: true },
   { id: 7, brand: "Beauty of Joseon", name: "Glow Serum: Propolis + Niacinamide", cabinet: "face", category: "Сыворотки", score: 84, verdict: "Подходит", image: IMG("photo-1608248597279-f99d160bfcbc"), tags: ["Сияние"], state: "want", checked: true },
   { id: 8, brand: "The Ordinary", name: "Hyaluronic Acid 2% + B5", cabinet: "face", category: "Сыворотки", score: 82, verdict: "Подходит", image: IMG("photo-1613803745799-ba6c10aace85"), tags: ["Гиалурон"], state: "finished", checked: true },
@@ -52,18 +52,18 @@ export const products: Product[] = [
   { id: 10, brand: "CeraVe", name: "Moisturizing Cream", cabinet: "face", category: "Увлажнение и питание", score: 86, verdict: "Подходит", image: IMG("photo-1608248543803-ba4f8c70ae0b"), tags: ["Церамиды"], state: "using", checked: true },
   { id: 11, brand: "Beauty of Joseon", name: "Relief Sun Rice + Probiotics SPF50+", cabinet: "face", category: "Специальный уход", score: 86, verdict: "Подходит", image: IMG("photo-1585652757141-8837d676fac8"), tags: ["SPF", "Без отдушки"], state: "using", checked: true },
   { id: 12, brand: "La Roche-Posay", name: "Anthelios UVMune 400 SPF50+", cabinet: "face", category: "Специальный уход", score: 91, verdict: "Подходит", image: IMG("photo-1556228720-195a672e8a03"), tags: ["SPF", "UVA"], state: "want", checked: true },
-  { id: 13, brand: "Paula's Choice", name: "Skin Perfecting 2% BHA Liquid", cabinet: "face", category: "Скрабы и пилинги", score: 58, verdict: "Осторожно", image: IMG("photo-1613803745799-ba6c10aace85"), tags: ["BHA"], state: "want", checked: true },
+  { id: 13, brand: "Paula's Choice", name: "Skin Perfecting 2% BHA Liquid", cabinet: "face", category: "Скрабы и пилинги", score: 58, verdict: "Допустимо", image: IMG("photo-1613803745799-ba6c10aace85"), tags: ["BHA"], state: "want", checked: true },
   { id: 14, brand: "The Ordinary", name: "AHA 30% + BHA 2% Peeling Solution", cabinet: "face", category: "Скрабы и пилинги", score: 44, verdict: "Не подходит", image: IMG("photo-1608571423902-eed4a5ad8108"), tags: ["Кислоты"], checked: true },
   { id: 15, brand: "Innisfree", name: "Green Tea Seed Serum", cabinet: "face", category: "Сыворотки", score: null, verdict: null, image: IMG("photo-1580870069867-74c57ee1bb07"), tags: ["Антиоксиданты"], checked: false },
   { id: 16, brand: "Klairs", name: "Supple Preparation Facial Toner", cabinet: "face", category: "Тонизирование", score: null, verdict: null, image: IMG("photo-1567721913486-6585f069b332"), tags: ["Успокоение"], state: "want", checked: false },
   { id: 17, brand: "COSRX", name: "Advanced Snail Peptide Eye Cream", cabinet: "face", category: "Для кожи вокруг глаз", score: 87, verdict: "Подходит", image: IMG("photo-1620916566398-39f1143ab7be"), tags: ["Пептиды"], state: "using", checked: true },
-  { id: 18, brand: "Paula's Choice", name: "10% Azelaic Acid Booster", cabinet: "face", category: "Специальный уход", score: 66, verdict: "Осторожно", image: IMG("photo-1580870069867-74c57ee1bb07"), tags: ["Азелаиновая кислота"], state: "want", checked: true },
+  { id: 18, brand: "Paula's Choice", name: "10% Azelaic Acid Booster", cabinet: "face", category: "Специальный уход", score: 66, verdict: "Допустимо", image: IMG("photo-1580870069867-74c57ee1bb07"), tags: ["Азелаиновая кислота"], state: "want", checked: true },
   { id: 19, brand: "La Roche-Posay", name: "Lipikar Baume AP+M", cabinet: "body", category: "Кремы для тела", score: 90, verdict: "Подходит", image: IMG("photo-1608248543803-ba4f8c70ae0b"), tags: ["Питание"], state: "using", checked: true },
-  { id: 20, brand: "Dove", name: "Deep Moisture Body Wash", cabinet: "body", category: "Для душа и ванны", score: 74, verdict: "Осторожно", image: IMG("photo-1556228720-195a672e8a03"), tags: ["Мягкое"], state: "using", checked: true },
+  { id: 20, brand: "Dove", name: "Deep Moisture Body Wash", cabinet: "body", category: "Для душа и ванны", score: 74, verdict: "Допустимо", image: IMG("photo-1556228720-195a672e8a03"), tags: ["Мягкое"], state: "using", checked: true },
   { id: 21, brand: "Neutrogena", name: "Norwegian Formula Hand Cream", cabinet: "body", category: "Для рук", score: 88, verdict: "Подходит", image: IMG("photo-1616750819456-5cdee9b85d22"), tags: ["Глицерин"], state: "finished", checked: true },
   { id: 22, brand: "The Body Shop", name: "Shea Body Butter", cabinet: "body", category: "Кремы для тела", score: 80, verdict: "Подходит", image: IMG("photo-1601049676869-702ea24cfd58"), tags: ["Карите"], state: "want", checked: true },
   { id: 23, brand: "Kérastase", name: "Bain Satin Riche Shampoo", cabinet: "hair", category: "Шампуни", score: 82, verdict: "Подходит", image: IMG("photo-1608248597279-f99d160bfcbc"), tags: ["Питание"], state: "using", checked: true },
-  { id: 24, brand: "Olaplex", name: "No.3 Hair Perfector", cabinet: "hair", category: "Маски", score: 79, verdict: "Осторожно", image: IMG("photo-1585652757141-8837d676fac8"), tags: ["Восстановление"], state: "using", checked: true },
+  { id: 24, brand: "Olaplex", name: "No.3 Hair Perfector", cabinet: "hair", category: "Маски", score: 79, verdict: "Допустимо", image: IMG("photo-1585652757141-8837d676fac8"), tags: ["Восстановление"], state: "using", checked: true },
   { id: 25, brand: "Moroccanoil", name: "Treatment Light", cabinet: "hair", category: "Масла", score: 85, verdict: "Подходит", image: IMG("photo-1608571423902-eed4a5ad8108"), tags: ["Аргановое масло"], state: "want", checked: true },
   { id: 26, brand: "Estée Lauder", name: "Double Wear Stay-in-Place", cabinet: "makeup", category: "Тональные средства", score: null, verdict: null, image: IMG("photo-1567721913486-6585f069b332"), tags: ["Стойкий"], state: "using" },
   { id: 27, brand: "NARS", name: "Radiant Creamy Concealer", cabinet: "makeup", category: "Консилеры", score: null, verdict: null, image: IMG("photo-1739980155900-36562bcb7857"), tags: ["Маскировка"], state: "want" },
