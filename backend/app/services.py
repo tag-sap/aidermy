@@ -577,7 +577,12 @@ async def generate_full_report(
     from .decision_engine import DecisionEngine
 
     engine = DecisionEngine()
-    deterministic = saved_analysis if saved_analysis else engine.analyze(product_name, ingredients, profile, skin_type)
+    if saved_analysis and isinstance(saved_analysis.get("deterministic"), dict):
+        deterministic = saved_analysis["deterministic"]
+    elif saved_analysis:
+        deterministic = saved_analysis
+    else:
+        deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
     has_factors = bool(deterministic.get("positive_factors") or deterministic.get("negative_factors"))
 
     report = None
@@ -640,6 +645,69 @@ async def generate_ai_review(product_name: str, skin_type: str, profile: dict, i
     }
 
 
+
+
+# --- Report grounding (Phase 18): actual INCI is the only source of truth for ingredients. ---
+_RU_INGREDIENT_NAMES = {
+    "ниацинамид": "niacinamide",
+    "гиалуроновая кислота": "hyaluronic acid",
+    "гиалуроновая": "hyaluronic acid",
+    "алоэ": "aloe barbadensis leaf water",
+    "алоэ вера": "aloe barbadensis leaf water",
+    "гликолевая кислота": "glycolic acid",
+    "пантенол": "panthenol",
+    "салициловая кислота": "salicylic acid",
+    "молочная кислота": "lactic acid",
+    "лимонная кислота": "citric acid",
+    "винная кислота": "tartaric acid",
+    "гидроксид натрия": "sodium hydroxide",
+    "глицерин": "glycerin",
+    "ретинол": "retinol",
+    "аскорбиновая кислота": "ascorbic acid",
+    "витамин c": "ascorbic acid",
+    "церамид": "ceramide",
+    "мочевина": "urea",
+    "аллантоин": "allantoin",
+    "бензоилпероксид": "benzoyl peroxide",
+}
+
+_CONTRADICTION_PHRASES = [
+    "агрессивных активов нет",
+    "активных компонентов нет",
+    "раздражающих компонентов нет",
+    "раздражающих факторов нет",
+    "проблемных компонентов нет",
+    "нет агрессивных",
+    "нет раздражающих",
+    "нет активных компонентов",
+]
+
+
+def _report_allowed_ingredients(deterministic: dict):
+    from .ingredient_normalizer import normalize_ingredient_name
+    ing = deterministic.get("normalized_ingredients") or []
+    allowed = set()
+    for i in ing:
+        key = normalize_ingredient_name(str(i))
+        if key:
+            allowed.add(key)
+    return allowed
+
+
+def _ground_report_text(text: str, allowed: set, has_negative_factors: bool):
+    if not text:
+        return None
+    low = text.lower()
+    if has_negative_factors:
+        for phrase in _CONTRADICTION_PHRASES:
+            if phrase in low:
+                return None
+    for ru, canon in _RU_INGREDIENT_NAMES.items():
+        if ru in low and canon not in allowed:
+            return None
+    return text
+
+
 async def generate_ai_report(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> str:
     """AI-отчёт: человеческое объяснение УЖЕ СУЩЕСТВУЮЩЕГО User Analysis.
 
@@ -654,7 +722,13 @@ async def generate_ai_report(product_name: str, analysis: dict, profile: dict, p
     score = int(analysis.get("score") or 0)
     # Передаём исходные structured factors (с axis/direction), а НЕ ingredient-only списки.
     summary = await summarize_with_ai(product_name, score, analysis, profile or {}, product_type)
-    return summary or (analysis.get("summary") or "")
+    if summary:
+        allowed = _report_allowed_ingredients(analysis)
+        has_neg = bool(analysis.get("negative_factors"))
+        grounded = _ground_report_text(summary, allowed, has_neg)
+        if grounded:
+            return grounded
+    return analysis.get("summary") or ""
 
 async def _enrich_knowledge_with_ai(product_name: str, ingredients: str) -> list | None:
     """AI-обогащение ТОЛЬКО базы знаний ингредиентов (ingredient_claims).
