@@ -207,6 +207,7 @@ class DecisionEngine:
         skin_type: str = "",
         knowledge: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
         interactions: Optional[List[Dict[str, Any]]] = None,
+        saturation_scale: float | None = None,
     ) -> Dict[str, Any]:
         priorities = profile_weights(profile, skin_type)
         result = self.analysis_service.analyze(
@@ -217,6 +218,7 @@ class DecisionEngine:
             knowledge=knowledge,
             interactions=interactions,
             priorities_are_canonical=True,
+            saturation_scale=saturation_scale,
         )
         score = int(result.get("score") or 0)
         safe, caution = ingredient_lists(result)

@@ -37,6 +37,7 @@ from .auth_routes import router as auth_router
 from .community_routes import router as community_router
 from .billing_routes import router as billing_router
 from .admin_routes import setup_admin_routes
+from .calibration_routes import setup_calibration_routes
 from typing import Optional, List
 from .auth import get_current_user_optional, get_current_user
 from .scraper import ProductImportError, import_product
@@ -99,6 +100,7 @@ app.include_router(billing_router)
 
 # Регистрируем админ-роуты
 setup_admin_routes(app)
+setup_calibration_routes(app)
 
 @app.get("/api/health")
 async def health():

@@ -36,6 +36,7 @@ class AnalysisService:
         knowledge: Dict[str, Dict[str, Dict[str, float]]] | None = None,
         interactions: List[Dict[str, Any]] | None = None,
         priorities_are_canonical: bool = False,
+        saturation_scale: float | None = None,
     ):
         from .axes import canonicalize_weights
 
@@ -54,6 +55,7 @@ class AnalysisService:
             user_profile=user_profile,
             canonical_weights=canonical_weights,
             interactions=interactions,
+            saturation_scale=saturation_scale,
         )
         result['product_name'] = product_name
         result['normalized_ingredients'] = normalized_ingredients
