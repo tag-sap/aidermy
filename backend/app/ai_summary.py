@@ -38,6 +38,20 @@ def _factor_text(factor: Dict[str, Any]) -> str:
     return prop
 
 
+def breakdown_text(analysis: Dict[str, Any]) -> str:
+    """Текстовое deterministic-разложение score по осям для AI-контекста."""
+    dims = analysis.get("dimensions") or {}
+    prio = analysis.get("priorities") or {}
+    lines: List[str] = []
+    for axis in ("hydration", "barrier", "irritation", "sensitization", "sebum", "pigmentation"):
+        val = dims.get(axis)
+        if val is None:
+            continue
+        w = prio.get(axis)
+        lines.append(f"  - {axis}: value={round(float(val), 3)}, weight={round(float(w or 0), 4)}")
+    return "\n".join(lines) if lines else "  (нет данных по осям)"
+
+
 def _prompt(
     product_name: str,
     score: int,
@@ -46,6 +60,7 @@ def _prompt(
     skin_type: str,
     concerns: List[str],
     product_type: str = "",
+    breakdown: str = "",
 ) -> str:
     pos = "; ".join(_factor_text(f) for f in positive[:6]) or "—"
     neg = "; ".join(_factor_text(f) for f in negative[:6]) or "—"
@@ -53,16 +68,25 @@ def _prompt(
         "Ты — косметолог. Объясни пользователю УЖЕ ГОТОВЫЙ результат подбора косметики "
         "обычным человеческим языком.\n\n"
         f"Продукт: {product_name}\n"
-        f"Тип продукта: {product_type or 'не указан'}\n"
+        f"Категория продукта: {product_type or 'не указана'}\n"
         f"Тип кожи: {skin_type or 'не указан'}\n"
         f"Итоговая совместимость (рассчитана алгоритмом, НЕ меняй её): {score}%\n"
+        f"Разложение score по осям (значение и вес оси для профиля):\n{breakdown or '  (нет данных)'}\n"
         f"Положительные факторы: {pos}\n"
         f"Отрицательные факторы: {neg}\n\n"
-        "Напиши максимум 2-3 коротких предложения (до 280 символов). Только причины результата: "
-        "что дало основной вклад и на что обратить внимание. Объясняй причины, но НЕ выводи "
-        "технические INCI-названия (например, вместо «fragrance» напиши «парфюмерная композиция»). "
-        "Не выдумывай эффектов, которых нет в факторах. Без списков и маркдауна.\n"
-        f"ВАЖНО: процент не пересчитывай, он зафиксирован и равен {score}%. Верни только текст."
+        "Напиши максимум 2-3 коротких предложения. Только причины результата: что дало основной вклад "
+        "и на что обратить внимание. Объясняй причины, но НЕ выводи технические INCI-названия. "
+        "Не выдумывай эффектов, которых нет в факторах.\n\n"
+        f"ВАЖНО: процент не пересчитывай, он зафиксирован и равен {score}%. Никогда не пиши другой процент.\n\n"
+        "Верни ТОЛЬКО JSON. fragments — список предложений. Каждое предложение — ОТДЕЛЬНЫЙ fragment, "
+        "с одним sentiment (positive ИЛИ negative). НЕ объединяй позитив и негатив в одном fragment: "
+        "если в одном предложении есть и плюс, и минус — разбей его на два предложения.\n"
+        '{\n'
+        '  "fragments": [\n'
+        '    {"text": "...", "sentiment": "positive|negative"},\n'
+        '    {"text": "...", "sentiment": "positive|negative"}\n'
+        '  ]\n'
+        '}\n'
     )
 
 
@@ -72,13 +96,16 @@ async def summarize_with_ai(
     analysis: Dict[str, Any],
     profile: Dict[str, Any],
     product_type: str = "",
-) -> Optional[str]:
-    """AI #3 — пишет человекочитаемое резюме. Возвращает None при недоступности AI."""
+) -> Optional[List[Dict[str, str]]]:
+    """AI #3 — пишет human-резюме в виде fragments [{text, sentiment}].
+
+    Возвращает None при недоступности AI."""
     try:
         from .services import (
             DEEPSEEK_API_KEY,
             DEEPSEEK_API_URL,
             DEEPSEEK_MODEL_FALLBACKS,
+            extract_json_from_response,
         )
     except Exception:
         return None
@@ -92,8 +119,9 @@ async def summarize_with_ai(
     negative = analysis.get("negative_factors") or []
     skin_type = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
     concerns = (profile or {}).get("concerns") or []
+    breakdown = breakdown_text(analysis)
 
-    prompt = _prompt(product_name, score, positive, negative, skin_type, concerns, product_type)
+    prompt = _prompt(product_name, score, positive, negative, skin_type, concerns, product_type, breakdown)
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
         try:
@@ -108,7 +136,7 @@ async def summarize_with_ai(
                         "model": model_name,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.4,
-                        "max_tokens": 260,
+                        "max_tokens": 400,
                     },
                     timeout=30,
                 )
@@ -116,10 +144,39 @@ async def summarize_with_ai(
                 continue
             data = response.json()
             content = (data["choices"][0]["message"]["content"] or "").strip()
-            if content:
-                return content
+            if not content:
+                continue
+            parsed = extract_json_from_response(content)
+            fragments = _validated_fragments(parsed, score)
+            if fragments:
+                return fragments
+            # фолбэк: если LLM вернул plain text — один fragment.
+            if not isinstance(parsed, dict):
+                sentiment = "negative" if int(score or 0) < 60 else "positive"
+                return [{"text": content, "sentiment": sentiment}]
         except Exception as exc:
             print(f"[SUMMARY] AI {model_name} failed: {exc}")
             continue
 
     return None
+
+
+def _validated_fragments(parsed, score) -> List[Dict[str, str]]:
+    """Достаёт и валидирует fragments из ответа AI (только positive/negative)."""
+    if not isinstance(parsed, dict):
+        return []
+    raw = parsed.get("fragments")
+    if not isinstance(raw, list):
+        return []
+    out: List[Dict[str, str]] = []
+    for f in raw:
+        if not isinstance(f, dict):
+            continue
+        text = str(f.get("text") or "").strip()
+        sentiment = str(f.get("sentiment") or "").strip().lower()
+        if not text:
+            continue
+        if sentiment not in {"positive", "negative"}:
+            sentiment = "negative" if int(score or 0) < 60 else "positive"
+        out.append({"text": text, "sentiment": sentiment})
+    return out

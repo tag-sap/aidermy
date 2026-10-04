@@ -585,7 +585,7 @@ async def generate_full_report(
         deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
     has_factors = bool(deterministic.get("positive_factors") or deterministic.get("negative_factors"))
 
-    report = None
+    report = []
     if DEEPSEEK_API_KEY and has_factors:
         report = await generate_ai_report(product_name, deterministic, profile, product_type)
 
@@ -607,26 +607,35 @@ async def generate_full_report(
         except Exception as exc:
             print(f"[REPORT] key ingredient AI failed: {exc!r}")
 
-    good = {"what_good": None}
+    allowed = _report_allowed_ingredients(deterministic)
+    has_neg = bool(deterministic.get("negative_factors"))
+    good_bad = {"what_good": [], "what_bad": []}
     if DEEPSEEK_API_KEY and has_factors:
         try:
-            good = await generate_ai_good(product_name, deterministic, profile, product_type)
-            if not isinstance(good, dict):
-                good = {"what_good": None}
-            allowed = _report_allowed_ingredients(deterministic)
-            has_neg = bool(deterministic.get("negative_factors"))
-            good = _ground_report_sections(good, allowed, has_neg, deterministic=deterministic)
+            good_bad = await generate_ai_good_bad(product_name, deterministic, profile, product_type)
+            if not isinstance(good_bad, dict):
+                good_bad = {"what_good": [], "what_bad": []}
+            good_bad = {
+                "what_good": _ground_fragments(good_bad.get("what_good"), allowed, has_neg, deterministic=deterministic),
+                "what_bad": _ground_fragments(good_bad.get("what_bad"), allowed, has_neg, deterministic=deterministic),
+            }
         except Exception as exc:
-            print(f"[REPORT] good AI failed: {exc!r}")
-            good = {"what_good": None}
+            print(f"[REPORT] good/bad AI failed: {exc!r}")
+            good_bad = {"what_good": [], "what_bad": []}
 
     return {
-        "report": report,
+        "review": report,
         "active_ingredients": active_ingredients,
-        "what_good": good.get("what_good"),
+        "what_good": good_bad.get("what_good") or [],
+        "what_bad": good_bad.get("what_bad") or [],
         "how_to_use": sections.get("how_to_use"),
         "expectations": sections.get("expectations"),
         "inci": deterministic.get("normalized_ingredients") or [],
+        "category": product_type or "",
+        "score_breakdown": {
+            "dimensions": deterministic.get("dimensions") or {},
+            "priorities": deterministic.get("priorities") or {},
+        },
     }
 
 
@@ -745,6 +754,23 @@ def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, det
     return text
 
 
+def _ground_fragments(fragments, allowed: set, has_negative_factors: bool, deterministic: dict | None = None):
+    """Граундинг списка fragments [{text, sentiment}]: каждый текст проверяется отдельно."""
+    out = []
+    for f in fragments or []:
+        if not isinstance(f, dict):
+            continue
+        text = str(f.get("text") or "").strip()
+        grounded = _ground_report_text(text, allowed, has_negative_factors, deterministic)
+        if grounded is None:
+            continue
+        sentiment = str(f.get("sentiment") or "").strip().lower()
+        if sentiment not in {"positive", "negative"}:
+            sentiment = "positive"
+        out.append({"text": grounded, "sentiment": sentiment})
+    return out
+
+
 def _ground_report_sections(sections: dict, allowed: set, has_negative_factors: bool, deterministic: dict | None = None) -> dict:
     if not isinstance(sections, dict):
         return {}
@@ -774,8 +800,8 @@ def _ground_report_sections(sections: dict, allowed: set, has_negative_factors: 
     return result
 
 
-async def generate_ai_report(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> str:
-    """AI-отчёт: человеческое объяснение УЖЕ СУЩЕСТВУЮЩЕГО User Analysis.
+async def generate_ai_report(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> list:
+    """AI-отчёт: человеческое объяснение УЖЕ СУЩЕСТВУЮЩЕГО User Analysis (fragments).
 
     Score НЕ пересчитывается — берётся из переданного analysis (история проверок).
     AI получает исходные structured factors (ingredient + axis + direction) и
@@ -786,15 +812,17 @@ async def generate_ai_report(product_name: str, analysis: dict, profile: dict, p
 
     analysis = analysis or {}
     score = int(analysis.get("score") or 0)
-    # Передаём исходные structured factors (с axis/direction), а НЕ ingredient-only списки.
-    summary = await summarize_with_ai(product_name, score, analysis, profile or {}, product_type)
-    if summary:
+    fragments = await summarize_with_ai(product_name, score, analysis, profile or {}, product_type)
+    if fragments:
         allowed = _report_allowed_ingredients(analysis)
         has_neg = bool(analysis.get("negative_factors"))
-        grounded = _ground_report_text(summary, allowed, has_neg, deterministic=analysis)
+        grounded = _ground_fragments(fragments, allowed, has_neg, deterministic=analysis)
         if grounded:
             return grounded
-    return analysis.get("summary") or ""
+    summary = analysis.get("summary") or ""
+    if summary:
+        return [{"text": summary, "sentiment": "negative" if score < 60 else "positive"}]
+    return []
 
 async def _enrich_knowledge_with_ai(product_name: str, ingredients: str) -> list | None:
     """AI-обогащение ТОЛЬКО базы знаний ингредиентов (ingredient_claims).
@@ -1039,6 +1067,42 @@ def _factor_text(factor: dict) -> str:
     return f"{ing} → {prop}" if ing and prop else (ing or prop or "")
 
 
+def _breakdown_text(analysis: dict) -> str:
+    """Текстовое deterministic-разложение score по осям (value + weight)."""
+    dims = analysis.get("dimensions") or {}
+    prio = analysis.get("priorities") or {}
+    lines = []
+    for axis in ("hydration", "barrier", "irritation", "sensitization", "sebum", "pigmentation"):
+        val = dims.get(axis)
+        if val is None:
+            continue
+        lines.append(f"  - {axis}: value={round(float(val), 3)}, weight={round(float(prio.get(axis) or 0), 4)}")
+    return "\n".join(lines) if lines else "  (нет данных по осям)"
+
+
+def _fragment_list(value) -> list:
+    """Нормализует значение в список fragments [{text, sentiment}]."""
+    if not value:
+        return []
+    if isinstance(value, list):
+        out = []
+        for f in value:
+            if isinstance(f, dict):
+                text = str(f.get("text") or "").strip()
+                sentiment = str(f.get("sentiment") or "").strip().lower()
+                if not text:
+                    continue
+                if sentiment not in {"positive", "negative"}:
+                    sentiment = "positive"
+                out.append({"text": text, "sentiment": sentiment})
+            elif isinstance(f, str) and f.strip():
+                out.append({"text": f.strip(), "sentiment": "positive"})
+        return out
+    if isinstance(value, str) and value.strip():
+        return [{"text": value.strip(), "sentiment": "positive"}]
+    return []
+
+
 def build_report_sections_prompt(product_name: str, analysis: dict, profile: dict, product_type: str = "", category_hint: dict = None) -> str:
     """Собирает prompt для how_to_use/expectations ИЗ структурированного анализа.
 
@@ -1068,6 +1132,7 @@ def build_report_sections_prompt(product_name: str, analysis: dict, profile: dic
         f"- Подходят профилю: {safe}\n"
         f"- Требуют внимания: {caution}\n"
         f"- Жёсткие ограничения: {hard}\n"
+        f"- Разложение score по осям (значение + вес):\n{_breakdown_text(analysis)}\n"
         f"- Тип кожи: {skin or 'не указан'}\n"
         f"- Категория продукта: {product_type or 'не указана'}\n"
         f"- Допустимый тип применения: {category_hint.get('guidance') if category_hint else 'определи по категории и типу продукта'}\n\n"
@@ -1091,35 +1156,46 @@ def build_report_sections_prompt(product_name: str, analysis: dict, profile: dic
     )
 
 
-async def generate_ai_good(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> dict:
-    """AI генерирует «Что хорошо в составе» — коротко.
+async def generate_ai_good_bad(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> dict:
+    """AI генерирует «Что хорошего в составе» и «Что плохого в составе».
 
     Только интерпретация готового deterministic analysis: использует фактические
-    positive factors, НЕ придумывает ингредиенты и НЕ пересчитывает score.
-    Возвращает {"what_good": str | None}.
+    positive/negative factors, НЕ придумывает ингредиенты и НЕ пересчитывает score.
+    Возвращает {"what_good": [fragments], "what_bad": [fragments]}.
     """
     if not DEEPSEEK_API_KEY:
-        return {"what_good": None}
+        return {"what_good": [], "what_bad": []}
 
     pos = analysis.get("positive_factors") or []
-    if not pos:
-        return {"what_good": None}
+    neg = analysis.get("negative_factors") or []
+    if not pos and not neg:
+        return {"what_good": [], "what_bad": []}
 
     skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
     pos_text = "; ".join(_factor_text(f) for f in pos[:5]) or "—"
+    neg_text = "; ".join(_factor_text(f) for f in neg[:5]) or "—"
+    breakdown = _breakdown_text(analysis)
 
     prompt = (
-        "Ты — косметолог. Оформи уже готовый результат анализа косметики в короткий текст. "
+        "Ты — косметолог. Оформи уже готовый результат анализа косметики в короткие тексты. "
         "НЕ выполняй анализ сам и НЕ меняй совместимость.\n\n"
         f"Продукт: {product_name}\n"
+        f"Категория продукта: {product_type or 'не указана'}\n"
         f"Тип кожи: {skin or 'не указан'}\n"
-        f"Положительные факторы (ингредиент → эффект): {pos_text}\n\n"
-        "### Задача (верни ТОЛЬКО JSON):\n"
-        "what_good: 1-2 коротких предложения о главных преимуществах состава именно для этого профиля. "
-        "Упоминай ТОЛЬКО ингредиенты из положительных факторов; объясняй пользу человеческим языком, "
-        "не выводи голый список INCI и не пересказывай все факторы. Если полезных факторов нет — null.\n"
-        "НЕ придумывай ингредиенты, которых нет в факторах. НЕ пересчитывай процент.\n"
-        'Формат: {"what_good": "...|null"}\n'
+        f"Разложение score по осям:\n{breakdown}\n"
+        f"Положительные факторы (ингредиент → эффект): {pos_text}\n"
+        f"Отрицательные факторы: {neg_text}\n\n"
+        "### Задачи (верни ТОЛЬКО JSON):\n"
+        "1. what_good: 1-2 коротких предложения о главных преимуществах состава именно для этого профиля "
+        "(ТОЛЬКО из положительных факторов). Каждое предложение — отдельный fragment с sentiment \"positive\". "
+        "Если значимых плюсов нет — верни пустой список [].\n"
+        "2. what_bad: 1-2 коротких предложения о существенных недостатках состава относительно профиля "
+        "(ТОЛЬКО из отрицательных факторов). Каждое предложение — отдельный fragment с sentiment \"negative\". "
+        "ЕСЛИ отрицательные факторы НЕ пустые (— не равно «—»), ты ОБЯЗАН вернуть хотя бы один negative fragment, "
+        "объясняющий главный недостаток. Пустой список допустим ТОЛЬКО если отрицательных факторов действительно нет.\n"
+        "НЕ придумывай ингредиенты, которых нет в факторах. НЕ пересчитывай процент. "
+        "НЕ смешивай positive и negative в одном fragment.\n"
+        'Формат: {"what_good": [{"text": "...", "sentiment": "positive"}], "what_bad": [{"text": "...", "sentiment": "negative"}]}\n'
     )
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
@@ -1128,7 +1204,7 @@ async def generate_ai_good(product_name: str, analysis: dict, profile: dict, pro
                 response = await client.post(
                     DEEPSEEK_API_URL,
                     headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 300},
+                    json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 500},
                     timeout=30,
                 )
             if response.status_code != 200:
@@ -1140,12 +1216,15 @@ async def generate_ai_good(product_name: str, analysis: dict, profile: dict, pro
             parsed = extract_json_from_response(content)
             if not isinstance(parsed, dict):
                 continue
-            return {"what_good": parsed.get("what_good") if isinstance(parsed.get("what_good"), str) else None}
+            return {
+                "what_good": _fragment_list(parsed.get("what_good")),
+                "what_bad": _fragment_list(parsed.get("what_bad")),
+            }
         except Exception as exc:
-            print(f"[GOOD] AI failed: {exc!r}")
+            print(f"[GOOD/BAD] AI failed: {exc!r}")
             continue
 
-    return {"what_good": None}
+    return {"what_good": [], "what_bad": []}
 
 
 def sanitize_report_sections(verdict: str, sections: dict) -> dict:

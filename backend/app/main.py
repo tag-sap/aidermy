@@ -1408,15 +1408,43 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     return {"status": "ok", "cached": False, "score": int(result.get("score") or 0), "analysis": analysis}
 
 
+def _fragments_to_text(fragments) -> str:
+    """Склеивает fragments [{text, sentiment}] в plain text (для кэша check_history)."""
+    if not fragments:
+        return ""
+    if isinstance(fragments, str):
+        return fragments
+    return " ".join(str(f.get("text") or "") for f in fragments if isinstance(f, dict)).strip()
+
+
+def _fragments_from_value(value) -> list:
+    """Десериализует сохранённые fragments [{text, sentiment}] (JSON или legacy string)."""
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [f for f in value if isinstance(f, dict)]
+    if isinstance(value, str):
+        import json as _json
+        try:
+            parsed = _json.loads(value)
+            if isinstance(parsed, list):
+                return [f for f in parsed if isinstance(f, dict)]
+        except Exception:
+            pass
+        return [{"text": value, "sentiment": "positive"}]
+    return []
+
+
 @app.post("/api/shelf/review")
 async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict = Depends(get_current_user)):
     """AI-отчёт («Показать отчёт») ПО ЯВНОМУ ЗАПРОСУ.
 
     Требует существующий актуальный User Analysis (история проверок).
     Score НЕ пересчитывается — AI только пишет человеческое объяснение
-    уже рассчитанного результата. Отчёт кэшируется в check_history.ai_report.
+    уже рассчитанного результата.
     """
-    from .database import get_product_by_slug, save_ai_report, save_analysis_report, save_analysis_details
+    import json as _json
+    from .database import get_product_by_slug, save_ai_report, save_analysis_details
     from .shelf_service import score_product
     from .services import generate_full_report
     from .catalog_taxonomy import classify_product
@@ -1426,9 +1454,8 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         raise HTTPException(status_code=404, detail="Продукт не найден")
 
     name = (product.get("name") or "").replace("\n", " ").strip()
+    product_type = classify_product(product).get("canonical_category") or ""
 
-    # Источник — конкретный User Analysis (analysis_id из Clean Result) либо
-    # актуальный по slug (legacy). Report НЕ пересчитывает Score Engine.
     from .database import get_analysis_by_id
     if request.analysis_id:
         analysis = get_analysis_by_id(current_user["id"], request.analysis_id)
@@ -1442,35 +1469,21 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
 
     # Если полный отчёт уже сгенерирован — возвращаем сохранённое (без повторного LLM).
     if analysis and analysis.get("report") and analysis.get("active_ingredients") and analysis.get("how_to_use") and analysis.get("expectations") and analysis.get("what_good"):
-        # Defense-in-depth: заново валидируем сохранённый отчёт по фактическому INCI
-        # сохранённого analysis (старые отчёты могли быть сохранены без grounding).
-        from .services import _report_allowed_ingredients, _ground_report_text, _ground_report_sections
         det = analysis.get("deterministic") or {}
-        allowed = _report_allowed_ingredients(det)
-        has_neg = bool(det.get("negative_factors"))
-        review = _ground_report_text(analysis["report"], allowed, has_neg, deterministic=det)
-        if review is None:
-            review = det.get("summary") or analysis.get("summary") or ""
-        sections = _ground_report_sections(
-            {"what_good": analysis.get("what_good"),
-             "how_to_use": analysis.get("how_to_use"), "expectations": analysis.get("expectations")},
-            allowed, has_neg, deterministic=det,
-        )
         return {
             "score": score,
-            "review": review,
+            "review": _fragments_from_value(analysis.get("report")),
             "active_ingredients": analysis.get("active_ingredients"),
-            "what_good": sections.get("what_good"),
-            "how_to_use": sections.get("how_to_use"),
-            "expectations": sections.get("expectations"),
+            "what_good": _fragments_from_value(analysis.get("what_good")),
+            "what_bad": _fragments_from_value(analysis.get("what_caution")),
+            "how_to_use": analysis.get("how_to_use"),
+            "expectations": analysis.get("expectations"),
             "inci": det.get("normalized_ingredients") or [],
+            "category": det.get("category") or product_type,
         }
 
-    # Иначе генерируем ВСЕ блоки отчёта (Общий вывод + Ключевой ингредиент +
-    # Как применять + Чего ожидать) по уже готовому результату scoring engine.
     profile = _profile_from_user(current_user)
     skin_type = profile.get("skin_type") or "Нормальная"
-    product_type = classify_product(product).get("canonical_category") or ""
     try:
         full = await generate_full_report(
             name,
@@ -1484,29 +1497,35 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         print(f"[REVIEW] failed: {exc!r}")
         raise HTTPException(status_code=502, detail="Не удалось сформировать отчёт") from exc
 
-    review = full.get("report") or analysis.get("summary") or ""
+    review_fragments = full.get("review") or []
+    what_good = full.get("what_good") or []
+    what_bad = full.get("what_bad") or []
+    review_text = _fragments_to_text(review_fragments) or analysis.get("summary") or ""
 
     save_analysis_details(
         current_user["id"],
         product.get("id"),
         product.get("slug") or request.slug,
-        report=review,
+        report=_json.dumps(review_fragments, ensure_ascii=False),
         active_ingredients=full.get("active_ingredients"),
         how_to_use=full.get("how_to_use"),
         expectations=full.get("expectations"),
-        what_good=full.get("what_good") or "",
+        what_good=_json.dumps(what_good, ensure_ascii=False),
+        what_caution=_json.dumps(what_bad, ensure_ascii=False),
     )
-    save_analysis_report(current_user["id"], product.get("id"), product.get("slug") or request.slug, review)
-    save_ai_report(current_user["id"], product.get("slug") or request.slug, review)
+    save_ai_report(current_user["id"], product.get("slug") or request.slug, review_text)
 
     return {
         "score": score,
-        "review": review,
+        "review": review_fragments,
         "active_ingredients": full.get("active_ingredients"),
-        "what_good": full.get("what_good"),
+        "what_good": what_good,
+        "what_bad": what_bad,
         "how_to_use": full.get("how_to_use"),
         "expectations": full.get("expectations"),
         "inci": full.get("inci") or [],
+        "category": full.get("category") or product_type,
+        "score_breakdown": full.get("score_breakdown"),
     }
 
 
