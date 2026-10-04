@@ -80,11 +80,11 @@ _CATEGORY_APPLICATION: dict = {
     },
     "cleansing": {
         "title": "Очищение и демакияж",
-        "guidance": "Очищающее средство используют для очищения: наносят на кожу/влажную кожу в зависимости от типа, при необходимости вспенивают и обязательно смывают.",
+        "guidance": "Очищающее средство наносят на влажную кожу лица, мягко распределяют и смывают водой.",
         "how_to_use": {
-            "application": "Нанесите средство на влажную кожу (или согласно типу средства).",
-            "time": "При необходимости вспеньте, мягко помассируйте.",
-            "note": "Тщательно смойте водой.",
+            "application": "Нанесите средство на влажную кожу лица, мягко распределите и смойте водой.",
+            "time": "",
+            "note": "",
         },
     },
     "lips": {
@@ -575,6 +575,24 @@ _REPORT_MEDICAL_CLAIMS = [
     "избавит от", "снимет раздражение", "не вызовет аллергию", "решит проблему",
     "даст сияние", "уберёт покраснение", "избавит от высыпаний", "будет комфортно",
     "подойдёт чувствительной", "не будет сухости", "кожа будет мягкой",
+    # Самостоятельные советы/прогнозы (запрещены в блоке «Чего ожидать» и в целом).
+    "лучше не использовать", "лучше не включать", "не включать в routine",
+    "лучше не наносить", "не стоит использовать", "стоит избегать", "откажитесь от",
+    "может вызвать", "может привести", "приведёт к", "может спровоцировать",
+    "при регулярном использовании", "не подойдёт для", "лучше подойдёт",
+]
+
+# Фразы, отрицающие наличие реальных (>=2 п.п.) вкладов — противоречие с deterministic input.
+_NO_NEGATIVE_PHRASES = [
+    "существенных отрицательных факторов нет", "отрицательных факторов нет",
+    "нет отрицательных факторов", "значимых минусов нет", "существенных минусов нет",
+    "минусов нет",
+]
+
+_NO_POSITIVE_PHRASES = [
+    "существенных положительных факторов нет", "положительных факторов нет",
+    "нет положительных факторов", "значимых плюсов нет", "существенных плюсов нет",
+    "плюсов нет",
 ]
 
 
@@ -647,13 +665,35 @@ def _validate_report_once(inp: dict, output: dict) -> bool:
         parts.append(exp)
     low = " ".join(parts).lower()
 
+    score = int(inp.get("score") or 0)
+    neg_strong = [n for n in inp["negative"] if n.get("significance") in {"significant", "moderate"}]
+    pos_strong = [p for p in inp["positive"] if p.get("significance") in {"significant", "moderate"}]
+
+    # Значимый/умеренный отрицательный фактор не должен называться отсутствующим.
     for n in inp["negative"]:
-        if n["significance"] != "significant":
+        if n.get("significance") not in {"significant", "moderate"}:
             continue
-        label = n["label"]
-        stem = label[:-2] if len(label) > 4 else label
+        stem = n["label"][:-2] if len(n["label"]) > 4 else n["label"]
         if f"минусов по {stem}" in low:
             return False
+
+    # «Отрицательных факторов нет» при реальном вкладе >= 2 п.п. — противоречие.
+    if neg_strong:
+        for phrase in _NO_NEGATIVE_PHRASES:
+            if phrase in low:
+                return False
+    # Аналогично для положительной стороны.
+    if pos_strong:
+        for phrase in _NO_POSITIVE_PHRASES:
+            if phrase in low:
+                return False
+
+    # score < 50 и есть значимые/умеренные отрицательные вклады → negative side обязан быть отражён.
+    if score < 50 and neg_strong:
+        neg_texts = [str(f.get("text") or "").strip() for f in (output.get("negative") or []) if isinstance(f, dict)]
+        if not any(neg_texts):
+            return False
+
     for phrase in _REPORT_MEDICAL_CLAIMS:
         if phrase in low:
             return False
@@ -692,10 +732,13 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
 
 ПРАВИЛА:
 - Все части текста должны использовать ОДИН И ТОТ ЖЕ набор фактов и не противоречить друг другу.
-- Не называй значимый отрицательный фактор отсутствующим; не называй отрицательный фактор положительным; не добавляй факторы, которых нет выше.
+- Не называй значимый или умеренный отрицательный фактор отсутствующим; не называй отрицательный фактор положительным; не добавляй факторы, которых нет выше.
+- Если среди фактов есть значимые/умеренные отрицательные — ОБЯЗАТЕЛЬНО отрази их в negative, не скрывай.
 - Слабые факторы (weak) не используй как причины результата и не перечисляй их ингредиенты.
 - Пиши естественным русским языком, БЕЗ внутреннего языка модели («ось», «вклад по», «п.п.», технические ключи hydration/barrier/irritation/...).
-- Говори о ВКЛАДЕ В РЕЗУЛЬТАТ МОДЕЛИ, а не о гарантированном эффекте на кожу: не пиши «ослабляет барьер», «вызывает раздражение», «кожа станет…».
+  Плохо: «Умеренно положительно на результат влияет фактор, связанный с раздражением», «Поддержка барьера кожи вносит вклад…».
+  Хорошо: «Фактор раздражения даёт умеренный положительный вклад в итоговый результат», «Фактор барьера даёт заметный положительный вклад».
+- Говори о ВКЛАДЕ В РЕЗУЛЬТАТ МОДЕЛИ, а не о гарантированном эффекте на кожу: не пиши «ослабляет барьер», «вызывает раздражение», «укрепляет барьер кожи», «кожа станет…». Не превращай название оси в медицинское утверждение.
 - Не меняй score и verdict.
 
 Верни ТОЛЬКО JSON:
@@ -709,7 +752,7 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
 - summary: 2-3 предложения — объясни итог (score относительно нейтральной зоны 50%) через баланс факторов.
 - positive: «что улучшает результат» — только значимые/умеренные положительные факторы; если их нет — [].
 - negative: «что снижает результат» — только значимые/умеренные отрицательные факторы; если их нет — [].
-- expectations: безопасный перевод результата БЕЗ прогноза состояния кожи; если безопасного текста нет — "".
+- expectations: ТОЛЬКО нейтральный пересказ баланса без советов и прогнозов (например, «Итоговый балл ниже нейтральной зоны: отрицательные вклады перевешивают положительные»). НЕ давай советы («лучше не использовать», «не включать в routine»), НЕ прогнозируй эффект или ощущения кожи. Если безопасного нейтрального текста нет — "".
 """
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
@@ -737,6 +780,28 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
             print(f"[REPORT ONCE] AI failed: {exc!r}")
             continue
     return None
+
+
+def _deterministic_balance_fragments(analysis: dict) -> tuple:
+    """Детерминированные neutral-фрагменты баланса (fallback, когда AI недоступен).
+
+    Строит what_good/what_bad из фактических вкладов осей (не придумывает факторы),
+    нейтральным языком «Фактор X даёт … вклад», без медицинских утверждений.
+    """
+    inp = _build_report_input(analysis)
+    _SIG_WORD = {"significant": "значимый", "moderate": "умеренный"}
+    good: List[dict] = []
+    bad: List[dict] = []
+    for p in inp["positive"]:
+        if p["significance"] not in _SIG_WORD:
+            continue
+        good.append({"text": f"Фактор {p['label']} даёт {_SIG_WORD[p['significance']]} положительный вклад.", "sentiment": "positive"})
+    for n in inp["negative"]:
+        if n["significance"] not in _SIG_WORD:
+            continue
+        bad.append({"text": f"Фактор {n['label']} даёт {_SIG_WORD[n['significance']]} отрицательный вклад.", "sentiment": "negative"})
+    return good, bad
+
 
 
 async def generate_full_report(
@@ -796,9 +861,13 @@ async def generate_full_report(
         summary = deterministic.get("summary") or ""
         score = int(deterministic.get("score") or 0)
         review = [{"text": summary, "sentiment": "negative" if score < 60 else "positive"}] if summary else []
-        what_good = []
-        what_bad = []
+        what_good, what_bad = _deterministic_balance_fragments(deterministic)
+        # Нейтральный перевод баланса (без советов) — только если он соответствует данным.
         expectations = None
+        if score < 50 and what_bad:
+            expectations = {"when": None, "normal": "Итоговый балл ниже нейтральной зоны: отрицательные вклады перевешивают положительные.", "danger": None}
+        elif score >= 50 and what_good:
+            expectations = {"when": None, "normal": "Итоговый балл в нейтральной зоне и выше: положительные вклады перевешивают отрицательные.", "danger": None}
 
     return {
         "review": review,

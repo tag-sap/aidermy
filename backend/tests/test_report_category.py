@@ -37,7 +37,9 @@ class CategoryApplicationHintTests(unittest.TestCase):
 
     def test_cleanser_rinse(self):
         hint = _category_application_hint("Очищение и демакияж")
-        self.assertIn("смойте", hint["how_to_use"]["note"].lower())
+        app = hint["how_to_use"]["application"].lower()
+        self.assertIn("смойте", app)
+        self.assertIn("влажную кожу лица", app)
 
     def test_lips_not_face(self):
         hint = _category_application_hint("Уход для губ")
