@@ -992,16 +992,24 @@ SHELF_CATEGORIES = ["Очищение", "Тонер", "Сыворотка", "К�
 
 def _profile_from_user(user: dict) -> dict:
     """Skin Profile из канонического источника (user_profiles, затем users)."""
-    from .database import get_user_profile
+    from .database import get_structured_profile, get_user_profile
 
     profile = get_user_profile(user["id"])
-    return {
+    result = {
         "skin_type": profile.get("skin_type") or "",
         "age": profile.get("age") or "",
         "concerns": [c.strip() for c in (profile.get("concerns") or "").split(",") if c.strip()],
         "allergies": [a.strip() for a in (profile.get("allergies") or "").split(",") if a.strip()],
         "custom_text": profile.get("custom_text") or "",
     }
+    # Structured profile (therapy/procedures) — чтобы Score Engine реально их использовал.
+    try:
+        structured = get_structured_profile(user["id"])
+    except Exception:
+        structured = None
+    if structured:
+        result["structured"] = structured
+    return result
 
 
 def _save_system_analysis(user: dict, product_id: int | None, slug: str, result: dict, profile_snapshot: dict | None = None) -> dict | None:
@@ -1244,7 +1252,10 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
 
     # Если полка не указана явно — определяем её автоматически по названию/категории.
     if not (request.category or "").strip():
-        cabinet, category = infer_cabinet_category(product.get("category"), product.get("name"))
+        legacy_cat = (product.get("category") or "").strip()
+        if legacy_cat.lower() in {"другое", "other", ""}:
+            legacy_cat = (product.get("subcategory") or product.get("taxonomy_category") or "").strip()
+        cabinet, category = infer_cabinet_category(legacy_cat, product.get("name"))
     else:
         cabinet = (request.cabinet or "face").strip().lower()
         if cabinet not in CABINET_BY_KEY:
@@ -1623,7 +1634,7 @@ async def clear_shelf(request: ShelfClearRequest, current_user: dict = Depends(g
         p = get_product_by_id(s["product_id"])
         if not p:
             continue
-        c_cabinet, c_category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
+        c_cabinet, c_category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "", p.get("subcategory") or "")
         if c_cabinet != cabinet:
             continue
         if category and c_category != category:

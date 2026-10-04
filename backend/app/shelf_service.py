@@ -134,12 +134,19 @@ def infer_cabinet_category(category: str, name: str) -> Tuple[str, str]:
     return c["body_area"], c["canonical_category"]
 
 
-def resolve_shelf_cabinet(category: str, cabinet: str, name: str) -> Tuple[str, str]:
-    """Возвращает (cabinet, каноническая категория) для записи полки."""
+def resolve_shelf_cabinet(category: str, cabinet: str, name: str, canonical_subcategory: str = "") -> Tuple[str, str]:
+    """Возвращает (cabinet, каноническая категория) для записи полки.
+
+    Приоритет: canonical category продукта (subcategory) над legacy-категорией полки,
+    если legacy-категория — «Другое»/пустая (нельзя затирать известную категорию).
+    """
+    raw = (category or "").strip()
+    if raw.lower() in {"другое", "other", ""} and (canonical_subcategory or "").strip():
+        raw = canonical_subcategory.strip()
     cab = (cabinet or "").strip().lower()
     if cab in CABINET_BY_KEY:
-        return cab, canonical_category(cab, category)
-    return infer_cabinet_category(category, name)
+        return cab, canonical_category(cab, raw)
+    return infer_cabinet_category(raw, name)
 
 
 def _category_keywords(cabinet: str, category: str) -> List[str]:
@@ -592,7 +599,7 @@ def _load_shelf_products(
             continue
         if not p:
             continue
-        c_cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
+        c_cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "", p.get("subcategory") or "")
         if c_cabinet != cabinet:
             continue
         score = get_personalized_score(user, p, knowledge=knowledge, history=history)
@@ -1143,7 +1150,7 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         p = get_product_by_id(s["product_id"])
         if not p:
             continue
-        cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "")
+        cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "", p.get("subcategory") or "")
         score = None
         has_report = False
         needs_recheck = False

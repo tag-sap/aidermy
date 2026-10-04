@@ -69,6 +69,33 @@ def _days_since(iso: Any) -> Optional[int]:
         return None
 
 
+# Алиасы: фронтенд-IDs анкеты (data.ts) -> канонические matrix-IDs (profile_matrix).
+# Фронтенд использует собственные ID, которые не всегда совпадают с matrix-IDs.
+_MATRIX_ID_ALIASES: Dict[str, str] = {
+    # therapy
+    "antibiotic": "topical_antibiotic",
+    # procedures
+    "recent_peeling": "professional_peel",
+}
+
+# Алиасы периодов процедур (фронтенд -> канонические ключи PROCEDURE_TEMPORAL_DECAY).
+_PROCEDURE_PERIOD_ALIASES: Dict[str, str] = {
+    "<7": "<7 days",
+    "7-14": "7-14 days",
+    "14-30": "14-30 days",
+    "1-3m": "1-3 months",
+    ">3m": ">3 months",
+}
+
+
+def _canonical_matrix_id(sid: str) -> Optional[str]:
+    """Канонический matrix-ID из фронтенд-ID (алиасы)."""
+    if sid is None:
+        return None
+    sid = str(sid).strip().lower()
+    return _MATRIX_ID_ALIASES.get(sid, sid)
+
+
 def _therapy_factor(item: Dict[str, Any]) -> float:
     cfg = THERAPY_TEMPORAL_FACTOR
     if item.get("active"):
@@ -85,6 +112,7 @@ def _therapy_factor(item: Dict[str, Any]) -> float:
 
 def _procedure_factor(item: Dict[str, Any]) -> float:
     period = str(item.get("period") or "").strip()
+    period = _PROCEDURE_PERIOD_ALIASES.get(period, period)
     return float(PROCEDURE_TEMPORAL_DECAY.get(period, 0.0))
 
 
@@ -103,14 +131,14 @@ def _collect_score_ids(profile: Dict[str, Any]) -> Tuple[List[str], Dict[str, Di
                 ids.append(str(sid).strip().lower())
 
     for item in _as_list(profile.get("therapy")):
-        sid = _element_id(item)
+        sid = _canonical_matrix_id(_element_id(item))
         if sid:
             sid = str(sid).strip().lower()
             ids.append(sid)
             temporal[sid] = item if isinstance(item, dict) else {"active": True}
 
     for item in _as_list(profile.get("procedures")):
-        sid = _element_id(item)
+        sid = _canonical_matrix_id(_element_id(item))
         if sid:
             sid = str(sid).strip().lower()
             ids.append(sid)
