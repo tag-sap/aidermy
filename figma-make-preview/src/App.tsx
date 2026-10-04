@@ -1265,15 +1265,6 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
           </div>
 
-          {product.shelf_id && (
-            <div className="drawer__cat-edit">
-              <label>Категория</label>
-              <select value={product.category} onChange={(e) => onCategoryEdit(product.shelf_id!, e.target.value)}>
-                {(CABINETS.find((c) => c.key === product.cabinet)?.categories || []).map((c) => <option key={c} value={c}>{c}</option>)}
-                {!(CABINETS.find((c) => c.key === product.cabinet)?.categories || []).includes(product.category) && <option value={product.category}>{product.category}</option>}
-              </select>
-            </div>
-          )}
 
           {phase === "idle" && (
             <div className="drawer__body">
