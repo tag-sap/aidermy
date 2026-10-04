@@ -50,14 +50,18 @@ export type CheckResult = {
   expectations?: { when?: string; normal?: string; danger?: string }
 }
 
+export type ReportFragment = { text: string; sentiment: "positive" | "negative" }
+
 export type ReportResult = {
   score: number
-  review?: string | null
+  review?: ReportFragment[]
   active_ingredients?: unknown
-  what_good?: string | null
+  what_good?: ReportFragment[]
+  what_bad?: ReportFragment[]
   how_to_use?: { application?: string; time?: string; note?: string } | null
   expectations?: { when?: string; normal?: string; danger?: string } | null
   inci?: string[]
+  category?: string
 }
 
 export type Review = {

@@ -1317,11 +1317,25 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
           )}
 
-          {phase === "report" && (
+          {phase === "report" && (() => {
+            const sc = reportData?.score ?? score ?? 0
+            const frag = (f: { text: string; sentiment: string }, i: number) => (
+              <span key={i} className={`frag frag--${f.sentiment === "negative" ? "negative" : "positive"}`}>{f.text} </span>
+            )
+            const goodEl = (reportData?.what_good && reportData.what_good.length > 0) ? (
+              <section><h4>Что хорошего в составе</h4><p className="drawer__report-summary">{reportData.what_good.map(frag)}</p></section>
+            ) : null
+            const badEl = (reportData?.what_bad && reportData.what_bad.length > 0) ? (
+              <section><h4>Что плохого в составе</h4><p className="drawer__report-summary">{reportData.what_bad.map(frag)}</p></section>
+            ) : null
+            const first = sc < 60 ? badEl : goodEl
+            const second = sc < 60 ? goodEl : badEl
+            return (
             <div className="drawer__body">
               <div className="drawer__report-head"><p className="eyebrow">Результат</p>{score != null && <ScoreBadge score={score} />}</div>
-              {reportData?.review && <p className="drawer__report-summary">{reportData.review}</p>}
-              {reportData?.what_good && <section><h4>Что хорошо в составе</h4><p className="drawer__report-summary">{reportData.what_good}</p></section>}
+              {reportData?.review && reportData.review.length > 0 && <p className="drawer__report-summary">{reportData.review.map(frag)}</p>}
+              {first}
+              {second}
               {reportData?.how_to_use && (
                 <section><h4>Как применять</h4>
                   <p className="drawer__report-summary">{reportData.how_to_use.application || reportData.how_to_use.time || ""}</p>
@@ -1334,7 +1348,8 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               )}
               <section><h4>Состав (INCI)</h4><p className="inci">{(reportData?.inci && reportData.inci.length ? reportData.inci.join(", ") : null) || product.ingredients || "Состав не распознан"}</p></section>
             </div>
-          )}
+            )
+          })()}
 
         </div>
         <div className="drawer__footer">

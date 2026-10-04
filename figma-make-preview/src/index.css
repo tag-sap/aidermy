@@ -447,6 +447,8 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.
 .drawer__cta { padding-top: 4px; }
 .drawer__report-head { display: flex; align-items: center; justify-content: space-between; }
 .drawer__report-summary { color: var(--ink-soft); font-size: 13px; line-height: 1.6; }
+.frag--positive { color: var(--good); }
+.frag--negative { color: var(--bad); }
 .drawer__footer { padding: 14px 22px calc(14px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); background: var(--paper); display: flex; gap: 10px; }
 .drawer__footer .btn { flex: 1; }
 
