@@ -1,20 +1,39 @@
-"""Regression: AI Calibration Center — профили, cases, score run, audit, drift, compare."""
+"""Regression: AI Calibration Center — профили, cases, score run, audit, drift, compare, lifecycle."""
+import asyncio
+import json
 import os
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.calibration_profiles import CALIBRATION_PROFILES, CALIBRATION_PROFILES_VERSION, profile_by_id
 from app.calibration_service import (
-    build_cases,
-    reference_cache_key,
-    _case_metrics,
+    CALIBRATION_PROMPT_VERSION,
+    DEFAULT_MODEL,
+    STALE_SECONDS,
     audit,
-    find_drift,
+    build_cases,
     compare,
+    create_run,
+    find_drift,
+    generate_ai_reference_batched,
+    get_run,
+    is_stale,
+    latest_active_run,
+    reference_cache_key,
     run_score_engine,
+    update_run,
+    _case_metrics,
+    _extract_json_array,
+    _product_version,
 )
+from app.database import AIDERMY_DB, get_connection
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat()
 
 
 class CalibrationProfilesTests(unittest.TestCase):
@@ -86,6 +105,101 @@ class CalibrationServiceTests(unittest.TestCase):
                 for i in range(20)}
         drift = find_drift(results, refs, min_cases=10)
         self.assertTrue(any(d["group"] == "oily" and d["average_drift"] > 0 for d in drift))
+
+    def test_extract_json_array_variants(self):
+        plain = '[{"product_id": 1, "profile_id": "P03", "estimate": 50}]'
+        self.assertEqual(_extract_json_array(plain)[0]["profile_id"], "P03")
+        fenced = '```json\n[{"product_id": 2, "profile_id": "P05", "estimate": 60}]\n```'
+        self.assertEqual(_extract_json_array(fenced)[0]["product_id"], 2)
+        wrapped = '{"results": [{"product_id": 3, "profile_id": "P07", "estimate": 70}]}'
+        self.assertEqual(_extract_json_array(wrapped)[0]["product_id"], 3)
+        nested = '[{"product_id": 4, "profile_id": "P09", "positive_drivers": ["a", "b"], "negative_drivers": []}]'
+        self.assertEqual(_extract_json_array(nested)[0]["positive_drivers"], ["a", "b"])
+        self.assertIsNone(_extract_json_array("no json here"))
+        self.assertIsNone(_extract_json_array('{"just": "an object"}'))
+
+
+class CalibrationLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self._keys = []
+
+    def tearDown(self):
+        conn = get_connection(AIDERMY_DB)
+        for k in self._keys:
+            conn.execute("DELETE FROM calibration_runs WHERE run_key=?", (k,))
+        conn.commit()
+        conn.close()
+
+    def _mk(self, params=None):
+        key = create_run(params or {"product_limit": 5, "use_cache": True})
+        self._keys.append(key)
+        return key
+
+    def test_lifecycle_queued_running_completed(self):
+        key = self._mk({"product_limit": 10})
+        run = get_run(key)
+        self.assertEqual(run["status"], "queued")
+        self.assertIsNotNone(run["params"])
+
+        update_run(key, status="running", started_at=_now())
+        self.assertEqual(get_run(key)["status"], "running")
+
+        update_run(key, status="completed", completed_at=_now(), processed_cases=10, total_cases=10)
+        self.assertEqual(get_run(key)["status"], "completed")
+
+    def test_lifecycle_failed(self):
+        key = self._mk()
+        update_run(key, status="running", started_at=_now())
+        update_run(key, status="failed", error="boom", completed_at=_now())
+        run = get_run(key)
+        self.assertEqual(run["status"], "failed")
+        self.assertEqual(run["error"], "boom")
+
+    def test_is_stale_detects_dead_worker(self):
+        key = self._mk()
+        update_run(key, status="running", started_at=_now(),
+                   updated_at=(datetime.now(timezone.utc) - timedelta(seconds=STALE_SECONDS + 60)).isoformat())
+        self.assertTrue(is_stale(get_run(key)))
+
+        update_run(key, updated_at=datetime.now(timezone.utc).isoformat())
+        self.assertFalse(is_stale(get_run(key)))
+
+        update_run(key, status="completed", completed_at=_now())
+        self.assertFalse(is_stale(get_run(key)))
+
+    def test_double_click_returns_active_run(self):
+        key = self._mk()
+        active = latest_active_run()
+        self.assertEqual(active["run_key"], key)
+        self.assertIn(active["status"], ("queued", "running"))
+
+    def test_cached_references_not_regenerated(self):
+        product = {"id": 987654321, "name": "Cache Test", "ingredients": "aqua, glycerin",
+                   "category": "Увлажнение и питание"}
+        profile = profile_by_id("P03")
+        pv = _product_version(product)
+        ck = reference_cache_key(product["id"], pv, profile["id"], CALIBRATION_PROMPT_VERSION, DEFAULT_MODEL)
+        ref = {"product_id": product["id"], "profile_id": profile["id"], "range_min": 40, "range_max": 60,
+               "estimate": 50, "confidence": 0.8, "positive_drivers": [], "negative_drivers": [], "reason": "test"}
+        conn = get_connection(AIDERMY_DB)
+        conn.execute(
+            "INSERT OR REPLACE INTO calibration_references (cache_key, product_id, profile_id, reference, model, prompt_version, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (ck, product["id"], profile["id"], json.dumps(ref, ensure_ascii=False), DEFAULT_MODEL,
+             CALIBRATION_PROMPT_VERSION, _now()),
+        )
+        conn.commit()
+        conn.close()
+        try:
+            refs, stats = asyncio.run(generate_ai_reference_batched([product], [profile], use_cache=True))
+            self.assertIn(f'{product["id"]}:{profile["id"]}', refs)
+            self.assertEqual(stats["ai_requests"], 0)
+            self.assertGreaterEqual(stats["cache_hits"], 1)
+        finally:
+            conn = get_connection(AIDERMY_DB)
+            conn.execute("DELETE FROM calibration_references WHERE cache_key=?", (ck,))
+            conn.commit()
+            conn.close()
 
 
 if __name__ == "__main__":

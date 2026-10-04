@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import math
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -31,12 +32,23 @@ def ensure_tables() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             run_key TEXT UNIQUE,
             created_at TEXT,
+            updated_at TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            error TEXT,
+            params TEXT,
             product_count INTEGER,
             profile_count INTEGER,
             case_count INTEGER,
+            total_cases INTEGER,
+            processed_cases INTEGER,
+            current_batch INTEGER,
+            total_batches INTEGER,
             ai_request_count INTEGER,
             cache_hits INTEGER,
             cache_misses INTEGER,
+            ai_references_generated INTEGER,
+            errors INTEGER,
             model TEXT,
             scoring_config_version TEXT,
             calibration_profiles_version TEXT,
@@ -91,8 +103,105 @@ def ensure_tables() -> None:
             UNIQUE(product_id, profile_id)
         )
     """)
+    _ensure_columns(conn, "calibration_runs", _RUN_EXTRA_COLUMNS)
     conn.commit()
     conn.close()
+
+
+_RUN_EXTRA_COLUMNS = [
+    ("updated_at", "TEXT"),
+    ("started_at", "TEXT"),
+    ("completed_at", "TEXT"),
+    ("error", "TEXT"),
+    ("params", "TEXT"),
+    ("total_cases", "INTEGER"),
+    ("processed_cases", "INTEGER"),
+    ("current_batch", "INTEGER"),
+    ("total_batches", "INTEGER"),
+    ("ai_references_generated", "INTEGER"),
+    ("errors", "INTEGER"),
+]
+
+
+def _ensure_columns(conn, table: str, columns: List[tuple]) -> None:
+    existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for name, typ in columns:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
+
+
+def _run_key() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _run_conn():
+    conn = _db()
+    conn.execute("PRAGMA busy_timeout = 30000")
+    return conn
+
+
+def create_run(params: Dict[str, Any]) -> str:
+    """Создаёт calibration_run со статусом queued и возвращает run_key."""
+    ensure_tables()
+    conn = _run_conn()
+    key = _run_key()
+    conn.execute(
+        "INSERT INTO calibration_runs (run_key, created_at, updated_at, status, params, model, "
+        "scoring_config_version, calibration_profiles_version, prompt_version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (key, _now(), _now(), "queued", json.dumps(params, ensure_ascii=False), DEFAULT_MODEL,
+         SCORING_CONFIG_VERSION, CALIBRATION_PROFILES_VERSION, CALIBRATION_PROMPT_VERSION),
+    )
+    conn.commit()
+    conn.close()
+    return key
+
+
+def get_run(run_key: str) -> Optional[Dict[str, Any]]:
+    ensure_tables()
+    conn = _run_conn()
+    row = conn.execute("SELECT * FROM calibration_runs WHERE run_key=?", (run_key,)).fetchone()
+    conn.close()
+    return {k: row[k] for k in row.keys()} if row is not None else None
+
+
+def update_run(run_key: str, **fields) -> None:
+    if not fields:
+        return
+    conn = _run_conn()
+    cols = ", ".join(f"{k}=?" for k in fields)
+    conn.execute(f"UPDATE calibration_runs SET {cols} WHERE run_key=?", (*fields.values(), run_key))
+    conn.commit()
+    conn.close()
+
+
+def latest_active_run() -> Optional[Dict[str, Any]]:
+    """Последний run (для защиты от двойного нажатия / resume)."""
+    conn = _run_conn()
+    row = conn.execute("SELECT run_key, status, updated_at FROM calibration_runs ORDER BY id DESC LIMIT 1").fetchone()
+    conn.close()
+    return {k: row[k] for k in row.keys()} if row is not None else None
+
+
+STALE_SECONDS = 120
+
+
+def is_stale(run: Dict[str, Any], stale_seconds: int = STALE_SECONDS) -> bool:
+    """Run 'running/queued' без heartbeat дольше stale_seconds — мёртвый worker."""
+    if run.get("status") not in ("queued", "running"):
+        return False
+    updated = run.get("updated_at")
+    if not updated:
+        return False
+    try:
+        dt = datetime.fromisoformat(updated)
+        return (datetime.now(timezone.utc) - dt).total_seconds() > stale_seconds
+    except Exception:
+        return False
 
 
 def reference_cache_key(product_id: int, product_version: str, profile_id: str,
@@ -180,9 +289,57 @@ def _build_reference_prompt(products: List[Dict[str, Any]], profiles: List[Dict[
         "Для КАЖДОЙ пары product×profile верни ОДИН элемент массива."
     )
 
+def _extract_json_array(content: str) -> Optional[List[Any]]:
+    """Извлекает JSON-массив из ответа AI (markdown fences / wrapped object / nested lists)."""
+    if not content or not isinstance(content, str):
+        return None
+    cleaned = content.strip()
+    m = re.search(r'```(?:json)?\s*([\s\S]*?)```', cleaned, re.DOTALL)
+    if m:
+        cleaned = m.group(1).strip()
+    start = cleaned.find('[')
+    if start != -1:
+        depth = 0
+        in_str = False
+        esc = False
+        for i in range(start, len(cleaned)):
+            ch = cleaned[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == '\\':
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == '[':
+                depth += 1
+            elif ch == ']':
+                depth -= 1
+                if depth == 0:
+                    try:
+                        parsed = json.loads(cleaned[start:i + 1])
+                        if isinstance(parsed, list):
+                            return parsed
+                    except Exception:
+                        pass
+                    break
+    try:
+        obj = json.loads(cleaned)
+        if isinstance(obj, dict):
+            for v in obj.values():
+                if isinstance(v, list):
+                    return v
+    except Exception:
+        pass
+    return None
+
+
 async def _ai_call(prompt: str, model: str) -> Optional[Any]:
     import httpx
-    from .services import DEEPSEEK_API_KEY, DEEPSEEK_API_URL, DEEPSEEK_MODEL_FALLBACKS, extract_json_from_response
+    from .services import DEEPSEEK_API_KEY, DEEPSEEK_API_URL, DEEPSEEK_MODEL_FALLBACKS
     if not DEEPSEEK_API_KEY:
         return None
     models = [model] + [m for m in DEEPSEEK_MODEL_FALLBACKS if m != model]
@@ -193,14 +350,14 @@ async def _ai_call(prompt: str, model: str) -> Optional[Any]:
                     DEEPSEEK_API_URL,
                     headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
                     json={"model": m, "messages": [{"role": "user", "content": prompt}],
-                          "temperature": 0.2, "max_tokens": 4000},
+                          "temperature": 0.2, "max_tokens": 8000},
                     timeout=120,
                 )
             if resp.status_code != 200:
                 continue
             data = resp.json()
             content = (data["choices"][0]["message"]["content"] or "").strip()
-            return extract_json_from_response(content)
+            return _extract_json_array(content)
         except Exception:
             continue
     return None
@@ -238,70 +395,106 @@ async def generate_ai_reference_batched(
     model: str = DEFAULT_MODEL,
     use_cache: bool = True,
     force_refresh: bool = False,
+    on_batch: Optional[Any] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
     """Генерирует AI reference для всех product×profile cases (batch + cache).
 
+    Обрабатывает продукты батчами; после каждого батча сохраняет references в БД
+    и вызывает on_batch(stats) для персиста прогресса lifecycle run.
     Возвращает (references_by_key, stats)."""
     ensure_tables()
     conn = _db()
+    conn.execute("PRAGMA busy_timeout = 30000")
     batch_size = _estimate_batch_size(products)
-    stats = {"batch_count": 0, "ai_requests": 0, "cache_hits": 0, "cache_misses": 0, "errors": 0}
+    # Выход ограничивает батч: ~150 токенов на reference, max_tokens=8000.
+    batch_size = min(batch_size, max(1, 8000 // max(1, len(profiles) * 150)))
+    batches = [products[i:i + batch_size] for i in range(0, len(products), batch_size)]
+    total_cases = len(products) * len(profiles)
+    stats: Dict[str, Any] = {
+        "total_batches": len(batches),
+        "current_batch": 0,
+        "total_cases": total_cases,
+        "processed_cases": 0,
+        "ai_requests": 0,
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "references_generated": 0,
+        "errors": 0,
+    }
     refs: Dict[str, Dict[str, Any]] = {}
 
     cached: Dict[str, Dict[str, Any]] = {}
-    if use_cache:
+    if use_cache and not force_refresh:
         for ck, ref in conn.execute("SELECT cache_key, reference FROM calibration_references").fetchall():
             try:
                 cached[ck] = json.loads(ref)
             except Exception:
                 pass
 
-    for p in products:
-        pv = _product_version(p)
-        for pr in profiles:
-            ck = reference_cache_key(p["id"], pv, pr["id"], CALIBRATION_PROMPT_VERSION, model)
-            key = f'{p["id"]}:{pr["id"]}'
-            if not force_refresh and ck in cached:
-                refs[key] = cached[ck]
-                stats["cache_hits"] += 1
-            else:
-                stats["cache_misses"] += 1
+    have_ai = _deepseek_available()
+    processed_products = 0
+    for bi, batch in enumerate(batches):
+        stats["current_batch"] = bi + 1
+        batch_refs: Dict[str, Dict[str, Any]] = {}
+        batch_misses = 0
+        for p in batch:
+            pv = _product_version(p)
+            for pr in profiles:
+                ck = reference_cache_key(p["id"], pv, pr["id"], CALIBRATION_PROMPT_VERSION, model)
+                key = f'{p["id"]}:{pr["id"]}'
+                if ck in cached:
+                    batch_refs[key] = cached[ck]
+                    stats["cache_hits"] += 1
+                else:
+                    batch_misses += 1
+                    stats["cache_misses"] += 1
 
-    if stats["cache_misses"] > 0 and _deepseek_available():
-        batches = [products[i:i + batch_size] for i in range(0, len(products), batch_size)]
-        stats["batch_count"] = len(batches)
-        for batch in batches:
+        if batch_misses > 0 and have_ai:
             prompt = _build_reference_prompt(batch, profiles)
             result = await _ai_call(prompt, model)
             stats["ai_requests"] += 1
-            if not isinstance(result, list):
+            if isinstance(result, list):
+                by_pair: Dict[str, Dict[str, Any]] = {}
+                for raw in result:
+                    nr = _norm_ref(raw)
+                    if nr is not None:
+                        by_pair[f'{nr["product_id"]}:{nr["profile_id"]}'] = nr
+                for p in batch:
+                    pv = _product_version(p)
+                    for pr in profiles:
+                        key = f'{p["id"]}:{pr["id"]}'
+                        if key in batch_refs:
+                            continue
+                        nr = by_pair.get(key)
+                        if nr is None:
+                            stats["errors"] += 1
+                            continue
+                        batch_refs[key] = nr
+                        ck = reference_cache_key(p["id"], pv, pr["id"], CALIBRATION_PROMPT_VERSION, model)
+                        conn.execute(
+                            "INSERT OR REPLACE INTO calibration_references "
+                            "(cache_key, product_id, profile_id, reference, model, prompt_version, created_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (ck, p["id"], pr["id"], json.dumps(nr, ensure_ascii=False), model,
+                             CALIBRATION_PROMPT_VERSION, datetime.now(timezone.utc).isoformat()),
+                        )
+                        stats["references_generated"] += 1
+                conn.commit()
+            else:
                 stats["errors"] += 1
-                continue
-            by_pair: Dict[str, Dict[str, Any]] = {}
-            for raw in result:
-                nr = _norm_ref(raw)
-                if nr is not None:
-                    by_pair[f'{nr["product_id"]}:{nr["profile_id"]}'] = nr
-            for p in batch:
-                pv = _product_version(p)
-                for pr in profiles:
-                    key = f'{p["id"]}:{pr["id"]}'
-                    ck = reference_cache_key(p["id"], pv, pr["id"], CALIBRATION_PROMPT_VERSION, model)
-                    if key in refs:
-                        continue
-                    nr = by_pair.get(key)
-                    if nr is None:
-                        stats["errors"] += 1
-                        continue
-                    refs[key] = nr
-                    conn.execute(
-                        "INSERT OR REPLACE INTO calibration_references "
-                        "(cache_key, product_id, profile_id, reference, model, prompt_version, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (ck, p["id"], pr["id"], json.dumps(nr, ensure_ascii=False), model,
-                         CALIBRATION_PROMPT_VERSION, datetime.now(timezone.utc).isoformat()),
-                    )
-            conn.commit()
+
+        for key, nr in batch_refs.items():
+            refs[key] = nr
+        processed_products += len(batch)
+        stats["processed_cases"] = processed_products * len(profiles)
+
+        if on_batch is not None:
+            snapshot = dict(stats)
+            if asyncio.iscoroutinefunction(on_batch):
+                await on_batch(snapshot)
+            else:
+                on_batch(snapshot)
+
     conn.close()
     return refs, stats
 
@@ -313,6 +506,11 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
     override = config_override or {}
     saturation = float(override.get("saturation_scale", SATURATION_SCALE))
     engine = DecisionEngine()
+    try:
+        from .ingredient_repository import IngredientRepository
+        knowledge = IngredientRepository().get_canonical_knowledge_map()
+    except Exception:
+        knowledge = None
     results: List[Dict[str, Any]] = []
     for case in cases:
         p = case["product"]
@@ -322,12 +520,14 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
             res = engine.analyze(
                 p["name"], p.get("ingredients") or "", {"structured": structured},
                 skin_type=structured.get("skin_type") or "Нормальная",
+                knowledge=knowledge,
                 saturation_scale=saturation,
             )
         except TypeError:
             res = engine.analyze(
                 p["name"], p.get("ingredients") or "", {"structured": structured},
                 skin_type=structured.get("skin_type") or "Нормальная",
+                knowledge=knowledge,
             )
         results.append({
             "product": p,
