@@ -45,3 +45,22 @@ class ScoreBalanceTextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SignificanceMarkerTests(unittest.TestCase):
+    def _bal(self, dims):
+        prio = {"hydration": 0.31, "irritation": 0.31, "sebum": 0.15, "barrier": 0.15, "sensitization": 0.04, "pigmentation": 0.04}
+        return _score_balance_text({"dimensions": dims, "priorities": prio})
+
+    def test_weak_negative_marked_weak(self):
+        text = self._bal({"sensitization": -0.09})  # -0.5 п.п. -> [слабо]
+        self.assertIn("[слабо]", text)
+        self.assertNotIn("[значимо]", text)
+
+    def test_strong_negative_marked_significant(self):
+        text = self._bal({"irritation": -2.0})  # большой отрицательный вклад
+        self.assertIn("[значимо]", text)
+
+    def test_strong_positive_marked_significant(self):
+        text = self._bal({"hydration": 3.0})
+        self.assertIn("[значимо]", text)

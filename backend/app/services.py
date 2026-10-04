@@ -1164,11 +1164,13 @@ def _score_balance_text(analysis: dict) -> str:
         w = float(prio.get(axis, 0.0) or 0.0)
         contrib = math.tanh(float(raw) / SATURATION_SCALE) * w * 100.0
         label = DIMENSION_LABELS.get(axis, axis)
+        ap = abs(contrib)
+        sig = "значимо" if ap >= 5.0 else ("умеренно" if ap >= 2.0 else "слабо")
         if contrib > 0.001:
-            pos_lines.append(f"  + {label}: +{contrib:.1f} п.п.")
+            pos_lines.append(f"  + {label}: +{contrib:.1f} п.п. [{sig}]")
             pos_total += contrib
         elif contrib < -0.001:
-            neg_lines.append(f"  − {label}: {contrib:.1f} п.п.")
+            neg_lines.append(f"  − {label}: {contrib:.1f} п.п. [{sig}]")
             neg_total += contrib
 
     total_w = sum(float(prio.get(a, 0.0) or 0.0) for a in axes) or 1.0
