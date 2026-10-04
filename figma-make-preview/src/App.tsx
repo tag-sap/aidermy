@@ -1323,10 +1323,10 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               <span key={i} className={`frag frag--${f.sentiment === "negative" ? "negative" : "positive"}`}>{f.text} </span>
             )
             const goodEl = (reportData?.what_good && reportData.what_good.length > 0) ? (
-              <section><h4>Что хорошего в составе</h4><p className="drawer__report-summary">{reportData.what_good.map(frag)}</p></section>
+              <section><h4>Что улучшает результат</h4><p className="drawer__report-summary">{reportData.what_good.map(frag)}</p></section>
             ) : null
             const badEl = (reportData?.what_bad && reportData.what_bad.length > 0) ? (
-              <section><h4>Что плохого в составе</h4><p className="drawer__report-summary">{reportData.what_bad.map(frag)}</p></section>
+              <section><h4>Что снижает результат</h4><p className="drawer__report-summary">{reportData.what_bad.map(frag)}</p></section>
             ) : null
             const first = sc < 60 ? badEl : goodEl
             const second = sc < 60 ? goodEl : badEl
@@ -1341,9 +1341,9 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
                   <p className="drawer__report-summary">{reportData.how_to_use.application || reportData.how_to_use.time || ""}</p>
                 </section>
               )}
-              {reportData?.expectations && (
+              {reportData?.expectations?.normal && (
                 <section><h4>Чего ожидать</h4>
-                  <p className="drawer__report-summary">{reportData.expectations.normal || ""}</p>
+                  <p className="drawer__report-summary">{reportData.expectations.normal}</p>
                 </section>
               )}
               <section><h4>Состав (INCI)</h4><p className="inci">{(reportData?.inci && reportData.inci.length ? reportData.inci.join(", ") : null) || product.ingredients || "Состав не распознан"}</p></section>
