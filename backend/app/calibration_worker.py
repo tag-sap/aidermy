@@ -21,6 +21,7 @@ from .calibration_service import (
     generate_ai_reference_batched,
     get_run,
     load_products,
+    persist_calibration_cases,
     run_score_engine,
     update_run,
 )
@@ -84,6 +85,7 @@ async def _run_async(run_key: str) -> None:
 
     # Score Engine phase (вся тяжёлая работа с AI уже закэширована).
     prod_results = run_score_engine(cases)
+    persist_calibration_cases(run_key, prod_results, references)
     metrics = audit(prod_results, references)
     drift = find_drift(prod_results, references)
     comparison = None

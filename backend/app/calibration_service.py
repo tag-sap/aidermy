@@ -701,3 +701,197 @@ GOLDEN_SET: List[Dict[str, Any]] = [
     {"label": "moisturizer + dry barrier (should be good)", "product_hint": "ceramide", "profile_id": "P15", "min_score": 50, "max_score": 100},
 ]
 
+
+# ---------------------------------------------------------------------------
+# Компактная диагностическая сводка (summary) + per-case persistence.
+# Не меняет Score Engine / audit / drift — только читает и форматирует.
+# ---------------------------------------------------------------------------
+
+_SKIN_TYPE_LABELS = {
+    "normal": "Нормальная",
+    "dry": "Сухая",
+    "oily": "Жирная",
+    "combination": "Комбинированная",
+    "dehydrated": "Обезвоженная",
+    "sensitive": "Чувствительная",
+}
+
+_CONCERN_LABELS = {
+    "reactive_skin": "реактивная кожа",
+    "irritation_prone": "склонность к раздражению",
+    "redness": "покраснение",
+    "rosacea": "розацеа",
+    "acne_general": "акне",
+    "enlarged_pores": "расширенные поры",
+    "inflammatory_acne": "воспалительное акне",
+    "impaired_barrier": "нарушенный барьер",
+    "scaling": "шелушение",
+    "dehydrated_skin": "обезвоженность",
+    "pigmentation": "пигментация",
+    "post_acne_pigmentation": "пигментация после акне",
+    "dullness": "тусклость",
+    "fine_lines": "морщины",
+}
+
+
+def _profile_label(profile_id: str) -> str:
+    p = profile_by_id(profile_id)
+    return p["label"] if p else profile_id
+
+
+def _drift_group_label(group: str) -> str:
+    if group.startswith("concern:"):
+        cid = group[len("concern:"):]
+        return _CONCERN_LABELS.get(cid, cid)
+    if group.startswith("cat:"):
+        return group[len("cat:"):]
+    return _SKIN_TYPE_LABELS.get(group, group)
+
+
+def _drift_verdict(signed_error: float) -> str:
+    if signed_error >= 5:
+        return "Завышает"
+    if signed_error <= -5:
+        return "Занижает"
+    return "OK"
+
+
+def _overall_status(audit_m: Dict[str, Any], drift: List[Dict[str, Any]]) -> str:
+    mse = abs(audit_m.get("mean_signed_error") or 0)
+    top_drift = max([abs(g.get("average_drift") or 0) for g in drift], default=0)
+    if mse >= 15 or top_drift >= 25:
+        return "СИЛЬНЫЙ ДРЕЙФ"
+    if mse >= 5 or drift:
+        return "ЕСТЬ СИСТЕМНЫЙ ДРЕЙФ"
+    return "ХОРОШАЯ КАЛИБРОВКА"
+
+
+def persist_calibration_cases(run_key: str, results: List[Dict[str, Any]],
+                              references: Dict[str, Dict[str, Any]]) -> int:
+    """Сохраняет per-case результаты в calibration_cases (для summary/аудита)."""
+    ensure_tables()
+    conn = _run_conn()
+    n = 0
+    for r in results:
+        p = r["product"]
+        pr = r["profile"]
+        key = f'{p["id"]}:{pr["id"]}'
+        ref = references.get(key)
+        if ref is None:
+            continue
+        score = int(r.get("score") or 0)
+        est = int(ref.get("estimate", 50))
+        rmin = int(ref.get("range_min", 0))
+        rmax = int(ref.get("range_max", 100))
+        drift = score - est
+        inside = 1 if rmin <= score <= rmax else 0
+        conn.execute(
+            "INSERT OR REPLACE INTO calibration_cases "
+            "(run_key, product_id, profile_id, reference, score, verdict, trace, drift, inside_range) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (run_key, p["id"], pr["id"], json.dumps(ref, ensure_ascii=False),
+             score, r.get("verdict") or "", json.dumps(r.get("trace") or {}, ensure_ascii=False),
+             drift, inside),
+        )
+        n += 1
+    conn.commit()
+    conn.close()
+    return n
+
+
+def backfill_calibration_cases(run_key: str) -> int:
+    """Заполняет calibration_cases для completed run по кэшированным references (БЕЗ AI)."""
+    run = get_run(run_key)
+    if run is None:
+        return 0
+    params = json.loads(run["params"]) if run.get("params") else {}
+    product_limit = int(params.get("product_limit", 500))
+    profile_ids = params.get("profile_ids") or []
+    profiles = [p for p in CALIBRATION_PROFILES if not profile_ids or p["id"] in profile_ids]
+    products = load_products(limit=product_limit)
+    cases = build_cases(products, profiles)
+    references, _stats = asyncio.run(generate_ai_reference_batched(
+        products, profiles, model=DEFAULT_MODEL, use_cache=True, force_refresh=False,
+    ))
+    results = run_score_engine(cases)
+    return persist_calibration_cases(run_key, results, references)
+
+
+def _product_name(product_id: int) -> str:
+    try:
+        from .database import PRODUCTS_DB
+        conn = get_connection(PRODUCTS_DB)
+        row = conn.execute("SELECT name FROM products WHERE id=?", (product_id,)).fetchone()
+        conn.close()
+        name = (row["name"] or "").replace("\n", " ").strip() if row else ""
+        return name or f"#{product_id}"
+    except Exception:
+        return f"#{product_id}"
+
+
+def _top_problematic_cases(run_key: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """TOP-N кейсов с максимальным |drift| (только те, где есть reference)."""
+    ensure_tables()
+    conn = _run_conn()
+    rows = conn.execute(
+        "SELECT product_id, profile_id, reference, score, drift FROM calibration_cases "
+        "WHERE run_key=? AND reference IS NOT NULL ORDER BY ABS(drift) DESC LIMIT ?",
+        (run_key, limit),
+    ).fetchall()
+    conn.close()
+    out = []
+    for row in rows:
+        try:
+            ref = json.loads(row["reference"]) if row["reference"] else {}
+        except Exception:
+            ref = {}
+        out.append({
+            "product": _product_name(row["product_id"]),
+            "profile": _profile_label(row["profile_id"]),
+            "estimate": ref.get("estimate"),
+            "range_min": ref.get("range_min"),
+            "range_max": ref.get("range_max"),
+            "score": row["score"],
+            "difference": row["drift"],
+        })
+    return out
+
+
+def build_calibration_summary(run_key: str) -> Optional[Dict[str, Any]]:
+    """Компактная диагностическая сводка для completed run (читает metrics + cases)."""
+    run = get_run(run_key)
+    if run is None:
+        return None
+    metrics = json.loads(run["metrics"]) if run.get("metrics") else {}
+    audit_m = metrics.get("audit") or {}
+    drift = metrics.get("drift") or []
+
+    verdict = {
+        "cases": audit_m.get("case_count") or run.get("case_count") or 0,
+        "mae": audit_m.get("mae"),
+        "median_error": audit_m.get("median_abs_error"),
+        "mean_signed_error": audit_m.get("mean_signed_error"),
+        "coverage_pct": round((audit_m.get("range_coverage") or 0) * 100, 1),
+        "overestimated_pct": round((audit_m.get("overestimation_rate") or 0) * 100, 1),
+        "underestimated_pct": round((audit_m.get("underestimation_rate") or 0) * 100, 1),
+    }
+
+    drift_top = [
+        {
+            "group": _drift_group_label(g.get("group", "")),
+            "cases": g.get("cases"),
+            "signed_error": g.get("average_drift"),
+            "verdict": _drift_verdict(g.get("average_drift") or 0),
+        }
+        for g in drift[:5]
+    ]
+
+    return {
+        "run_key": run_key,
+        "status": run.get("status"),
+        "overall_status": _overall_status(audit_m, drift),
+        "verdict": verdict,
+        "drift_groups": drift_top,
+        "top_cases": _top_problematic_cases(run_key, limit=5),
+    }
+

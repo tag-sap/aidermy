@@ -17,6 +17,7 @@ from .admin_routes import verify_admin
 from .calibration_profiles import CALIBRATION_PROFILES, CALIBRATION_PROFILES_VERSION
 from .calibration_service import (
     CALIBRATION_PROMPT_VERSION,
+    build_calibration_summary,
     create_run,
     ensure_tables,
     get_run,
@@ -109,6 +110,24 @@ def setup_calibration_routes(app):
             run = get_run(run_key)
         return _decode_run(run)
 
+    @app.get("/admin/calibration/api/summary/{run_key}")
+    async def calibration_summary(run_key: str, _: bool = Depends(verify_admin)):
+        s = build_calibration_summary(run_key)
+        return s if s is not None else {"error": "not_found"}
+
+    @app.get("/admin/calibration/api/summary")
+    async def calibration_summary_latest(_: bool = Depends(verify_admin)):
+        from .calibration_service import _db
+        conn = _db()
+        row = conn.execute(
+            "SELECT run_key FROM calibration_runs WHERE status='completed' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if row is None:
+            return {"error": "no_completed_run"}
+        s = build_calibration_summary(row["run_key"])
+        return s if s is not None else {"error": "not_found"}
+
     @app.post("/admin/calibration/api/run")
     async def calibration_run(req: Request, _: bool = Depends(verify_admin)):
         body = await req.json()
@@ -180,6 +199,7 @@ input[type=number]{width:80px}
 <button id="runbtn" onclick="run()">RUN CALIBRATION</button>
 <pre id="out" class="mono" style="white-space:pre-wrap;min-height:40px"></pre>
 </section>
+<section><h2>Результаты последнего запуска</h2><div id="summary" class="mono">—</div></section>
 <section><h2>History</h2><div id="runs"></div></section>
 <script>
 async function j(method,url,body){const o={method,headers:{'Content-Type':'application/json'}};if(body)o.body=JSON.stringify(body);const r=await fetch(url,o);return r.json();}
@@ -219,8 +239,25 @@ async function resume(key){
   document.getElementById('out').textContent=JSON.stringify(r,null,2);
   load();
 }
+async function loadSummary(){
+  const el=document.getElementById('summary');
+  const s=await j('GET','/admin/calibration/api/summary');
+  if(!s||s.error){el.innerHTML='—';return;}
+  const v=s.verdict||{};
+  const statClass={'ХОРОШАЯ КАЛИБРОВКА':'ok','ЕСТЬ СИСТЕМНЫЙ ДРЕЙФ':'warn','СИЛЬНЫЙ ДРЕЙФ':'bad'};
+  const drifts=(s.drift_groups||[]).map(d=>`<div>${d.group} · ${d.cases} кейсов · signed ${d.signed_error} · <b>${d.verdict}</b></div>`).join('');
+  const cases=(s.top_cases||[]).map(c=>`<div>${c.product} + ${c.profile} · AI ${c.estimate} (${c.range_min}–${c.range_max}) · Score ${c.score} · Δ ${c.difference}</div>`).join('');
+  el.innerHTML=
+    `<div style="font-size:16px;font-weight:700;margin-bottom:8px"><span class="badge ${statClass[s.overall_status]||'warn'}">${s.overall_status}</span> <span>${s.run_key}</span></div>`+
+    `<div>Cases ${v.cases} · MAE ${v.mae} · Median ${v.median_error} · Signed ${v.mean_signed_error}</div>`+
+    `<div>Coverage ${v.coverage_pct}% · Over ${v.overestimated_pct}% · Under ${v.underestimated_pct}%</div>`+
+    (drifts?`<h3 style="margin:10px 0 4px">Основные перекосы</h3>${drifts}`:'')+
+    (cases?`<h3 style="margin:10px 0 4px">Самые проблемные случаи</h3>${cases}`:'');
+}
 load();
+loadSummary();
 setInterval(load,2000);
+setInterval(loadSummary,3000);
 </script></body></html>
 """
 

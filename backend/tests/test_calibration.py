@@ -14,6 +14,7 @@ from app.calibration_service import (
     DEFAULT_MODEL,
     STALE_SECONDS,
     audit,
+    build_calibration_summary,
     build_cases,
     compare,
     create_run,
@@ -22,11 +23,15 @@ from app.calibration_service import (
     get_run,
     is_stale,
     latest_active_run,
+    persist_calibration_cases,
     reference_cache_key,
     run_score_engine,
     update_run,
     _case_metrics,
+    _drift_group_label,
+    _drift_verdict,
     _extract_json_array,
+    _overall_status,
     _product_version,
 )
 from app.database import AIDERMY_DB, get_connection
@@ -127,6 +132,7 @@ class CalibrationLifecycleTests(unittest.TestCase):
         conn = get_connection(AIDERMY_DB)
         for k in self._keys:
             conn.execute("DELETE FROM calibration_runs WHERE run_key=?", (k,))
+            conn.execute("DELETE FROM calibration_cases WHERE run_key=?", (k,))
         conn.commit()
         conn.close()
 
@@ -200,6 +206,56 @@ class CalibrationLifecycleTests(unittest.TestCase):
             conn.execute("DELETE FROM calibration_references WHERE cache_key=?", (ck,))
             conn.commit()
             conn.close()
+
+    def test_summary_helpers(self):
+        self.assertEqual(_drift_group_label("concern:reactive_skin"), "реактивная кожа")
+        self.assertEqual(_drift_group_label("sensitive"), "Чувствительная")
+        self.assertEqual(_drift_group_label("cat:Сыворотки"), "Сыворотки")
+        self.assertEqual(_drift_verdict(10), "Завышает")
+        self.assertEqual(_drift_verdict(-10), "Занижает")
+        self.assertEqual(_drift_verdict(2), "OK")
+        self.assertEqual(_overall_status({"mean_signed_error": 3}, []), "ХОРОШАЯ КАЛИБРОВКА")
+        self.assertEqual(_overall_status({"mean_signed_error": 8}, []), "ЕСТЬ СИСТЕМНЫЙ ДРЕЙФ")
+        self.assertEqual(_overall_status({"mean_signed_error": 3}, [{"average_drift": 30}]), "СИЛЬНЫЙ ДРЕЙФ")
+        self.assertEqual(_overall_status({"mean_signed_error": 16}, []), "СИЛЬНЫЙ ДРЕЙФ")
+
+    def test_build_calibration_summary(self):
+        key = create_run({"product_limit": 3})
+        self._keys.append(key)
+        audit_m = {"case_count": 4, "mae": 15.0, "median_abs_error": 10, "mean_signed_error": 12.0,
+                   "range_coverage": 0.5, "overestimation_rate": 0.4, "underestimation_rate": 0.1}
+        drift = [
+            {"group": "concern:reactive_skin", "cases": 30, "average_drift": 25.1, "outside_range": 29,
+             "confidence": 0.6, "potential_cause": "X"},
+            {"group": "sensitive", "cases": 90, "average_drift": -10.0, "outside_range": 50,
+             "confidence": 0.6, "potential_cause": "Y"},
+        ]
+        update_run(key, status="completed", metrics=json.dumps({"audit": audit_m, "drift": drift}))
+
+        products = [{"id": 100001, "name": "Product A", "ingredients": "water"},
+                    {"id": 100002, "name": "Product B", "ingredients": "water"}]
+        profiles = [profile_by_id("P03"), profile_by_id("P06")]
+        results = []
+        refs = {}
+        for p in products:
+            for pr in profiles:
+                est = 50 if p["id"] == 100001 else 60
+                ref = {"product_id": p["id"], "profile_id": pr["id"], "range_min": est - 10,
+                       "range_max": est + 10, "estimate": est, "confidence": 0.7}
+                refs[f'{p["id"]}:{pr["id"]}'] = ref
+                results.append({"product": p, "profile": pr, "score": est + 30, "verdict": "ok", "trace": {}})
+        self.assertEqual(persist_calibration_cases(key, results, refs), 4)
+
+        s = build_calibration_summary(key)
+        self.assertEqual(s["overall_status"], "СИЛЬНЫЙ ДРЕЙФ")
+        self.assertEqual(s["verdict"]["cases"], 4)
+        self.assertEqual(s["verdict"]["coverage_pct"], 50.0)
+        self.assertEqual(len(s["drift_groups"]), 2)
+        self.assertEqual(s["drift_groups"][0]["group"], "реактивная кожа")
+        self.assertEqual(s["drift_groups"][0]["verdict"], "Завышает")
+        self.assertEqual(s["drift_groups"][1]["verdict"], "Занижает")
+        self.assertEqual(len(s["top_cases"]), 4)
+        self.assertEqual(s["top_cases"][0]["difference"], 30)
 
 
 if __name__ == "__main__":
