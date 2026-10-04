@@ -684,6 +684,7 @@ async def generate_ai_review(product_name: str, skin_type: str, profile: dict, i
 _RU_INGREDIENT_NAMES = {
     "ниацинамид": "niacinamid",
     "гиалуронов": "hyaluronic acid",
+    "гиалуронат": "sodium hyaluronate",
     "алоэ": "aloe barbadensis",
     "гликолев": "glycolic acid",
     "пантенол": "panthenol",
@@ -697,9 +698,40 @@ _RU_INGREDIENT_NAMES = {
     "аскорбинов": "ascorbic acid",
     "витамин c": "ascorbic acid",
     "церамид": "ceramide",
+    "керамид": "ceramide",
     "аллантоин": "allantoin",
     "бензоилпероксид": "benzoyl peroxide",
+    "муцин": "snail secretion filtrate",
+    "улитк": "snail secretion filtrate",
+    "snail": "snail secretion filtrate",
+    "муцином": "snail secretion filtrate",
+    "экстракт улитки": "snail secretion filtrate",
+    "бетаин": "betaine",
+    "мочевина": "urea",
+    "аргинин": "arginine",
+    "аминокислот": "amino acids",
+    "пептид": "peptide",
 }
+
+# Человекочитаемые формулировки эффектов → оси Score Engine. Отчёт вправе описывать
+# ТОЛЬКО эти 6 осей — любые иные «свойства» (коллаген, регенерация, лифтинг и т.п.)
+# не моделируются Score Engine и должны быть отброшены.
+_AXIS_CLAIM_WORDS = {
+    "hydration": ["увлажн", "увлажня", "hydrat", "moistur", "влагу", "влагоудерж", "увлажнени"],
+    "barrier": ["барьер", "barrier", "защитн", "липидн", "восстановл", "целостн"],
+    "irritation": ["раздража", "раздражи", "irritat", "успокаив", "sooth", "воспал", "противовоспалит", "покраснен", "красн"],
+    "sensitization": ["сенсибилиз", "sensitiz", "чувствительн", "аллерг", "реактивн"],
+    "sebum": ["себум", "жирн", "sebum", "матир", "комедоген", "comedo", "блеск", "пор"],
+    "pigmentation": ["пигмент", "pigment", "осветл", "отбелив", "тон кожи", "brighten", "постакне", "пятн", "выравнивани", "ровн"],
+}
+
+# Эффекты, которые Score Engine НЕ моделирует. Если AI их упоминает — это галлюцинация.
+_FORBIDDEN_EFFECT_WORDS = [
+    "коллаген", "collagen", "эластин", "elastin", "регенерац", "regenerat",
+    "лифтинг", "lifting", "firming", "антивозраст", "anti-age", "anti-ageing", "antiaging",
+    "морщин", "wrinkle", "отшелуш", "эксфолиац", "exfoliat", "детокс", "detox",
+    "омоложен", "rejuvenat", "подтягив", "tone up", "осветлени",
+]
 
 _CONTRADICTION_PHRASES = [
     "агрессивных активов нет",
@@ -744,6 +776,26 @@ def _report_allowed_ingredients(deterministic: dict):
     return allowed
 
 
+def _allowed_axes(deterministic: dict) -> set:
+    """Оси, которые реально задействованы в deterministic factors."""
+    axes = set()
+    for f in (deterministic.get("positive_factors") or []) + (deterministic.get("negative_factors") or []):
+        p = str(f.get("property") or "").strip().lower()
+        if p:
+            axes.add(p)
+    return axes
+
+
+def _mentioned_axes(text: str) -> set:
+    low = text.lower()
+    return {axis for axis, words in _AXIS_CLAIM_WORDS.items() if any(w in low for w in words)}
+
+
+def _has_forbidden_effect(text: str) -> bool:
+    low = text.lower()
+    return any(w in low for w in _FORBIDDEN_EFFECT_WORDS)
+
+
 def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, deterministic: dict | None = None):
     if not text:
         return None
@@ -759,6 +811,16 @@ def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, det
         for stem, evidences in _THERAPY_EVIDENCE.items():
             if stem in low and not _deterministic_has_evidence(deterministic, evidences):
                 return None
+        # Grounding эффектов: отчёт не должен описывать свойства, которые Score Engine
+        # не моделирует, или оси, для которых нет ни одного deterministic factor.
+        if _has_forbidden_effect(low):
+            return None
+        allowed_axes = _allowed_axes(deterministic)
+        if allowed_axes:
+            mentioned = _mentioned_axes(low)
+            for ax in mentioned:
+                if ax not in allowed_axes:
+                    return None
     return text
 
 
@@ -1121,12 +1183,13 @@ def build_report_sections_prompt(product_name: str, analysis: dict, profile: dic
     score = int(analysis.get("score") or 0)
     verdict = analysis.get("verdict") or ""
     summary = analysis.get("summary") or ""
-    pos = "; ".join(_factor_text(f) for f in (analysis.get("positive_factors") or [])[:6]) or "—"
-    neg = "; ".join(_factor_text(f) for f in (analysis.get("negative_factors") or [])[:6]) or "—"
+    pos = "; ".join(_factor_text(f) for f in (analysis.get("positive_factors") or [])[:8]) or "—"
+    neg = "; ".join(_factor_text(f) for f in (analysis.get("negative_factors") or [])[:8]) or "—"
     safe = ", ".join(analysis.get("safe_ingredients") or []) or "—"
     caution = ", ".join(analysis.get("caution_ingredients") or []) or "—"
     hard = json.dumps(analysis.get("hard_flags") or analysis.get("hard_filters") or [], ensure_ascii=False) or "нет"
     skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
+    inci = ", ".join(str(i) for i in (analysis.get("normalized_ingredients") or []))
 
     return (
         "Ты — помощник, который оформляет УЖЕ ГОТОВЫЙ результат анализа косметики в текст. "
@@ -1136,24 +1199,30 @@ def build_report_sections_prompt(product_name: str, analysis: dict, profile: dic
         f"- Вердикт: {verdict}\n"
         f"- Резюме: {summary}\n"
         f"- Положительные факторы (ингредиент → эффект): {pos}\n"
-        f"- Отрицательные факторы: {neg}\n"
+        f"- Отрицательные факторы (ингредиент → эффект): {neg}\n"
         f"- Подходят профилю: {safe}\n"
         f"- Требуют внимания: {caution}\n"
         f"- Жёсткие ограничения: {hard}\n"
         f"- Разложение score по осям (значение + вес):\n{_breakdown_text(analysis)}\n"
         f"- Тип кожи: {skin or 'не указан'}\n"
-        f"- Категория продукта: {product_type or 'не указана'}\n"
-        f"- Допустимый тип применения: {category_hint.get('guidance') if category_hint else 'определи по категории и типу продукта'}\n\n"
+        f"- Тип продукта (категория): {product_type or 'не указан'}\n"
+        f"- Допустимый тип применения: {category_hint.get('guidance') if category_hint else 'определи по категории и типу продукта'}\n"
+        f"- Полный состав (нормализованный INCI — единственный источник ингредиентов): {inci or '—'}\n\n"
+        "### Правила (строго):\n"
+        "- how_to_use и expectations должны соответствовать ТИПУ ПРОДУКТА (категории выше). "
+        "НЕ описывай эссенцию/сыворотку как тонер, крем или очищающее средство, и наоборот.\n"
+        "- Упоминай ТОЛЬКО ингредиенты из состава и ТОЛЬКО эффекты из факторов выше.\n"
+        "- НЕ приписывай ингредиентам свойства, которых нет в факторах.\n"
+        "- НЕ пересчитывай процент и НЕ меняй вердикт.\n\n"
         "### Задачи (верни ТОЛЬКО JSON):\n"
         "1. how_to_use: {{application, time, note}} — ОЧЕНЬ короткая практическая инструкция применения "
         "(максимум 1 предложение или 2 коротких пункта), строго по категории и допустимому типу применения. "
         "Без пустых фраз вроде «наносят подходящим количеством» или «используют на соответствующем этапе ухода». "
         "Если конкретных данных недостаточно — верни null.\n"
         "2. expectations: {{when, normal, danger}} — human-описание ожидаемого пользовательского эффекта "
-        "продукта. normal — 1-2 коротких предложения о том, какой результат разумно ожидать (НЕ список "
+        "продукта, соответствующее категории продукта. normal — 1-2 коротких предложения о том, какой результат разумно ожидать (НЕ список "
         "ingredient claims: не пиши «glycerin увлажняет; niacinamide влияет на пигментацию»). "
-        "when и danger оставь null. Если полезного ожидания сформулировать нельзя — верни null.\n"
-        "3. Теги: <good>, <warning>, <bad> только для разметки.\n\n"
+        "when и danger оставь null. Если полезного ожидания сформулировать нельзя — верни null.\n\n"
         "### ВАЖНО: не пересчитывай процент, не меняй вердикт, не делай выводов о "
         "совместимости, которых нет в структурированном анализе.\n\n"
         "### Формат:\n"
@@ -1180,19 +1249,25 @@ async def generate_ai_good_bad(product_name: str, analysis: dict, profile: dict,
         return {"what_good": [], "what_bad": []}
 
     skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
-    pos_text = "; ".join(_factor_text(f) for f in pos[:5]) or "—"
-    neg_text = "; ".join(_factor_text(f) for f in neg[:5]) or "—"
+    pos_text = "; ".join(_factor_text(f) for f in pos[:8]) or "—"
+    neg_text = "; ".join(_factor_text(f) for f in neg[:8]) or "—"
     breakdown = _breakdown_text(analysis)
+    inci = ", ".join(str(i) for i in (analysis.get("normalized_ingredients") or []))
 
     prompt = (
         "Ты — косметолог. Оформи уже готовый результат анализа косметики в короткие тексты. "
         "НЕ выполняй анализ сам и НЕ меняй совместимость.\n\n"
         f"Продукт: {product_name}\n"
-        f"Категория продукта: {product_type or 'не указана'}\n"
+        f"Тип продукта (категория): {product_type or 'не указан'}\n"
         f"Тип кожи: {skin or 'не указан'}\n"
         f"Разложение score по осям:\n{breakdown}\n"
         f"Положительные факторы (ингредиент → эффект): {pos_text}\n"
-        f"Отрицательные факторы: {neg_text}\n\n"
+        f"Отрицательные факторы (ингредиент → эффект): {neg_text}\n"
+        f"Полный состав (нормализованный INCI — единственный источник ингредиентов): {inci or '—'}\n\n"
+        "### Правила (строго):\n"
+        "- Упоминай ТОЛЬКО ингредиенты из состава и ТОЛЬКО эффекты из факторов выше.\n"
+        "- НЕ приписывай ингредиентам свойства, которых нет в факторах.\n"
+        "- НЕ пересчитывай процент.\n\n"
         "### Задачи (верни ТОЛЬКО JSON):\n"
         "1. what_good: 1-2 коротких предложения о главных преимуществах состава именно для этого профиля "
         "(ТОЛЬКО из положительных факторов). Каждое предложение — отдельный fragment с sentiment \"positive\". "
@@ -1201,7 +1276,6 @@ async def generate_ai_good_bad(product_name: str, analysis: dict, profile: dict,
         "(ТОЛЬКО из отрицательных факторов). Каждое предложение — отдельный fragment с sentiment \"negative\". "
         "ЕСЛИ отрицательные факторы НЕ пустые (— не равно «—»), ты ОБЯЗАН вернуть хотя бы один negative fragment, "
         "объясняющий главный недостаток. Пустой список допустим ТОЛЬКО если отрицательных факторов действительно нет.\n"
-        "НЕ придумывай ингредиенты, которых нет в факторах. НЕ пересчитывай процент. "
         "НЕ смешивай positive и negative в одном fragment.\n"
         'Формат: {"what_good": [{"text": "...", "sentiment": "positive"}], "what_bad": [{"text": "...", "sentiment": "negative"}]}\n'
     )

@@ -28,10 +28,11 @@ TAXONOMY: List[Dict[str, Any]] = [
                 "пенка", "makeup remover", "снятие макияжа", "purifying", "face wash", "умывалк",
             ]},
             {"key": "toning", "title": "Тонизирование", "keywords": [
-                "toner", "тоник", "тонер", "tonique", "toning", "essence", "тонер-мист",
+                "toner", "тоник", "тонер", "tonique", "toning", "тонер-мист", "лосьон-тонер",
             ]},
             {"key": "serums", "title": "Сыворотки", "keywords": [
-                "serum", "сыворотк", "сыворот",
+                "serum", "сыворотк", "сыворот", "essence", "эссенц", "эссенс",
+                "first essence", "первый эссенс", "essence lotion", "essence water", "ампул", "ampoule",
             ]},
             {"key": "masks", "title": "Маски", "keywords": [
                 "mask", "маск", "masque", "маска",
@@ -435,16 +436,20 @@ def classify_product(product: Dict[str, Any]) -> Dict[str, Any]:
             "category_source": source,
         }
 
-    # 1. catalog metadata (subcategory + taxonomy_category — уже разрешены каталогом).
+    # 1. Название + описание — самый надёжный сигнал о типе продукта.
+    #    Проверяется ПЕРВЫМ, т.к. subcategory/taxonomy_category в products.db могли
+    #    быть вычислены по старой таксономии (например, «essence» ошибочно попадал в
+    #    «Тонизирование»). Название с явным ключевым словом (essence/serum/toner/…)
+    #    точнее, чем устаревшая metadata.
+    ba3, sk3, conf3 = _resolve_from_text(f"{name} {description}")
+    if ba3 and sk3:
+        return make(ba3, sk3, "name", conf3)
+
+    # 2. catalog metadata (subcategory + taxonomy_category — уже разрешены каталогом).
     if subcategory_raw and subcategory_raw.lower() not in {"все товары категории", "другое", "other", ""}:
         hit = subcategory_key_for_title(subcategory_raw)
         if hit:
             return make(hit[0], hit[1], "catalog", 0.95)
-
-    # 2. название + описание (надёжный сигнал о шкафе/категории).
-    ba3, sk3, conf3 = _resolve_from_text(f"{name} {description}")
-    if ba3 and sk3:
-        return make(ba3, sk3, "name", conf3)
 
     # 3. manufacturer / scraper metadata + правила/dictionary (legacy category).
     #    legacy-категория каталога face-центрична («Маска» для hair-маски ошибочна),

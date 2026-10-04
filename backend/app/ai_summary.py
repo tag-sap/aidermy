@@ -61,23 +61,30 @@ def _prompt(
     concerns: List[str],
     product_type: str = "",
     breakdown: str = "",
+    inci: str = "",
 ) -> str:
-    pos = "; ".join(_factor_text(f) for f in positive[:6]) or "—"
-    neg = "; ".join(_factor_text(f) for f in negative[:6]) or "—"
+    pos = "; ".join(_factor_text(f) for f in positive[:8]) or "—"
+    neg = "; ".join(_factor_text(f) for f in negative[:8]) or "—"
     return (
         "Ты — косметолог. Объясни пользователю УЖЕ ГОТОВЫЙ результат подбора косметики "
         "обычным человеческим языком.\n\n"
         f"Продукт: {product_name}\n"
-        f"Категория продукта: {product_type or 'не указана'}\n"
+        f"Тип продукта (категория): {product_type or 'не указан'}\n"
         f"Тип кожи: {skin_type or 'не указан'}\n"
         f"Итоговая совместимость (рассчитана алгоритмом, НЕ меняй её): {score}%\n"
         f"Разложение score по осям (значение и вес оси для профиля):\n{breakdown or '  (нет данных)'}\n"
-        f"Положительные факторы: {pos}\n"
-        f"Отрицательные факторы: {neg}\n\n"
+        f"Положительные факторы (ингредиент → эффект): {pos}\n"
+        f"Отрицательные факторы (ингредиент → эффект): {neg}\n"
+        f"Полный состав (нормализованный INCI — единственный источник ингредиентов): {inci or '—'}\n\n"
+        "Правила (строго):\n"
+        "- Упоминай ТОЛЬКО ингредиенты из состава и ТОЛЬКО эффекты из факторов выше.\n"
+        "- НЕ приписывай ингредиентам свойства, которых нет в факторах (например, «стимулирует коллаген», "
+        "«омолаживает», «отшелушивает» — если этого нет в факторах).\n"
+        "- НЕ пересчитывай процент и НЕ определяй вердикт сам.\n"
+        "- НЕ выводи технические INCI-названия; перефразируй человеческим языком, опираясь на факторы.\n\n"
         "Напиши максимум 2-3 коротких предложения. Только причины результата: что дало основной вклад "
-        "и на что обратить внимание. Объясняй причины, но НЕ выводи технические INCI-названия. "
-        "Не выдумывай эффектов, которых нет в факторах.\n\n"
-        f"ВАЖНО: процент не пересчитывай, он зафиксирован и равен {score}%. Никогда не пиши другой процент.\n\n"
+        "и на что обратить внимание.\n\n"
+        f"ВАЖНО: процент зафиксирован и равен {score}%. Никогда не пиши другой процент.\n\n"
         "Верни ТОЛЬКО JSON. fragments — список предложений. Каждое предложение — ОТДЕЛЬНЫЙ fragment, "
         "с одним sentiment (positive ИЛИ negative). НЕ объединяй позитив и негатив в одном fragment: "
         "если в одном предложении есть и плюс, и минус — разбей его на два предложения.\n"
@@ -120,8 +127,9 @@ async def summarize_with_ai(
     skin_type = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
     concerns = (profile or {}).get("concerns") or []
     breakdown = breakdown_text(analysis)
+    inci = ", ".join(str(i) for i in (analysis.get("normalized_ingredients") or []))
 
-    prompt = _prompt(product_name, score, positive, negative, skin_type, concerns, product_type, breakdown)
+    prompt = _prompt(product_name, score, positive, negative, skin_type, concerns, product_type, breakdown, inci)
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
         try:
