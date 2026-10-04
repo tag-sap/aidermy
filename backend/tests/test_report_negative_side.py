@@ -20,17 +20,17 @@ class ReportNegativeSideTests(unittest.TestCase):
 
     def test_accepts_balanced_output(self):
         output = {
-            "summary": [{"text": "Итог 37% ниже нейтральной зоны.", "sentiment": "negative"}],
-            "positive": [{"text": "Увлажнение даёт значимый положительный вклад.", "sentiment": "positive"}],
-            "negative": [{"text": "Раздражение даёт значимый отрицательный вклад.", "sentiment": "negative"}],
-            "expectations": "Отрицательные вклады перевешивают положительные.",
+            "summary": [{"text": "Совместимость ограниченная: в составе есть компоненты, которые могут быть нежелательны.", "sentiment": "negative"}],
+            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
+            "negative": [{"text": "В составе есть компоненты, которые могут быть нежелательны.", "sentiment": "negative"}],
+            "expectations": "",
         }
         self.assertTrue(_validate_report_once(self._inp(), output))
 
     def test_rejects_when_negative_side_omitted(self):
         output = {
-            "summary": [{"text": "Итог 37% ниже нейтральной зоны.", "sentiment": "negative"}],
-            "positive": [{"text": "Увлажнение даёт значимый положительный вклад.", "sentiment": "positive"}],
+            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
+            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
             "negative": [],
             "expectations": "",
         }
@@ -38,7 +38,7 @@ class ReportNegativeSideTests(unittest.TestCase):
 
     def test_rejects_no_negative_factors_phrase(self):
         output = {
-            "summary": [{"text": "Итог 37%.", "sentiment": "negative"}],
+            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
             "positive": [{"text": "Увлажнение.", "sentiment": "positive"}],
             "negative": [{"text": "Существенных отрицательных факторов нет.", "sentiment": "negative"}],
             "expectations": "",
@@ -47,7 +47,7 @@ class ReportNegativeSideTests(unittest.TestCase):
 
     def test_rejects_advice_in_expectations(self):
         output = {
-            "summary": [{"text": "Итог 37%.", "sentiment": "negative"}],
+            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
             "positive": [{"text": "Увлажнение.", "sentiment": "positive"}],
             "negative": [{"text": "Раздражение.", "sentiment": "negative"}],
             "expectations": "Лучше не включать в routine без проверки.",
@@ -62,8 +62,8 @@ class ReportNegativeSideTests(unittest.TestCase):
             "priorities": {"hydration": 0.31, "barrier": 0.15, "irritation": 0.31, "sensitization": 0.04, "sebum": 0.15, "pigmentation": 0.04},
         }
         good, bad = _deterministic_balance_fragments(analysis)
-        self.assertTrue(any("положительный" in f["text"] for f in good))
-        self.assertTrue(any("отрицательный" in f["text"] for f in bad))
+        self.assertTrue(any("Состав поддерживает" in f["text"] for f in good))
+        self.assertTrue(any("нежелательны" in f["text"] for f in bad))
 
 
 if __name__ == "__main__":

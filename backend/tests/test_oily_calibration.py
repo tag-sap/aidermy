@@ -1,10 +1,11 @@
 """Regression: жирная кожа — калибровка весов осей (sebum не должен доминировать).
 
-Фаза calibration: у «жирной» кожи ось sebum имела вес 0.45 (34.6% после
-нормализации), хотя oil_control-claims заполнены лишь ~16% составов. Это
-систематически занижало score для средств без oil_control (мягкие cleanser'ы,
-ниацинамид). Вес sebum снижен до 0.20, а освободившийся вес перераспределён
-на irritation/hydration/barrier (заполнены ~95-98%).
+Проверяет:
+1) веса осей жирной кожи (sebum не доминирует, irritation/hydration — топ);
+2) score-диапазоны реальных продуктов (sanity-диапазоны вокруг фактических значений
+   после signed-нормализации score = clamp(50 + 50*weighted_avg(tanh(raw/S)), 0, 100)).
+
+Диапазоны отражают СЕМАНТИКУ (мягкие очищающие > агрессивных), а не точные значения.
 """
 import os
 import sys
@@ -18,16 +19,16 @@ OILY_PROFILE = {"skin_type": "Жирная", "concerns": [], "allergies": [], "c
 
 # (slug, label, min, max)
 CASES = [
-    ("round-lab-soybean-panthenol-cleanser", "gentle cleanser", 61, 71),
-    ("celimax-baking-soda-deep-foam-pore-cleansing", "exfoliating cleanser", 9, 19),
-    ("natura-siberica-bereza-siberica-polar-white-birch-pore-refining-face-cleanser", "birch cleanser", 62, 72),
-    ("uspokaivayushchiy-i-ukreplyayushchiy-krem-dlya-litsa-neulii-092-phyto-vive-barrier-complex", "moisturizing cream", 77, 87),
-    ("aravia-laboratories-hyaluronic-active-serum", "hyaluronic serum", 61, 71),
-    ("spf-50-pa-round-lab-birch-juice-moisturizing-sunscreen", "SPF birch juice", 68, 78),
-    ("aravia-laboratories-anti-acne-peeling", "acid peel", 22, 32),
-    ("anua-niacinamide-30", "niacinamide serum", 72, 82),
-    ("the-ordinary-100-organic-cold-pressed-rose-hip-seed-oil", "heavy oil", 22, 32),
-    ("zephyr-beauty-skin-lavender-cleanser", "fragrance cleanser", 16, 26),
+    ("round-lab-soybean-panthenol-cleanser", "gentle cleanser", 78, 88),
+    ("celimax-baking-soda-deep-foam-pore-cleansing", "exfoliating cleanser", 52, 62),
+    ("natura-siberica-bereza-siberica-polar-white-birch-pore-refining-face-cleanser", "birch cleanser", 78, 88),
+    ("uspokaivayushchiy-i-ukreplyayushchiy-krem-dlya-litsa-neulii-092-phyto-vive-barrier-complex", "moisturizing cream", 86, 96),
+    ("aravia-laboratories-hyaluronic-active-serum", "hyaluronic serum", 79, 89),
+    ("spf-50-pa-round-lab-birch-juice-moisturizing-sunscreen", "SPF birch juice", 83, 93),
+    ("aravia-laboratories-anti-acne-peeling", "acid peel", 60, 70),
+    ("anua-niacinamide-30", "niacinamide serum", 84, 94),
+    ("the-ordinary-100-organic-cold-pressed-rose-hip-seed-oil", "heavy oil", 58, 68),
+    ("zephyr-beauty-skin-lavender-cleanser", "fragrance cleanser", 54, 64),
 ]
 
 
@@ -35,7 +36,6 @@ class OilySkinCalibrationTests(unittest.TestCase):
     def _score(self, slug):
         from app.database import get_connection, PRODUCTS_DB
         conn = get_connection(PRODUCTS_DB)
-        conn.row_factory = None
         row = conn.execute("SELECT name, ingredients FROM products WHERE slug = ?", (slug,)).fetchone()
         conn.close()
         if not row:

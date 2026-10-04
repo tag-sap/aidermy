@@ -221,8 +221,14 @@ def score_product_against_profile_canonical(
         contribution = math.tanh(dimensions.get(axis, 0.0) / SATURATION_SCALE)
         weighted_total += contribution * float(weight)
 
-    safe_score = clamp(weighted_total / max(sum(canonical_weights.values()), 1e-9), 0.0, 1.0)
-    final_score = int(round(safe_score * 100))
+    # 50% = нейтральная совместимость с профилем (НЕ «50% ингредиентов хорошие»).
+    # Взвешенное среднее tanh(raw/S) лежит в [-1, 1], поэтому центрируем вокруг 50:
+    #   raw=0          -> 50% (отсутствие эффекта — НЕ штраф и НЕ бонус);
+    #   raw>0          -> >50% (положительный вклад);
+    #   raw<0          -> <50% (отрицательный вклад).
+    # Раньше clamp(avg, 0, 1) * 100 превращал raw=0 в 0% и обнулял отрицательные значения.
+    avg = weighted_total / max(sum(canonical_weights.values()), 1e-9)
+    final_score = int(round(clamp(50.0 + 50.0 * avg, 0.0, 100.0)))
 
     if unknown_factors and not positive_factors and not negative_factors and not hard_flags:
         final_score = max(final_score, UNKNOWN_SCORE_FLOOR)

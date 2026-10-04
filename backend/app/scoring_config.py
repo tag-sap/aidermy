@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 # Версия конфига. Меняется при ЛЮБОМ изменении числовых правил скоринга.
 # Входит в snapshot calibration-экспорта и в идентичность результата скоринга.
 # ---------------------------------------------------------------------------
-SCORING_CONFIG_VERSION = "1.3.0"
+SCORING_CONFIG_VERSION = "1.4.0"
 
 # ===========================================================================
 # 1. КАНОНИЧЕСКИЕ ПАРАМЕТРЫ (оси индивидуальных эффектов ингредиента)
@@ -335,6 +335,7 @@ def build_scoring_config_snapshot() -> Dict[str, Any]:
             "saturation_scale": SATURATION_SCALE,
             "clamp_min": CLAMP_MIN,
             "clamp_max": CLAMP_MAX,
+            "final_score": "clamp(50 + 50 * weighted_avg(tanh(raw / SATURATION_SCALE)), 0, 100)",
         },
         "final_score": {
             "unknown_score_floor": UNKNOWN_SCORE_FLOOR,
