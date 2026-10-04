@@ -24,8 +24,8 @@ class ReportOnceValidationTests(unittest.TestCase):
 
     def test_rejects_significant_negative_claimed_absent(self):
         output = {
-            "summary": [{"text": "Итог 25% — ниже нейтральной зоны.", "sentiment": "negative"}],
-            "positive": [{"text": "Увлажнение даёт заметный положительный вклад.", "sentiment": "positive"}],
+            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
+            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
             "negative": [{"text": "Существенных минусов по сенсибилизации не выявлено.", "sentiment": "negative"}],
             "expectations": "",
         }
@@ -33,8 +33,8 @@ class ReportOnceValidationTests(unittest.TestCase):
 
     def test_rejects_medical_claim(self):
         output = {
-            "summary": [{"text": "Итог 25%.", "sentiment": "negative"}],
-            "positive": [{"text": "Увлажнение даёт вклад.", "sentiment": "positive"}],
+            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
+            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
             "negative": [{"text": "PEG-100 стеарат ослабляет барьер.", "sentiment": "negative"}],
             "expectations": "",
         }
@@ -42,19 +42,19 @@ class ReportOnceValidationTests(unittest.TestCase):
 
     def test_rejects_technical_keys(self):
         output = {
-            "summary": [{"text": "hydration даёт вклад.", "sentiment": "positive"}],
-            "positive": [{"text": "Увлажнение.", "sentiment": "positive"}],
-            "negative": [{"text": "Сенсибилизация снижает итог.", "sentiment": "negative"}],
+            "summary": [{"text": "hydration поддерживает увлажнение.", "sentiment": "positive"}],
+            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
+            "negative": [{"text": "Сенсибилизация.", "sentiment": "negative"}],
             "expectations": "",
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
 
     def test_accepts_correct_output(self):
         output = {
-            "summary": [{"text": "Итог 25% — ниже нейтральной зоны.", "sentiment": "negative"}],
-            "positive": [{"text": "Увлажнение даёт заметный положительный вклад.", "sentiment": "positive"}],
-            "negative": [{"text": "Сенсибилизация заметно снижает итоговый результат.", "sentiment": "negative"}],
-            "expectations": "Сильная сторона — увлажнение, но сенсибилизация заметно снижает итог.",
+            "summary": [{"text": "Совместимость ограниченная: в составе есть компоненты, которые могут быть нежелательны.", "sentiment": "negative"}],
+            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
+            "negative": [{"text": "В составе есть компоненты, которые могут быть нежелательны.", "sentiment": "negative"}],
+            "expectations": "",
         }
         self.assertTrue(_validate_report_once(self._inp(), output))
 
