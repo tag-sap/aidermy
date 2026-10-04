@@ -16,7 +16,7 @@ type IconName =
   | "home" | "shelf" | "scan" | "search" | "chart" | "user"
   | "arrow" | "chevron" | "close" | "check" | "plus" | "sparkle"
   | "drop" | "shield" | "file" | "bookmark" | "box" | "alert" | "camera" | "upload" | "back"
-  | "link" | "pencil" | "coins" | "crown" | "logout" | "lock" | "send" | "mail"
+  | "link" | "pencil" | "coins" | "crown" | "logout" | "lock" | "send" | "mail" | "credits"
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -44,6 +44,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     link: (<><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5" /></>),
     pencil: (<><path d="M4 20h4L19 9l-4-4L4 16v4z" /><path d="m13 7 4 4" /></>),
     coins: (<><circle cx="9" cy="12" r="6" /><path d="M9 6v12M15 12h6M12 9h6" /></>),
+    credits: (<path fill="currentColor" stroke="none" d="M12.0005 22C6.40049 22 2.00049 17.6 2.00049 12C2.00049 6.4 6.40049 2 12.0005 2C17.6005 2 22.0005 6.4 22.0005 12C22.0005 17.6 17.6005 22 12.0005 22ZM12.0005 20.15C16.5505 20.15 20.1005 16.6 20.1005 12C20.1005 7.4 16.5505 3.85 12.0005 3.85C7.45049 3.85 3.90049 7.4 3.90049 12C3.90049 16.6 7.45049 20.15 12.0005 20.15ZM14.4505 12C13.4755 11.3 12.7255 10.525 12.0005 9.6C11.2755 10.525 10.5255 11.3 9.55049 12C10.5255 12.7 11.2755 13.475 12.0005 14.4C12.7255 13.475 13.4755 12.7 14.4505 12ZM17.6255 12C14.9755 13.125 13.1255 14.975 12.0005 17.625C10.8755 14.975 9.02549 13.125 6.37549 12C9.02549 10.875 10.8755 9.025 12.0005 6.375C13.1255 9.025 14.9755 10.875 17.6255 12Z" />),
     crown: (<path d="M4 7l4 4 4-6 4 6 4-4-2 12H6L4 7z" />),
     logout: (<><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4" /><path d="M16 8l4 4-4 4M20 12H9" /></>),
     lock: (<><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>),
@@ -220,7 +221,7 @@ const MOBILE_NAV: { id: Page; icon: IconName; label: string }[] = [
   { id: "shelf", icon: "shelf", label: "Полка" },
   { id: "scan", icon: "scan", label: "Сканировать" },
   { id: "catalog", icon: "search", label: "Каталог" },
-  { id: "report", icon: "chart", label: "Отчёт" },
+  { id: "profile", icon: "user", label: "Профиль" },
 ]
 
 function Sidebar({ page, onNavigate, user, onAuth, onPricing, onPoints }: {
@@ -242,7 +243,7 @@ function Sidebar({ page, onNavigate, user, onAuth, onPricing, onPoints }: {
       </nav>
       {user ? (
         <div className="sidebar-card">
-          <span className="sidebar-card__icon"><Icon name="coins" /></span>
+          <span className="sidebar-card__icon"><Icon name="credits" /></span>
           <strong>{user.points} баллов</strong>
           <p>Тариф {PLANS.find((p) => p.key === user.plan)?.title} · {PLANS.find((p) => p.key === user.plan)?.monthlyPoints} баллов/мес.</p>
           <button type="button" className="sidebar-card__btn" onClick={onPoints}>Пополнить баллы</button>
@@ -303,7 +304,7 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
         <button type="button" className="icon-btn icon-btn--help" onClick={onHelp} aria-label="Помощь"><span className="help-mark">?</span></button>
         {user ? (
           <>
-            <button type="button" className="points-chip" onClick={onPoints}><Icon name="coins" size={16} /><strong>{user.points}</strong><span>баллов · {PLANS.find((p) => p.key === user.plan)?.title}</span></button>
+            <button type="button" className="points-chip" onClick={onPoints}><Icon name="credits" size={16} /><strong>{user.points}</strong><span>баллов · {PLANS.find((p) => p.key === user.plan)?.title}</span></button>
             <button type="button" className="icon-btn" onClick={onLogout} aria-label="Выйти"><Icon name="logout" size={18} /></button>
           </>
         ) : (
@@ -324,7 +325,7 @@ function Topbar({ page, onNavigate, onHelp, user, onAuth, onPoints }: {
       <span className="topbar__title">{title}</span>
       <div className="topbar__actions">
         {user && (
-          <button type="button" className="topbar__points" onClick={onPoints} aria-label="Пополнить баллы"><Icon name="coins" size={15} /><strong>{user.points}</strong></button>
+          <button type="button" className="topbar__points" onClick={onPoints} aria-label="Пополнить баллы"><Icon name="credits" size={15} /><strong>{user.points}</strong></button>
         )}
         <button type="button" className="icon-btn icon-btn--help" onClick={onHelp} aria-label="Помощь"><span className="help-mark">?</span></button>
         {user ? (
@@ -530,7 +531,7 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear, onDel
 
   return (
     <div className="page">
-      <PageHeading eyebrow="Уход" title="Моя полка" lead="Шкафы по зонам ухода. Полка сама раскладывается под ширину экрана — категории обводятся пунктиром."
+      <PageHeading eyebrow="Уход" title="Моя полка" lead="Здесь хранятся ваши средства: видна их совместимость с профилем кожи. Можно отслеживать то, что используете, проверять средства повторно, а система учитывает полку при рекомендациях."
         action={<div className="page-head__actions">
           {selectMode ? (
             <>
@@ -1157,7 +1158,7 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
       <div className="account-bar">
         <div><p className="eyebrow">Аккаунт</p><strong>{user.name}</strong><span>{user.points} баллов · тариф {plan?.title}</span></div>
         <div className="account-bar__actions">
-          <Button variant="secondary" icon="coins" onClick={onPoints}>Пополнить баллы</Button>
+          <Button variant="secondary" icon="credits" onClick={onPoints}>Пополнить баллы</Button>
           <Button variant="ghost" icon="crown" onClick={onPricing}>Управлять подпиской</Button>
         </div>
       </div>
@@ -1465,6 +1466,29 @@ function PricingModal({ user, onClose, onSelectPlan }: {
               </div>
             ))}
           </div>
+          <div className="pricing-cards">
+            {PLANS.map((p) => {
+              const current = currentPlan === p.key
+              return (
+                <div key={p.key} className={`pricing-card ${current ? "pricing-card--current" : ""}`}>
+                  <div className="pricing-card__head">
+                    <strong>{p.title}</strong>
+                    <span>{current ? "Текущий тариф" : `${p.monthlyPoints} баллов/мес`}</span>
+                  </div>
+                  <ul>
+                    {SUBSCRIPTION_ROWS.map((r) => (
+                      <li key={r.feature}><span>{r.feature}</span><b>{r.values[p.key]}</b></li>
+                    ))}
+                  </ul>
+                  {p.key !== "free" && (
+                    <Button small variant={p.key === "pro" ? "primary" : "secondary"} onClick={() => onSelectPlan(p.key)} disabled={current}>
+                      {current ? "Текущий" : `Перейти на ${p.title}`}
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
           <p className="pricing__note">{EXTRA_POINTS_NOTE}</p>
           <div className="pricing__actions">
             {PLANS.filter((p) => p.key !== "free").map((p) => (
@@ -1528,6 +1552,8 @@ function ShelfAddModal({ items, onClose, onAdd, onScan, onOpen }: { items: Produ
   const [recCat, setRecCat] = useState("")
   const [recs, setRecs] = useState<Product[]>([])
   const [recsLoading, setRecsLoading] = useState(false)
+  const [catResults, setCatResults] = useState<Product[] | null>(null)
+  const [catLoading, setCatLoading] = useState(false)
   useEffect(() => {
     if (mode !== "auto" || !recCat || !getToken()) { setRecs([]); return }
     setRecsLoading(true)
@@ -1535,13 +1561,25 @@ function ShelfAddModal({ items, onClose, onAdd, onScan, onOpen }: { items: Produ
       setRecs((r.recommendations || []).map((x) => mapRecommendation(x as Parameters<typeof mapRecommendation>[0], recCat)))
     }).catch(() => setRecs([])).finally(() => setRecsLoading(false))
   }, [mode, recCat])
+  useEffect(() => {
+    if (mode !== "catalog") { setCatResults(null); setCatLoading(false); return }
+    const n = q.trim()
+    if (!n) { setCatResults(null); setCatLoading(false); return }
+    setCatLoading(true)
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await api.catalog({ search: n, limit: 30 })
+        setCatResults((res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт"))
+      } catch { setCatResults([]) }
+      setCatLoading(false)
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [mode, q])
   const list = mode === "auto"
     ? recs.slice(0, 8)
-    : items.filter((p) => {
-        const n = q.trim().toLowerCase()
-        if (!n) return !p.state
-        return [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(n)
-      }).slice(0, 8)
+    : catResults != null
+      ? catResults.slice(0, 12)
+      : items.filter((p) => !p.state).slice(0, 12)
   const title = mode === "catalog" ? "Из каталога" : mode === "auto" ? "Автоподбор" : "Добавить средство"
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -1577,8 +1615,8 @@ function ShelfAddModal({ items, onClose, onAdd, onScan, onOpen }: { items: Produ
                 </div>
               )}
               <div className="add-modal__list">
-                {recsLoading ? (
-                  <p className="empty">Подбираем…</p>
+                {(recsLoading || catLoading) ? (
+                  <p className="empty">Ищем…</p>
                 ) : list.map((p) => (
                   <div key={p.id} className="rec">
                     <button type="button" className="rec__main" onClick={() => onOpen(p)}>
@@ -1628,7 +1666,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function App() {
-  const [items, setItems] = useState<Product[]>(products)
+  const [items, setItems] = useState<Product[]>([])
   const [shelfItems, setShelfItems] = useState<Product[]>([])
   const [removeProduct, setRemoveProduct] = useState<Product | null>(null)
   const [removeReason, setRemoveReason] = useState("")
