@@ -1137,8 +1137,54 @@ def _factor_text(factor: dict) -> str:
     return f"{ing} → {prop}" if ing and prop else (ing or prop or "")
 
 
+def _score_balance_text(analysis: dict) -> str:
+    """Детерминированное объяснение БАЛАНСА score по осям (для AI-контекста).
+
+    Считает вклад каждой оси в итоговый процент ПО ТОЙ ЖЕ формуле, что и
+    scoring engine: contribution = tanh(raw / SATURATION_SCALE) * weight.
+    Возвращает текст, из которого AI может объяснить, какие факторы дали
+    положительный, а какие — отрицательный вклад, и почему итог такой.
+    """
+    import math
+    from .scoring_config import SATURATION_SCALE
+    from .decision_engine import DIMENSION_LABELS
+
+    dims = analysis.get("dimensions") or {}
+    prio = analysis.get("priorities") or {}
+    axes = ("hydration", "barrier", "irritation", "sensitization", "sebum", "pigmentation")
+
+    pos_lines: List[str] = []
+    neg_lines: List[str] = []
+    pos_total = 0.0
+    neg_total = 0.0
+    for axis in axes:
+        raw = dims.get(axis)
+        if raw is None:
+            continue
+        w = float(prio.get(axis, 0.0) or 0.0)
+        contrib = math.tanh(float(raw) / SATURATION_SCALE) * w * 100.0
+        label = DIMENSION_LABELS.get(axis, axis)
+        if contrib > 0.001:
+            pos_lines.append(f"  + {label}: +{contrib:.1f} п.п.")
+            pos_total += contrib
+        elif contrib < -0.001:
+            neg_lines.append(f"  − {label}: {contrib:.1f} п.п.")
+            neg_total += contrib
+
+    total_w = sum(float(prio.get(a, 0.0) or 0.0) for a in axes) or 1.0
+    net = (pos_total + neg_total) / total_w  # в процентах (нормировка по сумме весов)
+
+    lines: List[str] = ["Вклад осей в итоговый score (положительный «+» / отрицательный «−»):"]
+    lines.extend(pos_lines)
+    lines.extend(neg_lines)
+    lines.append(f"Положительный вклад: +{pos_total / total_w:.1f} п.п.")
+    lines.append(f"Отрицательный вклад: {neg_total / total_w:.1f} п.п.")
+    lines.append(f"Итог (сумма вкладов): {net:.1f}%")
+    return "\n".join(lines)
+
+
 def _breakdown_text(analysis: dict) -> str:
-    """Текстовое deterministic-разложение score по осям (value + weight)."""
+    """Текстовое deterministic-разложение score по осям (value + weight + вклад)."""
     dims = analysis.get("dimensions") or {}
     prio = analysis.get("priorities") or {}
     lines = []

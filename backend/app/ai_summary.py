@@ -61,6 +61,7 @@ def _prompt(
     concerns: List[str],
     product_type: str = "",
     breakdown: str = "",
+    balance: str = "",
     inci: str = "",
 ) -> str:
     pos = "; ".join(_factor_text(f) for f in positive[:8]) or "—"
@@ -72,26 +73,32 @@ def _prompt(
         f"Тип продукта (категория): {product_type or 'не указан'}\n"
         f"Тип кожи: {skin_type or 'не указан'}\n"
         f"Итоговая совместимость (рассчитана алгоритмом, НЕ меняй её): {score}%\n"
+        f"Баланс вкладов (что дало плюс, что дало минус, и почему итог такой):\n{balance or '  (нет данных)'}\n"
         f"Разложение score по осям (значение и вес оси для профиля):\n{breakdown or '  (нет данных)'}\n"
         f"Положительные факторы (ингредиент → эффект): {pos}\n"
         f"Отрицательные факторы (ингредиент → эффект): {neg}\n"
         f"Полный состав (нормализованный INCI — единственный источник ингредиентов): {inci or '—'}\n\n"
         "Правила (строго):\n"
+        "- Объясни БАЛАНС, а не просто перечисли хорошее и плохое отдельно: какие факторы дали "
+        "положительный вклад, какие — отрицательный, и почему в итоге score оказался именно таким.\n"
+        "- Итог — это БАЛАНС положительных и отрицательных вкладов. Ниже нейтральной зоны — значит положительный вклад умеренный и/или есть отрицательные факторы. Не пиши «процент хороших ингредиентов». "
+        "\n"
         "- Упоминай ТОЛЬКО ингредиенты из состава и ТОЛЬКО эффекты из факторов выше.\n"
         "- НЕ приписывай ингредиентам свойства, которых нет в факторах (например, «стимулирует коллаген», "
         "«омолаживает», «отшелушивает» — если этого нет в факторах).\n"
+        "- НЕ пиши категоричные медицинские утверждения («вызовет раздражение») — формулируй как "
+        "«могут повышать вероятность раздражения/чувствительности».\n"
         "- НЕ пересчитывай процент и НЕ определяй вердикт сам.\n"
         "- НЕ выводи технические INCI-названия; перефразируй человеческим языком, опираясь на факторы.\n\n"
-        "Напиши максимум 2-3 коротких предложения. Только причины результата: что дало основной вклад "
-        "и на что обратить внимание.\n\n"
+        "Напиши максимум 2-3 коротких предложения, которые объясняют ПРИЧИНУ результата через баланс.\n\n"
         f"ВАЖНО: процент зафиксирован и равен {score}%. Никогда не пиши другой процент.\n\n"
         "Верни ТОЛЬКО JSON. fragments — список предложений. Каждое предложение — ОТДЕЛЬНЫЙ fragment, "
         "с одним sentiment (positive ИЛИ negative). НЕ объединяй позитив и негатив в одном fragment: "
         "если в одном предложении есть и плюс, и минус — разбей его на два предложения.\n"
         '{\n'
-        '  "fragments": [\n'
-        '    {"text": "...", "sentiment": "positive|negative"},\n'
-        '    {"text": "...", "sentiment": "positive|negative"}\n'
+        '  \"fragments\": [\n'
+        '    {\"text\": \"...\", \"sentiment\": \"positive|negative\"},\n'
+        '    {\"text\": \"...\", \"sentiment\": \"positive|negative\"}\n'
         '  ]\n'
         '}\n'
     )
@@ -112,6 +119,7 @@ async def summarize_with_ai(
             DEEPSEEK_API_KEY,
             DEEPSEEK_API_URL,
             DEEPSEEK_MODEL_FALLBACKS,
+            _score_balance_text,
             extract_json_from_response,
         )
     except Exception:
@@ -127,9 +135,10 @@ async def summarize_with_ai(
     skin_type = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
     concerns = (profile or {}).get("concerns") or []
     breakdown = breakdown_text(analysis)
+    balance = _score_balance_text(analysis)
     inci = ", ".join(str(i) for i in (analysis.get("normalized_ingredients") or []))
 
-    prompt = _prompt(product_name, score, positive, negative, skin_type, concerns, product_type, breakdown, inci)
+    prompt = _prompt(product_name, score, positive, negative, skin_type, concerns, product_type, breakdown, balance, inci)
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
         try:
