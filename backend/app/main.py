@@ -1403,12 +1403,25 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
 
     # Если полный отчёт уже сгенерирован — возвращаем сохранённое (без повторного LLM).
     if analysis and analysis.get("report") and analysis.get("active_ingredients") and analysis.get("how_to_use") and analysis.get("expectations"):
+        # Defense-in-depth: заново валидируем сохранённый отчёт по фактическому INCI
+        # сохранённого analysis (старые отчёты могли быть сохранены без grounding).
+        from .services import _report_allowed_ingredients, _ground_report_text, _ground_report_sections
+        det = analysis.get("deterministic") or {}
+        allowed = _report_allowed_ingredients(det)
+        has_neg = bool(det.get("negative_factors"))
+        review = _ground_report_text(analysis["report"], allowed, has_neg, deterministic=det)
+        if review is None:
+            review = det.get("summary") or analysis.get("summary") or ""
+        sections = _ground_report_sections(
+            {"how_to_use": analysis.get("how_to_use"), "expectations": analysis.get("expectations")},
+            allowed, has_neg, deterministic=det,
+        )
         return {
             "score": score,
-            "review": analysis["report"],
+            "review": review,
             "active_ingredients": analysis.get("active_ingredients"),
-            "how_to_use": analysis.get("how_to_use"),
-            "expectations": analysis.get("expectations"),
+            "how_to_use": sections.get("how_to_use"),
+            "expectations": sections.get("expectations"),
         }
 
     # Иначе генерируем ВСЕ блоки отчёта (Общий вывод + Ключевой ингредиент +

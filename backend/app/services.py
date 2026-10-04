@@ -596,7 +596,8 @@ async def generate_full_report(
     active_ingredients = build_active_ingredient(deterministic)
     if DEEPSEEK_API_KEY:
         try:
-            ai_key = await identify_key_ingredient_with_ai(product_name, ingredients)
+            analysis_inci = deterministic.get("normalized_ingredients") or ingredients
+            ai_key = await identify_key_ingredient_with_ai(product_name, analysis_inci)
             if ai_key and ai_key.get("name"):
                 active_ingredients = {
                     "name": ai_key["name"],
@@ -680,6 +681,26 @@ _CONTRADICTION_PHRASES = [
     "нет активных компонентов",
 ]
 
+# Терапии/классы активов — нельзя упоминать без детерминированного evidence.
+_THERAPY_EVIDENCE = {
+    "ретиноид": ["retinoid", "retinol", "retinal", "tretinoin", "adapalene", "retinoate"],
+    "изотретиноин": ["isotretinoin"],
+}
+
+
+def _deterministic_has_evidence(deterministic: dict, evidences: list) -> bool:
+    import json as _json
+    if not isinstance(deterministic, dict):
+        return False
+    blob = _json.dumps({
+        "positive": deterministic.get("positive_factors") or [],
+        "negative": deterministic.get("negative_factors") or [],
+        "interactions": deterministic.get("interaction_breakdown") or [],
+        "hard": deterministic.get("hard_flags") or [],
+        "filters": deterministic.get("hard_filters") or [],
+    }, ensure_ascii=False).lower()
+    return any(str(e).lower() in blob for e in evidences)
+
 
 def _report_allowed_ingredients(deterministic: dict):
     from .ingredient_normalizer import normalize_ingredient_name
@@ -692,7 +713,7 @@ def _report_allowed_ingredients(deterministic: dict):
     return allowed
 
 
-def _ground_report_text(text: str, allowed: set, has_negative_factors: bool):
+def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, deterministic: dict | None = None):
     if not text:
         return None
     low = text.lower()
@@ -703,7 +724,37 @@ def _ground_report_text(text: str, allowed: set, has_negative_factors: bool):
     for ru, canon in _RU_INGREDIENT_NAMES.items():
         if ru in low and canon not in allowed:
             return None
+    if deterministic is not None:
+        for stem, evidences in _THERAPY_EVIDENCE.items():
+            if stem in low and not _deterministic_has_evidence(deterministic, evidences):
+                return None
     return text
+
+
+def _ground_report_sections(sections: dict, allowed: set, has_negative_factors: bool, deterministic: dict | None = None) -> dict:
+    if not isinstance(sections, dict):
+        return {}
+
+    def _field(value):
+        if isinstance(value, str) and value.strip():
+            return _ground_report_text(value, allowed, has_negative_factors, deterministic)
+        return None
+
+    result = dict(sections)
+    for key in ("how_to_use", "expectations"):
+        block = result.get(key)
+        if not isinstance(block, dict):
+            continue
+        cleaned = {}
+        for f, v in block.items():
+            if isinstance(v, str):
+                gv = _field(v)
+                if gv is not None:
+                    cleaned[f] = gv
+            else:
+                cleaned[f] = v
+        result[key] = cleaned or None
+    return result
 
 
 async def generate_ai_report(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> str:
@@ -723,7 +774,7 @@ async def generate_ai_report(product_name: str, analysis: dict, profile: dict, p
     if summary:
         allowed = _report_allowed_ingredients(analysis)
         has_neg = bool(analysis.get("negative_factors"))
-        grounded = _ground_report_text(summary, allowed, has_neg)
+        grounded = _ground_report_text(summary, allowed, has_neg, deterministic=analysis)
         if grounded:
             return grounded
     return analysis.get("summary") or ""
@@ -1097,6 +1148,7 @@ async def generate_ai_report_sections(product_name: str, analysis: dict, profile
             if not isinstance(parsed, dict):
                 continue
             parsed = sanitize_report_sections(analysis.get("verdict") or "", parsed)
+            parsed = _ground_report_sections(parsed, _report_allowed_ingredients(analysis), bool(analysis.get("negative_factors")), deterministic=analysis)
             how_to_use = parsed.get("how_to_use")
             if not how_to_use and category_hint:
                 how_to_use = category_hint.get("how_to_use")
