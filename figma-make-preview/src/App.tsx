@@ -967,7 +967,7 @@ function OptionChips({ options, selected, onToggle }: { options: QuizOption[]; s
     </div>
   )
 }
-function Questionnaire({ onDone }: { onDone: (p: { skinType: string; age?: string; concerns?: string[]; allergies?: string[] }) => void }) {
+function Questionnaire({ onDone }: { onDone: (p: { skinType: string; age?: string; concerns?: string[]; allergies?: string[]; structured?: Record<string, unknown> }) => void }) {
   const [step, setStep] = useState(0)
   const [skinType, setSkinType] = useState<string | null>(null)
   const [age, setAge] = useState<string | null>(null)
@@ -1102,12 +1102,25 @@ function Questionnaire({ onDone }: { onDone: (p: { skinType: string; age?: strin
         {idx > 0 && <Button variant="ghost" icon="back" onClick={back}>Назад</Button>}
         <div className="quiz__nav-spacer" />
         {current.id === "summary" ? (
-          <Button icon="check" onClick={() => onDone({
-            skinType: skinType ?? "normal",
-            age: age ?? undefined,
-            concerns: cards.map((c) => CONCERN_CARDS.find((b) => b.id === c)?.label ?? c),
-            allergies: intolerances.map((i) => INTOLERANCE_OPTIONS.find((o) => o.id === i)?.label ?? i),
-          })}>Сохранить профиль</Button>
+          <Button icon="check" onClick={() => {
+            const structuredTherapy: { id: string; active: boolean }[] = []
+            if (therapy.includes("topical_retinoid")) structuredTherapy.push({ id: retinoid ?? "topical_retinoid", active: true })
+            if (therapy.includes("acid_therapy")) for (const a of acids) structuredTherapy.push({ id: a, active: true })
+            for (const t of therapy) if (!["topical_retinoid", "acid_therapy", "none"].includes(t)) structuredTherapy.push({ id: t, active: true })
+            const structured = {
+              skin_type: skinType ?? "normal",
+              concerns: cards,
+              therapy: structuredTherapy,
+              procedures: Object.entries(procedures).map(([id, period]) => ({ id, period })),
+            }
+            onDone({
+              skinType: skinType ?? "normal",
+              age: age ?? undefined,
+              concerns: cards.map((c) => CONCERN_CARDS.find((b) => b.id === c)?.label ?? c),
+              allergies: intolerances.map((i) => INTOLERANCE_OPTIONS.find((o) => o.id === i)?.label ?? i),
+              structured,
+            })
+          }}>Сохранить профиль</Button>
         ) : (
           <Button disabled={!canNext} onClick={next}>Далее <Icon name="arrow" size={15} /></Button>
         )}
@@ -1126,12 +1139,12 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
         <PageHeading eyebrow="Профиль" title="Опрос кожи" lead="Несколько шагов — и профиль станет точнее." />
         <Questionnaire onDone={(p) => {
           const skinTypeLabel = SKIN_TYPE_OPTIONS.find((o) => o.id === p.skinType)?.label ?? p.skinType
-          const pd = { skinType: skinTypeLabel, age: p.age ?? "", concerns: p.concerns ?? [], allergies: p.allergies ?? [], structured: null }
+          const pd = { skinType: skinTypeLabel, age: p.age ?? "", concerns: p.concerns ?? [], allergies: p.allergies ?? [], structured: p.structured ?? null }
           setUserProfile(pd)
           setSkinType(skinTypeLabel)
           setQuiz(false)
           if (getToken()) {
-            api.saveProfile({ skinType: skinTypeLabel, age: p.age ?? "", concerns: p.concerns ?? [], allergies: p.allergies ?? [], customText: "" }).catch(() => {})
+            api.saveProfile({ skinType: skinTypeLabel, age: p.age ?? "", concerns: p.concerns ?? [], allergies: p.allergies ?? [], customText: "", structured: p.structured ?? undefined }).catch(() => {})
           }
         }} />
       </div>
