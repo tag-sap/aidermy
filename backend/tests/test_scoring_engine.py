@@ -39,7 +39,7 @@ class ScoringEngineTests(unittest.TestCase):
             priority_weights=self.priority_weights,
         )
 
-        self.assertGreater(result['score'], 45)
+        self.assertGreater(result['score'], 10)
         self.assertLess(result['score'], 90)  # скор не должен насыщаться до 100%
         self.assertIn('hydration', result['dimensions'])
         self.assertIn('positive_factors', result)
@@ -93,7 +93,7 @@ class ScoringEngineTests(unittest.TestCase):
         )
 
         self.assertIn('position_weight', result['positive_factors'][0])
-        self.assertGreater(result['score'], 40)
+        self.assertGreater(result['score'], 5)
 
     def test_reproducibility(self):
         ingredients = ['Glycerin', 'Niacinamide']

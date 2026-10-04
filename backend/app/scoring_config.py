@@ -28,7 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 # Версия конфига. Меняется при ЛЮБОМ изменении числовых правил скоринга.
 # Входит в snapshot calibration-экспорта и в идентичность результата скоринга.
 # ---------------------------------------------------------------------------
-SCORING_CONFIG_VERSION = "1.2.0"
+SCORING_CONFIG_VERSION = "1.3.0"
 
 # ===========================================================================
 # 1. КАНОНИЧЕСКИЕ ПАРАМЕТРЫ (оси индивидуальных эффектов ингредиента)
@@ -218,9 +218,17 @@ INTOLERANCE_PENALTY = {
 # ===========================================================================
 # 4. NORMALIZATION / CLAMPING
 # ===========================================================================
-# Общий clamp для промежуточных значений (position weight, per-axis contribution).
+# Общий clamp для промежуточных значений (position weight).
 CLAMP_MIN = 0.0
 CLAMP_MAX = 1.0
+
+# Масштаб насыщения оси (per-axis contribution в финальном score).
+# Замена жёсткого clamp(0..1) на плавное знакопеременное насыщение tanh(raw/S):
+#   * отрицательные raw больше НЕ обнуляются (реальный penalty);
+#   * положительные raw насыщаются мягко, без жёсткого ceiling на 1.0;
+#   * убирает «кластер» высоких score (все хорошие слипались в 77-86).
+# Значение S выбрано по выборке из 37 production-продуктов (калибровка Фазы 7).
+SATURATION_SCALE = 1.5
 
 # ===========================================================================
 # 5. ФИНАЛЬНЫЙ SCORE: штрафы / бонусы / пороги
@@ -323,7 +331,10 @@ def build_scoring_config_snapshot() -> Dict[str, Any]:
             "intolerance_penalty": INTOLERANCE_PENALTY,
         },
         "normalization": {
-            "clamp": {"min": CLAMP_MIN, "max": CLAMP_MAX},
+            "saturation": "tanh(raw / SATURATION_SCALE)",
+            "saturation_scale": SATURATION_SCALE,
+            "clamp_min": CLAMP_MIN,
+            "clamp_max": CLAMP_MAX,
         },
         "final_score": {
             "unknown_score_floor": UNKNOWN_SCORE_FLOOR,

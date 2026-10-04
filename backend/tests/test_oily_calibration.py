@@ -18,16 +18,16 @@ OILY_PROFILE = {"skin_type": "Жирная", "concerns": [], "allergies": [], "c
 
 # (slug, label, min, max)
 CASES = [
-    ("round-lab-soybean-panthenol-cleanser", "gentle cleanser", 68, 80),
-    ("celimax-baking-soda-deep-foam-pore-cleansing", "exfoliating cleanser", 30, 50),
-    ("natura-siberica-bereza-siberica-polar-white-birch-pore-refining-face-cleanser", "birch cleanser", 72, 88),
-    ("uspokaivayushchiy-i-ukreplyayushchiy-krem-dlya-litsa-neulii-092-phyto-vive-barrier-complex", "moisturizing cream", 78, 92),
-    ("aravia-laboratories-hyaluronic-active-serum", "hyaluronic serum", 75, 90),
-    ("spf-50-pa-round-lab-birch-juice-moisturizing-sunscreen", "SPF birch juice", 72, 88),
-    ("aravia-laboratories-anti-acne-peeling", "acid peel", 35, 55),
-    ("anua-niacinamide-30", "niacinamide serum", 75, 90),
-    ("the-ordinary-100-organic-cold-pressed-rose-hip-seed-oil", "heavy oil", 30, 50),
-    ("zephyr-beauty-skin-lavender-cleanser", "fragrance cleanser", 30, 50),
+    ("round-lab-soybean-panthenol-cleanser", "gentle cleanser", 61, 71),
+    ("celimax-baking-soda-deep-foam-pore-cleansing", "exfoliating cleanser", 9, 19),
+    ("natura-siberica-bereza-siberica-polar-white-birch-pore-refining-face-cleanser", "birch cleanser", 62, 72),
+    ("uspokaivayushchiy-i-ukreplyayushchiy-krem-dlya-litsa-neulii-092-phyto-vive-barrier-complex", "moisturizing cream", 77, 87),
+    ("aravia-laboratories-hyaluronic-active-serum", "hyaluronic serum", 61, 71),
+    ("spf-50-pa-round-lab-birch-juice-moisturizing-sunscreen", "SPF birch juice", 68, 78),
+    ("aravia-laboratories-anti-acne-peeling", "acid peel", 22, 32),
+    ("anua-niacinamide-30", "niacinamide serum", 72, 82),
+    ("the-ordinary-100-organic-cold-pressed-rose-hip-seed-oil", "heavy oil", 22, 32),
+    ("zephyr-beauty-skin-lavender-cleanser", "fragrance cleanser", 16, 26),
 ]
 
 

@@ -12,6 +12,7 @@ from .scoring_config import (
     POSITION_WEIGHT_DECAY,
     POSITION_WEIGHT_MAX,
     POSITION_WEIGHT_SINGLE,
+    SATURATION_SCALE,
     UNKNOWN_SCORE_FLOOR,
 )
 
@@ -215,7 +216,9 @@ def score_product_against_profile_canonical(
 
     weighted_total = 0.0
     for axis, weight in canonical_weights.items():
-        contribution = max(0.0, min(dimensions.get(axis, 0.0), 1.0))
+        # Плавное знакопеременное насыщение вместо жёсткого clamp(0..1):
+        # отрицательные raw реально штрафуют, положительные насыщаются мягко.
+        contribution = math.tanh(dimensions.get(axis, 0.0) / SATURATION_SCALE)
         weighted_total += contribution * float(weight)
 
     safe_score = clamp(weighted_total / max(sum(canonical_weights.values()), 1e-9), 0.0, 1.0)
