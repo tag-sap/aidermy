@@ -394,13 +394,17 @@ function HScroll({ children }: { children: ReactNode }) {
     </div>
   )
 }
-function HomePage({ onNavigate, onOpen, onScan, user, items }: {
-  onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]
+function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
+  onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]; shelfItems: Product[]
 }) {
   const using = items.filter((p) => p.state === "using").slice(0, 4)
   const recent = items.filter((p) => p.match).slice(0, 6)
-  const shelvedScored = items.filter((p) => p.state && p.match != null)
-  const avg = shelvedScored.length ? Math.round(shelvedScored.reduce((s, p) => s + (p.match?.score ?? 0), 0) / shelvedScored.length) : null
+  // Тот же источник результата, что и «Моя полка» (shelfItems) — без отдельного расчёта для Home.
+  const shelfSource = shelfItems.length ? shelfItems : items.filter((p) => p.state)
+  const avg = (() => {
+    const scored = shelfSource.filter((p) => p.match != null)
+    return scored.length ? Math.round(scored.reduce((s, p) => s + (p.match?.score ?? 0), 0) / scored.length) : null
+  })()
   const recommended = items.filter((p) => p.match != null && !p.state).sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 3)
   return (
     <div className="page">
@@ -1324,7 +1328,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             const second = sc < 60 ? goodEl : badEl
             return (
             <div className="drawer__body">
-              <div className="drawer__report-head"><p className="eyebrow">Результат</p>{score != null && <ScoreBadge score={score} />}</div>
+              <div className="drawer__report-head"><p className="eyebrow">Результат</p></div>
               {reportData?.review && reportData.review.length > 0 && <p className="drawer__report-summary">{reportData.review.map(frag)}</p>}
               {first}
               {second}
@@ -1882,7 +1886,7 @@ export default function App() {
         <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />
         <main className="main-content">
           <div key={page} className="page-anim">
-            {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} />}
+            {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} shelfItems={shelfItems} />}
             {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
