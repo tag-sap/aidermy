@@ -35,6 +35,7 @@ export function mapVerdict(score: number | null, backendVerdict?: string): Verdi
 // Собирает отдельный объект Match из сохранённого analysis API.
 // score сам по себе НЕ является Match: нужен полноценный analysis с числовым score.
 function toMatch(a: {
+  id?: number | null
   score?: number | null
   verdict?: string
   summary?: string
@@ -50,6 +51,7 @@ function toMatch(a: {
     safe_ingredients: a.safe_ingredients || undefined,
     caution_ingredients: a.caution_ingredients || undefined,
     report: a.report || undefined,
+    analysis_id: typeof a.id === "number" ? a.id : undefined,
   }
 }
 

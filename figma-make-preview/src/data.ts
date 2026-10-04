@@ -19,6 +19,10 @@ export type Match = {
   how_to_use?: string
   expectations?: string
   report?: string
+  analysis_id?: number
+  what_good?: string
+  what_caution?: string
+  inci?: string[]
 }
 
 export type Product = {

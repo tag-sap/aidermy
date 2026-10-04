@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
-import { api, setToken, getToken } from "./api"
+import { api, setToken, getToken, type ReportResult } from "./api"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
@@ -1144,42 +1144,26 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
 }
 function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit }: {
   product: Product; user: User | null; onAuth: () => void; onPricing: () => void; onClose: () => void;
-  onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict) => void; onReported: (id: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void;
+  onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict, analysisId?: number) => void; onReported: (id: number, analysisId?: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void;
   onAddToShelf: (p: Product) => void; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
-    product.match?.report ? "report" : product.match ? "match" : "idle"
+    product.match ? "match" : "idle"
   )
   const [score, setScore] = useState<number | null>(product.match?.score ?? null)
   const [verdict, setVerdict] = useState<Verdict | null>((product.match?.verdict as Verdict) ?? null)
   const [closing, setClosing] = useState(false)
-  const [rating, setRating] = useState(0)
-  const [review, setReview] = useState("")
-  const [anonymous, setAnonymous] = useState(false)
-  const [sent, setSent] = useState(false)
-  const [safeList, setSafeList] = useState<string[]>(product.match?.safe_ingredients || [])
-  const [cautionList, setCautionList] = useState<string[]>(product.match?.caution_ingredients || [])
   const [adding, setAdding] = useState(false)
+  const [analysisId, setAnalysisId] = useState<number | undefined>(product.match?.analysis_id)
+  const [reportData, setReportData] = useState<ReportResult | null>(null)
 
   const addToShelf = async () => {
     setAdding(true)
     await onAddToShelf(product)
     setAdding(false)
   }
-  const [reportText, setReportText] = useState("")
 
   const close = () => { setClosing(true); window.setTimeout(onClose, 200) }
-  const submitReview = async () => {
-    if (rating <= 0) return
-    if (product.slug) {
-      try { await api.addReview(product.slug, rating, review, anonymous) } catch { /* ignore */ }
-    }
-    setSent(true)
-  }
-
-  useEffect(() => {
-    if (product.slug) api.reviews(product.slug).catch(() => {})
-  }, [product.slug])
 
   const check = async () => {
     setPhase("checking")
@@ -1204,8 +1188,9 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
       }
       const s = res.score
       const v: Verdict = res.verdict === "Подходит" ? "Подходит" : res.verdict === "Не подходит" ? "Не подходит" : "Допустимо"
-      setScore(s); setVerdict(v); setSafeList(res.safe_ingredients || []); setCautionList(res.caution_ingredients || []); setPhase("match")
-      onChecked(product.id, s, v)
+      const aid = typeof res.analysis_id === "number" ? res.analysis_id : undefined
+      setScore(s); setVerdict(v); setAnalysisId(aid); setReportData(null); setPhase("match")
+      onChecked(product.id, s, v, aid)
     } catch {
       // Ошибка проверки — не выдумываем fake/random процент.
       setPhase("idle")
@@ -1215,22 +1200,27 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const showReport = async () => {
     if (!user) { onAuth(); return }
     if (user.plan === "free") { onPricing(); return }
+    if (!product.slug) return
     setPhase("generating")
-    if (product.slug) {
-      try { const res = await api.analysisReport(product.slug); setReportText(res.review || "") } catch { setReportText("") }
+    try {
+      let aid = analysisId ?? product.match?.analysis_id
+      if (aid == null) {
+        try {
+          const d = await api.product(product.slug)
+          const a = (d.analysis || {}) as { id?: number }
+          aid = typeof a.id === "number" ? a.id : undefined
+        } catch { aid = undefined }
+      }
+      const res = await api.analysisReport(product.slug, aid)
+      setReportData(res)
+      if (typeof res.score === "number") setScore(res.score)
+      setAnalysisId(aid)
+      setPhase("report")
+      onReported(product.id, aid)
+    } catch {
+      setPhase("match")
     }
-    setPhase("report")
-    onReported(product.id)
   }
-
-  const safe = safeList.length ? safeList : (product.tags.length ? product.tags.map((t) => `${t} — совместимо с профилем`) : ["Базовый состав без явных конфликтов"])
-  const caution = cautionList.length ? cautionList : (verdict === "Не подходит" ? ["Содержит активы, агрессивные для чувствительной кожи", "Конфликт с текущим ретиноидом"] : verdict === "Допустимо" ? ["Возможна реакция при сочетании с ретиноидом", "Начинайте с низкой частоты"] : ["Явных противопоказаний не найдено"])
-  const actives = [
-    { name: "Гиалуроновая кислота", conc: "средняя", effect: "удерживает влагу" },
-    { name: "Ниацинамид", conc: "низкая", effect: "выравнивает тон" },
-    { name: "Пантенол", conc: "средняя", effect: "успокаивает" },
-  ]
-  const similar = products.filter((p) => p.category === product.category && p.id !== product.id).slice(0, 3)
 
   return (
     <>
@@ -1279,13 +1269,13 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
                 {score != null && <ScoreRing score={score} label="совместимость" />}
                 <div><VerdictPill verdict={verdict} score={score} /><p className="drawer__score-note">Детерминированная проверка состава относительно вашего профиля.</p></div>
               </div>
-              <section><h4>Что хорошо</h4><ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul></section>
-              <section><h4>На что обратить внимание</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><span>{s}</span></li>)}</ul></section>
+              <p className="drawer__note">Состав (INCI)</p>
+              <p className="inci">{product.ingredients || "Состав не распознан"}</p>
               <div className="drawer__cta">
                 {!user ? (
-                  <Button icon="lock" className="w-full" onClick={showReport}>Показать отчёт — войдите</Button>
+                  <Button icon="lock" className="w-full" onClick={showReport}>Посмотреть отчёт — войдите</Button>
                 ) : (
-                  <Button icon="file" className="w-full" onClick={showReport}>Показать отчёт</Button>
+                  <Button icon="file" className="w-full" onClick={showReport}>Посмотреть отчёт</Button>
                 )}
               </div>
             </div>
@@ -1301,29 +1291,32 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
 
           {phase === "report" && (
             <div className="drawer__body">
-              <div className="drawer__report-head"><p className="eyebrow">Отчёт по продукту</p>{score != null && <ScoreBadge score={score} />}</div>
-              <p className="drawer__report-summary">{reportText || `Результат ${score}% — ${verdict?.toLowerCase()}. Состав в целом соответствует вашему профилю: увлажняющие и успокаивающие компоненты поддерживают барьер, агрессивных активов нет.`}</p>
-              <section><h4>Почему такой результат</h4><ul className="obs">{safe.map((s) => <li key={s}><Icon name="check" size={15} /><span>{s}</span></li>)}</ul></section>
-              <section><h4>Проблемные моменты</h4><ul className="obs obs--warn">{caution.map((s) => <li key={s}><span>{s}</span></li>)}</ul></section>
-              <section><h4>Ключевые компоненты</h4><ul className="actives">{actives.map((a) => (<li key={a.name}><span className="actives__name">{a.name}</span><span className="actives__effect">{a.effect}</span><span className="actives__conc">{a.conc}</span></li>))}</ul></section>
-              <section><h4>Состав (INCI)</h4><p className="inci">{product.ingredients || "Состав не распознан"}</p></section>
-              {similar.length > 0 && (<section><h4>Проверьте ещё</h4><div className="rec-list">{similar.map((p) => (<button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}><img src={p.image} alt="" loading="lazy" /><span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>{p.match && <ScoreBadge score={p.match.score} />}</button>))}</div></section>)}
+              <div className="drawer__report-head"><p className="eyebrow">Результат</p>{score != null && <ScoreBadge score={score} />}</div>
+              {reportData?.review && <p className="drawer__report-summary">{reportData.review}</p>}
+              {reportData?.what_good && <section><h4>Что хорошо в составе</h4><p className="drawer__report-summary">{reportData.what_good}</p></section>}
+              {reportData?.what_caution && <section><h4>Что может не подойти</h4><p className="drawer__report-summary">{reportData.what_caution}</p></section>}
+              {reportData?.how_to_use && (
+                <section><h4>Как применять</h4>
+                  <ul className="obs">
+                    {reportData.how_to_use.application && <li><Icon name="check" size={15} /><span>Нанесение: {reportData.how_to_use.application}</span></li>}
+                    {reportData.how_to_use.time && <li><Icon name="check" size={15} /><span>Время: {reportData.how_to_use.time}</span></li>}
+                    {reportData.how_to_use.note && <li><Icon name="check" size={15} /><span>{reportData.how_to_use.note}</span></li>}
+                  </ul>
+                </section>
+              )}
+              {reportData?.expectations && (
+                <section><h4>Чего ожидать</h4>
+                  <ul className="obs">
+                    {reportData.expectations.when && <li><Icon name="check" size={15} /><span>Когда: {reportData.expectations.when}</span></li>}
+                    {reportData.expectations.normal && <li><Icon name="check" size={15} /><span>{reportData.expectations.normal}</span></li>}
+                    {reportData.expectations.danger && <li><span>{reportData.expectations.danger}</span></li>}
+                  </ul>
+                </section>
+              )}
+              <section><h4>Состав (INCI)</h4><p className="inci">{(reportData?.inci && reportData.inci.length ? reportData.inci.join(", ") : null) || product.ingredients || "Состав не распознан"}</p></section>
             </div>
           )}
 
-          <div className="drawer__body drawer__review">
-            <h4>Оценка и отзыв</h4>
-            <div className="stars">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <button key={n} type="button" className={`star ${rating >= n ? "star--on" : ""}`} onClick={() => setRating(n)} aria-label={`${n} звёзд`}>
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill={rating >= n ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3z" /></svg>
-                </button>
-              ))}
-            </div>
-            <textarea className="review-input" value={review} onChange={(e) => setReview(e.target.value)} placeholder="Поделитесь впечатлением о продукте…" rows={3} />
-            <label className="review-anon"><input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} /> Оставить анонимно</label>
-            <Button small onClick={submitReview} disabled={rating === 0}>{sent ? "Спасибо за отзыв!" : "Отправить отзыв"}</Button>
-          </div>
         </div>
         <div className="drawer__footer">
           {product.shelf_id ? (
@@ -1721,14 +1714,14 @@ export default function App() {
   }
 
   const onChecking = (id: number) => setCheckingIds((prev) => new Set(prev).add(id))
-  const onChecked = (id: number, score: number, verdict: Verdict) => {
-    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: { score, verdict } } : p)))
-    setOpen((o) => (o && o.id === id ? { ...o, match: { score, verdict } } : o))
+  const onChecked = (id: number, score: number, verdict: Verdict, analysisId?: number) => {
+    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: { score, verdict, analysis_id: analysisId } } : p)))
+    setOpen((o) => (o && o.id === id ? { ...o, match: { score, verdict, analysis_id: analysisId } } : o))
     setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
   }
-  const onReported = (id: number) => {
-    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: p.match ? { ...p.match, report: " " } : undefined } : p)))
-    setOpen((o) => (o && o.id === id ? { ...o, match: o.match ? { ...o.match, report: " " } : undefined } : o))
+  const onReported = (id: number, analysisId?: number) => {
+    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: p.match ? { ...p.match, analysis_id: analysisId ?? p.match.analysis_id } : undefined } : p)))
+    setOpen((o) => (o && o.id === id ? { ...o, match: o.match ? { ...o.match, analysis_id: analysisId ?? o.match.analysis_id } : undefined } : o))
   }
 
   const handleLogin = (u: User) => { setUser(u); setAuthModal(null) }

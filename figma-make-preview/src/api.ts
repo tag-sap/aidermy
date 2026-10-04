@@ -44,9 +44,21 @@ export type CheckResult = {
   caution_ingredients: string[]
   slug?: string
   image_url?: string
+  analysis_id?: number
   report?: string
   how_to_use?: { application?: string; time?: string; note?: string }
   expectations?: { when?: string; normal?: string; danger?: string }
+}
+
+export type ReportResult = {
+  score: number
+  review?: string | null
+  active_ingredients?: unknown
+  what_good?: string | null
+  what_caution?: string | null
+  how_to_use?: { application?: string; time?: string; note?: string } | null
+  expectations?: { when?: string; normal?: string; danger?: string } | null
+  inci?: string[]
 }
 
 export type Review = {
@@ -242,10 +254,10 @@ export const api = {
   async checkWithIngredients(payload: Record<string, unknown>) {
     return request<CheckResult>("/check-with-ingredients", { method: "POST", body: JSON.stringify(payload) })
   },
-  async analysisReport(slug: string) {
-    return request<{ score: number; review: string; active_ingredients?: unknown; how_to_use?: unknown; expectations?: unknown }>("/analysis/report", {
+  async analysisReport(slug: string, analysisId?: number) {
+    return request<ReportResult>("/analysis/report", {
       method: "POST",
-      body: JSON.stringify({ slug }),
+      body: JSON.stringify({ slug, analysis_id: analysisId ?? null }),
     })
   },
 
