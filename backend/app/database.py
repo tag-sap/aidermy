@@ -214,6 +214,13 @@ def init_db():
     # выполняется в application-логике (upsert_analysis по slug).
     cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_unique_user_product ON analysis (user_id, product_id) WHERE product_id IS NOT NULL')
 
+    # Phase 1 report: «Что хорошо в составе» / «Что может не подойти» (AI-секции).
+    _analysis_cols = [col[1] for col in cursor.execute("PRAGMA table_info(analysis)").fetchall()]
+    if 'what_good' not in _analysis_cols:
+        cursor.execute('ALTER TABLE analysis ADD COLUMN what_good TEXT')
+    if 'what_caution' not in _analysis_cols:
+        cursor.execute('ALTER TABLE analysis ADD COLUMN what_caution TEXT')
+
     # Аватар и имя пользователя (личный кабинет)
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
     if cursor.fetchone():
@@ -1055,6 +1062,8 @@ def _analysis_to_dict(row) -> dict:
         "how_to_use": _analysis_json_obj(d.get("how_to_use")),
         "expectations": _analysis_json_obj(d.get("expectations")),
         "report": d.get("report") or None,
+        "what_good": d.get("what_good") or None,
+        "what_caution": d.get("what_caution") or None,
         "created_at": d.get("created_at"),
         "expires_at": d.get("expires_at"),
     }
@@ -1272,9 +1281,10 @@ def save_analysis_details(
     active_ingredients=None,
     how_to_use=None,
     expectations=None,
+    what_good: str = "",
+    what_caution: str = "",
 ) -> bool:
-    """Сохраняет ВСЕ блоки отчёта (Общий вывод + Ключевой ингредиент + Как применять
-    + Чего ожидать) к актуальному User Analysis. Score/verdict не трогает."""
+    """Сохраняет ВСЕ блоки отчёта к актуальному User Analysis. Score/verdict не трогает."""
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     active_json = json.dumps(active_ingredients, ensure_ascii=False) if active_ingredients is not None else None
@@ -1282,15 +1292,15 @@ def save_analysis_details(
     exp_json = json.dumps(expectations, ensure_ascii=False) if expectations is not None else None
     if product_id is not None:
         cursor.execute(
-            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ? "
+            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ? "
             "WHERE user_id = ? AND product_id = ?",
-            (report or None, active_json, how_json, exp_json, user_id, product_id),
+            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, user_id, product_id),
         )
     else:
         cursor.execute(
-            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ? "
+            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ? "
             "WHERE user_id = ? AND slug = ?",
-            (report or None, active_json, how_json, exp_json, user_id, slug),
+            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, user_id, slug),
         )
     conn.commit()
     updated = cursor.rowcount > 0

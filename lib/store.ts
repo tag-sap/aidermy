@@ -40,6 +40,9 @@ export type CheckResult = {
   safe_ingredients?: string[]
   caution_ingredients?: string[]
   report?: string | null
+  what_good?: string | null
+  what_caution?: string | null
+  inci?: string[]
   stats?: Record<string, number>
   skin_type_recommendation?: string
   slug?: string

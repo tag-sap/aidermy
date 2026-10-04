@@ -1402,7 +1402,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         raise HTTPException(status_code=409, detail="Анализ ещё не выполнен — сначала проверьте совместимость.")
 
     # Если полный отчёт уже сгенерирован — возвращаем сохранённое (без повторного LLM).
-    if analysis and analysis.get("report") and analysis.get("active_ingredients") and analysis.get("how_to_use") and analysis.get("expectations"):
+    if analysis and analysis.get("report") and analysis.get("active_ingredients") and analysis.get("how_to_use") and analysis.get("expectations") and analysis.get("what_good") and analysis.get("what_caution"):
         # Defense-in-depth: заново валидируем сохранённый отчёт по фактическому INCI
         # сохранённого analysis (старые отчёты могли быть сохранены без grounding).
         from .services import _report_allowed_ingredients, _ground_report_text, _ground_report_sections
@@ -1413,15 +1413,19 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         if review is None:
             review = det.get("summary") or analysis.get("summary") or ""
         sections = _ground_report_sections(
-            {"how_to_use": analysis.get("how_to_use"), "expectations": analysis.get("expectations")},
+            {"what_good": analysis.get("what_good"), "what_caution": analysis.get("what_caution"),
+             "how_to_use": analysis.get("how_to_use"), "expectations": analysis.get("expectations")},
             allowed, has_neg, deterministic=det,
         )
         return {
             "score": score,
             "review": review,
             "active_ingredients": analysis.get("active_ingredients"),
+            "what_good": sections.get("what_good"),
+            "what_caution": sections.get("what_caution"),
             "how_to_use": sections.get("how_to_use"),
             "expectations": sections.get("expectations"),
+            "inci": det.get("normalized_ingredients") or [],
         }
 
     # Иначе генерируем ВСЕ блоки отчёта (Общий вывод + Ключевой ингредиент +
@@ -1452,6 +1456,8 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         active_ingredients=full.get("active_ingredients"),
         how_to_use=full.get("how_to_use"),
         expectations=full.get("expectations"),
+        what_good=full.get("what_good") or "",
+        what_caution=full.get("what_caution") or "",
     )
     save_analysis_report(current_user["id"], product.get("id"), product.get("slug") or request.slug, review)
     save_ai_report(current_user["id"], product.get("slug") or request.slug, review)
@@ -1460,8 +1466,11 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         "score": score,
         "review": review,
         "active_ingredients": full.get("active_ingredients"),
+        "what_good": full.get("what_good"),
+        "what_caution": full.get("what_caution"),
         "how_to_use": full.get("how_to_use"),
         "expectations": full.get("expectations"),
+        "inci": full.get("inci") or [],
     }
 
 

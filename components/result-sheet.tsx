@@ -157,8 +157,11 @@ export function ResultSheet({
         ...result,
         report: d.review ?? result.report,
         active_ingredients: d.active_ingredients ?? result.active_ingredients,
+        what_good: d.what_good ?? result.what_good,
+        what_caution: d.what_caution ?? result.what_caution,
         how_to_use: d.how_to_use ?? result.how_to_use,
         expectations: d.expectations ?? result.expectations,
+        inci: d.inci ?? result.inci,
       })
     } catch {
       setDetailsError('Не удалось подготовить подробный анализ')
@@ -241,7 +244,7 @@ export function ResultSheet({
             </div>
 
             <>
-              <Section icon={Sparkles} title="Общий вывод" className="border-primary/10">
+              <Section icon={Sparkles} title="Результат" className="border-primary/10">
                 {result.report ? (
                   <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.report} /></p>
                 ) : gettingDetails ? (
@@ -264,26 +267,19 @@ export function ResultSheet({
                 )}
               </Section>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {result.active_ingredients && (
-                    <Section icon={Sparkles} title="Ключевой ингредиент" className="border-purple-100/50">
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium leading-snug text-foreground/80">{result.active_ingredients.name}</p>
-                        {typeof result.active_ingredients.concentration === 'string' && result.active_ingredients.concentration ? (
-                          <p className="text-[11px] leading-snug text-muted-foreground/70">Концентрация: {result.active_ingredients.concentration}</p>
-                        ) : null}
-                        {typeof result.active_ingredients.effectiveness === 'string' && result.active_ingredients.effectiveness ? (
-                          <p className="text-[11px] leading-snug text-muted-foreground/70">Эффективность: {result.active_ingredients.effectiveness}</p>
-                        ) : null}
-                        {typeof result.active_ingredients.position === 'number' && result.active_ingredients.position > 0 ? (
-                          <p className="text-[10px] leading-snug text-muted-foreground/50">Позиция в составе: #{result.active_ingredients.position}</p>
-                        ) : null}
-                      </div>
-                      <p className="text-xs text-muted-foreground/60 font-light mt-1.5">
-                        Значимый для вашего анализа компонент
-                      </p>
-                    </Section>
-                  )}
+              {result.what_good ? (
+                <Section icon={CheckCircle} title="Что хорошо в составе" className="border-green-100/50">
+                  <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.what_good} /></p>
+                </Section>
+              ) : null}
+
+              {result.what_caution ? (
+                <Section icon={AlertCircle} title="Что может не подойти" className="border-amber-100/50">
+                  <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.what_caution} /></p>
+                </Section>
+              ) : null}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
 
                   {result.how_to_use && (
                     <Section icon={Clock} title="Как применять" className="border-blue-100/50">
@@ -305,6 +301,12 @@ export function ResultSheet({
                     </Section>
                   )}
                 </div>
+
+                {result.inci && result.inci.length > 0 ? (
+                  <Section icon={Sparkles} title="INCI" className="border-gray-100/50">
+                    <p className="text-[11px] leading-relaxed text-foreground/60 font-light break-words">{result.inci.join(', ')}</p>
+                  </Section>
+                ) : null}
             </>
 
 

@@ -332,12 +332,6 @@ export function ProductModal({
               </div>
             )}
 
-            {hasReport && data?.analysis?.summary ? (
-              <p className="mt-2 text-xs leading-relaxed text-foreground/70">
-                {data?.analysis?.summary}
-              </p>
-            ) : null}
-
             {error && product && <p className="mt-2 text-[11px] text-red-500">{error}</p>}
 
             <div className="mt-4 flex flex-col gap-2">

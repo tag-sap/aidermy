@@ -607,11 +607,27 @@ async def generate_full_report(
         except Exception as exc:
             print(f"[REPORT] key ingredient AI failed: {exc!r}")
 
+    good_caution = {"what_good": None, "what_caution": None}
+    if DEEPSEEK_API_KEY and has_factors:
+        try:
+            good_caution = await generate_ai_good_caution(product_name, deterministic, profile, product_type)
+            if not isinstance(good_caution, dict):
+                good_caution = {"what_good": None, "what_caution": None}
+            allowed = _report_allowed_ingredients(deterministic)
+            has_neg = bool(deterministic.get("negative_factors"))
+            good_caution = _ground_report_sections(good_caution, allowed, has_neg, deterministic=deterministic)
+        except Exception as exc:
+            print(f"[REPORT] good/caution AI failed: {exc!r}")
+            good_caution = {"what_good": None, "what_caution": None}
+
     return {
         "report": report,
         "active_ingredients": active_ingredients,
+        "what_good": good_caution.get("what_good"),
+        "what_caution": good_caution.get("what_caution"),
         "how_to_use": sections.get("how_to_use"),
         "expectations": sections.get("expectations"),
+        "inci": deterministic.get("normalized_ingredients") or [],
     }
 
 
@@ -650,9 +666,9 @@ async def generate_ai_review(product_name: str, skin_type: str, profile: dict, i
 
 # --- Report grounding (Phase 18): actual INCI is the only source of truth for ingredients. ---
 _RU_INGREDIENT_NAMES = {
-    "ниацинамид": "niacinamide",
+    "ниацинамид": "niacinamid",
     "гиалуронов": "hyaluronic acid",
-    "алоэ": "aloe barbadensis leaf water",
+    "алоэ": "aloe barbadensis",
     "гликолев": "glycolic acid",
     "пантенол": "panthenol",
     "салицилов": "salicylic acid",
@@ -665,7 +681,6 @@ _RU_INGREDIENT_NAMES = {
     "аскорбинов": "ascorbic acid",
     "витамин c": "ascorbic acid",
     "церамид": "ceramide",
-    "мочевина": "urea",
     "аллантоин": "allantoin",
     "бензоилпероксид": "benzoyl peroxide",
 }
@@ -741,6 +756,9 @@ def _ground_report_sections(sections: dict, allowed: set, has_negative_factors: 
         return None
 
     result = dict(sections)
+    for key in ("what_good", "what_caution"):
+        if key in result:
+            result[key] = _field(result.get(key))
     for key in ("how_to_use", "expectations"):
         block = result.get(key)
         if not isinstance(block, dict):
@@ -1072,6 +1090,72 @@ def build_report_sections_prompt(product_name: str, analysis: dict, profile: dic
         "  \"expectations\": {{\"when\": \"...\", \"normal\": \"...\", \"danger\": \"...\"}} | null\n"
         "}}\n"
     )
+
+
+async def generate_ai_good_caution(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> dict:
+    """AI генерирует «Что хорошо в составе» и «Что может не подойти».
+
+    Только интерпретация готового deterministic analysis: использует фактические
+    positive/negative factors, НЕ придумывает ингредиенты и НЕ пересчитывает score.
+    Возвращает {"what_good": str | None, "what_caution": str | None}.
+    """
+    if not DEEPSEEK_API_KEY:
+        return {"what_good": None, "what_caution": None}
+
+    pos = analysis.get("positive_factors") or []
+    neg = analysis.get("negative_factors") or []
+    if not pos and not neg:
+        return {"what_good": None, "what_caution": None}
+
+    skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
+    pos_text = "; ".join(_factor_text(f) for f in pos[:6]) or "—"
+    neg_text = "; ".join(_factor_text(f) for f in neg[:6]) or "—"
+
+    prompt = (
+        "Ты — косметолог. Оформи уже готовый результат анализа косметики в текст. "
+        "НЕ выполняй анализ сам и НЕ меняй совместимость.\n\n"
+        f"Продукт: {product_name}\n"
+        f"Тип кожи: {skin or 'не указан'}\n"
+        f"Положительные факторы (ингредиент → эффект): {pos_text}\n"
+        f"Отрицательные факторы: {neg_text}\n\n"
+        "### Задачи (верни ТОЛЬКО JSON):\n"
+        "1. what_good: 2-4 предложения о том, какие свойства состава реально полезны и ПОЧЕМУ "
+        "именно для этого профиля. Упоминай ТОЛЬКО ингредиенты из положительных факторов; "
+        "объясняй пользу человеческим языком, не выводи голый список INCI. Если факторов нет — null.\n"
+        "2. what_caution: 2-4 предложения о реальных потенциальных проблемах для этого профиля "
+        "(из отрицательных факторов). Объясни, что именно может быть проблемой и почему. "
+        "Если существенных проблем нет — так и напиши. Если факторов нет — null.\n"
+        "НЕ придумывай ингредиенты, которых нет в факторах. НЕ пересчитывай процент.\n"
+        'Формат: {"what_good": "...|null", "what_caution": "...|null"}\n'
+    )
+
+    for model_name in DEEPSEEK_MODEL_FALLBACKS:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    DEEPSEEK_API_URL,
+                    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+                    json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 700},
+                    timeout=30,
+                )
+            if response.status_code != 200:
+                continue
+            data = response.json()
+            content = (data["choices"][0]["message"]["content"] or "").strip()
+            if not content:
+                continue
+            parsed = extract_json_from_response(content)
+            if not isinstance(parsed, dict):
+                continue
+            return {
+                "what_good": parsed.get("what_good") if isinstance(parsed.get("what_good"), str) else None,
+                "what_caution": parsed.get("what_caution") if isinstance(parsed.get("what_caution"), str) else None,
+            }
+        except Exception as exc:
+            print(f"[GOOD/CAUTION] AI failed: {exc!r}")
+            continue
+
+    return {"what_good": None, "what_caution": None}
 
 
 def sanitize_report_sections(verdict: str, sections: dict) -> dict:
