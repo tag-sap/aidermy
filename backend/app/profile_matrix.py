@@ -65,7 +65,7 @@ def _m(
 SKIN_TYPE_MATRIX: Dict[str, Dict[str, Any]] = {
     "normal": _m("normal", "skin_type", "score", _axes(.30, .30, .05, .00, .05, .05), label="Нормальная"),
     "dry": _m("dry", "skin_type", "score", _axes(.80, .70, .25, .05, 0, .05), label="Сухая"),
-    "oily": _m("oily", "skin_type", "score", _axes(.30, .15, .30, .05, .45, .05), label="Жирная"),
+    "oily": _m("oily", "skin_type", "score", _axes(.40, .20, .40, .05, .20, .05), label="Жирная"),
     "combination": _m("combination", "skin_type", "score", _axes(.45, .20, .20, .05, .40, .05), label="Комбинированная"),
     "sensitive": _m("sensitive", "skin_type", "score", _axes(.25, .70, .75, .65, .05, .05), label="Чувствительная"),
     "dehydrated": _m(
