@@ -193,6 +193,21 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
         imported = await import_product(request.url)
         if not imported.name:
             raise ProductImportError("Товар на странице не найден.")
+        # Если сканер не определил бренд/название корректно (например, положил INCI
+        # в поле name), ищем существующий товар по составу и используем его
+        # canonical name/brand — чтобы не создавать дубликат.
+        if imported.ingredients_raw and (not imported.brand or len(imported.name or "") > 150):
+            try:
+                import re as _re
+                from .vision_service import find_product_matches
+                raw_parts = [p.strip().replace("\u200b", "").replace("\u200c", "").replace("\ufeff", "") for p in _re.split(r'[,;\n]+', imported.ingredients_raw) if p.strip()]
+                matches = find_product_matches(raw_parts, limit=1)
+                if matches and matches[0].get("match_percent", 0) >= 85:
+                    m = matches[0]
+                    imported.name = m.get("name") or imported.name
+                    imported.brand = m.get("brand") or imported.brand
+            except Exception:
+                pass
         # Нормализуем категорию к канонической категории каталога (не храним сырую/название продукта).
         from .shelf_service import normalize_imported_category
         imported.category = normalize_imported_category(imported.category, imported.name)
@@ -561,6 +576,7 @@ async def check_with_ingredients(
         conn_products.close()
         
         user_id = current_user.get('id') if current_user else None
+        product_id = existing_product['id'] if existing_product else None
         
         # Отправляем в модерацию
         if check_request.ingredients and result.get("score", 0) > 0:
@@ -570,8 +586,18 @@ async def check_with_ingredients(
                 user_id=user_id
             )
         
-        # История сохраняется только через /api/auth/history, чтобы избежать дублей.
-        # Здесь не пишем в БД повторно: результат уже будет сохранён в пользовательской истории после проверки.
+        # Сохраняем СИСТЕМНУЮ проверку (Слой 1) в актуальный User Analysis,
+        # чтобы отчёт открывался по analysis_id (как в /api/check).
+        analysis_id = None
+        if user_id:
+            saved = _save_system_analysis(
+                current_user,
+                product_id=product_id,
+                slug=slug or "",
+                result=result,
+                profile_snapshot=check_request.profile.dict(),
+            )
+            analysis_id = saved.get("id") if saved else None
         
         pending = bool(result.get("pending"))
         return CheckResponse(
@@ -587,6 +613,7 @@ async def check_with_ingredients(
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
             report=result.get("report"),
+            analysis_id=analysis_id,
             pending=pending,
         )
         

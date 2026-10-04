@@ -318,6 +318,33 @@ def find_or_create_canonical_product(payload: Dict[str, Any]) -> Dict[str, Any]:
         if best is None or score > best[0]:
             best = (score, cand)
 
+    # Фолбэк по составу: если название не совпало (например, сканер положил INCI
+    # в поле name), ищем существующий товар по пересечению нормализованного INCI.
+    # Это не даёт создавать дубликат товара, который уже есть в каталоге.
+    if best is None:
+        incoming_inci = normalize_inci(incoming.get("ingredients"))
+        if incoming_inci:
+            incoming_set = set(incoming_inci)
+            best_inci: Optional[Tuple[float, Dict[str, Any]]] = None
+            for cand in candidates:
+                cand_inci = normalize_inci(cand.get("ingredients"))
+                if not cand_inci:
+                    continue
+                cand_set = set(cand_inci)
+                inter = incoming_set & cand_set
+                if not inter:
+                    continue
+                coverage = len(inter) / len(incoming_set)
+                jaccard = len(inter) / len(incoming_set | cand_set)
+                score = (2 * coverage * jaccard / (coverage + jaccard)) if (coverage + jaccard) else 0.0
+                if best_inci is None or score > best_inci[0]:
+                    best_inci = (score, cand)
+            if best_inci and best_inci[0] >= 0.8:
+                best = best_inci
+                # Имя из сканера похоже на INCI (ненадёжное) — не перезаписываем
+                # им корректное имя существующего товара при merge.
+                incoming["name"] = ""
+
     conn = get_connection(PRODUCTS_DB)
     try:
         cursor = conn.cursor()
