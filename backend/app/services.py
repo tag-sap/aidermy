@@ -607,24 +607,23 @@ async def generate_full_report(
         except Exception as exc:
             print(f"[REPORT] key ingredient AI failed: {exc!r}")
 
-    good_caution = {"what_good": None, "what_caution": None}
+    good = {"what_good": None}
     if DEEPSEEK_API_KEY and has_factors:
         try:
-            good_caution = await generate_ai_good_caution(product_name, deterministic, profile, product_type)
-            if not isinstance(good_caution, dict):
-                good_caution = {"what_good": None, "what_caution": None}
+            good = await generate_ai_good(product_name, deterministic, profile, product_type)
+            if not isinstance(good, dict):
+                good = {"what_good": None}
             allowed = _report_allowed_ingredients(deterministic)
             has_neg = bool(deterministic.get("negative_factors"))
-            good_caution = _ground_report_sections(good_caution, allowed, has_neg, deterministic=deterministic)
+            good = _ground_report_sections(good, allowed, has_neg, deterministic=deterministic)
         except Exception as exc:
-            print(f"[REPORT] good/caution AI failed: {exc!r}")
-            good_caution = {"what_good": None, "what_caution": None}
+            print(f"[REPORT] good AI failed: {exc!r}")
+            good = {"what_good": None}
 
     return {
         "report": report,
         "active_ingredients": active_ingredients,
-        "what_good": good_caution.get("what_good"),
-        "what_caution": good_caution.get("what_caution"),
+        "what_good": good.get("what_good"),
         "how_to_use": sections.get("how_to_use"),
         "expectations": sections.get("expectations"),
         "inci": deterministic.get("normalized_ingredients") or [],
@@ -756,7 +755,7 @@ def _ground_report_sections(sections: dict, allowed: set, has_negative_factors: 
         return None
 
     result = dict(sections)
-    for key in ("what_good", "what_caution"):
+    for key in ("what_good",):
         if key in result:
             result[key] = _field(result.get(key))
     for key in ("how_to_use", "expectations"):
@@ -1073,14 +1072,14 @@ def build_report_sections_prompt(product_name: str, analysis: dict, profile: dic
         f"- Категория продукта: {product_type or 'не указана'}\n"
         f"- Допустимый тип применения: {category_hint.get('guidance') if category_hint else 'определи по категории и типу продукта'}\n\n"
         "### Задачи (верни ТОЛЬКО JSON):\n"
-        "1. how_to_use: {{application, time, note}} — описание применения, СТРОГО соответствующее "
-        "категории и допустимому типу применения (например, патчи наклеивают, а не наносят ровным слоем). "
-        "НЕ используй слова «подходит/не подходит/рекомендуется/противопоказан». "
-        "Если данных недостаточно — верни null.\n"
-        "2. expectations: {{when, normal, danger}} — "
-        "normal описывай ТОЛЬКО эффекты из положительных факторов; "
-        "danger описывай ТОЛЬКО из отрицательных факторов/«требуют внимания». "
-        "НЕ придумывай эффектов, которых нет в списках. Если факторов нет — null.\n"
+        "1. how_to_use: {{application, time, note}} — ОЧЕНЬ короткая практическая инструкция применения "
+        "(максимум 1 предложение или 2 коротких пункта), строго по категории и допустимому типу применения. "
+        "Без пустых фраз вроде «наносят подходящим количеством» или «используют на соответствующем этапе ухода». "
+        "Если конкретных данных недостаточно — верни null.\n"
+        "2. expectations: {{when, normal, danger}} — human-описание ожидаемого пользовательского эффекта "
+        "продукта. normal — 1-2 коротких предложения о том, какой результат разумно ожидать (НЕ список "
+        "ingredient claims: не пиши «glycerin увлажняет; niacinamide влияет на пигментацию»). "
+        "when и danger оставь null. Если полезного ожидания сформулировать нельзя — верни null.\n"
         "3. Теги: <good>, <warning>, <bad> только для разметки.\n\n"
         "### ВАЖНО: не пересчитывай процент, не меняй вердикт, не делай выводов о "
         "совместимости, которых нет в структурированном анализе.\n\n"
@@ -1092,41 +1091,35 @@ def build_report_sections_prompt(product_name: str, analysis: dict, profile: dic
     )
 
 
-async def generate_ai_good_caution(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> dict:
-    """AI генерирует «Что хорошо в составе» и «Что может не подойти».
+async def generate_ai_good(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> dict:
+    """AI генерирует «Что хорошо в составе» — коротко.
 
     Только интерпретация готового deterministic analysis: использует фактические
-    positive/negative factors, НЕ придумывает ингредиенты и НЕ пересчитывает score.
-    Возвращает {"what_good": str | None, "what_caution": str | None}.
+    positive factors, НЕ придумывает ингредиенты и НЕ пересчитывает score.
+    Возвращает {"what_good": str | None}.
     """
     if not DEEPSEEK_API_KEY:
-        return {"what_good": None, "what_caution": None}
+        return {"what_good": None}
 
     pos = analysis.get("positive_factors") or []
-    neg = analysis.get("negative_factors") or []
-    if not pos and not neg:
-        return {"what_good": None, "what_caution": None}
+    if not pos:
+        return {"what_good": None}
 
     skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
-    pos_text = "; ".join(_factor_text(f) for f in pos[:6]) or "—"
-    neg_text = "; ".join(_factor_text(f) for f in neg[:6]) or "—"
+    pos_text = "; ".join(_factor_text(f) for f in pos[:5]) or "—"
 
     prompt = (
-        "Ты — косметолог. Оформи уже готовый результат анализа косметики в текст. "
+        "Ты — косметолог. Оформи уже готовый результат анализа косметики в короткий текст. "
         "НЕ выполняй анализ сам и НЕ меняй совместимость.\n\n"
         f"Продукт: {product_name}\n"
         f"Тип кожи: {skin or 'не указан'}\n"
-        f"Положительные факторы (ингредиент → эффект): {pos_text}\n"
-        f"Отрицательные факторы: {neg_text}\n\n"
-        "### Задачи (верни ТОЛЬКО JSON):\n"
-        "1. what_good: 2-4 предложения о том, какие свойства состава реально полезны и ПОЧЕМУ "
-        "именно для этого профиля. Упоминай ТОЛЬКО ингредиенты из положительных факторов; "
-        "объясняй пользу человеческим языком, не выводи голый список INCI. Если факторов нет — null.\n"
-        "2. what_caution: 2-4 предложения о реальных потенциальных проблемах для этого профиля "
-        "(из отрицательных факторов). Объясни, что именно может быть проблемой и почему. "
-        "Если существенных проблем нет — так и напиши. Если факторов нет — null.\n"
+        f"Положительные факторы (ингредиент → эффект): {pos_text}\n\n"
+        "### Задача (верни ТОЛЬКО JSON):\n"
+        "what_good: 1-2 коротких предложения о главных преимуществах состава именно для этого профиля. "
+        "Упоминай ТОЛЬКО ингредиенты из положительных факторов; объясняй пользу человеческим языком, "
+        "не выводи голый список INCI и не пересказывай все факторы. Если полезных факторов нет — null.\n"
         "НЕ придумывай ингредиенты, которых нет в факторах. НЕ пересчитывай процент.\n"
-        'Формат: {"what_good": "...|null", "what_caution": "...|null"}\n'
+        'Формат: {"what_good": "...|null"}\n'
     )
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
@@ -1135,7 +1128,7 @@ async def generate_ai_good_caution(product_name: str, analysis: dict, profile: d
                 response = await client.post(
                     DEEPSEEK_API_URL,
                     headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 700},
+                    json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 300},
                     timeout=30,
                 )
             if response.status_code != 200:
@@ -1147,15 +1140,12 @@ async def generate_ai_good_caution(product_name: str, analysis: dict, profile: d
             parsed = extract_json_from_response(content)
             if not isinstance(parsed, dict):
                 continue
-            return {
-                "what_good": parsed.get("what_good") if isinstance(parsed.get("what_good"), str) else None,
-                "what_caution": parsed.get("what_caution") if isinstance(parsed.get("what_caution"), str) else None,
-            }
+            return {"what_good": parsed.get("what_good") if isinstance(parsed.get("what_good"), str) else None}
         except Exception as exc:
-            print(f"[GOOD/CAUTION] AI failed: {exc!r}")
+            print(f"[GOOD] AI failed: {exc!r}")
             continue
 
-    return {"what_good": None, "what_caution": None}
+    return {"what_good": None}
 
 
 def sanitize_report_sections(verdict: str, sections: dict) -> dict:
