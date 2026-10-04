@@ -694,11 +694,12 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
   const needManualFields = method === "inci" || method === "manual"
   const canRun = busy ? false : method === "photo" ? photoAdded : method === "inci" ? brand.trim().length > 0 && name.trim().length > 0 && inciPhotoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
 
-  const buildResult = (b: string, n: string, image: string, productSlug: string | undefined, res: { score?: number | null; verdict?: string } | undefined): Product => {
+  const buildResult = (b: string, n: string, image: string, productSlug: string | undefined, inci: string, res: { score?: number | null; verdict?: string; analysis_id?: number } | undefined, productId?: number): Product => {
     const score = res?.score ?? null
     const verdict = mapVerdict(score, res?.verdict)
+    const aid = res && typeof res.analysis_id === "number" ? res.analysis_id : undefined
     return {
-      id: 900 + Math.floor(Math.random() * 90),
+      id: productId ?? 900 + Math.floor(Math.random() * 90),
       brand: b || "Продукт",
       name: n || "Продукт",
       cabinet: "face",
@@ -707,7 +708,8 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
       tags: [],
       state: "want",
       slug: productSlug,
-      match: score != null ? { score, verdict: verdict ?? undefined } : undefined,
+      ingredients: inci || undefined,
+      match: score != null ? { score, verdict: verdict ?? undefined, analysis_id: aid } : undefined,
     }
   }
 
@@ -729,10 +731,10 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
         } else {
           checkRes = await api.check({ product_name: n, skin_type: skinType, profile })
         }
-        setResult(buildResult(b, n, prod.image_url || "", prod.slug, checkRes as { score?: number | null; verdict?: string }))
+        setResult(buildResult(b, n, prod.image_url || "", prod.slug, prod.ingredients_raw || "", checkRes as { score?: number | null; verdict?: string; analysis_id?: number }, typeof prod.id === "number" ? prod.id : undefined))
       } else if (method === "photo") {
         const checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile })
-        setResult(buildResult(brand.trim(), name.trim(), imageUrl || checkRes.image_url || "", slug || checkRes.slug, checkRes as { score?: number | null; verdict?: string }))
+        setResult(buildResult(brand.trim(), name.trim(), imageUrl || checkRes.image_url || "", slug || checkRes.slug, "", checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
       } else {
         // inci / manual — анализируем распознанный/введённый состав; если состава
         // нет (не распознался) — проверяем по названию (бэкенд возьмёт INCI из БД).
@@ -742,12 +744,12 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
         } else {
           checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile })
         }
-        setResult(buildResult(brand.trim(), name.trim(), "", "", checkRes as { score?: number | null; verdict?: string }))
+        setResult(buildResult(brand.trim(), name.trim(), "", "", inci.trim(), checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
       }
       setPhase("ready")
     } catch {
       // fallback: без фейкового счёта — пользователь проверит вручную в карточке
-      setResult(buildResult(brand.trim() || "COSRX", name.trim() || "Advanced Snail 96 Mucin Power Essence", imageUrl, slug, undefined))
+      setResult(buildResult(brand.trim() || "COSRX", name.trim() || "Advanced Snail 96 Mucin Power Essence", imageUrl, slug, inci.trim(), undefined))
       setPhase("ready")
     }
   }
