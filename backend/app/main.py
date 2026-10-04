@@ -199,6 +199,18 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
         payload = imported.to_dict()
         payload["contributed_by"] = current_user.get("id") if current_user else None
         saved = upsert_imported_product(payload)
+        # Фоновая обработка изображения: удаление белого фона + публикация в S3.
+        if saved.get("image_url") and saved.get("slug"):
+            try:
+                from .image_storage import process_product_image_sync
+                asyncio.create_task(asyncio.to_thread(
+                    process_product_image_sync,
+                    saved.get("id"),
+                    saved.get("slug"),
+                    saved.get("image_url"),
+                ))
+            except Exception:
+                pass
         product = {
             "name": saved.get("name"),
             "brand": saved.get("brand"),
