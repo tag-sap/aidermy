@@ -68,6 +68,9 @@ async def _run_async(run_key: str) -> None:
         run_key, status="running", started_at=_now(), updated_at=_now(),
         product_count=len(products), profile_count=len(profiles),
         case_count=len(cases), total_cases=len(cases),
+        processed_cases=0, current_batch=0, total_batches=0,
+        ai_request_count=0, cache_hits=0, cache_misses=0,
+        ai_references_generated=0, errors=0,
         error=None,
     )
 
