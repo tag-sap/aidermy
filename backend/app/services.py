@@ -560,6 +560,185 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     }
 
 
+_REPORT_AXIS_LABELS = {
+    "hydration": "увлажнение",
+    "barrier": "барьер",
+    "irritation": "раздражение",
+    "sensitization": "сенсибилизация",
+    "sebum": "себум/жирность",
+    "pigmentation": "пигментация",
+}
+
+_REPORT_MEDICAL_CLAIMS = [
+    "ослабляет барьер", "вызывает раздражение", "повышает риск аллергии",
+    "повышает чувствительность", "кожа будет", "кожа станет", "уберёт", "уменьшит отёчность",
+    "избавит от", "снимет раздражение", "не вызовет аллергию", "решит проблему",
+    "даст сияние", "уберёт покраснение", "избавит от высыпаний", "будет комфортно",
+    "подойдёт чувствительной", "не будет сухости", "кожа будет мягкой",
+]
+
+
+def _build_report_input(analysis: dict) -> dict:
+    """Единый deterministic input для генерации отчёта (source of truth)."""
+    import math
+    from .scoring_config import SATURATION_SCALE
+
+    dims = analysis.get("dimensions") or {}
+    prio = analysis.get("priorities") or {}
+    pos, neg, weak = [], [], []
+    for axis, label in _REPORT_AXIS_LABELS.items():
+        raw = dims.get(axis)
+        if raw is None:
+            continue
+        w = float(prio.get(axis, 0.0) or 0.0)
+        contrib = math.tanh(float(raw) / SATURATION_SCALE) * w * 100.0
+        ap = abs(contrib)
+        if ap >= 5.0:
+            sig = "significant"
+        elif ap >= 2.0:
+            sig = "moderate"
+        else:
+            sig = "weak"
+        item = {"axis": axis, "label": label, "significance": sig}
+        if sig == "weak":
+            weak.append(item)
+        elif contrib > 0:
+            pos.append(item)
+        else:
+            neg.append(item)
+    return {
+        "score": int(analysis.get("score") or 0),
+        "verdict": analysis.get("verdict") or "",
+        "positive": pos,
+        "negative": neg,
+        "weak": weak,
+        "positive_factors": (analysis.get("positive_factors") or [])[:12],
+        "negative_factors": (analysis.get("negative_factors") or [])[:12],
+        "inci": analysis.get("normalized_ingredients") or [],
+    }
+
+
+def _report_input_text(inp: dict) -> str:
+    lines = [
+        f"score: {inp['score']}",
+        f"verdict: {inp['verdict']}",
+        "",
+        "positive factors (оси с положительным вкладом):",
+    ]
+    lines += [f"- {p['label']} — {p['significance']}" for p in inp["positive"]] or ["- (нет)"]
+    lines.append("")
+    lines.append("negative factors (оси с отрицательным вкладом):")
+    lines += [f"- {n['label']} — {n['significance']}" for n in inp["negative"]] or ["- (нет)"]
+    lines.append("")
+    lines.append("weak factors (НЕ использовать как причины):")
+    lines += [f"- {w['label']}" for w in inp["weak"]] or ["- (нет)"]
+    return "\n".join(lines)
+
+
+def _validate_report_once(inp: dict, output: dict) -> bool:
+    """Проверяет AI-ответ на явные противоречия с deterministic input."""
+    parts: List[str] = []
+    for key in ("summary", "positive", "negative"):
+        v = output.get(key) or []
+        if isinstance(v, list):
+            parts += [str(f.get("text") or "") for f in v if isinstance(f, dict)]
+    exp = output.get("expectations")
+    if isinstance(exp, str):
+        parts.append(exp)
+    low = " ".join(parts).lower()
+
+    for n in inp["negative"]:
+        if n["significance"] != "significant":
+            continue
+        label = n["label"]
+        stem = label[:-2] if len(label) > 4 else label
+        if f"минусов по {stem}" in low:
+            return False
+    for phrase in _REPORT_MEDICAL_CLAIMS:
+        if phrase in low:
+            return False
+    for key in _REPORT_AXIS_LABELS:
+        if key in low:
+            return False
+    return True
+
+
+async def generate_report_once(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> dict | None:
+    """ОДИН LLM-вызов: summary + positive + negative + expectations."""
+    if not DEEPSEEK_API_KEY:
+        return None
+
+    inp = _build_report_input(analysis)
+    if not inp["positive"] and not inp["negative"]:
+        return None
+
+    skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
+    input_text = _report_input_text(inp)
+    inci = ", ".join(str(i) for i in inp["inci"])
+
+    prompt = f"""Ты — помощник, который переводит УЖЕ ГОТОВЫЙ результат модели совместимости в связный человеческий текст.
+
+НЕ анализируй состав заново и НЕ принимай самостоятельных решений по факторам. Все факты для текста уже даны ниже.
+
+Продукт: {product_name}
+Тип продукта (категория): {product_type or 'не указан'}
+Тип кожи: {skin or 'не указан'}
+
+ЕДИНЫЙ НАБОР ФАКТОВ (источник истины — НЕ переопределяй):
+{input_text}
+
+Полный состав (только для справки о названиях ингредиентов, НЕ для самостоятельного анализа):
+{inci or '—'}
+
+ПРАВИЛА:
+- Все части текста должны использовать ОДИН И ТОТ ЖЕ набор фактов и не противоречить друг другу.
+- Не называй значимый отрицательный фактор отсутствующим; не называй отрицательный фактор положительным; не добавляй факторы, которых нет выше.
+- Слабые факторы (weak) не используй как причины результата и не перечисляй их ингредиенты.
+- Пиши естественным русским языком, БЕЗ внутреннего языка модели («ось», «вклад по», «п.п.», технические ключи hydration/barrier/irritation/...).
+- Говори о ВКЛАДЕ В РЕЗУЛЬТАТ МОДЕЛИ, а не о гарантированном эффекте на кожу: не пиши «ослабляет барьер», «вызывает раздражение», «кожа станет…».
+- Не меняй score и verdict.
+
+Верни ТОЛЬКО JSON:
+{{
+  "summary": [{{"text": "...", "sentiment": "positive|negative"}}],
+  "positive": [{{"text": "...", "sentiment": "positive"}}],
+  "negative": [{{"text": "...", "sentiment": "negative"}}],
+  "expectations": "..."
+}}
+
+- summary: 2-3 предложения — объясни итог (score относительно нейтральной зоны 50%) через баланс факторов.
+- positive: «что улучшает результат» — только значимые/умеренные положительные факторы; если их нет — [].
+- negative: «что снижает результат» — только значимые/умеренные отрицательные факторы; если их нет — [].
+- expectations: безопасный перевод результата БЕЗ прогноза состояния кожи; если безопасного текста нет — "".
+"""
+
+    for model_name in DEEPSEEK_MODEL_FALLBACKS:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    DEEPSEEK_API_URL,
+                    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+                    json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 900},
+                    timeout=40,
+                )
+            if response.status_code != 200:
+                continue
+            data = response.json()
+            content = (data["choices"][0]["message"]["content"] or "").strip()
+            if not content:
+                continue
+            parsed = extract_json_from_response(content)
+            if not isinstance(parsed, dict):
+                continue
+            if not _validate_report_once(inp, parsed):
+                continue
+            return parsed
+        except Exception as exc:
+            print(f"[REPORT ONCE] AI failed: {exc!r}")
+            continue
+    return None
+
+
 async def generate_full_report(
     product_name: str,
     ingredients: str,
@@ -599,53 +778,35 @@ async def generate_full_report(
         deterministic = saved_analysis
     else:
         deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
-    has_factors = bool(deterministic.get("positive_factors") or deterministic.get("negative_factors"))
-
-    report = []
-    if DEEPSEEK_API_KEY and has_factors:
-        report = await generate_ai_report(product_name, deterministic, profile, product_type)
-
-    sections = {"how_to_use": None, "expectations": None}
-    if DEEPSEEK_API_KEY and has_factors:
-        sections = await generate_ai_report_sections(product_name, deterministic, profile, product_type)
-
-    active_ingredients = build_active_ingredient(deterministic)
-    if DEEPSEEK_API_KEY:
-        try:
-            analysis_inci = deterministic.get("normalized_ingredients") or ingredients
-            ai_key = await identify_key_ingredient_with_ai(product_name, analysis_inci)
-            if ai_key and ai_key.get("name"):
-                active_ingredients = {
-                    "name": ai_key["name"],
-                    "position": ai_key.get("position") or 1,
-                    "concentration": (active_ingredients or {}).get("concentration", "в составе"),
-                }
-        except Exception as exc:
-            print(f"[REPORT] key ingredient AI failed: {exc!r}")
-
     allowed = _report_allowed_ingredients(deterministic)
     has_neg = bool(deterministic.get("negative_factors"))
-    good_bad = {"what_good": [], "what_bad": []}
-    if DEEPSEEK_API_KEY and has_factors:
-        try:
-            good_bad = await generate_ai_good_bad(product_name, deterministic, profile, product_type)
-            if not isinstance(good_bad, dict):
-                good_bad = {"what_good": [], "what_bad": []}
-            good_bad = {
-                "what_good": _ground_fragments(good_bad.get("what_good"), allowed, has_neg, deterministic=deterministic),
-                "what_bad": _ground_fragments(good_bad.get("what_bad"), allowed, has_neg, deterministic=deterministic),
-            }
-        except Exception as exc:
-            print(f"[REPORT] good/bad AI failed: {exc!r}")
-            good_bad = {"what_good": [], "what_bad": []}
+    category_hint = _category_application_hint(product_type)
+
+    parts = None
+    if DEEPSEEK_API_KEY:
+        parts = await generate_report_once(product_name, deterministic, profile, product_type)
+
+    if parts:
+        review = _fragment_list(parts.get("summary"))
+        what_good = _ground_fragments(_fragment_list(parts.get("positive")), allowed, has_neg, deterministic=deterministic)
+        what_bad = _ground_fragments(_fragment_list(parts.get("negative")), allowed, has_neg, deterministic=deterministic)
+        exp_text = parts.get("expectations")
+        expectations = {"when": None, "normal": exp_text.strip(), "danger": None} if isinstance(exp_text, str) and exp_text.strip() else None
+    else:
+        summary = deterministic.get("summary") or ""
+        score = int(deterministic.get("score") or 0)
+        review = [{"text": summary, "sentiment": "negative" if score < 60 else "positive"}] if summary else []
+        what_good = []
+        what_bad = []
+        expectations = None
 
     return {
-        "review": report,
-        "active_ingredients": active_ingredients,
-        "what_good": good_bad.get("what_good") or [],
-        "what_bad": good_bad.get("what_bad") or [],
-        "how_to_use": sections.get("how_to_use"),
-        "expectations": sections.get("expectations"),
+        "review": review,
+        "active_ingredients": build_active_ingredient(deterministic),
+        "what_good": what_good,
+        "what_bad": what_bad,
+        "how_to_use": category_hint.get("how_to_use"),
+        "expectations": expectations,
         "inci": deterministic.get("normalized_ingredients") or [],
         "category": product_type or "",
         "score_breakdown": {
