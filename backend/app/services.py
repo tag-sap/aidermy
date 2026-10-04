@@ -582,10 +582,20 @@ async def generate_full_report(
     """
     from .decision_engine import DecisionEngine
 
+    def _has_det(d):
+        return bool(
+            isinstance(d, dict) and (
+                d.get("normalized_ingredients")
+                or d.get("positive_factors")
+                or d.get("negative_factors")
+            )
+        )
+
     engine = DecisionEngine()
-    if saved_analysis and isinstance(saved_analysis.get("deterministic"), dict):
-        deterministic = saved_analysis["deterministic"]
-    elif saved_analysis:
+    det = (saved_analysis or {}).get("deterministic")
+    if _has_det(det):
+        deterministic = det
+    elif _has_det(saved_analysis):
         deterministic = saved_analysis
     else:
         deterministic = engine.analyze(product_name, ingredients, profile, skin_type)

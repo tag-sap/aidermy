@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -222,7 +223,7 @@ def _deterministic_analysis(
             _DETERMINISTIC_ENGINE = DecisionEngine()
         # Движок кэшируется, knowledge map передаётся извне (загружается один раз),
         # поэтому enrichment подхватывается, а БД не читается 60 раз подряд.
-        return _DETERMINISTIC_ENGINE.analyze(
+        result = _DETERMINISTIC_ENGINE.analyze(
             "",
             ingredients,
             profile,
@@ -230,6 +231,22 @@ def _deterministic_analysis(
             knowledge=knowledge,
             interactions=interactions,
         )
+        # Диагностика: фактический payload, который получил Score Engine.
+        try:
+            print(
+                f"[SCORE_ENGINE_INPUT] skin_type={(profile or {}).get('skin_type')!r} "
+                f"age={(profile or {}).get('age')!r} "
+                f"concerns={(profile or {}).get('concerns')!r} "
+                f"allergies={(profile or {}).get('allergies')!r} "
+                f"restrictions={(profile or {}).get('restrictions')!r} "
+                f"intolerances={(profile or {}).get('intolerances')!r} "
+                f"inci_head={(ingredients or '')[:140]!r} "
+                f"score={(result or {}).get('score')}",
+                flush=True,
+            )
+        except Exception:
+            pass
+        return result
     except Exception:
         return None
 
@@ -956,6 +973,7 @@ async def recommend_products(
                     summary=(saved_analysis or {}).get("summary") or "",
                     safe_ingredients=(saved_analysis or {}).get("safe_ingredients") or [],
                     caution_ingredients=(saved_analysis or {}).get("caution_ingredients") or [],
+                    deterministic_json=json.dumps(saved_analysis, ensure_ascii=False) if isinstance(saved_analysis, dict) else None,
                     ttl_days=None,
                 )
             except Exception:
