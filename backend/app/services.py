@@ -536,12 +536,18 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     # Итоговое резюме — нейтральный детерминированный fallback (build_summary).
     # Пользовательское объяснение причин — это поле report (AI).
     summary = deterministic.get('summary') or 'Не удалось получить рекомендацию.'
+    # report здесь — plain string (для /api/check). generate_ai_report возвращает
+    # список fragments [{text, sentiment}] — склеиваем в текст.
+    if isinstance(report, list):
+        report_text = " ".join(str(f.get("text") or "") for f in report if isinstance(f, dict)).strip()
+    else:
+        report_text = report
 
     return {
         'score': int(deterministic.get('score') or 0),
         'verdict': deterministic.get('verdict') or 'Требует внимания',
         'summary': summary,
-        'report': report or summary,
+        'report': report_text or summary,
         'safe_ingredients': deterministic.get('safe_ingredients') or [],
         'caution_ingredients': deterministic.get('caution_ingredients') or [],
         'active_ingredients': active_ingredients,
@@ -654,6 +660,8 @@ async def generate_ai_review(product_name: str, skin_type: str, profile: dict, i
         try:
             from .ai_summary import summarize_with_ai
             ai_summary = await summarize_with_ai(product_name, score, deterministic, profile)
+            if isinstance(ai_summary, list):
+                ai_summary = " ".join(str(f.get("text") or "") for f in ai_summary if isinstance(f, dict)).strip()
             if ai_summary:
                 review = ai_summary
         except Exception as exc:
