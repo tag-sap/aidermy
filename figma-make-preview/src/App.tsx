@@ -269,8 +269,18 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
   query: string; onQuery: (v: string) => void; user: User | null; onAuth: () => void; onPricing: () => void; onPoints: () => void; onLogout: () => void; onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onHelp: () => void
 }) {
   const [focused, setFocused] = useState(false)
-  const needle = query.trim().toLowerCase()
-  const matches = needle ? products.filter((p) => [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(needle)).slice(0, 6) : []
+  const [matches, setMatches] = useState<Product[]>([])
+  useEffect(() => {
+    const q = query.trim()
+    if (!q) { setMatches([]); return }
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await api.catalog({ search: q, limit: 6 })
+        setMatches((res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт"))
+      } catch { setMatches([]) }
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [query])
   return (
     <header className="globalbar">
       <div className="search search--top search--autocomplete">
@@ -588,8 +598,23 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
   const [cabinet, setCabinet] = useState<"all" | CabinetKey>("all")
   const [cat, setCat] = useState<string>("Все")
   const [search, setSearch] = useState(query)
+  const [results, setResults] = useState<Product[] | null>(null)
+  const [searching, setSearching] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => { setSearch(query) }, [query])
+  useEffect(() => {
+    const q = search.trim()
+    if (!q) { setResults(null); setSearching(false); return }
+    setSearching(true)
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await api.catalog({ search: q, limit: 200 })
+        setResults((res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт"))
+      } catch { setResults([]) }
+      setSearching(false)
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [search])
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 400)
     window.addEventListener("scroll", onScroll, { passive: true })
@@ -599,14 +624,15 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
   const activeCab = CABINETS.find((c) => c.key === cabinet) ?? null
   const cats = activeCab ? ["Все", ...activeCab.categories] : ["Все"]
   const list = useMemo(() => {
+    const base = results ?? items
     const needle = search.trim().toLowerCase()
-    return items.filter((p) => {
+    return base.filter((p) => {
       if (cabinet !== "all" && p.cabinet !== cabinet) return false
       if (cat !== "Все" && p.category !== cat) return false
-      if (!needle) return true
+      if (!needle || results != null) return true
       return [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(needle)
     })
-  }, [items, search, cabinet, cat])
+  }, [items, results, search, cabinet, cat])
 
   useEffect(() => { setCat("Все") }, [cabinet])
 
@@ -634,7 +660,7 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
           <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} />
         ))}
       </div>
-      {list.length === 0 && <p className="empty">Ничего не нашлось. Попробуйте другой запрос.</p>}
+      {searching ? <p className="empty">Ищем…</p> : list.length === 0 && <p className="empty">Ничего не нашлось. Попробуйте другой запрос.</p>}
       {scrolled && (
         <button type="button" className="to-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Наверх"><Icon name="chevron" size={18} /></button>
       )}
@@ -1294,23 +1320,14 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               <div className="drawer__report-head"><p className="eyebrow">Результат</p>{score != null && <ScoreBadge score={score} />}</div>
               {reportData?.review && <p className="drawer__report-summary">{reportData.review}</p>}
               {reportData?.what_good && <section><h4>Что хорошо в составе</h4><p className="drawer__report-summary">{reportData.what_good}</p></section>}
-              {reportData?.what_caution && <section><h4>Что может не подойти</h4><p className="drawer__report-summary">{reportData.what_caution}</p></section>}
               {reportData?.how_to_use && (
                 <section><h4>Как применять</h4>
-                  <ul className="obs">
-                    {reportData.how_to_use.application && <li><Icon name="check" size={15} /><span>Нанесение: {reportData.how_to_use.application}</span></li>}
-                    {reportData.how_to_use.time && <li><Icon name="check" size={15} /><span>Время: {reportData.how_to_use.time}</span></li>}
-                    {reportData.how_to_use.note && <li><Icon name="check" size={15} /><span>{reportData.how_to_use.note}</span></li>}
-                  </ul>
+                  <p className="drawer__report-summary">{reportData.how_to_use.application || reportData.how_to_use.time || ""}</p>
                 </section>
               )}
               {reportData?.expectations && (
                 <section><h4>Чего ожидать</h4>
-                  <ul className="obs">
-                    {reportData.expectations.when && <li><Icon name="check" size={15} /><span>Когда: {reportData.expectations.when}</span></li>}
-                    {reportData.expectations.normal && <li><Icon name="check" size={15} /><span>{reportData.expectations.normal}</span></li>}
-                    {reportData.expectations.danger && <li><span>{reportData.expectations.danger}</span></li>}
-                  </ul>
+                  <p className="drawer__report-summary">{reportData.expectations.normal || ""}</p>
                 </section>
               )}
               <section><h4>Состав (INCI)</h4><p className="inci">{(reportData?.inci && reportData.inci.length ? reportData.inci.join(", ") : null) || product.ingredients || "Состав не распознан"}</p></section>

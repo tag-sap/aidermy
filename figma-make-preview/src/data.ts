@@ -21,7 +21,6 @@ export type Match = {
   report?: string
   analysis_id?: number
   what_good?: string
-  what_caution?: string
   inci?: string[]
 }
 

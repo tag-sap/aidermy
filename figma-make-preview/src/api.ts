@@ -55,7 +55,6 @@ export type ReportResult = {
   review?: string | null
   active_ingredients?: unknown
   what_good?: string | null
-  what_caution?: string | null
   how_to_use?: { application?: string; time?: string; note?: string } | null
   expectations?: { when?: string; normal?: string; danger?: string } | null
   inci?: string[]
