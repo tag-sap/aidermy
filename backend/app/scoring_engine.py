@@ -114,7 +114,7 @@ def score_product_against_profile_canonical(
     user_profile: Dict[str, Any],
     canonical_weights: Dict[str, float],
     interactions: List[Dict[str, Any]] | None = None,
-    saturation_scale: float = SATURATION_SCALE,
+    saturation_scale: float | None = None,
 ) -> Dict[str, Any]:
     """Канонический Scoring Vector на 6 осях (axes.AXES), benefit-oriented.
 
@@ -217,7 +217,8 @@ def score_product_against_profile_canonical(
 
     weighted_total = 0.0
     if saturation_scale is None:
-        saturation_scale = SATURATION_SCALE
+        from .scoring_config_store import get_production_saturation_scale
+        saturation_scale = get_production_saturation_scale()
     for axis, weight in canonical_weights.items():
         # Плавное знакопеременное насыщение вместо жёсткого clamp(0..1):
         # отрицательные raw реально штрафуют, положительные насыщаются мягко.

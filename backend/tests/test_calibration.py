@@ -20,6 +20,7 @@ from app.calibration_service import (
     create_run,
     find_drift,
     generate_ai_reference_batched,
+    get_case_detail,
     get_run,
     is_stale,
     latest_active_run,
@@ -256,6 +257,27 @@ class CalibrationLifecycleTests(unittest.TestCase):
         self.assertEqual(s["drift_groups"][1]["verdict"], "Занижает")
         self.assertEqual(len(s["top_cases"]), 4)
         self.assertEqual(s["top_cases"][0]["difference"], 30)
+
+    def test_case_detail_trace(self):
+        key = self._mk()
+        update_run(key, status="completed", metrics=json.dumps({"audit": {}, "drift": []}))
+        product = {"id": 100010, "name": "Trace Product", "ingredients": "aqua, glycerin"}
+        profile = profile_by_id("P03")
+        ref = {"product_id": 100010, "profile_id": "P03", "range_min": 40, "range_max": 60,
+               "estimate": 50, "confidence": 0.7}
+        refs = {f'{product["id"]}:{profile["id"]}': ref}
+        results = [{"product": product, "profile": profile, "score": 71, "verdict": "Подходит", "trace": {}}]
+        self.assertEqual(persist_calibration_cases(key, results, refs), 1)
+
+        d = get_case_detail(key, 100010, "P03")
+        self.assertIsNotNone(d)
+        self.assertIn("100010", d["product"])
+        self.assertEqual(d["profile"], profile["label"])
+        self.assertEqual(d["score"], 71)
+        self.assertEqual(d["drift"], 21)
+        self.assertEqual(len(d["axis_breakdown"]), 6)
+        self.assertIn("hydration", [a["axis"] for a in d["axis_breakdown"]])
+        self.assertEqual(d["final_aggregation"]["final_score"], 71)
 
 
 if __name__ == "__main__":

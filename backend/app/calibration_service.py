@@ -89,7 +89,12 @@ def ensure_tables() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
             config TEXT,
-            created_at TEXT
+            created_at TEXT,
+            status TEXT,
+            base_version TEXT,
+            metrics TEXT,
+            calibration_run TEXT,
+            changed_params TEXT
         )
     """)
     cur.execute("""
@@ -104,6 +109,7 @@ def ensure_tables() -> None:
         )
     """)
     _ensure_columns(conn, "calibration_runs", _RUN_EXTRA_COLUMNS)
+    _ensure_columns(conn, "calibration_candidates", _CANDIDATE_EXTRA_COLUMNS)
     conn.commit()
     conn.close()
 
@@ -120,6 +126,14 @@ _RUN_EXTRA_COLUMNS = [
     ("total_batches", "INTEGER"),
     ("ai_references_generated", "INTEGER"),
     ("errors", "INTEGER"),
+]
+
+_CANDIDATE_EXTRA_COLUMNS = [
+    ("status", "TEXT"),
+    ("base_version", "TEXT"),
+    ("metrics", "TEXT"),
+    ("calibration_run", "TEXT"),
+    ("changed_params", "TEXT"),
 ]
 
 
@@ -540,6 +554,9 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
                 "positive_factors": (res.get("positive_factors") or [])[:12],
                 "negative_factors": (res.get("negative_factors") or [])[:12],
                 "hard_flags": res.get("hard_flags") or [],
+                "interaction_breakdown": res.get("interaction_breakdown") or [],
+                "interaction_scoring_version": res.get("interaction_scoring_version"),
+                "saturation_scale": saturation,
             },
         })
     return results
@@ -846,6 +863,8 @@ def _top_problematic_cases(run_key: str, limit: int = 5) -> List[Dict[str, Any]]
         except Exception:
             ref = {}
         out.append({
+            "product_id": row["product_id"],
+            "profile_id": row["profile_id"],
             "product": _product_name(row["product_id"]),
             "profile": _profile_label(row["profile_id"]),
             "estimate": ref.get("estimate"),
@@ -893,5 +912,253 @@ def build_calibration_summary(run_key: str) -> Optional[Dict[str, Any]]:
         "verdict": verdict,
         "drift_groups": drift_top,
         "top_cases": _top_problematic_cases(run_key, limit=5),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Case drill-down + Candidate (sandbox config) + production apply/rollback.
+# ---------------------------------------------------------------------------
+
+_AXIS_ORDER = ["hydration", "barrier", "irritation", "sensitization", "sebum", "pigmentation"]
+
+
+def _axis_breakdown(trace: Dict[str, Any]) -> List[Dict[str, Any]]:
+    dims = trace.get("dimensions") or {}
+    weights = trace.get("priorities") or {}
+    s = trace.get("saturation_scale")
+    if s is None:
+        try:
+            from .scoring_config_store import get_production_saturation_scale
+            s = get_production_saturation_scale()
+        except Exception:
+            s = 1.5
+    try:
+        s = float(s) or 1.5
+    except Exception:
+        s = 1.5
+    out = []
+    for axis in _AXIS_ORDER:
+        raw = float(dims.get(axis, 0.0) or 0.0)
+        weight = float(weights.get(axis, 0.0) or 0.0)
+        saturation_factor = math.tanh(raw / s)
+        out.append({
+            "axis": axis,
+            "raw": round(raw, 3),
+            "weight": round(weight, 3),
+            "weighted": round(raw * weight, 3),
+            "saturation_factor": round(saturation_factor, 4),
+            "contribution": round(saturation_factor * weight, 4),
+        })
+    return out
+
+
+def _product_category(product_id: int) -> str:
+    try:
+        from .database import PRODUCTS_DB
+        conn = get_connection(PRODUCTS_DB)
+        row = conn.execute(
+            "SELECT subcategory, taxonomy_category, category FROM products WHERE id=?", (product_id,)
+        ).fetchone()
+        conn.close()
+        return (row["subcategory"] or row["taxonomy_category"] or row["category"] or "") if row else ""
+    except Exception:
+        return ""
+
+
+def _profile_structured(profile_id: str) -> Dict[str, Any]:
+    p = profile_by_id(profile_id)
+    return (p.get("structured") or {}) if p else {}
+
+
+def get_case_detail(run_key: str, product_id: int, profile_id: str) -> Optional[Dict[str, Any]]:
+    ensure_tables()
+    conn = _run_conn()
+    row = conn.execute(
+        "SELECT product_id, profile_id, reference, score, verdict, trace, drift, inside_range "
+        "FROM calibration_cases WHERE run_key=? AND product_id=? AND profile_id=?",
+        (run_key, product_id, profile_id),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    try:
+        ref = json.loads(row["reference"]) if row["reference"] else {}
+    except Exception:
+        ref = {}
+    try:
+        trace = json.loads(row["trace"]) if row["trace"] else {}
+    except Exception:
+        trace = {}
+    axis = _axis_breakdown(trace)
+    total_weight = sum(a["weight"] for a in axis) or 1.0
+    weighted_total = sum(a["contribution"] for a in axis)
+    return {
+        "run_key": run_key,
+        "product_id": row["product_id"],
+        "profile_id": row["profile_id"],
+        "product": _product_name(row["product_id"]),
+        "profile": _profile_label(row["profile_id"]),
+        "category": _product_category(row["product_id"]),
+        "reference": {
+            "estimate": ref.get("estimate"),
+            "range_min": ref.get("range_min"),
+            "range_max": ref.get("range_max"),
+            "confidence": ref.get("confidence"),
+            "positive_drivers": ref.get("positive_drivers") or [],
+            "negative_drivers": ref.get("negative_drivers") or [],
+            "reason": ref.get("reason") or "",
+        },
+        "score": row["score"],
+        "verdict": row["verdict"],
+        "drift": row["drift"],
+        "inside_range": row["inside_range"],
+        "axis_breakdown": axis,
+        "final_aggregation": {
+            "saturation_scale": float(trace.get("saturation_scale") or 1.5),
+            "weighted_total": round(weighted_total, 4),
+            "sum_weights": round(total_weight, 3),
+            "final_score": int(row["score"] or 0),
+            "verdict": row["verdict"],
+        },
+        "profile_structured": _profile_structured(row["profile_id"]),
+        "interaction_breakdown": trace.get("interaction_breakdown") or [],
+        "positive_factors": trace.get("positive_factors") or [],
+        "negative_factors": trace.get("negative_factors") or [],
+        "hard_flags": trace.get("hard_flags") or [],
+    }
+
+
+def list_candidates() -> List[Dict[str, Any]]:
+    ensure_tables()
+    conn = _run_conn()
+    rows = conn.execute("SELECT * FROM calibration_candidates ORDER BY id DESC").fetchall()
+    conn.close()
+    out = []
+    for row in rows:
+        d = {k: row[k] for k in row.keys()}
+        for f in ("config", "metrics", "changed_params"):
+            raw = d.get(f)
+            if isinstance(raw, str) and raw:
+                try:
+                    d[f] = json.loads(raw)
+                except Exception:
+                    pass
+            elif raw is None:
+                d[f] = {} if f == "config" else ([] if f == "changed_params" else None)
+        out.append(d)
+    return out
+
+
+def create_candidate(name: str, config: Dict[str, Any], calibration_run: Optional[str] = None,
+                     base_version: Optional[str] = None,
+                     changed_params: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    ensure_tables()
+    conn = _run_conn()
+    cur = conn.execute(
+        "INSERT INTO calibration_candidates (name, config, created_at, status, base_version, calibration_run, changed_params) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, json.dumps(config, ensure_ascii=False), _now(), "Draft",
+         base_version, calibration_run, json.dumps(changed_params or [], ensure_ascii=False)),
+    )
+    conn.commit()
+    cid = cur.lastrowid
+    conn.close()
+    return get_candidate(cid)
+
+
+def get_candidate(candidate_id: int) -> Optional[Dict[str, Any]]:
+    ensure_tables()
+    conn = _run_conn()
+    row = conn.execute("SELECT * FROM calibration_candidates WHERE id=?", (candidate_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    d = {k: row[k] for k in row.keys()}
+    for f in ("config", "metrics", "changed_params"):
+        raw = d.get(f)
+        if isinstance(raw, str) and raw:
+            try:
+                d[f] = json.loads(raw)
+            except Exception:
+                pass
+        elif raw is None:
+            d[f] = {} if f == "config" else ([] if f == "changed_params" else None)
+    return d
+
+
+def update_candidate_status(candidate_id: int, status: str,
+                            metrics: Optional[Dict[str, Any]] = None) -> None:
+    conn = _run_conn()
+    if metrics is not None:
+        conn.execute("UPDATE calibration_candidates SET status=?, metrics=? WHERE id=?",
+                     (status, json.dumps(metrics, ensure_ascii=False), candidate_id))
+    else:
+        conn.execute("UPDATE calibration_candidates SET status=? WHERE id=?", (status, candidate_id))
+    conn.commit()
+    conn.close()
+
+
+def compute_changed_params(production_config: Dict[str, Any],
+                           candidate_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    changed = []
+    for k in sorted(set(list(production_config.keys()) + list(candidate_config.keys()))):
+        pv = production_config.get(k)
+        cv = candidate_config.get(k)
+        if pv != cv:
+            changed.append({"param": k, "production": pv, "candidate": cv})
+    return changed
+
+
+def run_candidate_comparison(run_key: str, candidate_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Прогоняет candidate на том же наборе cases/references (БЕЗ AI) и сравнивает с production."""
+    run = get_run(run_key)
+    if run is None:
+        return None
+    params = json.loads(run["params"]) if run.get("params") else {}
+    product_limit = int(params.get("product_limit", 500))
+    profile_ids = params.get("profile_ids") or []
+    profiles = [p for p in CALIBRATION_PROFILES if not profile_ids or p["id"] in profile_ids]
+    products = load_products(limit=product_limit)
+    cases = build_cases(products, profiles)
+    references, _stats = asyncio.run(generate_ai_reference_batched(
+        products, profiles, model=DEFAULT_MODEL, use_cache=True, force_refresh=False,
+    ))
+    prod = run_score_engine(cases)
+    cand = run_score_engine(cases, candidate_config)
+    cmp = compare(prod, cand, references)
+    drift_prod = find_drift(prod, references)
+    drift_cand = find_drift(cand, references)
+
+    prod_by_key = {f'{r["product"]["id"]}:{r["profile"]["id"]}': r for r in prod}
+    cand_by_key = {f'{r["product"]["id"]}:{r["profile"]["id"]}': r for r in cand}
+    top = []
+    for key, pr in prod_by_key.items():
+        ref = references.get(key)
+        if ref is None:
+            continue
+        pd = pr["score"] - int(ref.get("estimate", 50))
+        cr = cand_by_key.get(key)
+        top.append({
+            "key": key,
+            "product": (pr["product"].get("name") or "").replace("\n", " ").strip(),
+            "profile": _profile_label(pr["profile"]["id"]),
+            "estimate": ref.get("estimate"),
+            "range_min": ref.get("range_min"),
+            "range_max": ref.get("range_max"),
+            "prod_score": pr["score"],
+            "cand_score": cr["score"] if cr else None,
+            "prod_drift": pd,
+            "cand_drift": (cr["score"] - int(ref.get("estimate", 50))) if cr else None,
+        })
+    top.sort(key=lambda x: -abs(x["prod_drift"]))
+    return {
+        "production": cmp["production"],
+        "candidate": cmp["candidate"],
+        "improved_cases": cmp["improved_cases"],
+        "worsened_cases": cmp["worsened_cases"],
+        "cohorts": cmp["cohorts"],
+        "drift_prod": drift_prod,
+        "drift_cand": drift_cand,
+        "top_cases": top[:5],
     }
 

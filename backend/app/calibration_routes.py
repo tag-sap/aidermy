@@ -18,14 +18,29 @@ from .calibration_profiles import CALIBRATION_PROFILES, CALIBRATION_PROFILES_VER
 from .calibration_service import (
     CALIBRATION_PROMPT_VERSION,
     build_calibration_summary,
+    compute_changed_params,
+    create_candidate,
     create_run,
     ensure_tables,
+    get_candidate,
+    get_case_detail,
     get_run,
     is_stale,
     latest_active_run,
+    list_candidates,
+    run_candidate_comparison,
+    update_candidate_status,
     update_run,
 )
 from .scoring_config import SCORING_CONFIG_VERSION
+from .scoring_config_store import (
+    apply_production_config,
+    get_audit_log,
+    get_production_config,
+    get_production_history,
+    rollback_production_config,
+    validate_production_config,
+)
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -159,20 +174,87 @@ def setup_calibration_routes(app):
         _spawn_worker(run_key)
         return {"run_key": run_key, "status": "queued", "message": "started"}
 
+    @app.get("/admin/calibration/api/case/{run_key}/{product_id}/{profile_id}")
+    async def calibration_case_detail(run_key: str, product_id: int, profile_id: str,
+                                     _: bool = Depends(verify_admin)):
+        d = get_case_detail(run_key, product_id, profile_id)
+        return d if d is not None else {"error": "not_found"}
+
+    @app.get("/admin/calibration/api/candidates")
+    async def calibration_candidates(_: bool = Depends(verify_admin)):
+        return {"candidates": list_candidates(), "production": get_production_config()}
+
     @app.post("/admin/calibration/api/candidates")
     async def create_candidate(req: Request, _: bool = Depends(verify_admin)):
-        from .calibration_service import _db
         body = await req.json()
         name = str(body.get("name") or "candidate")
         config = body.get("config") or {}
-        conn = _db()
-        cur = conn.execute(
-            "INSERT INTO calibration_candidates (name, config, created_at) VALUES (?, ?, ?)",
-            (name, json.dumps(config, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+        err = validate_production_config(config)
+        if err:
+            return {"error": err}
+        prod_cfg = get_production_config()["config"]
+        changed = compute_changed_params(prod_cfg, config)
+        cand = create_candidate(
+            name, config,
+            calibration_run=body.get("run_key"),
+            base_version=body.get("base_version") or get_production_config()["version"],
+            changed_params=changed,
         )
-        conn.commit()
-        conn.close()
-        return {"id": cur.lastrowid, "name": name}
+        return cand
+
+    @app.post("/admin/calibration/api/candidates/{candidate_id}/run")
+    async def candidate_run(candidate_id: int, req: Request, _: bool = Depends(verify_admin)):
+        body = await req.json()
+        run_key = body.get("run_key")
+        if not run_key:
+            return {"error": "run_key required"}
+        cand = get_candidate(candidate_id)
+        if cand is None:
+            return {"error": "not_found"}
+        err = validate_production_config(cand.get("config") or {})
+        if err:
+            return {"error": err}
+        result = run_candidate_comparison(run_key, cand["config"])
+        update_candidate_status(candidate_id, "Tested", metrics={
+            "production": result["production"], "candidate": result["candidate"],
+        } if result else None)
+        return result if result is not None else {"error": "run_not_found"}
+
+    @app.post("/admin/calibration/api/candidates/{candidate_id}/status")
+    async def candidate_status(candidate_id: int, req: Request, _: bool = Depends(verify_admin)):
+        body = await req.json()
+        status = str(body.get("status") or "Draft")
+        allowed = {"Draft", "Tested", "Approved", "Rejected", "Applied"}
+        if status not in allowed:
+            return {"error": f"invalid status (allowed: {sorted(allowed)})"}
+        update_candidate_status(candidate_id, status)
+        return get_candidate(candidate_id)
+
+    @app.get("/admin/calibration/api/production")
+    async def production_config(_: bool = Depends(verify_admin)):
+        return {
+            "production": get_production_config(),
+            "history": get_production_history(),
+            "audit": get_audit_log(50),
+        }
+
+    @app.post("/admin/calibration/api/production/apply")
+    async def production_apply(req: Request, _: bool = Depends(verify_admin)):
+        body = await req.json()
+        config = body.get("config") or {}
+        err = validate_production_config(config)
+        if err:
+            return {"error": err}
+        note = str(body.get("note") or "apply candidate")
+        author = str(body.get("author") or "admin")
+        return apply_production_config(config, note, author)
+
+    @app.post("/admin/calibration/api/production/rollback")
+    async def production_rollback(req: Request, _: bool = Depends(verify_admin)):
+        body = await req.json()
+        note = str(body.get("note") or "rollback")
+        author = str(body.get("author") or "admin")
+        return rollback_production_config(note, author)
 
 CALIBRATION_HTML = """<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><title>AI Calibration</title>

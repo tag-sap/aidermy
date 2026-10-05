@@ -200,6 +200,7 @@ def setup_admin_routes(app: FastAPI):
                     <button class="tab-btn" onclick="switchTab('moderation')">📦 Модерация ({len(pending)})</button>
                     <button class="tab-btn" onclick="switchTab('users')">👤 Пользователи ({len(users)})</button>
                     <button class="tab-btn" onclick="switchTab('ingredients')">🧪 Ингредиенты ({len(ingredients)})</button>
+                    <button class="tab-btn" onclick="switchTab('scoreengine')">⚙️ Score Engine</button>
                 </div>
 
                 <!-- Вкладка: История -->
@@ -356,6 +357,71 @@ def setup_admin_routes(app: FastAPI):
                     </div>
                 </div>
 
+                <div id="tab-scoreengine" class="tab-content">
+                    <style>
+                    .se-sub{display:none}.se-sub.active{display:block}
+                    .se-subtabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+                    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+                    .cal-run{padding:8px 10px;border-bottom:1px solid #eee;cursor:pointer}
+                    .cal-run:hover{background:#FFF3E0}
+                    .cal-run.sel{background:#FFE0B2}
+                    .kv{display:grid;grid-template-columns:180px 1fr;gap:2px 10px;font-size:13px}
+                    .kv b{color:#FF4F00}
+                    .se-card{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:16px;margin-bottom:16px}
+                    .se-card h3{margin:0 0 10px;font-size:15px;color:#1a1a1a}
+                    .metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+                    .metric{background:#FFF3E0;border-radius:8px;padding:10px}
+                    .metric .v{font-size:20px;font-weight:700;color:#FF4F00}
+                    .metric .l{font-size:12px;color:#666}
+                    .drift-row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
+                    .case-row{padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:13px;cursor:pointer}
+                    .case-row:hover{background:#fafafa}
+                    .status-badge{padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;display:inline-block;color:#fff}
+                    .st-good{background:#4CAF50}.st-drift{background:#ff9800}.st-bad{background:#f44336}
+                    .axis-table{width:100%;border-collapse:collapse;font-size:12px}
+                    .axis-table th{background:#FF4F00;color:#fff;padding:6px 8px;text-align:left}
+                    .axis-table td{padding:5px 8px;border-bottom:1px solid #eee}
+                    input[type=range]{width:200px;vertical-align:middle}
+                    .diff-pair{display:flex;gap:12px;font-size:13px;padding:3px 0}
+                    .diff-pair .from{color:#888;text-decoration:line-through}
+                    .diff-pair .to{color:#4CAF50;font-weight:600}
+                    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:9999}
+                    .modal{background:#fff;border-radius:14px;max-width:760px;width:92%;max-height:88vh;overflow:auto;padding:22px}
+                    .modal h3{margin-top:0}
+                    .btn{background:#FF4F00;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;margin-right:8px}
+                    .btn.secondary{background:#666}
+                    .btn.danger{background:#f44336}
+                    .btn.green{background:#4CAF50}
+                    .btn:disabled{opacity:.5;cursor:not-allowed}
+                    .se-btn{padding:10px 20px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;background:#e0e0e0;transition:0.3s}
+                    .se-btn.active{background:#FF4F00;color:#fff}
+                    .se-btn:hover{opacity:0.8}
+                    </style>
+                    <div class="se-subtabs">
+                        <button class="se-btn active" onclick="switchSeTab('production')">🏭 Production</button>
+                        <button class="se-btn" onclick="switchSeTab('calibration')">🧪 Calibration</button>
+                    </div>
+                    <div id="se-production" class="se-sub active">
+                        <div class="se-card"><h3>🏭 Production Score Engine</h3><div id="prod-view">Загрузка…</div></div>
+                    </div>
+                    <div id="se-calibration" class="se-sub">
+                        <div style="display:grid;grid-template-columns:290px 1fr;gap:16px;align-items:start">
+                            <div class="se-card" style="padding:0">
+                                <div class="table-header" style="border-radius:12px 12px 0 0"><span>📜 Run History</span></div>
+                                <div id="cal-runs"></div>
+                            </div>
+                            <div>
+                                <div id="cal-summary"><div class="se-card">Выберите завершённый run слева.</div></div>
+                                <div id="cand-editor"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-bg" id="case-modal" onclick="if(event.target===this)closeModal()">
+                    <div class="modal"><div style="display:flex;justify-content:space-between;align-items:center"><h3>🔍 Case Trace</h3><button class="btn secondary" onclick="closeModal()">✕</button></div><div id="case-body"></div></div>
+                </div>
+
                 <div class="footer"><p>🟢 База данных работает</p></div>
             </div>
 
@@ -447,6 +513,192 @@ def setup_admin_routes(app: FastAPI):
                     alert(data.message || 'Готово');
                 } catch (e) { alert('Ошибка: ' + e.message); }
                 location.reload();
+            }
+            // ===== Score Engine: Production + Calibration SPA =====
+            const SE = { run: null, prod: null, cand: null, summary: null, cmp: null, candId: null };
+            async function j(method, url, body){
+                const o = { method: method, headers: {'Content-Type':'application/json'} };
+                if (body) o.body = JSON.stringify(body);
+                const r = await fetch(url, o);
+                return r.json();
+            }
+            function switchSeTab(tab){
+                document.querySelectorAll('.se-sub').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.se-btn').forEach(el => el.classList.remove('active'));
+                document.getElementById('se-' + tab).classList.add('active');
+                document.querySelector(`.se-btn[onclick="switchSeTab('${tab}')"]`).classList.add('active');
+                if (tab === 'production') loadProduction();
+                if (tab === 'calibration') loadCalRuns();
+            }
+            async function loadProduction(){
+                const d = await j('GET', '/admin/calibration/api/production');
+                const p = d.production || {};
+                SE.prod = p;
+                const hist = (d.history || []).map(h => `<tr><td>${h.version}</td><td>${h.event}</td><td>${h.note||''}</td><td>${h.applied_at||''}</td></tr>`).join('');
+                document.getElementById('prod-view').innerHTML =
+                    `<div class="kv"><b>Version</b><span>${p.version}</span>` +
+                    `<b>Saturation scale</b><span>${p.saturation_scale}</span>` +
+                    `<b>Config</b><span class="mono">${JSON.stringify(p.config||{})}</span>` +
+                    `<b>Applied</b><span>${p.applied_at||''} · ${p.applied_by||''}</span></div>` +
+                    `<h3 style="margin-top:16px">Release / change history</h3>` +
+                    `<table style="font-size:12px"><tr><th>Version</th><th>Event</th><th>Note</th><th>When</th></tr>${hist}</table>`;
+            }
+            async function loadCalRuns(){
+                const o = await j('GET', '/admin/calibration/api/overview');
+                const runs = (o.runs || []).filter(r => r.status === 'completed');
+                document.getElementById('cal-runs').innerHTML = runs.map(r =>
+                    `<div class="cal-run" id="run-${r.run_key}" onclick="selectRun('${r.run_key}')">` +
+                    `<b>${r.run_key}</b><br>products=${r.product_count} profiles=${r.profile_count} cases=${r.case_count}<br>` +
+                    `<span class="mono">${r.created_at||''}</span></div>`).join('') ||
+                    '<div style="padding:12px">Нет завершённых runs.</div>';
+                if (runs.length && !SE.run) selectRun(runs[0].run_key);
+            }
+            async function selectRun(key){
+                SE.run = key;
+                document.querySelectorAll('.cal-run').forEach(el => el.classList.remove('sel'));
+                const b = document.getElementById('run-' + key); if (b) b.classList.add('sel');
+                const s = await j('GET', '/admin/calibration/api/summary/' + key);
+                SE.summary = s;
+                renderSummary(s);
+                loadCandidates();
+            }
+            function renderSummary(s){
+                const st = s.overall_status;
+                const cls = st === 'ХОРОШАЯ КАЛИБРОВКА' ? 'st-good' : (st === 'СИЛЬНЫЙ ДРЕЙФ' ? 'st-bad' : 'st-drift');
+                const v = s.verdict || {};
+                const drifts = (s.drift_groups || []).map(d =>
+                    `<div class="drift-row"><span>${d.group}</span><span>${d.cases} кейсов · signed ${d.signed_error}</span><span><b>${d.verdict}</b></span></div>`).join('');
+                const cases = (s.top_cases || []).map(c =>
+                    `<div class="case-row" onclick="openCase('${s.run_key}',${c.product_id},'${c.profile_id}')">` +
+                    `<b>${c.product}</b> + ${c.profile}<br>AI ${c.estimate} (${c.range_min}–${c.range_max}) → Score ${c.score} → Δ ${c.difference>0?'+':''}${c.difference}</div>`).join('');
+                document.getElementById('cal-summary').innerHTML =
+                    `<div class="se-card"><h3>📊 Overview — ${s.run_key}</h3>` +
+                    `<div style="margin-bottom:10px"><span class="status-badge ${cls}">${st}</span></div>` +
+                    `<div class="metric-grid">` +
+                    `<div class="metric"><div class="v">${v.cases}</div><div class="l">Cases</div></div>` +
+                    `<div class="metric"><div class="v">${v.mae}</div><div class="l">MAE</div></div>` +
+                    `<div class="metric"><div class="v">${v.median_error}</div><div class="l">Median error</div></div>` +
+                    `<div class="metric"><div class="v">${v.mean_signed_error}</div><div class="l">Signed error</div></div>` +
+                    `<div class="metric"><div class="v">${v.coverage_pct}%</div><div class="l">Coverage</div></div>` +
+                    `<div class="metric"><div class="v">${v.overestimated_pct}%</div><div class="l">Over</div></div>` +
+                    `<div class="metric"><div class="v">${v.underestimated_pct}%</div><div class="l">Under</div></div>` +
+                    `</div></div>` +
+                    `<div class="se-card"><h3>🧭 Top Drift</h3>${drifts || '<div class="mono">—</div>'}</div>` +
+                    `<div class="se-card"><h3>⚠️ Worst Cases (кликните для trace)</h3>${cases || '<div class="mono">—</div>'}</div>`;
+            }
+            async function openCase(runKey, pid, prid){
+                const d = await j('GET', `/admin/calibration/api/case/${runKey}/${pid}/${prid}`);
+                if (d.error) { alert('Кейс не найден'); return; }
+                renderCaseDetail(d);
+                document.getElementById('case-modal').style.display = 'flex';
+            }
+            function renderCaseDetail(d){
+                const axes = (d.axis_breakdown||[]).map(a =>
+                    `<tr><td>${a.axis}</td><td>${a.raw}</td><td>${a.weight}</td><td>${a.weighted}</td><td>${a.saturation_factor}</td><td>${a.contribution}</td></tr>`).join('');
+                const st = d.profile_structured || {};
+                const interactions = (d.interaction_breakdown||[]).length ? JSON.stringify(d.interaction_breakdown) : '—';
+                const f = d.final_aggregation || {};
+                document.getElementById('case-body').innerHTML =
+                    `<div class="kv"><b>Product</b><span>${d.product}</span><b>Profile</b><span>${d.profile}</span>` +
+                    `<b>Category</b><span>${d.category||'—'}</span>` +
+                    `<b>AI estimate</b><span>${d.reference.estimate} (${d.reference.range_min}–${d.reference.range_max})</span>` +
+                    `<b>Score Engine</b><span><b>${d.score}</b> · ${d.verdict}</span><b>Drift</b><span>${d.drift>0?'+':''}${d.drift}</span></div>` +
+                    `<h3>Profile</h3><div class="mono">skin_type=${st.skin_type} · concerns=${(st.concerns||[]).join(',')||'—'} · therapy=${(st.therapy||[]).map(t=>t.id).join(',')||'—'} · procedures=${(st.procedures||[]).map(p=>p.id).join(',')||'—'}</div>` +
+                    `<h3>Score Engine Trace (raw → weight → weighted → saturation → contribution)</h3>` +
+                    `<table class="axis-table"><tr><th>Axis</th><th>raw</th><th>weight</th><th>weighted</th><th>sat</th><th>contrib</th></tr>${axes}</table>` +
+                    `<h3>Profile Interactions</h3><div class="mono">${interactions}</div>` +
+                    `<h3>Final aggregation</h3><div class="kv"><b>Saturation</b><span>${f.saturation_scale}</span><b>Weighted total</b><span>${f.weighted_total}</span><b>Sum weights</b><span>${f.sum_weights}</span><b>Final score</b><span><b>${f.final_score}</b></span></div>` +
+                    `<h3>AI reason</h3><div class="mono">${d.reference.reason||'—'}</div>`;
+            }
+            function closeModal(){ document.getElementById('case-modal').style.display = 'none'; }
+
+            async function loadCandidates(){
+                const d = await j('GET', '/admin/calibration/api/candidates');
+                SE.prod = d.production || SE.prod;
+                const p = SE.prod;
+                const hist = (d.candidates||[]).map(c =>
+                    `<div class="drift-row"><span><b>${c.name}</b> <span class="status-badge ${c.status==='Applied'||c.status==='Approved'?'st-good':(c.status==='Rejected'?'st-bad':'st-drift')}">${c.status||'Draft'}</span></span><span class="mono">${JSON.stringify(c.config)}</span><span class="mono">${c.created_at||''}</span></div>`).join('');
+                const ss = p.config ? p.config.saturation_scale : p.saturation_scale;
+                document.getElementById('cand-editor').innerHTML =
+                    `<div class="se-card"><h3>🧪 Candidate</h3>` +
+                    `<div class="kv"><b>Production</b><span>Score Engine ${p.version} · saturation_scale=${ss}</span><b>Candidate</b><span>Draft</span></div>` +
+                    `<div style="margin:12px 0"><label>Saturation scale: <input type="range" id="cand-ss" min="0.2" max="8" step="0.1" value="${ss}" oninput="candSSChanged()"> <b id="cand-ss-val">${ss}</b></label></div>` +
+                    `<div id="cand-diff" class="mono"></div>` +
+                    `<div style="margin:12px 0">` +
+                    `<button class="btn" onclick="runCandidate()">▶ RUN CANDIDATE</button>` +
+                    `<button class="btn green" onclick="applyCandidate()">✅ APPLY TO PRODUCTION</button>` +
+                    `<button class="btn secondary" onclick="resetCandidate()">↺ Reset</button>` +
+                    `<button class="btn secondary" onclick="toggleJson()">View JSON</button></div>` +
+                    `<pre id="cand-json" class="mono" style="display:none;background:#fafafa;padding:8px;overflow:auto"></pre>` +
+                    `<div id="cand-cmp"></div>` +
+                    `<div style="margin-top:10px"><h3>Candidate history</h3>${hist || '<div class="mono">—</div>'}</div></div>`;
+                SE.cand = { saturation_scale: ss };
+                document.getElementById('cand-json').textContent = JSON.stringify(SE.cand, null, 2);
+            }
+            function candSSChanged(){
+                const v = parseFloat(document.getElementById('cand-ss').value);
+                document.getElementById('cand-ss-val').textContent = v;
+                SE.cand = { saturation_scale: v };
+                const p = SE.prod;
+                const prodSS = p.config ? p.config.saturation_scale : p.saturation_scale;
+                document.getElementById('cand-diff').innerHTML = (prodSS !== v) ?
+                    `<div class="diff-pair"><span class="from">saturation_scale: ${prodSS}</span><span class="to">→ ${v}</span></div>` :
+                    '<div>без изменений относительно Production</div>';
+                document.getElementById('cand-json').textContent = JSON.stringify(SE.cand, null, 2);
+            }
+            function resetCandidate(){
+                const p = SE.prod;
+                const ss = p.config ? p.config.saturation_scale : p.saturation_scale;
+                document.getElementById('cand-ss').value = ss;
+                candSSChanged();
+            }
+            function toggleJson(){ const e = document.getElementById('cand-json'); e.style.display = e.style.display==='none'?'block':'none'; }
+            async function runCandidate(){
+                if (!SE.run) { alert('Сначала выберите run'); return; }
+                const d = await j('POST','/admin/calibration/api/candidates', { name: 'Candidate', run_key: SE.run, config: SE.cand });
+                if (d.error) { alert(d.error); return; }
+                document.getElementById('cand-cmp').innerHTML = 'Запуск candidate…';
+                const r = await j('POST', `/admin/calibration/api/candidates/${d.id}/run`, { run_key: SE.run });
+                if (r.error) { alert(r.error); return; }
+                SE.cmp = r; SE.candId = d.id;
+                renderCompare(r);
+            }
+            function renderCompare(r){
+                const dlt = (a,b)=> (typeof a==='number' && typeof b==='number') ? ((b-a>0?'+':'') + (Math.round((b-a)*100)/100)) : '';
+                const row = (name,p,c)=> `<tr><td>${name}</td><td>${p}</td><td>${c}</td><td>${dlt(p,c)}</td></tr>`;
+                const prod = r.production, cand = r.candidate;
+                const top = (r.top_cases||[]).map(c=>`<div class="case-row">${c.product} + ${c.profile}<br>AI ${c.estimate} · Prod ${c.prod_score} (Δ ${c.prod_drift>0?'+':''}${c.prod_drift}) → Cand ${c.cand_score} (Δ ${c.cand_drift>0?'+':''}${c.cand_drift})</div>`).join('');
+                document.getElementById('cand-cmp').innerHTML =
+                    `<h3>Production vs Candidate</h3>` +
+                    `<table class="axis-table"><tr><th>Metric</th><th>Production</th><th>Candidate</th><th>Δ</th></tr>` +
+                    row('MAE', prod.mae, cand.mae) + row('Median error', prod.median_abs_error, cand.median_abs_error) +
+                    row('Signed error', prod.mean_signed_error, cand.mean_signed_error) +
+                    row('Coverage', (prod.range_coverage*100).toFixed(1)+'%', (cand.range_coverage*100).toFixed(1)+'%') +
+                    row('Over', (prod.overestimation_rate*100).toFixed(1)+'%', (cand.overestimation_rate*100).toFixed(1)+'%') +
+                    row('Under', (prod.underestimation_rate*100).toFixed(1)+'%', (cand.underestimation_rate*100).toFixed(1)+'%') +
+                    `</table>` +
+                    `<div style="margin-top:10px">Улучшено ${r.improved_cases} · Ухудшено ${r.worsened_cases}</div>` +
+                    `<h3 style="margin-top:12px">Candidate case comparison (TOP-5)</h3>${top}`;
+            }
+            async function applyCandidate(){
+                if (!SE.cand) { alert('Нет candidate'); return; }
+                const p = SE.prod;
+                const prodCfg = p.config || {};
+                const changes = Object.keys(SE.cand).filter(k => SE.cand[k] !== prodCfg[k]);
+                if (!changes.length) { alert('Нет изменений для применения'); return; }
+                const msg = 'Применить Candidate в Production?\n\nProduction: ' + p.version + '\nChanges:\n' + changes.map(k => `${k}: ${prodCfg[k]} → ${SE.cand[k]}`).join('\n');
+                if (!confirm(msg)) return;
+                const r = await j('POST','/admin/calibration/api/production/apply', { config: SE.cand, note: 'apply candidate', author: 'admin' });
+                if (r.error) { alert(r.error); return; }
+                alert('Применено. Новая версия: ' + r.version);
+                loadProduction(); loadCandidates();
+            }
+            async function rollbackProduction(){
+                if (!confirm('Откатить к предыдущей production версии?')) return;
+                const r = await j('POST','/admin/calibration/api/production/rollback', { note: 'manual rollback', author: 'admin' });
+                if (r.error) { alert(r.error); return; }
+                alert('Откачено. Версия: ' + r.version);
+                loadProduction(); loadCandidates();
             }
             </script>
         </body>
