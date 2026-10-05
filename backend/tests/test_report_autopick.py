@@ -1,11 +1,4 @@
-"""Regression: autopick flow — report должен получать INCI даже когда analysis
-сохранён без deterministic_json (только score/verdict).
-
-Раньше recommend_products сохранял analysis без deterministic_json, поэтому report
-возвращал пустой INCI ("Состав не распознан"), хотя score был рассчитан по составу.
-Теперь: (1) recommend сохраняет deterministic_json; (2) generate_full_report
-пересчитывает состав из ingredients, если у saved_analysis нет deterministic data.
-"""
+"""The report explains saved Match data and never reruns the product analysis."""
 import asyncio
 import os
 import sys
@@ -16,19 +9,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 class AutopickReportTests(unittest.TestCase):
-    def test_report_reanalyzes_when_analysis_has_no_deterministic(self):
+    def test_report_does_not_reanalyze_when_deterministic_payload_is_missing(self):
         from app import services
         saved = {"score": 68, "verdict": "Подходит", "summary": "..."}
         ingredients = "Water, Glycerin, Niacinamide, Fragrance"
         profile = {"skin_type": "Жирная", "concerns": [], "allergies": [], "custom_text": ""}
         with patch.object(services, "DEEPSEEK_API_KEY", None):
-            result = asyncio.run(services.generate_full_report(
-                "Test product", ingredients, profile, "Жирная", "Очищение",
-                saved_analysis=saved,
-            ))
-        self.assertTrue(result.get("inci"))
-        inci_lower = [str(x).lower() for x in result.get("inci") or []]
-        self.assertTrue(any("glycerin" in x for x in inci_lower))
+            with patch("app.decision_engine.DecisionEngine.analyze") as analyze:
+                result = asyncio.run(services.generate_full_report(
+                    "Test product", ingredients, profile, "Жирная", "Очищение",
+                    saved_analysis=saved,
+                ))
+        self.assertEqual(result["score"], 68)
+        self.assertEqual(result["verdict"], "Подходит")
+        self.assertEqual(result["explanation"], "...")
+        analyze.assert_not_called()
 
     def test_balance_text_uses_saved_deterministic_when_present(self):
         from app.services import _score_balance_text

@@ -192,7 +192,9 @@ class RecommendationTests(unittest.TestCase):
 
     def test_compute_product_compatibility_uses_history(self):
         # История проверок — приоритетный источник (тот же, что в подборе).
-        with patch("app.shelf_service._find_history_score", return_value=(85, {"summary": "ok"})):
+        with patch("app.database.get_current_analysis", return_value=None), \
+             patch("app.database.get_analysis_record", return_value=None), \
+             patch("app.shelf_service._find_history_score", return_value=(85, {"summary": "ok"})):
             score = compute_product_compatibility(USER, {"ingredients": "Aqua"}, knowledge={}, history=[])
         self.assertEqual(score, 85)
 
@@ -211,7 +213,9 @@ class RecommendationTests(unittest.TestCase):
 
     def test_get_personalized_score_prefers_history(self):
         product = {"id": 1, "ingredients": "Aqua, Glycerin"}
-        with patch("app.shelf_service._find_history_score", return_value=(82, None)):
+        with patch("app.database.get_current_analysis", return_value=None), \
+             patch("app.database.get_analysis_record", return_value=None), \
+             patch("app.shelf_service._find_history_score", return_value=(82, None)):
             self.assertEqual(get_personalized_score(USER, product), 82)
 
     def test_get_personalized_analysis_none_without_analysis(self):
@@ -227,7 +231,9 @@ class RecommendationTests(unittest.TestCase):
     def test_get_personalized_analysis_none_when_not_prepared(self):
         # Нет истории и нет модели → (None, None).
         product = {"id": 1, "ingredients": "Aqua, Glycerin"}
-        with patch("app.shelf_service._find_history_score", return_value=(None, None)), \
+        with patch("app.database.get_current_analysis", return_value=None), \
+             patch("app.database.get_analysis_record", return_value=None), \
+             patch("app.shelf_service._find_history_score", return_value=(None, None)), \
              patch("app.shelf_service._compute_analysis_if_prepared", return_value=None):
             score, analysis = get_personalized_analysis(USER, product)
         self.assertIsNone(score)

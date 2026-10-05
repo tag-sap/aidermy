@@ -21,6 +21,7 @@ from app.database import (
     get_connection,
     AIDERMY_DB,
 )
+from app.score_version import SCORE_ENGINE_VERSION
 
 USER_ID = 1
 PRODUCT_ID = 3766
@@ -54,6 +55,19 @@ class AnalysisLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(cur)
         self.assertEqual(cur["id"], saved["id"])
         self.assertEqual(cur["score"], 64)
+        self.assertEqual(cur["score_engine_version"], SCORE_ENGINE_VERSION)
+        self.assertEqual(cur["deterministic"]["score_engine_version"], SCORE_ENGINE_VERSION)
+
+    def test_stale_score_engine_version_is_not_current(self):
+        self._seed()
+        conn = get_connection(AIDERMY_DB)
+        conn.execute(
+            "UPDATE analysis SET score_engine_version = ? WHERE user_id = ? AND product_id = ?",
+            ("0.9.0", USER_ID, PRODUCT_ID),
+        )
+        conn.commit()
+        conn.close()
+        self.assertIsNone(get_current_analysis(USER_ID, product_id=PRODUCT_ID))
 
     def test_ttl_expired_returns_none(self):
         self._seed(ttl_days=7)

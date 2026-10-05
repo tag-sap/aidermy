@@ -57,6 +57,7 @@ def init_db():
             slug TEXT,
             user_id INTEGER,
             profile_snapshot TEXT DEFAULT '{}',
+            score_engine_version TEXT,
             deleted_at TIMESTAMP NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -74,6 +75,7 @@ def init_db():
         ("caution_ingredients", "TEXT"),
         ("ai_report", "TEXT"),
         ("goal_evidence", "TEXT DEFAULT '[]'"),
+        ("score_engine_version", "TEXT"),
     ]:
         if _col not in _history_cols:
             cursor.execute(f"ALTER TABLE check_history ADD COLUMN {_col} {_ddl}")
@@ -203,6 +205,8 @@ def init_db():
             how_to_use TEXT,
             expectations TEXT,
             profile_snapshot TEXT DEFAULT '{}',
+            score_engine_version TEXT,
+            report_score_engine_version TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires_at TIMESTAMP
         )
@@ -221,6 +225,12 @@ def init_db():
         cursor.execute('ALTER TABLE analysis ADD COLUMN what_good TEXT')
     if 'what_caution' not in _analysis_cols:
         cursor.execute('ALTER TABLE analysis ADD COLUMN what_caution TEXT')
+    if 'score_engine_version' not in _analysis_cols:
+        cursor.execute('ALTER TABLE analysis ADD COLUMN score_engine_version TEXT')
+    if 'report_score_engine_version' not in _analysis_cols:
+        cursor.execute('ALTER TABLE analysis ADD COLUMN report_score_engine_version TEXT')
+    if 'deterministic_json' not in _analysis_cols:
+        cursor.execute('ALTER TABLE analysis ADD COLUMN deterministic_json TEXT')
 
     # Аватар и имя пользователя (личный кабинет)
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
@@ -623,7 +633,7 @@ def get_user_check_history(user_id: int, limit: int = 100):
         SELECT id, user_id, product_name, skin_type, score, verdict, summary,
                ingredients, slug, image_url, active_ingredients, how_to_use, 
                expectations, safe_ingredients, caution_ingredients, ai_report, profile_snapshot,
-               goal_evidence, created_at
+               goal_evidence, score_engine_version, created_at
         FROM check_history 
         WHERE user_id = ? AND deleted_at IS NULL
         ORDER BY created_at DESC 
@@ -1055,6 +1065,7 @@ def _analysis_to_dict(row) -> dict:
     d = dict(row)
     result = {
         "id": d.get("id"),
+        "user_id": d.get("user_id"),
         "product_id": d.get("product_id"),
         "slug": d.get("slug") or "",
         "verdict": d.get("verdict") or "",
@@ -1069,6 +1080,8 @@ def _analysis_to_dict(row) -> dict:
         "what_good": d.get("what_good") or None,
         "what_caution": d.get("what_caution") or None,
         "goal_evidence": [],
+        "score_engine_version": d.get("score_engine_version"),
+        "report_score_engine_version": d.get("report_score_engine_version"),
         "created_at": d.get("created_at"),
         "expires_at": d.get("expires_at"),
     }
@@ -1077,9 +1090,56 @@ def _analysis_to_dict(row) -> dict:
         try:
             result["deterministic"] = _json.loads(det) if isinstance(det, str) else det
             result["goal_evidence"] = result["deterministic"].get("goal_evidence") or []
+            result["score_engine_version"] = (
+                result.get("score_engine_version")
+                or result["deterministic"].get("score_engine_version")
+            )
         except Exception:
             pass
     return result
+
+
+def get_stale_analysis_records() -> list[dict]:
+    """Returns stored analyses whose saved deterministic result is not current."""
+    from .score_version import SCORE_ENGINE_VERSION
+
+    conn = get_connection(AIDERMY_DB)
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM analysis
+            WHERE score_engine_version IS NULL OR score_engine_version != ?
+            ORDER BY id
+            """,
+            (SCORE_ENGINE_VERSION,),
+        ).fetchall()
+        return [
+            analysis
+            for row in rows
+            if (analysis := _analysis_to_dict(row)).get("score_engine_version") != SCORE_ENGINE_VERSION
+        ]
+    finally:
+        conn.close()
+
+
+def get_stale_analysis_count() -> int:
+    return len(get_stale_analysis_records())
+
+
+def _versioned_deterministic_json(deterministic_json: str | None) -> tuple[str | None, str | None]:
+    if not deterministic_json:
+        return deterministic_json, None
+    try:
+        deterministic = json.loads(deterministic_json) if isinstance(deterministic_json, str) else deterministic_json
+    except (TypeError, ValueError):
+        return deterministic_json, None
+    if not isinstance(deterministic, dict):
+        return deterministic_json, None
+    from .score_version import SCORE_ENGINE_VERSION
+
+    deterministic = dict(deterministic)
+    deterministic["score_engine_version"] = SCORE_ENGINE_VERSION
+    return json.dumps(deterministic, ensure_ascii=False), SCORE_ENGINE_VERSION
 
 
 def touch_user_profile_updated_at(user_id: int) -> bool:
@@ -1147,6 +1207,7 @@ def upsert_analysis(
     active_json = json.dumps(active_ingredients, ensure_ascii=False) if active_ingredients is not None else None
     how_json = json.dumps(how_to_use, ensure_ascii=False) if how_to_use is not None else None
     exp_json = json.dumps(expectations, ensure_ascii=False) if expectations is not None else None
+    deterministic_json, score_engine_version = _versioned_deterministic_json(deterministic_json)
 
     if existing:
         cursor.execute(
@@ -1154,13 +1215,14 @@ def upsert_analysis(
                 slug = ?, score = ?, verdict = ?, summary = ?, report = NULL,
                 safe_ingredients = ?, caution_ingredients = ?,
                 active_ingredients = ?, how_to_use = ?, expectations = ?,
-                profile_snapshot = ?, deterministic_json = ?, created_at = ?, expires_at = ?
+                profile_snapshot = ?, deterministic_json = ?, score_engine_version = ?,
+                report_score_engine_version = NULL, created_at = ?, expires_at = ?
                WHERE id = ?""",
             (
                 slug, int(score), verdict, summary,
                 safe_json, caution_json,
                 active_json, how_json, exp_json,
-                profile_snapshot or "{}", deterministic_json, now, expires, existing["id"],
+                profile_snapshot or "{}", deterministic_json, score_engine_version, now, expires, existing["id"],
             ),
         )
         analysis_id = existing["id"]
@@ -1169,12 +1231,13 @@ def upsert_analysis(
             """INSERT INTO analysis (
                 user_id, product_id, slug, score, verdict, summary, report,
                 safe_ingredients, caution_ingredients, active_ingredients,
-                how_to_use, expectations, profile_snapshot, deterministic_json, created_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                how_to_use, expectations, profile_snapshot, deterministic_json, score_engine_version,
+                created_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 user_id, product_id, slug, int(score), verdict, summary,
                 safe_json, caution_json, active_json, how_json, exp_json,
-                profile_snapshot or "{}", deterministic_json, now, expires,
+                profile_snapshot or "{}", deterministic_json, score_engine_version, now, expires,
             ),
         )
         analysis_id = cursor.lastrowid
@@ -1194,11 +1257,68 @@ def get_analysis_by_id(user_id: int, analysis_id: int):
     return _analysis_to_dict(row) if row else None
 
 
+def get_analysis_record(user_id: int, product_id: int | None = None, slug: str = ""):
+    """Возвращает сохранённый Analysis без проверки TTL, профиля и версии движка."""
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    row = _find_analysis_row(cursor, user_id, product_id, slug)
+    conn.close()
+    return _analysis_to_dict(row) if row else None
+
+
+def update_analysis_deterministic_result(
+    user_id: int,
+    analysis_id: int,
+    result: dict,
+    profile_snapshot: dict,
+) -> dict | None:
+    """Обновляет deterministic Match, сохраняя старый Report и его версию."""
+    from .score_version import SCORE_ENGINE_VERSION
+
+    deterministic_json, version = _versioned_deterministic_json(
+        json.dumps(result, ensure_ascii=False)
+    )
+    if version != SCORE_ENGINE_VERSION:
+        return None
+
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        """UPDATE analysis SET
+            score = ?, verdict = ?, summary = ?, safe_ingredients = ?, caution_ingredients = ?,
+            profile_snapshot = ?, deterministic_json = ?, score_engine_version = ?,
+            created_at = CURRENT_TIMESTAMP,
+            expires_at = CASE WHEN expires_at IS NULL THEN NULL ELSE ? END
+           WHERE id = ? AND user_id = ?""",
+        (
+            int(result["score"]),
+            result.get("verdict") or "",
+            result.get("summary") or "",
+            json.dumps(result.get("safe_ingredients") or [], ensure_ascii=False),
+            json.dumps(result.get("caution_ingredients") or [], ensure_ascii=False),
+            json.dumps(profile_snapshot or {}, ensure_ascii=False),
+            deterministic_json,
+            SCORE_ENGINE_VERSION,
+            _expires_ts(),
+            analysis_id,
+            user_id,
+        ),
+    )
+    row = cursor.execute(
+        "SELECT * FROM analysis WHERE id = ? AND user_id = ?",
+        (analysis_id, user_id),
+    ).fetchone()
+    conn.commit()
+    conn.close()
+    return _analysis_to_dict(row) if row else None
+
+
 def get_current_analysis(user_id: int, product_id: int | None = None, slug: str = ""):
     """Возвращает АКТУАЛЬНЫЙ User Analysis или None.
 
     Актуален, если одновременно: (1) запись существует, (2) TTL не истёк,
-    (3) analysis.created_at >= users.profile_updated_at. Иначе — None.
+    (3) analysis.created_at >= users.profile_updated_at, (4) версия Score Engine
+    совпадает с текущей. Иначе — None.
     """
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
@@ -1218,7 +1338,11 @@ def get_current_analysis(user_id: int, product_id: int | None = None, slug: str 
     if profile_updated_at and row["created_at"] and row["created_at"] < profile_updated_at:
         return None
 
-    return _analysis_to_dict(row)
+    analysis = _analysis_to_dict(row)
+    from .score_version import SCORE_ENGINE_VERSION
+    if analysis.get("score_engine_version") != SCORE_ENGINE_VERSION:
+        return None
+    return analysis
 
 
 def get_current_analyses_map(user_id: int, product_ids: list) -> dict:
@@ -1246,6 +1370,7 @@ def get_current_analyses_map(user_id: int, product_ids: list) -> dict:
 
     profile_updated_at = pua_row["profile_updated_at"] if pua_row else None
     now = _now_ts()
+    from .score_version import SCORE_ENGINE_VERSION
     result = {}
     for row in rows:
         expires_at = row["expires_at"]
@@ -1253,7 +1378,10 @@ def get_current_analyses_map(user_id: int, product_ids: list) -> dict:
             continue
         if profile_updated_at and row["created_at"] and row["created_at"] < profile_updated_at:
             continue
-        result[row["product_id"]] = _analysis_to_dict(row)
+        analysis = _analysis_to_dict(row)
+        if analysis.get("score_engine_version") != SCORE_ENGINE_VERSION:
+            continue
+        result[row["product_id"]] = analysis
     return result
 
 
@@ -1265,12 +1393,12 @@ def save_analysis_report(user_id: int, product_id: int | None, slug: str = "", r
     cursor = conn.cursor()
     if product_id is not None:
         cursor.execute(
-            "UPDATE analysis SET report = ? WHERE user_id = ? AND product_id = ?",
+            "UPDATE analysis SET report = ?, report_score_engine_version = score_engine_version WHERE user_id = ? AND product_id = ?",
             (report, user_id, product_id),
         )
     else:
         cursor.execute(
-            "UPDATE analysis SET report = ? WHERE user_id = ? AND slug = ?",
+            "UPDATE analysis SET report = ?, report_score_engine_version = score_engine_version WHERE user_id = ? AND slug = ?",
             (report, user_id, slug),
         )
     conn.commit()
@@ -1289,6 +1417,7 @@ def save_analysis_details(
     expectations=None,
     what_good: str = "",
     what_caution: str = "",
+    report_score_engine_version: str | None = None,
 ) -> bool:
     """Сохраняет ВСЕ блоки отчёта к актуальному User Analysis. Score/verdict не трогает."""
     conn = get_connection(AIDERMY_DB)
@@ -1296,17 +1425,20 @@ def save_analysis_details(
     active_json = json.dumps(active_ingredients, ensure_ascii=False) if active_ingredients is not None else None
     how_json = json.dumps(how_to_use, ensure_ascii=False) if how_to_use is not None else None
     exp_json = json.dumps(expectations, ensure_ascii=False) if expectations is not None else None
+    if report_score_engine_version is None:
+        from .score_version import SCORE_ENGINE_VERSION
+        report_score_engine_version = SCORE_ENGINE_VERSION
     if product_id is not None:
         cursor.execute(
-            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ? "
+            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ?, report_score_engine_version = ? "
             "WHERE user_id = ? AND product_id = ?",
-            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, user_id, product_id),
+            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, report_score_engine_version, user_id, product_id),
         )
     else:
         cursor.execute(
-            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ? "
+            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ?, report_score_engine_version = ? "
             "WHERE user_id = ? AND slug = ?",
-            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, user_id, slug),
+            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, report_score_engine_version, user_id, slug),
         )
     conn.commit()
     updated = cursor.rowcount > 0
@@ -1338,6 +1470,33 @@ def delete_user_analyses(user_id: int) -> int:
     deleted = cursor.rowcount
     conn.close()
     return deleted
+
+
+def clear_analysis_history() -> dict[str, int]:
+    """Deletes user analysis/report history and linked legacy checks atomically.
+
+    User profiles, shelves, products and ingredient knowledge are stored
+    separately and are deliberately left untouched. Anonymous legacy checks
+    are also preserved because they are not associated with a user account.
+    """
+    conn = get_connection(AIDERMY_DB)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute("DELETE FROM analysis")
+        analyses_deleted = cursor.rowcount
+        cursor.execute("DELETE FROM check_history WHERE user_id IS NOT NULL")
+        history_deleted = cursor.rowcount
+        conn.commit()
+        return {
+            "analyses_deleted": analyses_deleted,
+            "legacy_history_deleted": history_deleted,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def delete_expired_analyses() -> int:

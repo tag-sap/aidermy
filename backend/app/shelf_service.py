@@ -349,6 +349,7 @@ def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
         "expectations": _parse_json(h.get("expectations")),
         "goal_evidence": _parse_json(h.get("goal_evidence")) or [],
         "report": h.get("ai_report") or None,
+        "score_engine_version": h.get("score_engine_version"),
     }
 
 
@@ -458,6 +459,7 @@ def _find_history_score(
     except Exception:
         profile_updated_at = None
     ttl_cutoff = (datetime.utcnow() - timedelta(days=ANALYSIS_TTL_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
+    from .score_version import SCORE_ENGINE_VERSION
 
     for h in records:
         h_slug = (h.get("slug") or "").strip()
@@ -466,6 +468,8 @@ def _find_history_score(
             bool(cleaned_name) and bool(h_name) and (h_name == cleaned_name or h_name in cleaned_name or cleaned_name in h_name)
         )
         if not matches:
+            continue
+        if h.get("score_engine_version") != SCORE_ENGINE_VERSION:
             continue
         created_at = h.get("created_at") or ""
         if profile_updated_at and created_at and created_at < profile_updated_at:
@@ -477,11 +481,75 @@ def _find_history_score(
 
 
 def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
-    """Скор продукта ТОЛЬКО из актуального User Analysis (analysis → legacy history)."""
+    """Returns the current saved Match, recalculating legacy engine versions deterministically."""
     score, analysis = _analysis_from_analysis_table(user, product)
     if score is not None:
         return score, analysis
-    return _find_history_score(user, product)
+
+    try:
+        from .database import get_analysis_record
+        from .score_version import SCORE_ENGINE_VERSION
+
+        saved = get_analysis_record(
+            user["id"],
+            product_id=product.get("id"),
+            slug=(product.get("slug") or "").strip(),
+        )
+    except Exception:
+        return None, None
+    if not saved:
+        return _find_history_score(user, product)
+    if saved.get("score_engine_version") == SCORE_ENGINE_VERSION:
+        return _find_history_score(user, product)
+    refreshed = recalculate_stale_analysis(user, saved, product)
+    if not refreshed:
+        return None, None
+    return refreshed.get("score"), refreshed
+
+
+def recalculate_stale_analysis(
+    user: Dict[str, Any],
+    saved_analysis: Dict[str, Any],
+    product: Dict[str, Any] | None = None,
+    scoring_profile: Dict[str, Any] | None = None,
+    knowledge=None,
+) -> Optional[Dict[str, Any]]:
+    """Recalculates an outdated Match without research or report-generation calls."""
+    from .database import update_analysis_deterministic_result
+    from .score_version import SCORE_ENGINE_VERSION
+
+    if saved_analysis.get("score_engine_version") == SCORE_ENGINE_VERSION:
+        return saved_analysis
+    deterministic = saved_analysis.get("deterministic") or {}
+    ingredients = (
+        (product or {}).get("ingredients")
+        or ", ".join(deterministic.get("normalized_ingredients") or [])
+    )
+    if not ingredients.strip():
+        return None
+
+    profile = scoring_profile if scoring_profile is not None else _build_user_profile(user)
+    if knowledge is None:
+        try:
+            from .ingredient_repository import IngredientRepository
+            knowledge = IngredientRepository().get_canonical_knowledge_map()
+        except Exception:
+            knowledge = None
+    refreshed = _deterministic_analysis(profile, ingredients, knowledge=knowledge)
+    score = _meaningful_score(refreshed)
+    if score is None:
+        return None
+
+    if "goal_evidence" not in refreshed and "goal_evidence" in deterministic:
+        refreshed["goal_evidence"] = deterministic["goal_evidence"]
+    refreshed["score"] = score
+    updated = update_analysis_deterministic_result(
+        user["id"],
+        saved_analysis["id"],
+        refreshed,
+        profile,
+    )
+    return updated
 
 
 def _compute_analysis_if_prepared(
@@ -948,7 +1016,12 @@ async def recommend_products(
             # расчёт из knowledge map относительно профиля. Static Product Model — это лишь
             # кэш, он НЕ должен скрывать товар из подбора: если модели нет, скор всё равно
             # можно рассчитать детерминированно из состава + knowledge map.
-            history_score, history_analysis = _find_history_score(user, product, history=user_history, current_skin=current_skin)
+            history_score, history_analysis = _find_history_score(
+                user,
+                product,
+                history=user_history,
+                current_skin=current_skin,
+            )
             if history_score is not None:
                 rec["score"] = history_score
                 rec["reason"] = _reason_from_analysis(history_analysis)
@@ -989,6 +1062,7 @@ async def recommend_products(
                     safe_ingredients=(saved_analysis or {}).get("safe_ingredients") or [],
                     caution_ingredients=(saved_analysis or {}).get("caution_ingredients") or [],
                     deterministic_json=json.dumps(saved_analysis, ensure_ascii=False) if isinstance(saved_analysis, dict) else None,
+                    profile_snapshot=json.dumps(profile, ensure_ascii=False),
                     ttl_days=None,
                 )
             except Exception:
@@ -1116,6 +1190,8 @@ def _auto_recheck(
             summary=analysis.get("summary") or "",
             safe_ingredients=analysis.get("safe_ingredients") or [],
             caution_ingredients=analysis.get("caution_ingredients") or [],
+            profile_snapshot=json.dumps(_build_user_profile(user), ensure_ascii=False),
+            deterministic_json=json.dumps(analysis, ensure_ascii=False),
             ttl_days=None,  # на полке Analysis живёт бесконечно
         )
         return score, saved

@@ -17,6 +17,7 @@ from app.services import (
     generate_ai_report_sections,
     sanitize_report_sections,
 )
+from app.score_version import SCORE_ENGINE_VERSION
 
 
 class SanitizeReportSectionsTests(unittest.TestCase):
@@ -167,6 +168,7 @@ class ReportCachingTests(unittest.TestCase):
         history = [{
             "id": 1, "product_name": "Мусс", "slug": "mousse", "skin_type": "чувствительная",
             "score": 14, "verdict": "Не рекомендуется", "summary": "x", "ai_report": "готовый отчёт",
+            "score_engine_version": SCORE_ENGINE_VERSION,
         }]
         score, analysis = _find_history_score(
             {"id": 1}, product, history=history, current_skin="чувствительная"

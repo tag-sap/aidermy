@@ -17,6 +17,8 @@ class ReportOnceValidationTests(unittest.TestCase):
         return {
             "score": 25,
             "verdict": "Не рекомендуется",
+            "positive_factors": [],
+            "negative_factors": [],
             "positive": [{"axis": "hydration", "label": "увлажнение", "significance": "significant"}],
             "negative": [{"axis": "sensitization", "label": "сенсибилизация", "significance": "significant"}],
             "weak": [{"axis": "sebum", "label": "себум/жирность", "significance": "weak"}],
@@ -24,39 +26,44 @@ class ReportOnceValidationTests(unittest.TestCase):
 
     def test_rejects_significant_negative_claimed_absent(self):
         output = {
-            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
-            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
-            "negative": [{"text": "Существенных минусов по сенсибилизации не выявлено.", "sentiment": "negative"}],
-            "expectations": "",
+            "explanation": "Существенных минусов по сенсибилизации не выявлено.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
 
     def test_rejects_medical_claim(self):
         output = {
-            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
-            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
-            "negative": [{"text": "PEG-100 стеарат ослабляет барьер.", "sentiment": "negative"}],
-            "expectations": "",
+            "explanation": "PEG-100 стеарат ослабляет барьер.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
 
     def test_rejects_technical_keys(self):
         output = {
-            "summary": [{"text": "hydration поддерживает увлажнение.", "sentiment": "positive"}],
-            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
-            "negative": [{"text": "Сенсибилизация.", "sentiment": "negative"}],
-            "expectations": "",
+            "explanation": "hydration поддерживает увлажнение.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
 
     def test_accepts_correct_output(self):
         output = {
-            "summary": [{"text": "Совместимость ограниченная: в составе есть компоненты, которые могут быть нежелательны.", "sentiment": "negative"}],
-            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
-            "negative": [{"text": "В составе есть компоненты, которые могут быть нежелательны.", "sentiment": "negative"}],
-            "expectations": "",
+            "explanation": "Состав требует внимания: есть потенциально нежелательные факторы сенсибилизации.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertTrue(_validate_report_once(self._inp(), output))
+
+    def test_rejects_score_changes_and_legacy_sections(self):
+        output = {
+            "explanation": "Состав требует внимания.",
+            "how_to_use": None,
+            "expectations": None,
+            "score": 100,
+        }
+        self.assertFalse(_validate_report_once(self._inp(), output))
 
 
 class ReportInputTests(unittest.TestCase):

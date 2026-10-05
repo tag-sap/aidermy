@@ -20,36 +20,32 @@ class ReportNegativeSideTests(unittest.TestCase):
 
     def test_accepts_balanced_output(self):
         output = {
-            "summary": [{"text": "Совместимость ограниченная: в составе есть компоненты, которые могут быть нежелательны.", "sentiment": "negative"}],
-            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
-            "negative": [{"text": "В составе есть компоненты, которые могут быть нежелательны.", "sentiment": "negative"}],
-            "expectations": "",
+            "explanation": "Состав поддерживает увлажнение, но включает факторы потенциального раздражения.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertTrue(_validate_report_once(self._inp(), output))
 
     def test_rejects_when_negative_side_omitted(self):
         output = {
-            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
-            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
-            "negative": [],
-            "expectations": "",
+            "explanation": "Состав поддерживает увлажнение.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
 
     def test_rejects_no_negative_factors_phrase(self):
         output = {
-            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
-            "positive": [{"text": "Увлажнение.", "sentiment": "positive"}],
-            "negative": [{"text": "Существенных отрицательных факторов нет.", "sentiment": "negative"}],
-            "expectations": "",
+            "explanation": "Состав поддерживает увлажнение; существенных отрицательных факторов нет.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
 
     def test_rejects_advice_in_expectations(self):
         output = {
-            "summary": [{"text": "Совместимость ограниченная.", "sentiment": "negative"}],
-            "positive": [{"text": "Увлажнение.", "sentiment": "positive"}],
-            "negative": [{"text": "Раздражение.", "sentiment": "negative"}],
+            "explanation": "Состав требует внимания.",
+            "how_to_use": None,
             "expectations": "Лучше не включать в routine без проверки.",
         }
         self.assertFalse(_validate_report_once(self._inp(), output))

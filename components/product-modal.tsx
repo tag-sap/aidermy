@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Sparkles, LoaderCircle, Check, Trash2, ShieldCheck, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CABINET_TITLES } from '@/lib/shelf'
@@ -105,13 +105,31 @@ export function ProductModal({
   const [checking, setChecking] = useState(false)
   const [showComposition, setShowComposition] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
+  const productPanelRef = useRef<HTMLDivElement>(null)
+  const productContentRef = useRef<HTMLDivElement>(null)
+  const radiusFrameRef = useRef<number | null>(null)
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
   useScrollLock(!!slug)
 
+  useEffect(() => () => {
+    if (radiusFrameRef.current !== null) cancelAnimationFrame(radiusFrameRef.current)
+  }, [])
+
+  const handleProductScroll = (scrollTop: number) => {
+    if (radiusFrameRef.current !== null) cancelAnimationFrame(radiusFrameRef.current)
+    radiusFrameRef.current = requestAnimationFrame(() => {
+      const progress = Math.min(Math.max(scrollTop, 0) / 32, 1)
+      productPanelRef.current?.style.setProperty('--product-modal-top-radius', `${(progress * 24).toFixed(2)}px`)
+      radiusFrameRef.current = null
+    })
+  }
+
   useEffect(() => {
     if (!slug) return
+    productPanelRef.current?.style.setProperty('--product-modal-top-radius', '0px')
+    if (productContentRef.current) productContentRef.current.scrollTop = 0
     setLoading(true)
     setError('')
     setShowComposition(false)
@@ -259,7 +277,8 @@ export function ProductModal({
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>
       <div
-        className="flex max-h-[85dvh] w-full max-w-md md:max-w-xl max-w-[100vw] flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/75 backdrop-blur-xl animate-modal-panel"
+        ref={productPanelRef}
+        className="product-modal-panel flex min-w-0 max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/75 backdrop-blur-xl animate-modal-panel md:max-w-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Заголовок с крестиком — закреплён и виден при прокрутке */}
@@ -270,7 +289,11 @@ export function ProductModal({
           </button>
         </div>
 
-        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-3 md:px-5">
+        <div
+          ref={productContentRef}
+          className="no-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4 pt-3 md:px-5"
+          onScroll={(event) => handleProductScroll(event.currentTarget.scrollTop)}
+        >
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <LoaderCircle className="size-6 animate-spin text-primary" />
@@ -437,5 +460,3 @@ export function ProductModal({
     </div>
   )
 }
-
-

@@ -35,7 +35,7 @@ class ProfileLookupTests(unittest.TestCase):
             "slug TEXT, image_url TEXT, active_ingredients TEXT, how_to_use TEXT, "
             "expectations TEXT, safe_ingredients TEXT, caution_ingredients TEXT, "
             "ai_report TEXT, profile_snapshot TEXT, goal_evidence TEXT DEFAULT '[]', "
-            "created_at TEXT, deleted_at TEXT)"
+            "score_engine_version TEXT, created_at TEXT, deleted_at TEXT)"
         )
         conn.commit()
         conn.close()

@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from app.score_version import SCORE_ENGINE_VERSION
 from app.database import upsert_analysis
 from app.auth import create_access_token
 from app.main import ShelfAnalyzeRequest, _save_system_analysis, app, review_shelf_product
@@ -157,14 +158,12 @@ class ReportFlowTests(unittest.TestCase):
         "app.services.generate_full_report",
         new_callable=AsyncMock,
         return_value={
+            "score": 64,
+            "verdict": "Требует внимания",
+            "explanation": "Подробный отчёт.",
             "review": [{"text": "Подробный отчёт.", "sentiment": "positive"}],
-            "what_good": [],
-            "what_bad": [],
-            "active_ingredients": None,
             "how_to_use": None,
             "expectations": None,
-            "inci": ["aqua", "glycerin"],
-            "category": "",
         },
     )
     @patch("app.main._profile_from_user", return_value={})
@@ -194,6 +193,11 @@ class ReportFlowTests(unittest.TestCase):
 
         # Инвариант: score/verdict/report совпадают при повторном открытии.
         self.assertEqual(rep1.get("score"), 64)
+        self.assertEqual(rep1.get("verdict"), "Требует внимания")
+        self.assertEqual(rep1.get("explanation"), "Подробный отчёт.")
+        self.assertTrue(rep1.get("report_ready"))
+        self.assertNotIn("what_good", rep1)
+        self.assertNotIn("what_bad", rep1)
         self.assertEqual(rep1.get("score"), rep2.get("score"))
         self.assertEqual(rep1.get("review"), rep2.get("review"))
 
@@ -203,22 +207,23 @@ class ReportFlowTests(unittest.TestCase):
             "product_id": None,
             "slug": "unapproved-scanned-product",
             "score": 0,
+            "verdict": "Не рекомендуется",
             "summary": "Нейтральное резюме.",
             "report": None,
+            "score_engine_version": SCORE_ENGINE_VERSION,
+            "report_score_engine_version": None,
             "deterministic": {
                 "product_name": "Сканированный продукт",
                 "normalized_ingredients": ["aqua", "glycerin"],
             },
         }
         full_report = {
+            "score": 0,
+            "verdict": "Не рекомендуется",
+            "explanation": "Отчёт по сохранённому результату.",
             "review": [{"text": "Отчёт по сохранённому результату.", "sentiment": "positive"}],
-            "what_good": [],
-            "what_bad": [],
-            "active_ingredients": None,
             "how_to_use": None,
             "expectations": None,
-            "inci": ["aqua", "glycerin"],
-            "category": "",
         }
         with patch("app.database.get_analysis_by_id", return_value=analysis), \
              patch("app.database.get_product_by_slug", return_value=None), \
@@ -234,6 +239,9 @@ class ReportFlowTests(unittest.TestCase):
             )
 
         self.assertEqual(response["score"], 0)
+        self.assertEqual(response["verdict"], "Не рекомендуется")
+        self.assertTrue(response["report_ready"])
+        self.assertNotIn("what_good", response)
         self.assertEqual(response["review"], full_report["review"])
         self.assertEqual(generate.await_args.args[:2], ("Сканированный продукт", "aqua, glycerin"))
         self.assertIs(generate.await_args.kwargs["saved_analysis"], analysis)
@@ -246,6 +254,8 @@ class ReportFlowTests(unittest.TestCase):
             "score": 0,
             "summary": "Нейтральное резюме.",
             "report": '[{"text":"Сохранённый отчёт","sentiment":"positive"}]',
+            "score_engine_version": SCORE_ENGINE_VERSION,
+            "report_score_engine_version": SCORE_ENGINE_VERSION,
             "deterministic": {"normalized_ingredients": ["aqua"]},
             "active_ingredients": None,
             "what_good": None,
@@ -265,6 +275,46 @@ class ReportFlowTests(unittest.TestCase):
 
         self.assertEqual(response["review"], [{"text": "Сохранённый отчёт", "sentiment": "positive"}])
         generate.assert_not_awaited()
+
+    def test_stale_report_is_regenerated_after_score_engine_version_change(self):
+        analysis = {
+            "id": 989,
+            "product_id": None,
+            "slug": "unapproved-scanned-product",
+            "score": 62,
+            "summary": "Текущий результат.",
+            "report": '[{"text":"Устаревший отчёт","sentiment":"positive"}]',
+            "score_engine_version": SCORE_ENGINE_VERSION,
+            "report_score_engine_version": "0.9.0",
+            "deterministic": {"normalized_ingredients": ["aqua"]},
+        }
+        full_report = {
+            "score": 62,
+            "verdict": "Требует внимания",
+            "explanation": "Новый отчёт.",
+            "review": [{"text": "Новый отчёт.", "sentiment": "positive"}],
+            "how_to_use": None,
+            "expectations": None,
+        }
+        with patch("app.database.get_analysis_by_id", return_value=analysis), \
+             patch("app.database.get_product_by_slug", return_value=None), \
+             patch("app.main._profile_from_user", return_value={}), \
+             patch("app.services.generate_full_report", new_callable=AsyncMock, return_value=full_report) as generate, \
+             patch("app.database.save_analysis_details", return_value=True) as save_details, \
+             patch("app.database.save_ai_report", return_value=True):
+            response = asyncio.run(
+                review_shelf_product(
+                    ShelfAnalyzeRequest(slug=analysis["slug"], analysis_id=analysis["id"]),
+                    {"id": USER_ID},
+                )
+            )
+
+        generate.assert_awaited_once()
+        self.assertEqual(response["review"], full_report["review"])
+        self.assertEqual(
+            save_details.call_args.kwargs["report_score_engine_version"],
+            SCORE_ENGINE_VERSION,
+        )
 
     def test_zero_score_is_saved_as_a_match(self):
         result = {

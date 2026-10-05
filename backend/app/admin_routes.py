@@ -1,12 +1,24 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from .database import get_all_check_history, get_check_stats, get_connection, PRODUCTS_DB
+from .database import (
+    get_all_check_history,
+    get_check_stats,
+    get_connection,
+    get_product_by_id,
+    get_product_by_slug,
+    get_stale_analysis_count,
+    get_stale_analysis_records,
+    clear_analysis_history,
+    PRODUCTS_DB,
+)
 import os
+import logging
 
 # Админка будет подключаться к основному app
 
 security = HTTPBasic()
+logger = logging.getLogger(__name__)
 
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = "admin"
@@ -205,6 +217,17 @@ def setup_admin_routes(app: FastAPI):
 
                 <!-- Вкладка: История -->
                 <div id="tab-history" class="tab-content active">
+                    <div class="table-wrap">
+                        <div class="table-header"><span>🧮 История анализов</span></div>
+                        <div style="padding: 18px 20px">
+                            <div id="stale-analysis-count" style="margin-bottom: 14px">Устаревших результатов: загружаем…</div>
+                            <div id="analysis-history-message" role="status" style="margin-bottom: 14px"></div>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                <button class="btn-bulk-approve" id="recalculate-stale-button" onclick="recalculateStaleAnalyses()">Пересчитать устаревшие</button>
+                                <button class="btn-bulk-delete" id="clear-analysis-history-button" onclick="clearAnalysisHistory()">Очистить историю</button>
+                            </div>
+                        </div>
+                    </div>
                     <div class="table-wrap">
                         <div class="table-header"><span>📋 История проверок</span></div>
                         <table>
@@ -432,6 +455,74 @@ def setup_admin_routes(app: FastAPI):
                 document.getElementById('tab-' + tab).classList.add('active');
                 document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`).classList.add('active');
             }
+
+            async function historyAdminRequest(method, url) {
+                const response = await fetch(url, {method: method});
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+                return data;
+            }
+
+            async function loadAnalysisHistoryStatus() {
+                const count = document.getElementById('stale-analysis-count');
+                try {
+                    const data = await historyAdminRequest('GET', '/api/admin/history/status');
+                    count.dataset.value = data.stale_count;
+                    count.textContent = `Устаревших результатов: ${data.stale_count}`;
+                } catch (error) {
+                    count.dataset.value = '';
+                    count.textContent = `Не удалось загрузить количество устаревших результатов: ${error.message}`;
+                }
+            }
+
+            async function recalculateStaleAnalyses() {
+                const button = document.getElementById('recalculate-stale-button');
+                const message = document.getElementById('analysis-history-message');
+                const count = document.getElementById('stale-analysis-count');
+                const staleCount = Number(count.dataset.value || 0);
+                if (!staleCount) {
+                    alert('Нет известных устаревших результатов. Обновите страницу и попробуйте снова.');
+                    return;
+                }
+                if (!confirm(`Найдено устаревших результатов: ${staleCount}. Пересчитать их сейчас?\\n\\nЭто не запускает AI/LLM.`)) return;
+                button.disabled = true;
+                button.textContent = 'Пересчитываем…';
+                message.textContent = 'Выполняется deterministic-пересчёт…';
+                try {
+                    const data = await historyAdminRequest('POST', '/api/admin/history/recalculate-stale');
+                    message.textContent = `Пересчёт завершён. Обработано: ${data.processed}; обновлено: ${data.updated}; ошибок: ${data.failed}.`;
+                    if (data.errors && data.errors.length) {
+                        message.textContent += ' ' + data.errors.map(item => `ID ${item.analysis_id}: ${item.error}`).join(' ');
+                    }
+                    await loadAnalysisHistoryStatus();
+                } catch (error) {
+                    message.textContent = `Ошибка пересчёта: ${error.message}`;
+                } finally {
+                    button.disabled = false;
+                    button.textContent = 'Пересчитать устаревшие';
+                }
+            }
+
+            async function clearAnalysisHistory() {
+                const button = document.getElementById('clear-analysis-history-button');
+                if (!confirm(
+                    'Будет удалена пользовательская история проверок: сохранённые analysis/Match и связанные с ними отчёты, а также пользовательские записи legacy history.\\n\\n' +
+                    'НЕ будут удалены: пользователи, профили, ответы опроса, skin type, concerns, allergies, полки, продукты и ingredient knowledge.\\n\\nПродолжить?'
+                )) return;
+                button.disabled = true;
+                button.textContent = 'Очищаем…';
+                try {
+                    const data = await historyAdminRequest('POST', '/api/admin/history/clear');
+                    alert(`История очищена. Удалено analysis: ${data.analyses_deleted}; legacy-записей: ${data.legacy_history_deleted}.`);
+                    location.reload();
+                } catch (error) {
+                    alert(`Не удалось очистить историю: ${error.message}`);
+                    button.disabled = false;
+                    button.textContent = 'Очистить историю';
+                }
+            }
+
+            loadAnalysisHistoryStatus();
             
             function toggleAll(checked) {
                 document.querySelectorAll('.product-checkbox').forEach(cb => cb.checked = checked);
@@ -722,6 +813,101 @@ def setup_admin_routes(app: FastAPI):
         rows = cursor.fetchall()
         conn.close()
         return {"products": [dict(row) for row in rows]}
+
+    @app.get("/api/admin/history/status")
+    async def admin_analysis_history_status(_: bool = Depends(verify_admin)):
+        from .score_version import SCORE_ENGINE_VERSION
+        return {
+            "stale_count": get_stale_analysis_count(),
+            "score_engine_version": SCORE_ENGINE_VERSION,
+        }
+
+    @app.post("/api/admin/history/recalculate-stale")
+    async def admin_recalculate_stale_analysis(_: bool = Depends(verify_admin)):
+        from .ingredient_repository import IngredientRepository
+        from .shelf_service import _build_user_profile, recalculate_stale_analysis
+
+        stale = get_stale_analysis_records()
+        processed = updated = 0
+        errors = []
+        if not stale:
+            return {"processed": 0, "updated": 0, "failed": 0, "errors": []}
+
+        user_ids = sorted({int(row["user_id"]) for row in stale if row.get("user_id") is not None})
+        conn = get_connection()
+        try:
+            users = {
+                int(row["id"]): dict(row)
+                for row in conn.execute(
+                    f"""
+                    SELECT id, skin_type, age, concerns, allergies, custom_text
+                    FROM users
+                    WHERE id IN ({",".join("?" for _ in user_ids)})
+                    """,
+                    user_ids,
+                ).fetchall()
+            } if user_ids else {}
+        finally:
+            conn.close()
+
+        try:
+            knowledge = IngredientRepository().get_canonical_knowledge_map()
+        except Exception:
+            logger.exception("Admin stale analysis recalculation could not load ingredient knowledge")
+            knowledge = None
+
+        profile_cache = {}
+        product_cache = {}
+        for analysis in stale:
+            processed += 1
+            analysis_id = analysis.get("id")
+            user_id = analysis.get("user_id")
+            try:
+                if user_id is None or int(user_id) not in users:
+                    raise ValueError("Пользователь анализа не найден")
+                user_id = int(user_id)
+                user = users[user_id]
+                if user_id not in profile_cache:
+                    profile_cache[user_id] = _build_user_profile(user)
+                if analysis.get("product_id") is not None:
+                    product_key = ("id", int(analysis["product_id"]))
+                    if product_key not in product_cache:
+                        product_cache[product_key] = get_product_by_id(product_key[1])
+                elif analysis.get("slug"):
+                    product_key = ("slug", analysis["slug"])
+                    if product_key not in product_cache:
+                        product_cache[product_key] = get_product_by_slug(product_key[1])
+                else:
+                    product_key = None
+                product = product_cache.get(product_key) if product_key else None
+                if knowledge is None:
+                    raise RuntimeError("Не удалось загрузить ingredient knowledge")
+
+                refreshed = recalculate_stale_analysis(
+                    user,
+                    analysis,
+                    product,
+                    scoring_profile=profile_cache[user_id],
+                    knowledge=knowledge,
+                )
+                if not refreshed:
+                    raise ValueError("Score Engine не вернул корректный результат")
+                updated += 1
+            except Exception as exc:
+                logger.exception("Admin failed to recalculate analysis %s", analysis_id)
+                message = str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "Внутренняя ошибка пересчёта"
+                errors.append({"analysis_id": analysis_id, "error": message})
+
+        return {
+            "processed": processed,
+            "updated": updated,
+            "failed": len(errors),
+            "errors": errors,
+        }
+
+    @app.post("/api/admin/history/clear")
+    async def admin_clear_analysis_history(_: bool = Depends(verify_admin)):
+        return clear_analysis_history()
 
     @app.post("/api/admin/bulk-approve")
     async def bulk_approve(request: Request, _: bool = Depends(verify_admin)):

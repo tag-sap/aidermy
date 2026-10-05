@@ -58,6 +58,7 @@ export type CheckResult = {
   safe_ingredients?: string[]
   caution_ingredients?: string[]
   report?: string | null
+  report_ready?: boolean
   what_good?: string | null
   what_caution?: string | null
   inci?: string[]

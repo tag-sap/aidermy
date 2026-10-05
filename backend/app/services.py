@@ -235,6 +235,35 @@ _CATEGORY_APPLICATION: dict = {
     },
 }
 
+_GOAL_PROPERTY_AXES = {
+    "hydration": "hydration",
+    "moisturizing": "hydration",
+    "humectant": "hydration",
+    "barrier_support": "barrier",
+    "barrier_strengthening": "barrier",
+    "barrier": "barrier",
+    "soothing": "irritation",
+    "calming": "irritation",
+    "anti_irritation": "irritation",
+    "irritation": "irritation",
+    "irritation_risk": "irritation",
+    "sensitization": "sensitization",
+    "allergen": "sensitization",
+    "oil_control": "sebum",
+    "sebum_control": "sebum",
+    "sebum_regulating": "sebum",
+    "mattifying": "sebum",
+    "comedogenicity": "sebum",
+    "pore_clogging": "sebum",
+    "breakout_potential": "sebum",
+    "acneogenicity": "sebum",
+    "brightening": "pigmentation",
+    "lightening": "pigmentation",
+    "whitening": "pigmentation",
+    "pigmentation": "pigmentation",
+    "hyperpigmentation": "pigmentation",
+}
+
 
 def _category_application_hint(product_type: str) -> dict:
     """Category-aware подсказка применения по canonical category (title)."""
@@ -584,6 +613,25 @@ def _build_report_input(analysis: dict) -> dict:
         "positive_factors": (analysis.get("positive_factors") or [])[:12],
         "negative_factors": (analysis.get("negative_factors") or [])[:12],
         "inci": analysis.get("normalized_ingredients") or [],
+        "goal_evidence": [
+            {
+                "concern_id": item.get("concern_id"),
+                "label": item.get("label"),
+                "verdict": item.get("verdict"),
+                "evidence": [
+                    {
+                        "ingredient": evidence.get("ingredient"),
+                        "property": evidence.get("property"),
+                        "verdict": evidence.get("verdict"),
+                        "evidence_level": evidence.get("evidence_level"),
+                        "source_title": evidence.get("source_title"),
+                    }
+                    for evidence in item.get("evidence") or []
+                ],
+            }
+            for item in analysis.get("goal_evidence") or []
+            if isinstance(item, dict)
+        ],
     }
 
 
@@ -606,14 +654,29 @@ def _report_input_text(inp: dict) -> str:
 
 def _validate_report_once(inp: dict, output: dict) -> bool:
     """Проверяет AI-ответ на явные противоречия с deterministic input."""
-    parts: List[str] = []
-    for key in ("summary", "positive", "negative"):
-        v = output.get(key) or []
-        if isinstance(v, list):
-            parts += [str(f.get("text") or "") for f in v if isinstance(f, dict)]
-    exp = output.get("expectations")
-    if isinstance(exp, str):
-        parts.append(exp)
+    if not isinstance(output, dict) or set(output) != {
+        "explanation",
+        "how_to_use",
+        "expectations",
+    }:
+        return False
+    explanation = output.get("explanation")
+    if not isinstance(explanation, str) or not explanation.strip():
+        return False
+    how_to_use = output.get("how_to_use")
+    if how_to_use is not None:
+        if not isinstance(how_to_use, dict) or set(how_to_use) - {"application", "time", "note"}:
+            return False
+        if any(value is not None and not isinstance(value, str) for value in how_to_use.values()):
+            return False
+    expectations = output.get("expectations")
+    if expectations is not None and not isinstance(expectations, str):
+        return False
+    parts = [explanation]
+    for key in ("application", "time", "note", "expectations"):
+        value = output.get(key)
+        if isinstance(value, str):
+            parts.append(value)
     low = " ".join(parts).lower()
 
     score = int(inp.get("score") or 0)
@@ -639,11 +702,19 @@ def _validate_report_once(inp: dict, output: dict) -> bool:
             if phrase in low:
                 return False
 
-    # score < 50 и есть значимые/умеренные отрицательные вклады → negative side обязан быть отражён.
-    if score < 50 and neg_strong:
-        neg_texts = [str(f.get("text") or "").strip() for f in (output.get("negative") or []) if isinstance(f, dict)]
-        if not any(neg_texts):
-            return False
+    # При низком результате объяснение должно называть хотя бы одну значимую
+    # отрицательную ось, а не просто содержать общее упоминание состава.
+    explanation_low = explanation.lower()
+    negative_stems = [
+        str(item.get("label") or "").lower()[:-3]
+        if len(str(item.get("label") or "")) > 4
+        else str(item.get("label") or "").lower()
+        for item in neg_strong
+    ]
+    if score < 50 and neg_strong and not any(
+        stem and stem in explanation_low for stem in negative_stems
+    ):
+        return False
 
     for phrase in _REPORT_MEDICAL_CLAIMS:
         if phrase in low:
@@ -658,29 +729,34 @@ def _validate_report_once(inp: dict, output: dict) -> bool:
 
 
 async def generate_report_once(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> dict | None:
-    """ОДИН LLM-вызов: summary + positive + negative + expectations."""
+    """Один LLM-вызов формулирует только объяснение Match и короткие практические блоки."""
     if not DEEPSEEK_API_KEY:
         return None
 
     inp = _build_report_input(analysis)
-    if not inp["positive"] and not inp["negative"]:
+    has_goal_evidence = any(
+        item.get("evidence")
+        for item in inp["goal_evidence"]
+    )
+    if not inp["positive"] and not inp["negative"] and not has_goal_evidence:
         return None
 
     skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
-    goal_evidence = analysis.get("goal_evidence") or []
-    goal_context = json.dumps(goal_evidence, ensure_ascii=False)
+    goal_context = json.dumps(inp["goal_evidence"], ensure_ascii=False)
     input_text = _report_input_text(inp)
     inci = ", ".join(str(i) for i in inp["inci"])
 
-    prompt = f"""Ты — помощник, который переводит УЖЕ ГОТОВЫЙ результат модели совместимости в связный человеческий текст.
+    prompt = f"""Ты — помощник, который объясняет уже рассчитанный персональный результат проверки продукта.
 
-НЕ анализируй состав заново и НЕ принимай самостоятельных решений по факторам. Все факты для текста уже даны ниже.
+НЕ анализируй состав заново, НЕ пересчитывай совместимость и НЕ придумывай evidence. Все допустимые факты уже даны ниже.
 
 Продукт: {product_name}
 Тип продукта (категория): {product_type or 'не указан'}
 Тип кожи: {skin or 'не указан'}
 
-Детерминированные выводы по выбранным concerns пользователя (не переоценивай и не дополняй):
+Цели пользователя и сохранённые детерминированные связи ингредиент × concern.
+Используй только связи с verdict supports или may_hinder. Для neutral/insufficient_data
+не утверждай наличие пользы или вреда:
 {goal_context or '[]'}
 
 ЕДИНЫЙ НАБОР ФАКТОВ (источник истины — НЕ переопределяй):
@@ -689,30 +765,23 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
 Полный состав (только для справки о названиях ингредиентов, НЕ для самостоятельного анализа):
 {inci or '—'}
 
-ПРАВИЛА:
-- Пиши ОЧЕНЬ коротко (1-2 предложения на секцию) и по-человечески.
-- НЕ используй внутренние термины и математику: «вклад», «положительный/отрицательный вклад», «нейтральная зона», «ось», «вес», «балл», «п.п.», «процент», «модель», технические ключи (hydration/barrier/irritation/...).
-- Говори о СВОЙСТВАХ состава, а не о вычислениях. Примеры: «состав поддерживает увлажнение и барьер», «в составе есть компоненты, которые могут раздражать».
-- НЕ давай советы («лучше не использовать», «не включайте в routine»), НЕ прогнозируй ощущения или состояние кожи.
-- НЕ выдумывай ингредиенты или свойства, которых нет в фактах.
-- Для concern со статусом insufficient_data не утверждай, что состав поддерживает или ухудшает эту задачу.
-- Не выводи эффективность/лечение из overall compatibility score.
-- НЕ повторяй одну мысль в разных секциях.
-- Объясняй ИТОГ через 1-3 самых существенных фактора (значимые/умеренные). Слабые (weak) факторы не превращай в причину результата и не перечисляй их.
-- Не меняй score и verdict.
+ТРЕБОВАНИЯ:
+- Верни короткое персональное объяснение: concern пользователя → только подтверждённый ингредиент и связь → что это значит для профиля; объясни, как значимые общие факторы сочетаются в итоговом результате.
+- Если у concern нет подтверждённой связи, не приписывай продукту влияние на него. Можно сослаться только на другие факторы профиля, действительно присутствующие ниже.
+- Используй имена ингредиентов только из INCI и только свойства из goal evidence либо deterministic factors.
+- Skin type сам по себе не означает цель лечить акне или иную проблему.
+- Не обещай лечение/результат, не прогнозируй ощущение кожи и не давай медицинских советов.
+- How_to_use: только короткие, безопасные и category-specific практические действия; если данных мало — null.
+- Expectations: одно короткое нейтральное ожидание, выведенное только из подтверждённых фактов, без обещания эффекта; если безопасной формулировки нет — null.
+- Не упоминай score или verdict в объяснении: они показываются отдельно и неизменны.
+- Не меняй score/verdict; слабые факторы не используй как причины.
 
 Верни ТОЛЬКО JSON:
 {{
-  "summary": [{{"text": "...", "sentiment": "positive|negative"}}],
-  "positive": [{{"text": "...", "sentiment": "positive"}}],
-  "negative": [{{"text": "...", "sentiment": "negative"}}],
-  "expectations": "..."
+  "explanation": "...",
+  "how_to_use": {{"application": "...", "time": "...", "note": "..."}} | null,
+  "expectations": "..." | null
 }}
-
-- summary: 1-2 коротких предложения, отвечающие на вопрос «почему такой результат». Для низкого — что сильнее всего потянуло вниз; для высокого — что обеспечило хороший match; для среднего — почему баланс почти ровный. Без цифр и без объяснения формулы.
-- positive: 1-2 коротких предложения о реальных преимуществах состава; если их нет — [].
-- negative: 1-2 коротких предложения о реальных недостатках; если их нет — [].
-- expectations: 1 короткое предложение, не повторяющее score и предыдущие секции; если нечего сказать — "".
 """
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
@@ -735,6 +804,35 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
                 continue
             if not _validate_report_once(inp, parsed):
                 continue
+            allowed = _report_allowed_ingredients(analysis)
+            explanation = _ground_report_text(
+                parsed["explanation"].strip(),
+                allowed,
+                bool(analysis.get("negative_factors")),
+                deterministic=analysis,
+            )
+            if explanation is None:
+                continue
+            parsed["explanation"] = explanation
+            how_to_use = parsed.get("how_to_use")
+            if isinstance(how_to_use, dict):
+                grounded_how_to_use = _ground_report_sections(
+                    {"how_to_use": how_to_use},
+                    allowed,
+                    bool(analysis.get("negative_factors")),
+                    deterministic=analysis,
+                ).get("how_to_use")
+                parsed["how_to_use"] = grounded_how_to_use
+            expectations = parsed.get("expectations")
+            if isinstance(expectations, str) and expectations.strip():
+                parsed["expectations"] = _ground_report_text(
+                    expectations.strip(),
+                    allowed,
+                    bool(analysis.get("negative_factors")),
+                    deterministic=analysis,
+                )
+            else:
+                parsed["expectations"] = None
             return parsed
         except Exception as exc:
             print(f"[REPORT ONCE] AI failed: {exc!r}")
@@ -769,71 +867,48 @@ async def generate_full_report(
     product_type: str = "",
     saved_analysis: dict | None = None,
 ) -> dict:
-    """Генерирует ВСЕ блоки отчёта по готовому результату scoring engine.
-
-    Возвращает {report, active_ingredients, how_to_use, expectations}.
-    Процент/verdict НЕ пересчитываются — LLM только объясняет готовый результат
-    и определяет ключевой ингредиент. canonical_category (product_type) — только
-    контекст текста отчёта.
-
-    saved_analysis — уже рассчитанный User Analysis (score + factors). Если
-    передан, используется ОН (единый источник истины), а не повторный
-    deterministic-пересчёт (который мог бы дать другой процент из-за другого
-    профиля и тем самым породить расхождение Match vs Report).
-    """
-    from .decision_engine import DecisionEngine
-
-    def _has_det(d):
-        return bool(
-            isinstance(d, dict) and (
-                d.get("normalized_ingredients")
-                or d.get("positive_factors")
-                or d.get("negative_factors")
-            )
-        )
-
-    engine = DecisionEngine()
+    """Explains the saved deterministic Match without recalculating its score."""
     det = (saved_analysis or {}).get("deterministic")
-    if _has_det(det):
-        deterministic = det
-    elif _has_det(saved_analysis):
-        deterministic = saved_analysis
-    else:
-        deterministic = engine.analyze(product_name, ingredients, profile, skin_type)
+    deterministic = det if isinstance(det, dict) else (saved_analysis or {})
     allowed = _report_allowed_ingredients(deterministic)
-    has_neg = bool(deterministic.get("negative_factors"))
     category_hint = _category_application_hint(product_type)
 
     parts = None
     if DEEPSEEK_API_KEY:
         parts = await generate_report_once(product_name, deterministic, profile, product_type)
 
+    explanation = None
+    expectations = None
+    how_to_use = category_hint.get("how_to_use")
     if parts:
-        review = _fragment_list(parts.get("summary"))
-        what_good = _ground_fragments(_fragment_list(parts.get("positive")), allowed, has_neg, deterministic=deterministic)
-        what_bad = _ground_fragments(_fragment_list(parts.get("negative")), allowed, has_neg, deterministic=deterministic)
-        exp_text = parts.get("expectations")
-        expectations = {"when": None, "normal": exp_text.strip(), "danger": None} if isinstance(exp_text, str) and exp_text.strip() else None
-    else:
-        summary = deterministic.get("summary") or ""
-        score = int(deterministic.get("score") or 0)
-        review = [{"text": summary, "sentiment": "negative" if score < 60 else "positive"}] if summary else []
-        what_good, what_bad = _deterministic_balance_fragments(deterministic)
-        expectations = None  # deterministic fallback не генерирует «Чего ожидать» (нечего сказать без AI)
+        explanation = parts.get("explanation")
+        how_to_use = parts.get("how_to_use") or how_to_use
+        expectations_text = parts.get("expectations")
+        if isinstance(expectations_text, str) and expectations_text.strip():
+            grounded_expectation = _ground_report_text(
+                expectations_text.strip(),
+                allowed,
+                bool(deterministic.get("negative_factors")),
+                deterministic=deterministic,
+            )
+            if grounded_expectation:
+                expectations = {"when": None, "normal": grounded_expectation, "danger": None}
+
+    if not explanation:
+        explanation = str(deterministic.get("summary") or "").strip()
+    score = int((saved_analysis or {}).get("score", deterministic.get("score") or 0))
+    verdict = (saved_analysis or {}).get("verdict") or deterministic.get("verdict") or ""
+    review = [
+        {"text": explanation, "sentiment": "negative" if score < 60 else "positive"}
+    ] if explanation else []
 
     return {
+        "score": score,
+        "verdict": verdict,
+        "explanation": explanation or "",
         "review": review,
-        "active_ingredients": build_active_ingredient(deterministic),
-        "what_good": what_good,
-        "what_bad": what_bad,
-        "how_to_use": category_hint.get("how_to_use"),
+        "how_to_use": how_to_use,
         "expectations": expectations,
-        "inci": deterministic.get("normalized_ingredients") or [],
-        "category": product_type or "",
-        "score_breakdown": {
-            "dimensions": deterministic.get("dimensions") or {},
-            "priorities": deterministic.get("priorities") or {},
-        },
     }
 
 
@@ -1008,6 +1083,12 @@ def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, det
         if _has_forbidden_effect(low):
             return None
         allowed_axes = _allowed_axes(deterministic)
+        for goal in deterministic.get("goal_evidence") or []:
+            for evidence in goal.get("evidence") or []:
+                property_name = str(evidence.get("property") or "").rsplit(":", 1)[-1]
+                allowed_axis = _GOAL_PROPERTY_AXES.get(property_name)
+                if allowed_axis:
+                    allowed_axes.add(allowed_axis)
         if allowed_axes:
             mentioned = _mentioned_axes(low)
             for ax in mentioned:

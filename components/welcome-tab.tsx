@@ -18,10 +18,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
   return (
     <div className="flex flex-col">
       {/* HERO — нативное зацикленное видео */}
-      <section
-        className="relative bg-[#151515]"
-        style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}
-      >
+      <section className="relative w-full bg-[#151515]">
         <div className="relative h-[74vh] min-h-[480px] overflow-hidden">
           <img
             src="/background.svg"
@@ -65,7 +62,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
       </section>
 
       {/* PIPELINE — молочный фон, коралловый шрифт */}
-      <section className="bg-[#F7F3EA]" style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}>
+      <section className="w-full bg-[#F7F3EA]">
         <div className="mx-auto w-full max-w-md px-5 py-12 md:max-w-5xl md:py-16">
           <p className="text-[11px] font-advaken font-medium uppercase tracking-[0.18em] text-[#151515]">Как это устроено</p>
           <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-4 md:gap-4">
@@ -84,10 +81,7 @@ export function WelcomeTab({ onAuth }: WelcomeTabProps) {
       </section>
 
       {/* FOOTER — чёрный, тянется до низа */}
-      <footer
-        className="flex min-h-[50vh] flex-col bg-[#151515] text-white"
-        style={{ width: '100vw', marginLeft: 'calc(50% - 50vw)' }}
-      >
+      <footer className="flex w-full min-h-[50vh] flex-col bg-[#151515] text-white">
         <div className="mx-auto w-full max-w-md px-5 py-10 md:max-w-5xl">
           <div className="flex flex-col gap-8 md:flex-row md:justify-between">
             <div className="max-w-xs">

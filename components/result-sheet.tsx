@@ -194,13 +194,12 @@ export function ResultSheet({
       if (!res.ok) throw new Error(d.detail || 'Не удалось подготовить подробный анализ')
       onResultUpdate({
         ...result,
+        score: typeof d.score === 'number' ? d.score : result.score,
+        verdict: typeof d.verdict === 'string' ? d.verdict : result.verdict,
         report: fragmentsToText(d.review) ?? result.report,
-        active_ingredients: d.active_ingredients ?? result.active_ingredients,
-        what_good: fragmentsToText(d.what_good) ?? result.what_good,
-        what_caution: fragmentsToText(d.what_bad) ?? result.what_caution,
+        report_ready: d.report_ready === true,
         how_to_use: d.how_to_use ?? result.how_to_use,
         expectations: d.expectations ?? result.expectations,
-        inci: d.inci ?? result.inci,
       })
     } catch {
       setDetailsError('Не удалось подготовить подробный анализ')
@@ -212,6 +211,7 @@ export function ResultSheet({
   if (!isOpen) return null
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
+  const reportReady = Boolean(result?.report_ready || (result?.report && result.report !== result.summary))
 
 
   const Section = ({ icon: Icon, title, children, className, onClick }: any) => (
@@ -276,13 +276,13 @@ export function ResultSheet({
                 <div className="min-w-0">
                   <p className={cn('text-base font-medium', typeof result.score === 'number' && result.score >= 70 ? 'text-primary' : typeof result.score === 'number' && result.score >= 40 ? 'text-primary/70' : 'text-muted-foreground')}>{result.verdict}</p>
                   <p className="text-xs text-muted-foreground/50 font-light">
-                    {typeof result.score === 'number' ? 'общая совместимость с профилем' : 'оценка пока недоступна'}
+                    {typeof result.score === 'number' ? 'SCORE · VERDICT' : 'оценка пока недоступна'}
                   </p>
                 </div>
               </div>
             </div>
 
-            {result.goal_evidence && result.goal_evidence.length > 0 && (
+            {!reportReady && result.goal_evidence && result.goal_evidence.length > 0 && (
               <Section icon={Sparkles} title="Под ваши задачи" className="border-primary/10">
                 <p className="mb-2 text-[11px] text-muted-foreground/60">
                   По доступным данным о свойствах ингредиентов; это не оценка клинической эффективности.
@@ -316,55 +316,37 @@ export function ResultSheet({
             )}
 
             <>
-              <Section icon={Sparkles} title="Результат" className="border-primary/10">
-                {result.report && result.report !== result.summary ? (
+              <Section icon={Sparkles} title={reportReady ? 'Почему такой результат' : 'Результат'} className="border-primary/10">
+                {reportReady && result.report ? (
                   <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.report} /></p>
                 ) : (
                   <p className="text-sm text-foreground/80 leading-relaxed font-light">{result.summary}</p>
                 )}
               </Section>
 
-              {result.report && result.report !== result.summary && result.what_good ? (
-                <Section icon={CheckCircle} title="Что хорошо в составе" className="border-green-100/50">
-                  <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.what_good} /></p>
-                </Section>
-              ) : null}
-
-              {result.report && result.report !== result.summary && result.what_caution ? (
-                <Section icon={AlertCircle} title="Что может не подойти" className="border-amber-100/50">
-                  <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.what_caution} /></p>
-                </Section>
-              ) : null}
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
 
-                  {result.report && result.report !== result.summary && result.how_to_use && (
+                  {reportReady && result.how_to_use && (
                     <Section icon={Clock} title="Как применять" className="border-blue-100/50">
                       <div className="space-y-0.5 text-xs text-foreground/70 font-light">
-                        <p><span className="font-medium text-foreground/80">Нанесение:</span> {result.how_to_use.application}</p>
-                        <p><span className="font-medium text-foreground/80">Время:</span> {result.how_to_use.time}</p>
+                        {result.how_to_use.application && <p><span className="font-medium text-foreground/80">Нанесение:</span> {result.how_to_use.application}</p>}
+                        {result.how_to_use.time && <p><span className="font-medium text-foreground/80">Время:</span> {result.how_to_use.time}</p>}
                         {result.how_to_use.note && <p className="text-[11px] text-muted-foreground/60 mt-0.5"><MarkupText text={result.how_to_use.note} /></p>}
                       </div>
                     </Section>
                   )}
 
-                  {result.report && result.report !== result.summary && result.expectations && (
+                  {reportReady && result.expectations && (
                     <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50">
                       <div className="space-y-0.5 text-xs text-foreground/70 font-light">
-                        <p><span className="font-medium text-foreground/80">Когда:</span> {result.expectations.when}</p>
-                        <p className="text-[11px] flex items-start gap-1"><CheckCircle className="size-3.5 text-primary/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.normal} /></span></p>
-                        <p className="text-[11px] flex items-start gap-1"><AlertCircle className="size-3.5 text-red-400/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.danger} /></span></p>
+                        {result.expectations.when && <p><span className="font-medium text-foreground/80">Когда:</span> {result.expectations.when}</p>}
+                        {result.expectations.normal && <p className="text-[11px] flex items-start gap-1"><CheckCircle className="size-3.5 text-primary/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.normal} /></span></p>}
+                        {result.expectations.danger && <p className="text-[11px] flex items-start gap-1"><AlertCircle className="size-3.5 text-red-400/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.danger} /></span></p>}
                       </div>
                     </Section>
                   )}
                 </div>
 
-                {result.report && result.report !== result.summary && result.inci && result.inci.length > 0 ? (
-                  <details className="min-w-0 rounded-xl border border-gray-100/50 bg-white/60 p-3">
-                    <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-muted-foreground">INCI — полный состав</summary>
-                    <p className="mt-2 break-all text-[11px] leading-relaxed text-foreground/60 font-light">{result.inci.join(', ')}</p>
-                  </details>
-                ) : null}
             </>
 
 
@@ -378,7 +360,7 @@ export function ResultSheet({
             )}
 
             <div className="flex gap-2 pt-0.5">
-              {typeof result.score === 'number' && (!result.report || result.report === result.summary) ? (
+              {typeof result.score === 'number' && !reportReady ? (
                 <div className="flex flex-1 flex-col gap-2">
                   {detailsError && <p className="text-center text-xs text-red-500">{detailsError}</p>}
                   <button

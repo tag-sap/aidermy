@@ -808,7 +808,10 @@ export default function Page() {
               }}
             />
 
-            <div className="mx-auto w-full max-w-md px-4 pt-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
+            <div className={tab === 'home' && !showQuiz
+              ? 'w-full pt-4'
+              : 'mx-auto w-full max-w-md px-4 pt-4 md:max-w-3xl lg:max-w-5xl xl:max-w-6xl'}
+            >
               {showQuiz ? (
                 <div className="py-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))]">
                   <ProfileQuestionnaire

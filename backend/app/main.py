@@ -1115,6 +1115,7 @@ async def _ensure_product_checked(current_user: dict, product: dict):
     from .database import get_connection, AIDERMY_DB
     from .shelf_service import score_product
     from .services import check_product_with_ai
+    from .score_version import SCORE_ENGINE_VERSION
 
     score, analysis = score_product(current_user, product)
     if score is not None:
@@ -1144,8 +1145,8 @@ async def _ensure_product_checked(current_user: dict, product: dict):
             cursor.execute(
                 "INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, "
                 "ingredients, slug, image_url, active_ingredients, how_to_use, expectations, "
-                "safe_ingredients, caution_ingredients, goal_evidence, profile_snapshot, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                "safe_ingredients, caution_ingredients, goal_evidence, profile_snapshot, score_engine_version, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (
                     current_user["id"], name, skin_type, int(result.get("score") or 0),
                     result.get("verdict"), result.get("summary"),
@@ -1159,6 +1160,7 @@ async def _ensure_product_checked(current_user: dict, product: dict):
                     json.dumps(result.get("caution_ingredients") or [], ensure_ascii=False),
                     json.dumps(result.get("goal_evidence") or [], ensure_ascii=False),
                     json.dumps(profile, ensure_ascii=False),
+                    SCORE_ENGINE_VERSION,
                 ),
             )
             conn.commit()
@@ -1381,6 +1383,7 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     from .database import get_product_by_slug, get_connection, AIDERMY_DB
     from .shelf_service import score_product
     from .services import check_product_with_ai
+    from .score_version import SCORE_ENGINE_VERSION
 
     product = get_product_by_slug(request.slug)
     if not product:
@@ -1419,8 +1422,8 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
                 INSERT INTO check_history (
                     user_id, product_name, skin_type, score, verdict, summary,
                     ingredients, slug, image_url, active_ingredients, how_to_use, expectations,
-                    safe_ingredients, caution_ingredients, goal_evidence, profile_snapshot, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    safe_ingredients, caution_ingredients, goal_evidence, profile_snapshot, score_engine_version, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ''', (
                 current_user["id"], name, skin_type, int(result.get("score") or 0), result.get("verdict"), result.get("summary"),
                 result.get("ingredients") or (product.get("ingredients") or ""),
@@ -1433,6 +1436,7 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
                 json.dumps(result.get("caution_ingredients") or [], ensure_ascii=False),
                 json.dumps(result.get("goal_evidence") or [], ensure_ascii=False),
                 json.dumps(profile, ensure_ascii=False),
+                SCORE_ENGINE_VERSION,
             ))
             conn.commit()
     finally:
@@ -1503,7 +1507,8 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     """
     import json as _json
     from .database import get_product_by_slug, save_ai_report, save_analysis_details
-    from .shelf_service import score_product
+    from .shelf_service import recalculate_stale_analysis, score_product
+    from .score_version import SCORE_ENGINE_VERSION
     from .services import generate_full_report
     from .catalog_taxonomy import classify_product
 
@@ -1515,6 +1520,11 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         score = analysis.get("score")
         slug = analysis.get("slug") or request.slug
         product = get_product_by_slug(slug) if slug else None
+        if analysis.get("score_engine_version") != SCORE_ENGINE_VERSION:
+            analysis = recalculate_stale_analysis(current_user, analysis, product)
+            if not analysis:
+                raise HTTPException(status_code=409, detail="Не удалось обновить устаревший анализ")
+            score = analysis.get("score")
     else:
         product = get_product_by_slug(request.slug)
         if not product:
@@ -1539,18 +1549,21 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
 
     # Наличие report означает, что отдельный объект отчёта уже был сохранён.
     # Остальные блоки опциональны и не должны провоцировать повторную генерацию.
-    if analysis and analysis.get("report"):
-        det = analysis.get("deterministic") or {}
+    if (
+        analysis
+        and analysis.get("report")
+        and analysis.get("report_score_engine_version") == analysis.get("score_engine_version")
+        and analysis.get("score_engine_version") == SCORE_ENGINE_VERSION
+    ):
+        review = _fragments_from_value(analysis.get("report"))
         return {
             "score": score,
-            "review": _fragments_from_value(analysis.get("report")),
-            "active_ingredients": analysis.get("active_ingredients"),
-            "what_good": _fragments_from_value(analysis.get("what_good")),
-            "what_bad": _fragments_from_value(analysis.get("what_caution")),
+            "verdict": analysis.get("verdict") or "",
+            "explanation": _fragments_to_text(review),
+            "review": review,
             "how_to_use": analysis.get("how_to_use"),
             "expectations": analysis.get("expectations"),
-            "inci": det.get("normalized_ingredients") or [],
-            "category": det.get("category") or product_type,
+            "report_ready": True,
         }
 
     profile = _profile_from_user(current_user)
@@ -1569,8 +1582,6 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         raise HTTPException(status_code=502, detail="Не удалось сформировать отчёт") from exc
 
     review_fragments = full.get("review") or []
-    what_good = full.get("what_good") or []
-    what_bad = full.get("what_bad") or []
     review_text = _fragments_to_text(review_fragments) or analysis.get("summary") or ""
 
     save_analysis_details(
@@ -1578,25 +1589,23 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         product.get("id") if product else (analysis or {}).get("product_id"),
         slug,
         report=_json.dumps(review_fragments, ensure_ascii=False),
-        active_ingredients=full.get("active_ingredients"),
+        active_ingredients=None,
         how_to_use=full.get("how_to_use"),
         expectations=full.get("expectations"),
-        what_good=_json.dumps(what_good, ensure_ascii=False),
-        what_caution=_json.dumps(what_bad, ensure_ascii=False),
+        what_good="",
+        what_caution="",
+        report_score_engine_version=analysis.get("score_engine_version"),
     )
     save_ai_report(current_user["id"], slug, review_text)
 
     return {
-        "score": score,
+        "score": analysis.get("score"),
+        "verdict": analysis.get("verdict") or "",
+        "explanation": _fragments_to_text(review_fragments),
         "review": review_fragments,
-        "active_ingredients": full.get("active_ingredients"),
-        "what_good": what_good,
-        "what_bad": what_bad,
         "how_to_use": full.get("how_to_use"),
         "expectations": full.get("expectations"),
-        "inci": full.get("inci") or [],
-        "category": full.get("category") or product_type,
-        "score_breakdown": full.get("score_breakdown"),
+        "report_ready": True,
     }
 
 

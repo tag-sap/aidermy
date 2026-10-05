@@ -20,28 +20,25 @@ class ReportHumanTermsTests(unittest.TestCase):
 
     def test_rejects_contribution_term(self):
         output = {
-            "summary": [{"text": "Фактор увлажнения даёт положительный вклад.", "sentiment": "positive"}],
-            "positive": [{"text": "Увлажнение.", "sentiment": "positive"}],
-            "negative": [],
-            "expectations": "",
+            "explanation": "Фактор увлажнения даёт положительный вклад.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
 
     def test_rejects_neutral_zone_term(self):
         output = {
-            "summary": [{"text": "Балл находится ниже нейтральной зоны.", "sentiment": "negative"}],
-            "positive": [{"text": "Увлажнение.", "sentiment": "positive"}],
-            "negative": [],
-            "expectations": "",
+            "explanation": "Балл находится ниже нейтральной зоны.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
 
     def test_accepts_human_text(self):
         output = {
-            "summary": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
-            "positive": [{"text": "Состав поддерживает увлажнение.", "sentiment": "positive"}],
-            "negative": [],
-            "expectations": "",
+            "explanation": "Состав поддерживает увлажнение.",
+            "how_to_use": None,
+            "expectations": None,
         }
         self.assertTrue(_validate_report_once(self._inp(), output))
 
