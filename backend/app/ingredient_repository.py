@@ -271,6 +271,44 @@ class IngredientRepository:
         conn.commit()
         conn.close()
 
+    def add_claim_if_missing(
+        self,
+        ingredient_id: int,
+        property_name: str,
+        direction: str,
+        strength: float,
+        confidence: float,
+        evidence_level: str = 'moderate',
+        source_url: str = '',
+        source_title: str = '',
+        source_type: str = 'ai_research',
+    ) -> bool:
+        """Persist one concern claim without replacing existing ingredient knowledge."""
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO ingredient_claims (
+                ingredient_id, property_name, direction, strength, confidence,
+                evidence_level, source_url, source_title, source_type
+            )
+            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM ingredient_claims
+                WHERE ingredient_id = ? AND lower(property_name) = lower(?)
+            )
+            ''',
+            (
+                ingredient_id, property_name, direction, strength, confidence,
+                evidence_level, source_url, source_title, source_type,
+                ingredient_id, property_name,
+            ),
+        )
+        inserted = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return inserted
+
     def get_knowledge_map(self) -> Dict[str, Dict[str, Dict[str, float]]]:
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
@@ -301,20 +339,36 @@ class IngredientRepository:
                 }
         return knowledge
 
-    def get_goal_evidence_map(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
-        """Return the latest raw claim per ingredient/property with provenance."""
+    def get_goal_evidence_map(
+        self,
+        ingredients: Optional[List[str]] = None,
+    ) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """Return latest claims for the requested ingredients, optionally all claims."""
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
-        rows = cursor.execute(
-            '''
+        query = '''
             SELECT i.normalized_name, c.property_name, c.direction, c.strength,
                    c.confidence, c.evidence_level, c.source_url, c.source_title
             FROM ingredients_catalog i
             JOIN ingredient_claims c ON c.ingredient_id = i.id
             WHERE i.normalized_name IS NOT NULL AND c.property_name IS NOT NULL
-            ORDER BY c.id DESC
-            '''
-        ).fetchall()
+        '''
+        names = list(dict.fromkeys(str(name).strip().lower() for name in ingredients or [] if str(name).strip()))
+        if ingredients is not None and not names:
+            conn.close()
+            return {}
+        if names:
+            chunks = []
+            for offset in range(0, len(names), 500):
+                chunk = names[offset:offset + 500]
+                placeholders = ",".join("?" for _ in chunk)
+                chunks.extend(cursor.execute(
+                    query + f" AND LOWER(i.normalized_name) IN ({placeholders}) ORDER BY c.id DESC",
+                    chunk,
+                ).fetchall())
+            rows = chunks
+        else:
+            rows = cursor.execute(query + " ORDER BY c.id DESC").fetchall()
         conn.close()
 
         evidence: Dict[str, Dict[str, Dict[str, Any]]] = {}

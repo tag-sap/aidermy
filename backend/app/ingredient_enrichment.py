@@ -1,19 +1,39 @@
 # ingredient_enrichment.py
 # AI #2 — Ingredient Enrichment.
 #
-# Запускается ТОЛЬКО когда в Ingredient DB не найден ингредиент из INCI.
-# AI определяет: что это, aliases, функции, свойства, влияние на кожу,
-# irritation/sensitization и (при необходимости) аллергенный статус.
-# Результат сохраняется в Ingredient DB и Allergen/Sensitizer DB.
+# Обогащает только отсутствующие знания по ингредиентам из текущего анализа:
+# неизвестные ингредиенты и missing ingredient/concern evidence pairs.
+# Результат сохраняется в существующие Ingredient DB / ingredient_claims.
 #
 # Цель: до scoring engine все ингредиенты товара должны быть известны системе.
 
 from __future__ import annotations
 
-from typing import List, Optional, Set
+from typing import Any, Dict, List, Mapping, Optional, Set
 
+from .goal_evidence import (
+    find_missing_concern_pairs,
+    scoped_concern_property,
+    selected_concern_ids,
+)
 from .ingredient_normalizer import normalize_ingredient_name
 from .ingredient_repository import IngredientRepository
+
+
+def find_missing_concern_evidence(
+    profile: Mapping[str, Any],
+    ingredients: List[str],
+    repository: Optional[IngredientRepository] = None,
+) -> List[Dict[str, Any]]:
+    if not selected_concern_ids(profile):
+        return []
+    repo = repository or IngredientRepository()
+    repo.ensure_ingredient_tables()
+    return find_missing_concern_pairs(
+        profile,
+        ingredients,
+        repo.get_goal_evidence_map(ingredients),
+    )
 
 
 def find_unknown_ingredients(
@@ -212,3 +232,76 @@ async def enrich_unknown_ingredients(
 
     return 0
 
+
+def persist_concern_evidence_claims(
+    records: List[Dict[str, Any]],
+    missing_pairs: List[Dict[str, Any]],
+    repository: Optional[IngredientRepository] = None,
+) -> int:
+    """Validate and append returned concern claims to the existing claim store."""
+    if not records or not missing_pairs:
+        return 0
+
+    repo = repository or IngredientRepository()
+    repo.ensure_ingredient_tables()
+    requested = {
+        (
+            normalize_ingredient_name(pair.get("ingredient", "")),
+            str(pair.get("concern_id") or "").strip().lower(),
+        ): {str(prop).strip().lower() for prop in pair.get("properties") or []}
+        for pair in missing_pairs
+    }
+    saved = 0
+
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        ingredient_name = str(record.get("ingredient") or record.get("inci_name") or "").strip()
+        ingredient = normalize_ingredient_name(ingredient_name)
+        concern_id = str(record.get("concern_id") or record.get("concern") or "").strip().lower()
+        allowed_properties = requested.get((ingredient, concern_id))
+        if not allowed_properties:
+            continue
+
+        ingredient_id = repo.upsert_ingredient(ingredient_name, ingredient_name, ingredient)
+        if not ingredient_id:
+            continue
+        for claim in record.get("claims") or []:
+            if not isinstance(claim, Mapping):
+                continue
+            property_name = str(claim.get("property_name") or claim.get("property") or "").strip().lower()
+            direction = str(claim.get("direction") or "").strip().lower()
+            if property_name not in allowed_properties or direction not in {"positive", "negative", "neutral"}:
+                continue
+            evidence = str(claim.get("evidence") or "").strip()
+            if not evidence:
+                continue
+            try:
+                strength = float(claim.get("strength"))
+                confidence = float(claim.get("confidence"))
+            except (TypeError, ValueError):
+                continue
+            if not 0.0 <= strength <= 1.0 or not 0.0 < confidence <= 1.0:
+                continue
+
+            evidence_level = str(claim.get("evidence_level") or "low").strip().lower()
+            if evidence_level not in {"low", "moderate", "high"}:
+                evidence_level = "low"
+            source_url = str(claim.get("source_url") or "").strip()
+            if not source_url.startswith(("https://", "http://")):
+                source_url = ""
+            source_title = str(claim.get("source_title") or evidence).strip()[:500]
+            if repo.add_claim_if_missing(
+                ingredient_id,
+                scoped_concern_property(concern_id, property_name),
+                direction,
+                strength,
+                confidence,
+                evidence_level=evidence_level,
+                source_url=source_url,
+                source_title=source_title,
+                source_type="ai_concern_enrichment",
+            ):
+                saved += 1
+
+    return saved

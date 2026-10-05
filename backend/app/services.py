@@ -436,21 +436,21 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
 
     engine = DecisionEngine()
 
-    # Порядок важен: research → enrichment → deterministic score. Скор нельзя
-    # считать по неполной базе ингредиентов, поэтому research/enrichment идут ДО
-    # него. Если research не успевает (AI долгий / холодная очередь) — возвращаем
+    # Research and concern enrichment run before deterministic analysis. If
+    # ingredient research does not finish in time, keep the existing pending behavior.
     # «pending»: фронтенд покажет «Это займёт больше времени, возвращайтесь позже».
     research_status = None
+    prepared = engine.analysis_service.prepare_product_ingredients(ingredients)
+    repository = engine.analysis_service.repository
     if DEEPSEEK_API_KEY:
         try:
             from .ingredient_enrichment import find_unknown_ingredients
             from .research_queue import run_research
-            prepared = engine.analysis_service.prepare_product_ingredients(ingredients)
-            unknown = find_unknown_ingredients(prepared)
+            unknown = find_unknown_ingredients(prepared, repository)
             if unknown:
                 try:
                     research_status = await asyncio.wait_for(
-                        run_research(unknown_ingredients=unknown),
+                        run_research(repository=repository, unknown_ingredients=unknown),
                         timeout=RESEARCH_STEP_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
@@ -460,27 +460,24 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
             print(f"[CHECK] research failed: {exc!r}")
             research_status = "failed"
 
-    # 1) AI обогащает ТОЛЬКО базу знаний ингредиентов (ingredient_claims) ДО скоринга.
-    #    НЕ генерирует how_to_use / expectations / active_ingredients и НЕ оценивает
-    #    совместимость — это делает детерминированный движок на обогащённых данных.
-    ingredient_claims = None
     if DEEPSEEK_API_KEY:
         try:
-            ingredient_claims = await asyncio.wait_for(
-                _enrich_knowledge_with_ai(product_name, ingredients),
-                timeout=ENRICH_STEP_TIMEOUT,
+            from .ingredient_enrichment import (
+                find_missing_concern_evidence,
+                persist_concern_evidence_claims,
             )
-        except Exception as exc:
-            print(f"[CHECK] enrichment failed: {exc!r}")
 
-    if ingredient_claims:
-        try:
-            from .shelf_service import enrich_ingredient_knowledge
-            enrich_ingredient_knowledge(ingredient_claims)
+            missing_pairs = find_missing_concern_evidence(profile, prepared, repository)
+            if missing_pairs:
+                concern_claims = await asyncio.wait_for(
+                    _enrich_knowledge_with_ai(product_name, missing_pairs),
+                    timeout=ENRICH_STEP_TIMEOUT,
+                ) or []
+                persist_concern_evidence_claims(concern_claims, missing_pairs, repository)
         except Exception as exc:
-            print(f"[CHECK] enrichment apply failed: {exc!r}")
+            print(f"[CHECK] concern evidence enrichment failed: {exc!r}")
 
-    # 2) Детерминированный скор — теперь на полной базе знаний (после research/enrichment).
+    # Deterministic calculations use persisted knowledge only.
     # Layer 2 — internal ingredient interactions (по ACTUAL normalized composition + KB).
     interactions = None
     try:
@@ -502,7 +499,6 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'active_ingredients': None,
         'how_to_use': None,
         'expectations': None,
-        'ingredient_claims': ingredient_claims or [],
         'research_status': research_status,
         'goal_evidence': deterministic.get('goal_evidence') or [],
         # Полный deterministic-результат Score Engine — источник истины для Report.
@@ -1090,34 +1086,54 @@ async def generate_ai_report(product_name: str, analysis: dict, profile: dict, p
         return [{"text": summary, "sentiment": "negative" if score < 60 else "positive"}]
     return []
 
-async def _enrich_knowledge_with_ai(product_name: str, ingredients: str) -> list | None:
-    """AI-обогащение ТОЛЬКО базы знаний ингредиентов (ingredient_claims).
+async def _enrich_knowledge_with_ai(
+    product_name: str,
+    missing_pairs: list[dict],
+) -> list | None:
+    """Enrich only missing ingredient/concern claims in the shared knowledge base."""
+    from .ingredient_enrichment import _parse_enrichment_response
 
-    НЕ генерирует how_to_use / expectations / active_ingredients и НЕ оценивает
-    совместимость продукта с профилем — это делает исключительно deterministic
-    scoring engine. Возвращает список claims для enrich_ingredient_knowledge.
-    """
+    requested = [
+        {
+            "ingredient": pair["ingredient"],
+            "concern_id": pair["concern_id"],
+            "properties": pair["properties"],
+            "positive_direction": pair["positive_direction"],
+        }
+        for pair in missing_pairs
+    ]
+    pair_instructions = "\n".join(
+        f"- {pair['ingredient']} × {pair['concern_id']}; "
+        f"allowed properties and positive direction meaning: {pair['positive_direction']}"
+        for pair in requested
+    )
     prompt = f"""
-Ты — косметолог-технолог. Пополни базу знаний ингредиентов Aidermy.
+Ты — косметический исследователь. Заполни только запрошенные отсутствующие пары
+«ингредиент × задача кожи» для общей базы знаний Aidermy.
 
 ### Продукт:
 - {product_name}
-- Состав (по убыванию концентрации): {ingredients}
 
-### Задача:
-Перечисли 3–6 ингредиентов с их атомарным свойством (axis-эффектом) для базы знаний.
+### Пары для исследования:
+{pair_instructions}
 
 ### ВАЖНО:
-- Указывай ТОЛЬКО atomic effects, соответствующие осям: hydration, barrier_support, sensitivity, acne_control, brightening.
-- НЕ оценивай, подходит ли продукт какому-либо типу кожи. НЕ пиши вердикт и процент совместимости.
-- Верни ТОЛЬКО JSON.
+- Верни только пары из запроса, не добавляй другие ингредиенты или concerns.
+- Для каждой пары используй только разрешённые для неё properties.
+- positive direction meaning задан отдельно для каждого property; negative означает противоположный результат, neutral — ненаправленное evidence.
+- Указывай claim только при наличии конкретного основания для свойства; отсутствие данных — пустой claims.
+- Не выводи свойства из общего score, типа кожи, названия продукта или маркетинговых обещаний.
+- Не оценивай совместимость продукта, не пиши вердикт, рекомендации или эффективность лечения.
+- evidence — краткое проверяемое описание основания; не выдумывай публикации и URL.
+- Верни только JSON-массив.
 
 ### Формат:
-{{
-  "ingredient_claims": [
-    {{"ingredient": "ингредиент", "property": "hydration|barrier_support|sensitivity|acne_control|brightening", "direction": "positive|negative", "strength": 0.8, "confidence": 0.9}}
-  ]
-}}
+[
+  {{"ingredient": "canonical ingredient", "concern_id": "requested concern id",
+   "claims": [{{"property": "allowed property", "direction": "positive|negative|neutral",
+   "strength": 0.0, "confidence": 0.0, "evidence_level": "low|moderate|high",
+   "evidence": "...", "source_url": null, "source_title": null}}]}}
+]
 """
 
     for attempt in range(len(DEEPSEEK_MODEL_FALLBACKS)):
@@ -1137,7 +1153,7 @@ async def _enrich_knowledge_with_ai(product_name: str, ingredients: str) -> list
                         "model": model_name,
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.3,
-                        "max_tokens": 3000,
+                        "max_tokens": 5000,
                     },
                     timeout=30,
                 )
@@ -1157,9 +1173,9 @@ async def _enrich_knowledge_with_ai(product_name: str, ingredients: str) -> list
                 continue
 
             try:
-                result = extract_json_from_response(content)
-                if isinstance(result, dict) and result.get("ingredient_claims"):
-                    return result["ingredient_claims"]
+                result = _parse_enrichment_response(content)
+                if isinstance(result, list):
+                    return result
             except Exception:
                 continue
 

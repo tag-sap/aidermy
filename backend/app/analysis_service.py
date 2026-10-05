@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingredient_name
 from .ingredient_repository import IngredientRepository
 from .scoring_engine import apply_hard_filters, score_product_against_profile_canonical
-from .goal_evidence import evaluate_goal_evidence
+from .goal_evidence import evaluate_goal_evidence, selected_concern_ids
 from .profile_resolver import normalize_scoring_profile
 
 
@@ -64,9 +64,13 @@ class AnalysisService:
         result['normalized_ingredients'] = normalized_ingredients
         result['hard_filters'] = hard_filters
         result['excluded'] = bool(hard_filters)
-        result['goal_evidence'] = evaluate_goal_evidence(
-            user_profile,
-            normalized_ingredients,
-            self.repository.get_goal_evidence_map(),
+        result['goal_evidence'] = (
+            evaluate_goal_evidence(
+                user_profile,
+                normalized_ingredients,
+                self.repository.get_goal_evidence_map(normalized_ingredients),
+            )
+            if selected_concern_ids(user_profile)
+            else []
         )
         return result
