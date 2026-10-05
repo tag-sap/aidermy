@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { X, Sparkles, Clock, AlertCircle, CheckCircle, LoaderCircle } from 'lucide-react'
 import { ScrambleText } from '@/components/scramble-text'
 import { MarkupText } from '@/components/markup-text'
-import type { CheckResult, SkinProfile } from '@/lib/store'
+import type { CheckResult, GoalEvidence, SkinProfile } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 
@@ -64,6 +64,17 @@ function ScoreRing({ score }: { score: number }) {
       </div>
     </div>
   )
+}
+
+const GOAL_VERDICT_LABELS = {
+  supports: 'Поддерживает',
+  neutral: 'Нейтрально',
+  may_hinder: 'Может мешать',
+  insufficient_data: 'Недостаточно данных',
+} as const
+
+function evidenceNames(item: GoalEvidence, verdict: GoalEvidence['evidence'][number]['verdict']) {
+  return [...new Set(item.evidence.filter((evidence) => evidence.verdict === verdict).map((evidence) => evidence.ingredient))]
 }
 
 function fragmentsToText(value: unknown): string | null {
@@ -216,7 +227,7 @@ export function ResultSheet({
   return (
     <div className={cn('fixed inset-0 z-[90] flex items-center justify-center p-3 transition-opacity duration-300', isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none')} style={{ backgroundColor: 'rgba(0,0,0,0.15)', transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
       <button type="button" onClick={handleClose} className="absolute inset-0" />
-      <div className={cn('relative flex max-h-[90dvh] w-full max-w-md md:max-w-3xl flex-col overflow-hidden transition-all duration-300', isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0')} style={{
+      <div className={cn('relative flex max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-md md:max-w-3xl flex-col overflow-hidden transition-all duration-300', isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0')} style={{
         transform: isVisible ? 'scale(1) translateY(0)' : 'scale(0.96) translateY(14px)',
         transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
         opacity: isVisible ? 1 : 0,
@@ -227,7 +238,7 @@ export function ResultSheet({
         boxShadow: '0 8px 40px rgba(108,60,225,0.10)'
       }}>
         {/* Sticky-заголовок с крестиком — доступен при прокрутке. */}
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-100/60 px-5 pt-5 pb-3 md:px-6">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-100/60 px-4 pt-4 pb-3 md:px-6 md:pt-5">
           {loading ? (
             <p className="text-sm text-muted-foreground/70 font-light">Анализируем состав…</p>
           ) : result ? (
@@ -238,7 +249,7 @@ export function ResultSheet({
           ) : (
             <span />
           )}
-          <button type="button" onClick={handleClose} className="shrink-0 rounded-md p-1 text-foreground/40 transition-colors hover:bg-gray-100 hover:text-foreground/70"><X className="size-5" /></button>
+          <button type="button" aria-label="Закрыть отчёт" onClick={handleClose} className="shrink-0 rounded-md p-1 text-foreground/40 transition-colors hover:bg-gray-100 hover:text-foreground/70"><X className="size-5" /></button>
         </div>
 
         {loading ? (
@@ -248,12 +259,12 @@ export function ResultSheet({
             <p className="max-w-[280px] text-center text-xs leading-relaxed text-muted-foreground/50 font-light">Уточняем данные по ингредиентам, чтобы расчёт был точнее</p>
           </div>
         ) : result ? (
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 md:px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 md:px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="flex flex-col gap-3">
 
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex items-center gap-3">
-                {result.image_url && <div className="w-14 h-14 rounded-xl overflow-hidden bg-white/60 flex items-center justify-center border border-gray-100 flex-shrink-0"><img src={result.image_url} alt={result.product} className="w-full h-full object-contain p-1" /></div>}
+            <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="flex min-w-0 flex-wrap items-center gap-3">
+                {result.image_url && <div className="hidden size-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-100 bg-white/60 sm:flex"><img src={result.image_url} alt={result.product} className="h-full w-full object-contain p-1" /></div>}
                 {typeof result.score === 'number' ? (
                   <ScoreRing score={result.score} />
                 ) : (
@@ -262,14 +273,47 @@ export function ResultSheet({
                     <span className="text-[10px] font-light">нет оценки</span>
                   </div>
                 )}
-                <div>
+                <div className="min-w-0">
                   <p className={cn('text-base font-medium', typeof result.score === 'number' && result.score >= 70 ? 'text-primary' : typeof result.score === 'number' && result.score >= 40 ? 'text-primary/70' : 'text-muted-foreground')}>{result.verdict}</p>
                   <p className="text-xs text-muted-foreground/50 font-light">
-                    {typeof result.score === 'number' ? 'на основе состава' : 'оценка пока недоступна'}
+                    {typeof result.score === 'number' ? 'общая совместимость с профилем' : 'оценка пока недоступна'}
                   </p>
                 </div>
               </div>
             </div>
+
+            {result.goal_evidence && result.goal_evidence.length > 0 && (
+              <Section icon={Sparkles} title="Под ваши задачи" className="border-primary/10">
+                <p className="mb-2 text-[11px] text-muted-foreground/60">
+                  По доступным данным о свойствах ингредиентов; это не оценка клинической эффективности.
+                </p>
+                <div className="space-y-2">
+                  {result.goal_evidence.map((item) => (
+                    <div key={item.concern_id} className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                      <span className="min-w-0 break-words text-sm text-foreground/80">{item.label}</span>
+                      <span className="shrink-0 text-xs font-medium text-foreground/65">
+                        {GOAL_VERDICT_LABELS[item.verdict]}
+                      </span>
+                      {(['supports', 'may_hinder', 'neutral'] as const).map((evidenceVerdict) => {
+                        const names = evidenceNames(item, evidenceVerdict)
+                        if (!names.length) return null
+                        const visibleNames = names.slice(0, 5)
+                        const label = evidenceVerdict === 'supports'
+                          ? 'Факторы в пользу'
+                          : evidenceVerdict === 'may_hinder'
+                            ? 'Возможные препятствия'
+                            : 'Нейтральные данные'
+                        return (
+                          <span key={evidenceVerdict} className="min-w-0 break-words text-[11px] text-muted-foreground/60 sm:basis-full">
+                            {label}: {visibleNames.join(', ')}{names.length > visibleNames.length ? ` и ещё ${names.length - visibleNames.length}` : ''}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
 
             <>
               <Section icon={Sparkles} title="Результат" className="border-primary/10">
@@ -316,9 +360,10 @@ export function ResultSheet({
                 </div>
 
                 {result.report && result.report !== result.summary && result.inci && result.inci.length > 0 ? (
-                  <Section icon={Sparkles} title="INCI" className="border-gray-100/50">
-                    <p className="text-[11px] leading-relaxed text-foreground/60 font-light break-words">{result.inci.join(', ')}</p>
-                  </Section>
+                  <details className="min-w-0 rounded-xl border border-gray-100/50 bg-white/60 p-3">
+                    <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-muted-foreground">INCI — полный состав</summary>
+                    <p className="mt-2 break-all text-[11px] leading-relaxed text-foreground/60 font-light">{result.inci.join(', ')}</p>
+                  </details>
                 ) : null}
             </>
 

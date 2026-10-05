@@ -301,6 +301,41 @@ class IngredientRepository:
                 }
         return knowledge
 
+    def get_goal_evidence_map(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """Return the latest raw claim per ingredient/property with provenance."""
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        rows = cursor.execute(
+            '''
+            SELECT i.normalized_name, c.property_name, c.direction, c.strength,
+                   c.confidence, c.evidence_level, c.source_url, c.source_title
+            FROM ingredients_catalog i
+            JOIN ingredient_claims c ON c.ingredient_id = i.id
+            WHERE i.normalized_name IS NOT NULL AND c.property_name IS NOT NULL
+            ORDER BY c.id DESC
+            '''
+        ).fetchall()
+        conn.close()
+
+        evidence: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        for row in rows:
+            ingredient = str(row["normalized_name"] or "").strip().lower()
+            property_name = str(row["property_name"] or "").strip().lower()
+            if not ingredient or not property_name:
+                continue
+            claims_for_ingredient = evidence.setdefault(ingredient, {})
+            if property_name in claims_for_ingredient:
+                continue
+            claims_for_ingredient[property_name] = {
+                "direction": row["direction"],
+                "strength": row["strength"],
+                "confidence": row["confidence"],
+                "evidence_level": row["evidence_level"],
+                "source_url": row["source_url"],
+                "source_title": row["source_title"],
+            }
+        return evidence
+
     def get_canonical_knowledge_map(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Каноническая knowledge map на 6 осях (axes.AXES).
 

@@ -23,6 +23,15 @@ class HardFilterTests(unittest.TestCase):
         violations = apply_hard_filters(profile, ["Lactic Acid", "Glycerin"])
         self.assertTrue(any(v["type"] == "allergy" for v in violations))
 
+    def test_structured_allergy_uses_hard_filter(self):
+        profile = {
+            "structured": {"allergies": ["alcohol denat"]},
+            "allergies": [],
+            "restrictions": [],
+        }
+        violations = apply_hard_filters(profile, ["Alcohol Denat", "Water"])
+        self.assertTrue(any(v["type"] == "allergy" for v in violations))
+
     def test_no_violation_when_clean(self):
         profile = {"restrictions": ["Niacinamide"], "allergies": [], "intolerances": []}
         self.assertEqual(apply_hard_filters(profile, ["Water", "Glycerin"]), [])
@@ -45,6 +54,24 @@ class HardFilterTests(unittest.TestCase):
         )
         self.assertFalse(any(f.get("type") == "allergy" for f in result["hard_flags"]))
         self.assertTrue(any(f.get("ingredient") == "alcohol" for f in result["negative_factors"]))
+
+    def test_structured_category_intolerance_applies_soft_penalty(self):
+        profile = {
+            "structured": {
+                "skin_type": "normal",
+                "concerns": [],
+                "intolerances": ["fragrance_intolerance"],
+            },
+            "allergies": [],
+        }
+        result = score_product_against_profile(
+            ["Parfum", "Glycerin"],
+            {"glycerin": {"hydration": {"direction": "positive", "strength": 0.8, "confidence": 0.9}}},
+            profile,
+            self.weights,
+        )
+        self.assertFalse(result["hard_flags"])
+        self.assertTrue(any(f.get("ingredient") == "parfum" for f in result["negative_factors"]))
 
 
 if __name__ == "__main__":

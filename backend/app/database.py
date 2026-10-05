@@ -73,6 +73,7 @@ def init_db():
         ("safe_ingredients", "TEXT"),
         ("caution_ingredients", "TEXT"),
         ("ai_report", "TEXT"),
+        ("goal_evidence", "TEXT DEFAULT '[]'"),
     ]:
         if _col not in _history_cols:
             cursor.execute(f"ALTER TABLE check_history ADD COLUMN {_col} {_ddl}")
@@ -619,9 +620,10 @@ def get_user_check_history(user_id: int, limit: int = 100):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, user_id, product_name, skin_type, score, verdict, summary, 
+        SELECT id, user_id, product_name, skin_type, score, verdict, summary,
                ingredients, slug, image_url, active_ingredients, how_to_use, 
-               expectations, safe_ingredients, caution_ingredients, ai_report, profile_snapshot, created_at
+               expectations, safe_ingredients, caution_ingredients, ai_report, profile_snapshot,
+               goal_evidence, created_at
         FROM check_history 
         WHERE user_id = ? AND deleted_at IS NULL
         ORDER BY created_at DESC 
@@ -1066,6 +1068,7 @@ def _analysis_to_dict(row) -> dict:
         "report": d.get("report") or None,
         "what_good": d.get("what_good") or None,
         "what_caution": d.get("what_caution") or None,
+        "goal_evidence": [],
         "created_at": d.get("created_at"),
         "expires_at": d.get("expires_at"),
     }
@@ -1073,6 +1076,7 @@ def _analysis_to_dict(row) -> dict:
     if det:
         try:
             result["deterministic"] = _json.loads(det) if isinstance(det, str) else det
+            result["goal_evidence"] = result["deterministic"].get("goal_evidence") or []
         except Exception:
             pass
     return result

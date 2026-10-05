@@ -5,6 +5,8 @@ from typing import Any, Dict, List
 from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingredient_name
 from .ingredient_repository import IngredientRepository
 from .scoring_engine import apply_hard_filters, score_product_against_profile_canonical
+from .goal_evidence import evaluate_goal_evidence
+from .profile_resolver import normalize_scoring_profile
 
 
 class AnalysisService:
@@ -43,16 +45,17 @@ class AnalysisService:
         normalized_ingredients = self.prepare_product_ingredients(ingredients)
         if knowledge is None:
             knowledge = self.repository.get_canonical_knowledge_map()
+        scoring_profile = normalize_scoring_profile(user_profile)
 
         # Hard filters выполняются ДО скоринга: если есть нарушения — товар исключён.
-        hard_filters = apply_hard_filters(user_profile, normalized_ingredients)
+        hard_filters = apply_hard_filters(scoring_profile, normalized_ingredients)
 
         canonical_weights = priorities if priorities_are_canonical else canonicalize_weights(priorities)
 
         result = score_product_against_profile_canonical(
             ingredients=normalized_ingredients,
             canonical_knowledge=knowledge,
-            user_profile=user_profile,
+            user_profile=scoring_profile,
             canonical_weights=canonical_weights,
             interactions=interactions,
             saturation_scale=saturation_scale,
@@ -61,4 +64,9 @@ class AnalysisService:
         result['normalized_ingredients'] = normalized_ingredients
         result['hard_filters'] = hard_filters
         result['excluded'] = bool(hard_filters)
+        result['goal_evidence'] = evaluate_goal_evidence(
+            user_profile,
+            normalized_ingredients,
+            self.repository.get_goal_evidence_map(),
+        )
         return result

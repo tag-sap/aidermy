@@ -368,6 +368,7 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
         expectations: data.expectations,
         analysis_id: data.analysis_id ?? null,
         report: data.report ?? null,
+        goal_evidence: Array.isArray(data.goal_evidence) ? data.goal_evidence : [],
       }
       onRecognized(result)
       onClose()

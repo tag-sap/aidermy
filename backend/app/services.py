@@ -504,6 +504,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'expectations': None,
         'ingredient_claims': ingredient_claims or [],
         'research_status': research_status,
+        'goal_evidence': deterministic.get('goal_evidence') or [],
         # Полный deterministic-результат Score Engine — источник истины для Report.
         'deterministic': deterministic,
     }
@@ -670,6 +671,8 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
         return None
 
     skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
+    goal_evidence = analysis.get("goal_evidence") or []
+    goal_context = json.dumps(goal_evidence, ensure_ascii=False)
     input_text = _report_input_text(inp)
     inci = ", ".join(str(i) for i in inp["inci"])
 
@@ -680,6 +683,9 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
 Продукт: {product_name}
 Тип продукта (категория): {product_type or 'не указан'}
 Тип кожи: {skin or 'не указан'}
+
+Детерминированные выводы по выбранным concerns пользователя (не переоценивай и не дополняй):
+{goal_context or '[]'}
 
 ЕДИНЫЙ НАБОР ФАКТОВ (источник истины — НЕ переопределяй):
 {input_text}
@@ -693,6 +699,8 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
 - Говори о СВОЙСТВАХ состава, а не о вычислениях. Примеры: «состав поддерживает увлажнение и барьер», «в составе есть компоненты, которые могут раздражать».
 - НЕ давай советы («лучше не использовать», «не включайте в routine»), НЕ прогнозируй ощущения или состояние кожи.
 - НЕ выдумывай ингредиенты или свойства, которых нет в фактах.
+- Для concern со статусом insufficient_data не утверждай, что состав поддерживает или ухудшает эту задачу.
+- Не выводи эффективность/лечение из overall compatibility score.
 - НЕ повторяй одну мысль в разных секциях.
 - Объясняй ИТОГ через 1-3 самых существенных фактора (значимые/умеренные). Слабые (weak) факторы не превращай в причину результата и не перечисляй их.
 - Не меняй score и verdict.

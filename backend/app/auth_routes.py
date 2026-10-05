@@ -590,9 +590,9 @@ async def save_history(
             INSERT INTO check_history (
                 user_id, product_name, skin_type, score, verdict, summary,
                 ingredients, slug, image_url, active_ingredients, how_to_use, expectations,
-                safe_ingredients, caution_ingredients, ai_report, profile_snapshot, created_at
+                safe_ingredients, caution_ingredients, goal_evidence, ai_report, profile_snapshot, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (
             user_id,
             product_name,
@@ -608,6 +608,7 @@ async def save_history(
             json.dumps(result.get('expectations')) if result.get('expectations') is not None else None,
             json.dumps(result.get('safe_ingredients') or [], ensure_ascii=False),
             json.dumps(result.get('caution_ingredients') or [], ensure_ascii=False),
+            json.dumps(result.get('goal_evidence') or [], ensure_ascii=False),
             result.get('report') or None,
             json.dumps(profile_snapshot or {}, ensure_ascii=False),
         ))
@@ -653,6 +654,13 @@ async def get_history(current_user: dict = Depends(get_current_user)):
                 item['caution_ingredients'] = json.loads(item['caution_ingredients'])
             except:
                 pass
+        if item.get('goal_evidence'):
+            try:
+                item['goal_evidence'] = json.loads(item['goal_evidence'])
+            except:
+                item['goal_evidence'] = []
+        else:
+            item['goal_evidence'] = []
         if item.get('profile_snapshot'):
             try:
                 item['profile_snapshot'] = json.loads(item['profile_snapshot'])

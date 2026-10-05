@@ -427,6 +427,7 @@ async def analyze_composition_endpoint(
             "active_ingredients": None,
             "how_to_use": None,
             "expectations": None,
+            "goal_evidence": result.get("goal_evidence") or [],
             "slug": slug,
             "image_url": result.get("image_url") or "",
             "ingredients": ingredients_str,
@@ -569,6 +570,7 @@ async def check_product(
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
+            goal_evidence=result.get("goal_evidence") or [],
             report=None,
             analysis_id=analysis_id,
             pending=pending,
@@ -645,6 +647,7 @@ async def check_with_ingredients(
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
+            goal_evidence=result.get("goal_evidence") or [],
             report=None,
             analysis_id=analysis_id,
             pending=pending,
@@ -1042,6 +1045,7 @@ def _profile_from_user(user: dict) -> dict:
         structured = None
     if structured:
         result["structured"] = structured
+        result["age"] = result.get("age") or structured.get("age") or ""
     return result
 
 
@@ -1140,8 +1144,8 @@ async def _ensure_product_checked(current_user: dict, product: dict):
             cursor.execute(
                 "INSERT INTO check_history (user_id, product_name, skin_type, score, verdict, summary, "
                 "ingredients, slug, image_url, active_ingredients, how_to_use, expectations, "
-                "safe_ingredients, caution_ingredients, profile_snapshot, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                "safe_ingredients, caution_ingredients, goal_evidence, profile_snapshot, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
                 (
                     current_user["id"], name, skin_type, int(result.get("score") or 0),
                     result.get("verdict"), result.get("summary"),
@@ -1153,6 +1157,7 @@ async def _ensure_product_checked(current_user: dict, product: dict):
                     json.dumps(result.get("expectations")) if result.get("expectations") is not None else None,
                     json.dumps(result.get("safe_ingredients") or [], ensure_ascii=False),
                     json.dumps(result.get("caution_ingredients") or [], ensure_ascii=False),
+                    json.dumps(result.get("goal_evidence") or [], ensure_ascii=False),
                     json.dumps(profile, ensure_ascii=False),
                 ),
             )
@@ -1169,6 +1174,7 @@ async def _ensure_product_checked(current_user: dict, product: dict):
         "active_ingredients": result.get("active_ingredients"),
         "how_to_use": result.get("how_to_use"),
         "expectations": result.get("expectations"),
+        "goal_evidence": result.get("goal_evidence") or [],
     }
     return int(result.get("score") or 0), analysis
 
@@ -1413,8 +1419,8 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
                 INSERT INTO check_history (
                     user_id, product_name, skin_type, score, verdict, summary,
                     ingredients, slug, image_url, active_ingredients, how_to_use, expectations,
-                    safe_ingredients, caution_ingredients, profile_snapshot, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    safe_ingredients, caution_ingredients, goal_evidence, profile_snapshot, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ''', (
                 current_user["id"], name, skin_type, int(result.get("score") or 0), result.get("verdict"), result.get("summary"),
                 result.get("ingredients") or (product.get("ingredients") or ""),
@@ -1425,6 +1431,7 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
                 json.dumps(result.get("expectations")) if result.get("expectations") is not None else None,
                 json.dumps(result.get("safe_ingredients") or [], ensure_ascii=False),
                 json.dumps(result.get("caution_ingredients") or [], ensure_ascii=False),
+                json.dumps(result.get("goal_evidence") or [], ensure_ascii=False),
                 json.dumps(profile, ensure_ascii=False),
             ))
             conn.commit()
@@ -1453,6 +1460,7 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
         "active_ingredients": result.get("active_ingredients"),
         "how_to_use": result.get("how_to_use"),
         "expectations": result.get("expectations"),
+        "goal_evidence": result.get("goal_evidence") or [],
         "report": (saved or {}).get("report"),
     }
     return {"status": "ok", "cached": False, "score": int(result.get("score") or 0), "analysis": analysis}

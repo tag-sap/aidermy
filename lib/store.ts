@@ -20,6 +20,7 @@ export type IntoleranceItem = string | { type: string; ingredient_id?: string; i
 
 export type StructuredProfile = {
   skin_type: string | null
+  age?: string | null
   concerns: string[]
   imperfections: string[]
   states: string[]
@@ -28,6 +29,23 @@ export type StructuredProfile = {
   goals: string[]
   intolerances: IntoleranceItem[]
   allergies: string[]
+}
+
+export type GoalEvidence = {
+  concern_id: string
+  label: string
+  verdict: 'supports' | 'neutral' | 'may_hinder' | 'insufficient_data'
+  evidence: {
+    ingredient: string
+    property: string
+    direction: string
+    verdict: 'supports' | 'neutral' | 'may_hinder'
+    strength: number
+    confidence: number
+    evidence_level?: string | null
+    source_url?: string | null
+    source_title?: string | null
+  }[]
 }
 
 export type CheckResult = {
@@ -48,6 +66,7 @@ export type CheckResult = {
   slug?: string
   image_url?: string
   analysis_id?: number | null
+  goal_evidence?: GoalEvidence[]
   createdAt: number
   active_ingredients?: {
     name: string
@@ -65,8 +84,6 @@ export type CheckResult = {
     normal: string
     danger: string
   }
-
-
 }
 
 const PROFILE_KEY = 'aidermy:profile'

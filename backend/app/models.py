@@ -61,6 +61,7 @@ class CheckResponse(BaseModel):
     expectations: Optional[Expectations] = None
     report: Optional[str] = None
     analysis_id: Optional[int] = None
+    goal_evidence: List[Dict[str, Any]] = Field(default_factory=list)
 
 class CheckWithIngredientsRequest(BaseModel):
     product_name: str

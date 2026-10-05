@@ -52,6 +52,7 @@ const normalizeHistoryItem = (item: any): CheckResult => ({
   how_to_use: item?.how_to_use ?? undefined,
   expectations: item?.expectations ?? undefined,
   report: item?.report ?? item?.ai_report ?? undefined,
+  goal_evidence: Array.isArray(item?.goal_evidence) ? item.goal_evidence : [],
 })
 
 export default function Page() {
@@ -484,10 +485,16 @@ export default function Page() {
   const handleQuestionnaireSave = async (structured: StructuredProfile) => {
     // Синхронизируем legacy skinType (RU label) для совместимости со старыми экранами.
     const ruSkinType = SKIN_TYPE_OPTIONS.find(o => o.id === structured.skin_type)?.label ?? ''
+    const savedAge = structured.age ?? profile.age ?? ''
     const updatedProfile = {
       ...emptyProfile,
       ...profile,
-      structured,
+      age: savedAge,
+      structured: {
+        ...structured,
+        age: savedAge || null,
+        allergies: structured.allergies ?? profile.structured?.allergies ?? [],
+      },
       ...(ruSkinType ? { skinType: ruSkinType, skinTypeDetermined: ruSkinType } : {}),
     }
     setProfile(updatedProfile)
@@ -510,7 +517,7 @@ export default function Page() {
               customText: updatedProfile.customText || '',
               quizAnswers: updatedProfile.quizAnswers || {},
               skinTypeDetermined: ruSkinType || updatedProfile.skinTypeDetermined || '',
-              structured,
+              structured: updatedProfile.structured,
             },
           }),
         })
@@ -598,6 +605,7 @@ export default function Page() {
         expectations: data.expectations,
         report: data.report,
         analysis_id: data.analysis_id ?? null,
+        goal_evidence: Array.isArray(data.goal_evidence) ? data.goal_evidence : [],
       }
 
       setResult(fullResult)

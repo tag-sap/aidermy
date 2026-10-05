@@ -6,6 +6,7 @@ from app.profile_matrix import AXES, GOALS, PROFILE_MATRIX
 from app.profile_resolver import (
     intolerance_to_ingredients,
     legacy_profile_to_structured,
+    normalize_scoring_profile,
     resolve_personal_profile,
 )
 
@@ -58,6 +59,28 @@ class ResolverTests(unittest.TestCase):
         # аллергия не должна менять weights
         base = resolve_personal_profile({"skin_type": "normal"})
         self.assertEqual(r["weights"], base["weights"])
+
+    def test_age_roundtrips_without_changing_weights(self):
+        profile = {"skin_type": "normal", "age": "35_45"}
+        resolved = resolve_personal_profile(profile)
+        self.assertEqual(resolved["age"], "35_45")
+        self.assertEqual(
+            resolved["weights"],
+            resolve_personal_profile({"skin_type": "normal", "age": "under_25"})["weights"],
+        )
+
+    def test_structured_constraints_are_merged_for_scoring(self):
+        normalized = normalize_scoring_profile({
+            "allergies": ["lactic acid"],
+            "structured": {
+                "allergies": ["alcohol denat"],
+                "intolerances": ["fragrance_intolerance", "niacinamide_intolerance"],
+            },
+        })
+        self.assertIn("lactic acid", normalized["allergies"])
+        self.assertIn("alcohol denat", normalized["allergies"])
+        self.assertIn("fragrance_intolerance", normalized["intolerances"])
+        self.assertIn("niacinamide", normalized["restrictions"])
 
     def test_intolerance_niacinamide(self):
         soft, hard = intolerance_to_ingredients({"intolerances": ["niacinamide_intolerance"]})

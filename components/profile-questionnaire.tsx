@@ -26,7 +26,7 @@ interface Props {
 export function ProfileQuestionnaire({ initial, onSave, onCancel }: Props) {
   const init = useMemo(() => structuredToQuizState(initial), [initial])
   const [skinType, setSkinType] = useState<string | null>(init.skinType)
-  const [age, setAge] = useState<string | null>(null)
+  const [age, setAge] = useState<string | null>(init.age)
   const [selectedCards, setSelectedCards] = useState<string[]>(init.selectedCards)
   const [answers, setAnswers] = useState<Record<string, Record<string, string[]>>>(init.answers)
   const [therapyEnabled, setTherapyEnabled] = useState<boolean | null>(init.therapyEnabled)
@@ -35,7 +35,7 @@ export function ProfileQuestionnaire({ initial, onSave, onCancel }: Props) {
   const [acids, setAcids] = useState<string[]>(init.acids)
   const [procedures, setProcedures] = useState<Record<string, string>>(init.procedures)
   const [intolerances, setIntolerances] = useState<string[]>(init.intolerances)
-  const allergies: string[] = [] // (аллергии — отдельный блок, добавляется позже)
+  const allergies = initial?.allergies ?? []
 
   const toggleCard = (id: string) => {
     setSelectedCards(prev => {
@@ -94,6 +94,7 @@ export function ProfileQuestionnaire({ initial, onSave, onCancel }: Props) {
   const handleSave = () => {
     const structured: StructuredProfile = {
       skin_type: skinType && skinType !== 'unknown' ? skinType : null,
+      age,
       concerns: [...selectedCards, ...specificIds],
       imperfections: [],
       states: [],

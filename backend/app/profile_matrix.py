@@ -333,6 +333,25 @@ INTOLERANCE_CONFIG: Dict[str, Dict[str, Any]] = {
     "specific_ingredient_intolerance": {"type": "ingredient", "label": "Конкретный ингредиент"},
 }
 
+INTOLERANCE_INGREDIENT_SYNONYMS: Dict[str, List[str]] = {
+    "fragrance_intolerance": ["fragrance", "parfum", "perfume"],
+    "alcohol_intolerance": ["alcohol", "alcohol denat", "ethanol", "denatured alcohol", "isopropyl alcohol"],
+    "essential_oil_intolerance": [
+        "essential oil", "citrus limon peel oil", "lavandula angustifolia oil",
+        "eucalyptus globulus leaf oil", "melaleuca alternifolia leaf oil",
+        "pinus sylvestris leaf oil",
+    ],
+    "retinoid_intolerance": [
+        "retinol", "retinal", "retinaldehyde", "retinyl palmitate", "retinyl acetate",
+        "retinyl retinoate", "hydroxypinacolone retinoate", "tretinoin", "adapalene", "tazarotene",
+    ],
+    "acid_intolerance": [
+        "salicylic acid", "glycolic acid", "lactic acid", "mandelic acid", "malic acid",
+        "tartaric acid", "azelaic acid", "ferulic acid", "gluconolactone",
+        "lactobionic acid", "aha", "bha", "pha",
+    ],
+}
+
 # ===========================================================================
 # TEMPORAL FACTORS (configurable; НЕ зашиты в scoring engine)
 # ===========================================================================
@@ -386,4 +405,3 @@ LEGACY_ALLERGY_MAP: Dict[str, str] = {
     "ретиноид": "retinoid_intolerance",
     "кислот": "acid_intolerance",
 }
-

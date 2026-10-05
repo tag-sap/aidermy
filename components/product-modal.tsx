@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { CABINET_TITLES } from '@/lib/shelf'
 import { useScrollLock } from '@/lib/use-scroll-lock'
 import { CommunitySection } from '@/components/community-section'
-import type { CheckResult } from '@/lib/store'
+import type { CheckResult, GoalEvidence } from '@/lib/store'
 
 type ProductDetail = {
   product: {
@@ -33,6 +33,8 @@ type ProductDetail = {
     report?: string | null
     what_good?: string | null
     what_caution?: string | null
+    goal_evidence?: GoalEvidence[]
+    deterministic?: { goal_evidence?: GoalEvidence[] } | null
   } | null
   on_shelf: { shelf_id: number; cabinet: string; category: string } | null
   community: {
@@ -242,6 +244,11 @@ export function ProductModal({
       what_good: asText(a.what_good),
       what_caution: asText(a.what_caution),
       analysis_id: a.id ?? null,
+      goal_evidence: Array.isArray(a.goal_evidence)
+        ? a.goal_evidence
+        : Array.isArray(a.deterministic?.goal_evidence)
+          ? a.deterministic.goal_evidence
+          : [],
     }
     onOpenReport(result)
   }
@@ -430,6 +437,5 @@ export function ProductModal({
     </div>
   )
 }
-
 
 

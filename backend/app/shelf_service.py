@@ -347,6 +347,7 @@ def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
         "active_ingredients": _parse_json(h.get("active_ingredients")),
         "how_to_use": _parse_json(h.get("how_to_use")),
         "expectations": _parse_json(h.get("expectations")),
+        "goal_evidence": _parse_json(h.get("goal_evidence")) or [],
         "report": h.get("ai_report") or None,
     }
 
@@ -524,6 +525,7 @@ def _compute_analysis_if_prepared(
             "score": score,
             "safe_ingredients": analysis.get("safe_ingredients") or [],
             "caution_ingredients": analysis.get("caution_ingredients") or [],
+            "goal_evidence": analysis.get("goal_evidence") or [],
             "active_ingredients": None,
             "how_to_use": None,
             "expectations": None,
@@ -724,13 +726,14 @@ def _query_candidates(cabinet: str, category: str) -> List[Dict[str, Any]]:
 # Значения — конкретные канонические имена ингредиентов. Совпадение идёт по токенам
 # (каноническим именам), а НЕ по подстроке: иначе «acid» ловил бы «hyaluronic acid»
 # или «stearic acid» и исключал бы почти всю косметику из подбора.
+from .profile_matrix import INTOLERANCE_CONFIG, INTOLERANCE_INGREDIENT_SYNONYMS
+
 _ALLERGEN_SYNONYMS: Dict[str, List[str]] = {
-    "отдушки": ["fragrance", "parfum", "perfume"],
-    "спирт": ["alcohol", "alcohol denat", "ethanol", "denatured alcohol", "isopropyl alcohol"],
-    "эфирные масла": ["essential oil", "citrus limon peel oil", "lavandula angustifolia oil", "eucalyptus globulus leaf oil", "melaleuca alternifolia leaf oil", "pinus sylvestris leaf oil"],
-    "ретиноиды": ["retinol", "retinal", "retinaldehyde", "retinyl palmitate", "retinyl acetate", "retinyl retinoate", "hydroxypinacolone retinoate", "tretinoin", "adapalene", "tazarotene"],
-    "кислоты": ["salicylic acid", "glycolic acid", "lactic acid", "mandelic acid", "malic acid", "tartaric acid", "azelaic acid", "ferulic acid", "gluconolactone", "lactobionic acid", "aha", "bha", "pha"],
+    str(config.get("label") or "").strip().lower(): INTOLERANCE_INGREDIENT_SYNONYMS.get(intolerance_id, [])
+    for intolerance_id, config in INTOLERANCE_CONFIG.items()
+    if config.get("type") == "category"
 }
+_ALLERGEN_SYNONYMS.update(INTOLERANCE_INGREDIENT_SYNONYMS)
 
 
 def _allergy_conflict(ingredients: str, allergies: List[str]) -> bool:
@@ -767,7 +770,10 @@ def _hard_filter_exclusion(profile: Dict[str, Any], ingredients: str) -> bool:
       1. _allergy_conflict — категории фронтенда («Отдушки», «Спирт»…) по синонимам;
       2. apply_hard_filters — конкретные жёсткие исключения/аллергии из Structured Profile.
     """
-    if _allergy_conflict(ingredients, profile.get("allergies") or []):
+    if _allergy_conflict(
+        ingredients,
+        (profile.get("allergies") or []) + (profile.get("intolerances") or []),
+    ):
         return True
     try:
         from .scoring_engine import apply_hard_filters
@@ -819,7 +825,8 @@ def _build_user_profile(user: Dict[str, Any]) -> Dict[str, Any]:
         if a not in profile["allergies"]:
             profile["allergies"].append(a)
     profile["structured"] = structured
-    return profile
+    from .profile_resolver import normalize_scoring_profile
+    return normalize_scoring_profile(profile)
 
 
 async def recommend_products(
@@ -1217,6 +1224,3 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         })
 
     return cabinets
-
-
-

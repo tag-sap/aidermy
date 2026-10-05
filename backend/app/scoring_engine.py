@@ -54,6 +54,9 @@ def apply_hard_filters(user_profile: Dict[str, Any], ingredients: List[str]) -> 
 
     Возвращает список нарушений. Пустой список = товар проходит hard filters.
     """
+    from .profile_resolver import normalize_scoring_profile
+
+    user_profile = normalize_scoring_profile(user_profile)
     violations: List[Dict[str, Any]] = []
     valid = [i for i in ingredients if i and str(i).strip()]
 
@@ -123,7 +126,9 @@ def score_product_against_profile_canonical(
     factors с property=canonical axis, direction=benefit-oriented).
     """
     from .axes import AXES
+    from .profile_resolver import normalize_scoring_profile
 
+    user_profile = normalize_scoring_profile(user_profile)
     valid_ingredients = [ingredient for ingredient in ingredients if ingredient and str(ingredient).strip()]
     empty_dims = {axis: 0.0 for axis in AXES}
     if not valid_ingredients:
@@ -251,20 +256,24 @@ def score_product_against_profile_canonical(
             for rank, value in enumerate(negative_values, start=1)
         )
 
+    from .profile_resolver import intolerance_ingredient_aliases
+
     for item in user_profile.get('intolerances') or []:
-        key = normalize_ingredient_name(item)
-        if not key:
-            continue
-        matched = False
+        aliases = intolerance_ingredient_aliases(item) or [str(item)]
+        matched_ingredient = None
         for ingredient in valid_ingredients:
             ni = normalize_ingredient_name(ingredient)
-            if ni and (key == ni or key in ni or ni in key):
-                matched = True
+            for alias in aliases:
+                key = normalize_ingredient_name(alias)
+                if ni and key and (key == ni or key in ni or ni in key):
+                    matched_ingredient = ingredient
+                    break
+            if matched_ingredient:
                 break
-        if matched:
+        if matched_ingredient:
             penalty_axis = INTOLERANCE_PENALTY["axis"]
             negative_factors.append({
-                'ingredient': item,
+                'ingredient': normalize_ingredient_name(matched_ingredient),
                 'property': penalty_axis,
                 'direction': 'negative',
                 'strength': INTOLERANCE_PENALTY["strength"],

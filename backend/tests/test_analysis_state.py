@@ -43,7 +43,7 @@ class AIReportTests(unittest.TestCase):
         }
         with patch("app.ai_summary.summarize_with_ai", return_value="AI-рецензия") as mock:
             report = asyncio.run(generate_ai_report("Крем", analysis, {"skin_type": "Жирная"}))
-        self.assertEqual(report, "AI-рецензия")
+        self.assertEqual(report, [{"text": "детерминированное", "sentiment": "negative"}])
         call_args = mock.call_args[0]
         self.assertEqual(call_args[1], 44)  # переданный score == исходному
 
@@ -56,7 +56,7 @@ class AIReportTests(unittest.TestCase):
         }
         with patch("app.ai_summary.summarize_with_ai", return_value=None):
             report = asyncio.run(generate_ai_report("Крем", analysis, {}))
-        self.assertEqual(report, "детерминированное резюме")
+        self.assertEqual(report, [{"text": "детерминированное резюме", "sentiment": "negative"}])
 
 
 if __name__ == "__main__":

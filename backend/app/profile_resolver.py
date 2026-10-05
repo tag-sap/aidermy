@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .profile_matrix import (
     AXES,
     INTOLERANCE_CONFIG,
+    INTOLERANCE_INGREDIENT_SYNONYMS,
     LEGACY_ALLERGY_MAP,
     LEGACY_CONCERN_MAP,
     LEGACY_SKIN_TYPE_MAP,
@@ -227,9 +228,10 @@ def resolve_personal_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "weights": weights,
         "warnings": _dedupe(warnings),
-        "restrictions": [],
+        "restrictions": _as_list(profile.get("restrictions")),
         "intolerances": _as_list(profile.get("intolerances")),
         "allergies": _as_list(profile.get("allergies")),
+        "age": profile.get("age"),
         "context": _dedupe(context),
         "active_therapy": _dedupe(active_therapy),
         "active_procedures": _dedupe(active_procedures),
@@ -320,3 +322,56 @@ def intolerance_to_ingredients(profile: Dict[str, Any]) -> Tuple[List[str], List
                 else:
                     soft.append(item)
     return _dedupe(soft), _dedupe(hard)
+
+
+def intolerance_ingredient_aliases(item: Any) -> List[str]:
+    """Return ingredient tokens for a category intolerance ID or legacy label."""
+    if isinstance(item, dict):
+        item = item.get("type") or item.get("ingredient_id") or item.get("ingredient")
+    if not isinstance(item, str):
+        return []
+    key = item.strip().lower()
+    if key in INTOLERANCE_INGREDIENT_SYNONYMS:
+        return list(INTOLERANCE_INGREDIENT_SYNONYMS[key])
+    for intolerance_id, config in INTOLERANCE_CONFIG.items():
+        if str(config.get("label") or "").strip().lower() == key:
+            return list(INTOLERANCE_INGREDIENT_SYNONYMS.get(intolerance_id, []))
+    for legacy, intolerance_id in LEGACY_ALLERGY_MAP.items():
+        if legacy in key:
+            return list(INTOLERANCE_INGREDIENT_SYNONYMS.get(intolerance_id, []))
+    return []
+
+
+def _as_profile_values(value: Any) -> List[Any]:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def normalize_scoring_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge legacy and structured constraints into the Score Engine input."""
+    result = dict(profile or {})
+    structured = result.get("structured")
+    structured = structured if isinstance(structured, dict) else {}
+
+    allergies: List[Any] = []
+    allergy_items = (
+        _as_profile_values(result.get("allergies"))
+        + _as_profile_values(structured.get("allergies"))
+    )
+    for item in allergy_items:
+        aliases = intolerance_ingredient_aliases(item)
+        allergies.extend(aliases or [item])
+
+    restrictions = (
+        _as_profile_values(result.get("restrictions"))
+        + _as_profile_values(structured.get("restrictions"))
+    )
+    soft_intolerances, hard_intolerances = intolerance_to_ingredients(structured)
+    restrictions.extend(hard_intolerances)
+    intolerances = _as_profile_values(result.get("intolerances")) + soft_intolerances
+
+    result["allergies"] = _dedupe([str(x).strip() for x in allergies if str(x).strip()])
+    result["restrictions"] = _dedupe([str(x).strip() for x in restrictions if str(x).strip()])
+    result["intolerances"] = _dedupe(intolerances)
+    return result

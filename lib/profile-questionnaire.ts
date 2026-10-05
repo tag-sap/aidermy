@@ -273,6 +273,7 @@ export const INTOLERANCE_OPTIONS: QuestionOption[] = [
 // ---------------------------------------------------------------------------
 export type StructuredQuizState = {
   skinType: string | null
+  age: string | null
   selectedCards: string[]
   answers: Record<string, Record<string, string[]>>
   therapyEnabled: boolean | null
@@ -289,6 +290,7 @@ const ACID_ID_SET = new Set(ACID_OPTIONS.map(o => o.id))
 export function structuredToQuizState(s: StructuredProfile | null | undefined): StructuredQuizState {
   const state: StructuredQuizState = {
     skinType: s?.skin_type ?? null,
+    age: s?.age ?? null,
     selectedCards: [],
     answers: {},
     therapyEnabled: null,
