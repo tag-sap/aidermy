@@ -1053,6 +1053,8 @@ def _analysis_to_dict(row) -> dict:
     d = dict(row)
     result = {
         "id": d.get("id"),
+        "product_id": d.get("product_id"),
+        "slug": d.get("slug") or "",
         "verdict": d.get("verdict") or "",
         "summary": d.get("summary") or "",
         "score": int(d.get("score") or 0) if d.get("score") is not None else None,

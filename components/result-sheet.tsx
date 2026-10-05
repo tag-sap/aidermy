@@ -66,6 +66,26 @@ function ScoreRing({ score }: { score: number }) {
   )
 }
 
+function fragmentsToText(value: unknown): string | null {
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (Array.isArray(parsed)) return fragmentsToText(parsed)
+    } catch {
+      return value || null
+    }
+    return value || null
+  }
+  if (Array.isArray(value)) {
+    const text = value
+      .map((item) => (typeof item === 'string' ? item : item && typeof item === 'object' && 'text' in item ? String(item.text || '') : ''))
+      .filter(Boolean)
+      .join(' ')
+    return text || null
+  }
+  return null
+}
+
 export function ResultSheet({
   isOpen,
   result,
@@ -122,13 +142,21 @@ export function ResultSheet({
             concerns: profile.concerns || [],
             allergies: profile.allergies || [],
             custom_text: profile.customText || '',
+            structured: profile.structured || null,
           },
           ingredients: ingredientsInput,
         }),
       })
       if (!response.ok) throw new Error(`Ошибка: ${response.status}`)
       const data = await response.json()
-      onResultUpdate({ ...data, product: productNameInput.trim() || result.product, skinType: result.skinType || profile.skinType, createdAt: Date.now() })
+      onResultUpdate({
+        ...data,
+        analysis_id: data.analysis_id ?? null,
+        slug: data.slug || result.slug,
+        product: productNameInput.trim() || result.product,
+        skinType: result.skinType || profile.skinType,
+        createdAt: Date.now(),
+      })
       setProductNameInput('')
       setIngredientsInput('')
     } catch (error) { console.error('Ошибка проверки с составом:', error) }
@@ -138,7 +166,7 @@ export function ResultSheet({
   // Генерация подробного описания (Слой 2). LLM объясняет уже готовый результат,
   // НЕ пересчитывает процент и НЕ меняет verdict.
   const handleGetDetails = async () => {
-    if (!result?.slug || gettingDetails) return
+    if ((!result?.slug && !result?.analysis_id) || gettingDetails) return
     setGettingDetails(true)
     setDetailsError('')
     try {
@@ -149,16 +177,16 @@ export function ResultSheet({
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ slug: result.slug, analysis_id: result.analysis_id ?? null }),
+        body: JSON.stringify({ slug: result.slug || '', analysis_id: result.analysis_id ?? null }),
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.detail || 'Не удалось подготовить подробный анализ')
       onResultUpdate({
         ...result,
-        report: d.review ?? result.report,
+        report: fragmentsToText(d.review) ?? result.report,
         active_ingredients: d.active_ingredients ?? result.active_ingredients,
-        what_good: d.what_good ?? result.what_good,
-        what_caution: d.what_caution ?? result.what_caution,
+        what_good: fragmentsToText(d.what_good) ?? result.what_good,
+        what_caution: fragmentsToText(d.what_bad) ?? result.what_caution,
         how_to_use: d.how_to_use ?? result.how_to_use,
         expectations: d.expectations ?? result.expectations,
         inci: d.inci ?? result.inci,
@@ -169,15 +197,6 @@ export function ResultSheet({
       setGettingDetails(false)
     }
   }
-
-  // «Показать отчёт» сразу показывает подробности: если описания ещё нет —
-  // генерируем его автоматически при открытии (без отдельной кнопки).
-  useEffect(() => {
-    if (isOpen && result && !result.report && result.slug && !gettingDetails && !detailsError) {
-      handleGetDetails()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, result?.report])
 
   if (!isOpen) return null
 
@@ -235,45 +254,39 @@ export function ResultSheet({
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <div className="flex items-center gap-3">
                 {result.image_url && <div className="w-14 h-14 rounded-xl overflow-hidden bg-white/60 flex items-center justify-center border border-gray-100 flex-shrink-0"><img src={result.image_url} alt={result.product} className="w-full h-full object-contain p-1" /></div>}
-                <ScoreRing score={result.score} />
+                {typeof result.score === 'number' ? (
+                  <ScoreRing score={result.score} />
+                ) : (
+                  <div className="flex size-[124px] shrink-0 flex-col items-center justify-center rounded-full border border-gray-200 text-muted-foreground/50">
+                    <span className="text-2xl font-light">—</span>
+                    <span className="text-[10px] font-light">нет оценки</span>
+                  </div>
+                )}
                 <div>
-                  <p className={cn('text-base font-medium', result.score >= 70 ? 'text-primary' : result.score >= 40 ? 'text-primary/70' : 'text-muted-foreground')}>{result.verdict}</p>
-                  <p className="text-xs text-muted-foreground/50 font-light">на основе состава</p>
+                  <p className={cn('text-base font-medium', typeof result.score === 'number' && result.score >= 70 ? 'text-primary' : typeof result.score === 'number' && result.score >= 40 ? 'text-primary/70' : 'text-muted-foreground')}>{result.verdict}</p>
+                  <p className="text-xs text-muted-foreground/50 font-light">
+                    {typeof result.score === 'number' ? 'на основе состава' : 'оценка пока недоступна'}
+                  </p>
                 </div>
               </div>
             </div>
 
             <>
               <Section icon={Sparkles} title="Результат" className="border-primary/10">
-                {result.report ? (
+                {result.report && result.report !== result.summary ? (
                   <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.report} /></p>
-                ) : gettingDetails ? (
-                  <p className="flex items-center gap-2 text-sm text-muted-foreground/70 font-light">
-                    <LoaderCircle className="size-4 animate-spin" />
-                    Готовим подробный анализ...
-                  </p>
-                ) : detailsError ? (
-                  <div className="flex flex-col gap-1.5">
-                    <p className="text-sm text-red-500">Не удалось подготовить подробный анализ</p>
-                    <button
-                      onClick={handleGetDetails}
-                      className="self-start rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-50"
-                    >
-                      Повторить
-                    </button>
-                  </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground/60 font-light">Готовим подробный анализ...</p>
+                  <p className="text-sm text-foreground/80 leading-relaxed font-light">{result.summary}</p>
                 )}
               </Section>
 
-              {result.what_good ? (
+              {result.report && result.report !== result.summary && result.what_good ? (
                 <Section icon={CheckCircle} title="Что хорошо в составе" className="border-green-100/50">
                   <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.what_good} /></p>
                 </Section>
               ) : null}
 
-              {result.what_caution ? (
+              {result.report && result.report !== result.summary && result.what_caution ? (
                 <Section icon={AlertCircle} title="Что может не подойти" className="border-amber-100/50">
                   <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.what_caution} /></p>
                 </Section>
@@ -281,7 +294,7 @@ export function ResultSheet({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
 
-                  {result.how_to_use && (
+                  {result.report && result.report !== result.summary && result.how_to_use && (
                     <Section icon={Clock} title="Как применять" className="border-blue-100/50">
                       <div className="space-y-0.5 text-xs text-foreground/70 font-light">
                         <p><span className="font-medium text-foreground/80">Нанесение:</span> {result.how_to_use.application}</p>
@@ -291,7 +304,7 @@ export function ResultSheet({
                     </Section>
                   )}
 
-                  {result.expectations && (
+                  {result.report && result.report !== result.summary && result.expectations && (
                     <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50">
                       <div className="space-y-0.5 text-xs text-foreground/70 font-light">
                         <p><span className="font-medium text-foreground/80">Когда:</span> {result.expectations.when}</p>
@@ -302,7 +315,7 @@ export function ResultSheet({
                   )}
                 </div>
 
-                {result.inci && result.inci.length > 0 ? (
+                {result.report && result.report !== result.summary && result.inci && result.inci.length > 0 ? (
                   <Section icon={Sparkles} title="INCI" className="border-gray-100/50">
                     <p className="text-[11px] leading-relaxed text-foreground/60 font-light break-words">{result.inci.join(', ')}</p>
                   </Section>
@@ -320,6 +333,24 @@ export function ResultSheet({
             )}
 
             <div className="flex gap-2 pt-0.5">
+              {typeof result.score === 'number' && (!result.report || result.report === result.summary) ? (
+                <div className="flex flex-1 flex-col gap-2">
+                  {detailsError && <p className="text-center text-xs text-red-500">{detailsError}</p>}
+                  <button
+                    type="button"
+                    onClick={handleGetDetails}
+                    disabled={gettingDetails || (!result.slug && !result.analysis_id)}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-opacity disabled:opacity-50"
+                  >
+                    {gettingDetails ? (
+                      <>
+                        <LoaderCircle className="size-4 animate-spin" />
+                        Готовим отчёт...
+                      </>
+                    ) : detailsError ? 'Повторить' : 'Посмотреть отчёт'}
+                  </button>
+                </div>
+              ) : null}
               <button onClick={handleClose} className="flex-1 rounded-lg border border-gray-200/60 py-2.5 text-sm font-medium text-muted-foreground transition-all hover:bg-gray-50">Закрыть</button>
             </div>
             </div>

@@ -415,7 +415,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         return result
     
     return {
-        "score": 0,
+        "score": None,
         "verdict": "Неизвестный состав",
         "summary": "НЕИЗВЕСТНЫЙ СОСТАВ",
         "safe_ingredients": [],
@@ -490,69 +490,18 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         interactions = None
     deterministic = engine.analyze(product_name, ingredients, profile, skin_type, interactions=interactions)
 
-    # 3) AI-отчёт (report) — человеческое объяснение причин («Почему»).
-    #    Получает structured factors и НЕ переопределяет score/verdict.
-    report = None
-    if DEEPSEEK_API_KEY and (deterministic.get("positive_factors") or deterministic.get("negative_factors")):
-        try:
-            report = await asyncio.wait_for(
-                generate_ai_report(product_name, deterministic, profile),
-                timeout=REPORT_STEP_TIMEOUT,
-            )
-        except Exception as exc:
-            print(f"[CHECK] report failed: {exc!r}")
-
-    # 4) AI-отчёт (how_to_use / expectations) — вторичное текстовое представление
-    #    УЖЕ ГОТОВОГО User Analysis. Получает score/verdict/factors/safe/caution и
-    #    НЕ имеет права переопределять совместимость.
-    sections = {"how_to_use": None, "expectations": None}
-    if DEEPSEEK_API_KEY and (deterministic.get("positive_factors") or deterministic.get("negative_factors")):
-        try:
-            sections = await asyncio.wait_for(
-                generate_ai_report_sections(product_name, deterministic, profile),
-                timeout=SECTIONS_STEP_TIMEOUT,
-            )
-        except Exception as exc:
-            print(f"[CHECK] report sections failed: {exc!r}")
-
-    # Ключевой ингредиент: сначала детерминированный fallback, затем ИИ определяет
-    # реальный актив (Retinol, Niacinamide и т.п.), не путая его с базой (glycerin).
-    active_ingredients = build_active_ingredient(deterministic)
-    if DEEPSEEK_API_KEY:
-        try:
-            ai_key = await asyncio.wait_for(
-                identify_key_ingredient_with_ai(product_name, ingredients),
-                timeout=KEY_INGREDIENT_STEP_TIMEOUT,
-            )
-            if ai_key and ai_key.get("name"):
-                active_ingredients = {
-                    "name": ai_key["name"],
-                    "position": ai_key.get("position") or 1,
-                    "concentration": (active_ingredients or {}).get("concentration", "в составе"),
-                }
-        except Exception as exc:
-            print(f"[CHECK] key ingredient AI failed: {exc!r}")
-
-    # Итоговое резюме — нейтральный детерминированный fallback (build_summary).
-    # Пользовательское объяснение причин — это поле report (AI).
-    summary = deterministic.get('summary') or 'Не удалось получить рекомендацию.'
-    # report здесь — plain string (для /api/check). generate_ai_report возвращает
-    # список fragments [{text, sentiment}] — склеиваем в текст.
-    if isinstance(report, list):
-        report_text = " ".join(str(f.get("text") or "") for f in report if isinstance(f, dict)).strip()
-    else:
-        report_text = report
-
+    # Отчёт и его поясняющие блоки создаются только отдельным запросом после
+    # явного действия пользователя; этап проверки возвращает только Match.
     return {
         'score': int(deterministic.get('score') or 0),
         'verdict': deterministic.get('verdict') or 'Требует внимания',
-        'summary': summary,
-        'report': report_text or summary,
+        'summary': deterministic.get('summary') or '',
+        'report': None,
         'safe_ingredients': deterministic.get('safe_ingredients') or [],
         'caution_ingredients': deterministic.get('caution_ingredients') or [],
-        'active_ingredients': active_ingredients,
-        'how_to_use': sections.get('how_to_use'),
-        'expectations': sections.get('expectations'),
+        'active_ingredients': None,
+        'how_to_use': None,
+        'expectations': None,
         'ingredient_claims': ingredient_claims or [],
         'research_status': research_status,
         # Полный deterministic-результат Score Engine — источник истины для Report.

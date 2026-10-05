@@ -57,7 +57,7 @@ export function deriveAnalysisState(args: {
       kind: 'ANALYZED',
       score,
       analysis: args.analysis as ProductAnalysis,
-      hasReport: Boolean(args.analysis?.id),
+      hasReport: Boolean(args.analysis?.report),
     }
   }
   return { kind: 'NOT_ANALYZED' }

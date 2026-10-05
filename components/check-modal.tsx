@@ -92,6 +92,7 @@ function buildProfileBody(profile: SkinProfile) {
     custom_text: profile.customText || '',
     quiz_answers: profile.quizAnswers || {},
     skin_type_determined: profile.skinTypeDetermined || '',
+    structured: profile.structured || null,
   }
 }
 
@@ -201,14 +202,14 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
 
   const handleName = () => {
     if (!name.trim() || loading) return
-    onCheck(name.trim(), 'Нормальная')
+    onCheck(name.trim(), profile.skinType || profile.skinTypeDetermined || 'Нормальная')
     setName('')
     onClose()
   }
 
   const selectSuggestion = (s: Suggestion) => {
     setShowSuggestions(false)
-    onCheck(s.title || s.brand, 'Нормальная')
+    onCheck(s.title || s.brand, profile.skinType || profile.skinTypeDetermined || 'Нормальная')
     setName('')
     onClose()
   }
@@ -354,9 +355,9 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         product: payload.product_name,
         skinType: profile.skinType || 'Нормальная',
-        score: data.score || 0,
+        score: typeof data.score === 'number' ? data.score : null,
         verdict: data.verdict || 'Нет данных',
-        summary: data.summary || 'Не удалось получить рекомендацию.',
+        summary: data.summary || '',
         safe_ingredients: data.safe_ingredients || [],
         caution_ingredients: data.caution_ingredients || [],
         slug: data.slug || '',
@@ -365,6 +366,8 @@ export function CheckModal({ isOpen, onClose, onCheck, profile, onRecognized, on
         active_ingredients: data.active_ingredients,
         how_to_use: data.how_to_use,
         expectations: data.expectations,
+        analysis_id: data.analysis_id ?? null,
+        report: data.report ?? null,
       }
       onRecognized(result)
       onClose()

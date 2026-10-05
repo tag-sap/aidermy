@@ -34,7 +34,7 @@ export type CheckResult = {
   id: string
   product: string
   skinType: string
-  score: number
+  score: number | null
   verdict: string
   summary: string
   safe_ingredients?: string[]
@@ -140,7 +140,7 @@ export function determineSkinTypeFromAnswers(answers: Record<string, string>): s
   return 'Нормальная'
 }
 
-// Мок-функция для проверки (оставляем для совместимости)
+// Legacy helper retained for compatibility; production checks use the backend Score Engine.
 export function mockCheck(product: string, skinType: string): CheckResult {
   const score = Math.floor(Math.random() * 61) + 40
   return {

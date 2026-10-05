@@ -273,7 +273,7 @@ export function HistoryTab({
 
                   <div className="flex shrink-0 items-center gap-2">
                     <div className="text-right">
-                      <span className="text-2xl font-normal text-primary">{item.score}%</span>
+                      <span className="text-2xl font-normal text-primary">{item.score == null ? '—' : `${item.score}%`}</span>
                     </div>
                     <button
                       type="button"

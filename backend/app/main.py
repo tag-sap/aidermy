@@ -385,27 +385,56 @@ async def analyze_composition_endpoint(
             save_ingredients(request.product_name, ingredients_str, slug)
 
         user_id = current_user.get("id") if current_user else None
-        if ingredients_str and result.get("score", 0) > 0:
+        conn_products = get_connection(PRODUCTS_DB)
+        existing_product = conn_products.execute(
+            "SELECT id, slug FROM products WHERE name = ? OR slug = ?",
+            (request.product_name, slug),
+        ).fetchone()
+        conn_products.close()
+        product_id = existing_product["id"] if existing_product else None
+        if existing_product and existing_product["slug"]:
+            slug = existing_product["slug"]
+
+        if ingredients_str and result.get("score") is not None:
             save_pending_product(
                 product_name=request.product_name,
                 ingredients=ingredients_str,
                 user_id=user_id,
             )
 
+        analysis_id = None
+        if user_id:
+            saved = _save_system_analysis(
+                current_user,
+                product_id=product_id,
+                slug=slug,
+                result=result,
+                profile_snapshot=request.profile.dict(),
+            )
+            analysis_id = saved.get("id") if saved else None
+
+        pending = bool(result.get("pending"))
         return {
-            "score": result.get("score", 50),
-            "verdict": result.get("verdict", "Нейтрально"),
-            "summary": result.get("summary", "Не удалось получить рекомендацию."),
+            "score": result.get("score") if (result.get("deterministic") or {}).get("normalized_ingredients") else None,
+            "verdict": "Требуется время" if pending else (result.get("verdict") or "Неизвестный состав"),
+            "summary": (
+                "Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже."
+                if pending
+                else (result.get("summary") or "")
+            ),
             "safe_ingredients": result.get("safe_ingredients", []),
             "caution_ingredients": result.get("caution_ingredients", []),
-            "active_ingredients": result.get("active_ingredients"),
-            "how_to_use": result.get("how_to_use"),
-            "expectations": result.get("expectations"),
+            "active_ingredients": None,
+            "how_to_use": None,
+            "expectations": None,
             "slug": slug,
             "image_url": result.get("image_url") or "",
             "ingredients": ingredients_str,
             "normalized_ingredients": normalized,
             "ingredient_ids": [r["id"] for r in registered],
+            "analysis_id": analysis_id,
+            "report": None,
+            "pending": pending,
         }
     except Exception as exc:
         print(f"❌ Ошибка анализа состава: {exc!r}")
@@ -497,7 +526,7 @@ async def check_product(
         conn_products = get_connection(PRODUCTS_DB)
         cursor_products = conn_products.cursor()
         cursor_products.execute(
-            "SELECT id FROM products WHERE name = ? OR slug = ?",
+            "SELECT id, slug FROM products WHERE name = ? OR slug = ?",
             (request.product_name, slug)
         )
         existing_product = cursor_products.fetchone()
@@ -529,9 +558,9 @@ async def check_product(
 
         pending = bool(result.get("pending"))
         return CheckResponse(
-            score=0 if pending else result.get("score", 50),
-            verdict="Требуется время" if pending else result.get("verdict", "Нейтрально"),
-            summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else result.get("summary", "Не удалось получить рекомендацию.")),
+            score=None if pending or not (result.get("deterministic") or {}).get("normalized_ingredients") else result.get("score"),
+            verdict="Требуется время" if pending else (result.get("verdict") or "Неизвестный состав"),
+            summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else (result.get("summary") or "")),
             safe_ingredients=result.get("safe_ingredients", []),
             caution_ingredients=result.get("caution_ingredients", []),
             cached=False,
@@ -540,7 +569,7 @@ async def check_product(
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
-            report=result.get("report"),
+            report=None,
             analysis_id=analysis_id,
             pending=pending,
         )
@@ -571,17 +600,19 @@ async def check_with_ingredients(
         conn_products = get_connection(PRODUCTS_DB)
         cursor_products = conn_products.cursor()
         cursor_products.execute(
-            "SELECT id FROM products WHERE name = ? OR slug = ?",
+            "SELECT id, slug FROM products WHERE name = ? OR slug = ?",
             (check_request.product_name, slug)
         )
         existing_product = cursor_products.fetchone()
         conn_products.close()
+        if existing_product and existing_product["slug"]:
+            slug = existing_product["slug"]
         
         user_id = current_user.get('id') if current_user else None
         product_id = existing_product['id'] if existing_product else None
         
         # Отправляем в модерацию
-        if check_request.ingredients and result.get("score", 0) > 0:
+        if check_request.ingredients and result.get("score") is not None:
             save_pending_product(
                 product_name=check_request.product_name,
                 ingredients=check_request.ingredients,
@@ -603,9 +634,9 @@ async def check_with_ingredients(
         
         pending = bool(result.get("pending"))
         return CheckResponse(
-            score=0 if pending else result.get("score", 50),
-            verdict="Требуется время" if pending else result.get("verdict", "Нейтрально"),
-            summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else result.get("summary", "Не удалось получить рекомендацию.")),
+            score=None if pending or not (result.get("deterministic") or {}).get("normalized_ingredients") else result.get("score"),
+            verdict="Требуется время" if pending else (result.get("verdict") or "Неизвестный состав"),
+            summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else (result.get("summary") or "")),
             safe_ingredients=result.get("safe_ingredients", []),
             caution_ingredients=result.get("caution_ingredients", []),
             cached=False,
@@ -614,7 +645,7 @@ async def check_with_ingredients(
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
-            report=result.get("report"),
+            report=None,
             analysis_id=analysis_id,
             pending=pending,
         )
@@ -1024,8 +1055,14 @@ def _save_system_analysis(user: dict, product_id: int | None, slug: str, result:
     import json as _json
     from .database import upsert_analysis
 
-    score = int(result.get("score") or 0)
-    if score <= 0:
+    deterministic = result.get("deterministic")
+    if not isinstance(deterministic, dict) or not deterministic.get("normalized_ingredients"):
+        return None
+    raw_score = result.get("score")
+    if raw_score is None:
+        return None
+    score = int(raw_score)
+    if not 0 <= score <= 100:
         return None
 
     try:
@@ -1089,7 +1126,7 @@ async def _ensure_product_checked(current_user: dict, product: dict):
         print(f"[ENSURE CHECK] failed: {exc!r}")
         return None, None
 
-    if not result or not result.get("score"):
+    if not result or result.get("score") is None:
         return None, None
 
     conn = get_connection(AIDERMY_DB)
@@ -1361,7 +1398,7 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     if result and result.get("pending"):
         return {"status": "pending", "cached": False, "score": None, "analysis": None, "detail": "Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже."}
 
-    if not result or not result.get("score"):
+    if not result or result.get("score") is None:
         return {"status": "error", "cached": False, "score": None, "analysis": None, "detail": "Состав продукта неизвестен"}
 
     conn = get_connection(AIDERMY_DB)
@@ -1462,26 +1499,39 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     from .services import generate_full_report
     from .catalog_taxonomy import classify_product
 
-    product = get_product_by_slug(request.slug)
-    if not product:
-        raise HTTPException(status_code=404, detail="Продукт не найден")
-
-    name = (product.get("name") or "").replace("\n", " ").strip()
-    product_type = classify_product(product).get("canonical_category") or ""
-
     from .database import get_analysis_by_id
     if request.analysis_id:
         analysis = get_analysis_by_id(current_user["id"], request.analysis_id)
         if not analysis:
             raise HTTPException(status_code=404, detail="Анализ не найден")
         score = analysis.get("score")
+        slug = analysis.get("slug") or request.slug
+        product = get_product_by_slug(slug) if slug else None
     else:
+        product = get_product_by_slug(request.slug)
+        if not product:
+            raise HTTPException(status_code=404, detail="Продукт не найден")
         score, analysis = score_product(current_user, product)
+        slug = product.get("slug") or request.slug
     if score is None:
         raise HTTPException(status_code=409, detail="Анализ ещё не выполнен — сначала проверьте совместимость.")
 
-    # Если полный отчёт уже сгенерирован — возвращаем сохранённое (без повторного LLM).
-    if analysis and analysis.get("report") and analysis.get("active_ingredients") and analysis.get("how_to_use") and analysis.get("expectations") and analysis.get("what_good"):
+    deterministic = (analysis or {}).get("deterministic") or {}
+    name = (
+        (product.get("name") or "").replace("\n", " ").strip()
+        if product
+        else str(deterministic.get("product_name") or slug or "").strip()
+    )
+    product_type = classify_product(product).get("canonical_category") or "" if product else ""
+    ingredients = (
+        product.get("ingredients") or ", ".join(deterministic.get("normalized_ingredients") or [])
+        if product
+        else ", ".join(deterministic.get("normalized_ingredients") or [])
+    )
+
+    # Наличие report означает, что отдельный объект отчёта уже был сохранён.
+    # Остальные блоки опциональны и не должны провоцировать повторную генерацию.
+    if analysis and analysis.get("report"):
         det = analysis.get("deterministic") or {}
         return {
             "score": score,
@@ -1500,7 +1550,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     try:
         full = await generate_full_report(
             name,
-            product.get("ingredients") or "",
+            ingredients,
             profile,
             skin_type,
             product_type,
@@ -1517,8 +1567,8 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
 
     save_analysis_details(
         current_user["id"],
-        product.get("id"),
-        product.get("slug") or request.slug,
+        product.get("id") if product else (analysis or {}).get("product_id"),
+        slug,
         report=_json.dumps(review_fragments, ensure_ascii=False),
         active_ingredients=full.get("active_ingredients"),
         how_to_use=full.get("how_to_use"),
@@ -1526,7 +1576,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         what_good=_json.dumps(what_good, ensure_ascii=False),
         what_caution=_json.dumps(what_bad, ensure_ascii=False),
     )
-    save_ai_report(current_user["id"], product.get("slug") or request.slug, review_text)
+    save_ai_report(current_user["id"], slug, review_text)
 
     return {
         "score": score,

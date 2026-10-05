@@ -38,9 +38,9 @@ const normalizeHistoryItem = (item: any): CheckResult => ({
   id: String(item?.id ?? `${item?.product_name ?? item?.product ?? 'history'}-${item?.created_at ?? Date.now()}`),
   product: item?.product_name ?? item?.product ?? 'Неизвестный продукт',
   skinType: item?.skin_type ?? item?.skinType ?? 'Нормальная',
-  score: Number(item?.score ?? 50),
-  verdict: item?.verdict ?? 'Требует внимания',
-  summary: item?.summary ?? 'Не удалось получить рекомендацию.',
+  score: item?.score == null || !Number.isFinite(Number(item.score)) ? null : Number(item.score),
+  verdict: item?.verdict ?? '',
+  summary: item?.summary ?? '',
   safe_ingredients: Array.isArray(item?.safe_ingredients) ? item.safe_ingredients : [],
   caution_ingredients: Array.isArray(item?.caution_ingredients) ? item.caution_ingredients : [],
   stats: item?.stats ?? {},
@@ -583,9 +583,9 @@ export default function Page() {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         product: product,
         skinType: skinType,
-        score: data.score || 0,
+        score: typeof data.score === 'number' ? data.score : null,
         verdict: data.verdict || 'Нет данных',
-        summary: data.summary || 'Не удалось получить рекомендацию.',
+        summary: data.summary || '',
         stats: data.stats || {},
         skin_type_recommendation: data.skin_type_recommendation || '',
         safe_ingredients: data.safe_ingredients || [],
@@ -597,6 +597,7 @@ export default function Page() {
         how_to_use: data.how_to_use,
         expectations: data.expectations,
         report: data.report,
+        analysis_id: data.analysis_id ?? null,
       }
 
       setResult(fullResult)
@@ -613,7 +614,7 @@ export default function Page() {
         id: `${Date.now()}-error`,
         product,
         skinType: skinType,
-        score: 0,
+        score: null,
         verdict: 'Не удалось проверить',
         summary: 'Не удалось получить анализ. Проверьте соединение и настройки AI-сервиса.',
         safe_ingredients: [],
@@ -628,6 +629,7 @@ export default function Page() {
   }
 
   const persistHistory = async (fullResult: CheckResult, skinType: string) => {
+    if (fullResult.score == null) return
     const token = localStorage.getItem('token')
     if (!token || !isAuthenticated) return
     try {

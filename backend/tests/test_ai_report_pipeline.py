@@ -125,6 +125,7 @@ class GenerateReportSectionsTests(unittest.TestCase):
         self.assertIsNone(result["how_to_use"])
         self.assertIsNone(result["expectations"])
 
+
     @_fake_ai_client({
         "how_to_use": {"application": "Тонкий слой", "time": "Вечером"},
         "expectations": {"when": "1-2 недели", "normal": "увлажнение", "danger": "fragrance"},
@@ -220,9 +221,11 @@ class GenerateReportFactorsTests(unittest.TestCase):
             "negative_factors": [{"ingredient": "fragrance", "property": "sensitivity", "direction": "negative"}],
             "summary": "x",
         }
-        with patch("app.ai_summary.summarize_with_ai", return_value="рецензия") as mock:
+        generated = [{"text": "Glycerin поддерживает увлажнение.", "sentiment": "positive"}]
+        with patch("app.ai_summary.summarize_with_ai", return_value=generated) as mock, \
+             patch("app.services._ground_fragments", return_value=generated):
             report = asyncio.run(generate_ai_report("Мусс", analysis, {}))
-        self.assertEqual(report, "рецензия")
+        self.assertEqual(report, generated)
         passed_analysis = mock.call_args[0][2]
         self.assertEqual(passed_analysis["positive_factors"][0]["property"], "hydration")
         self.assertEqual(passed_analysis["negative_factors"][0]["direction"], "negative")
@@ -244,3 +247,40 @@ class AIPromptHumanTermsTests(unittest.TestCase):
         # AI инструктирован объяснять человеческим языком, не выводя технические INCI-имена.
         self.assertIn("человеческим языком", prompt)
         self.assertIn("парфюмерная композиция", prompt)
+
+
+class CheckReportLifecycleTests(unittest.TestCase):
+    def test_check_does_not_generate_report_or_report_sections(self):
+        from app.services import check_product_with_ingredients
+
+        with patch("app.services.DEEPSEEK_API_KEY", "configured"), \
+             patch("app.decision_engine.DecisionEngine") as engine_type, \
+             patch("app.ingredient_enrichment.find_unknown_ingredients", return_value=[]), \
+             patch("app.services._enrich_knowledge_with_ai", new_callable=AsyncMock, return_value=None), \
+             patch("app.product_model.get_internal_interactions", return_value=[]), \
+             patch("app.services.generate_ai_report", new_callable=AsyncMock) as report, \
+             patch("app.services.generate_ai_report_sections", new_callable=AsyncMock) as sections, \
+             patch("app.services.identify_key_ingredient_with_ai", new_callable=AsyncMock) as key_ingredient:
+            engine = engine_type.return_value
+            engine.analysis_service.prepare_product_ingredients.return_value = ["glycerin"]
+            engine.analyze.return_value = {
+                "score": 61,
+                "verdict": "Требует внимания",
+                "summary": "Формула требует внимания.",
+                "normalized_ingredients": ["glycerin"],
+                "positive_factors": [{"ingredient": "glycerin"}],
+                "negative_factors": [],
+                "safe_ingredients": ["glycerin"],
+                "caution_ingredients": [],
+            }
+
+            result = asyncio.run(
+                check_product_with_ingredients("Крем", "Чувствительная", {}, "glycerin")
+            )
+
+        self.assertEqual(result["score"], 61)
+        self.assertIsNone(result["report"])
+        self.assertIsNone(result["active_ingredients"])
+        report.assert_not_awaited()
+        sections.assert_not_awaited()
+        key_ingredient.assert_not_awaited()

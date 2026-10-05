@@ -44,7 +44,7 @@ class Expectations(BaseModel):
     danger: Optional[str] = None
 
 class CheckResponse(BaseModel):
-    score: int
+    score: Optional[int] = None
     verdict: str
     summary: str
     pending: Optional[bool] = None

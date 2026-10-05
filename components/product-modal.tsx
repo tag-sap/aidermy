@@ -31,6 +31,8 @@ type ProductDetail = {
     how_to_use?: { application: string; time: string; note: string } | null
     expectations?: { when: string; normal: string; danger: string } | null
     report?: string | null
+    what_good?: string | null
+    what_caution?: string | null
   } | null
   on_shelf: { shelf_id: number; cabinet: string; category: string } | null
   community: {
@@ -58,6 +60,24 @@ function asList(v: unknown): string[] {
     return v.trim() ? [v] : []
   }
   return []
+}
+
+function asText(v: unknown): string | undefined {
+  if (Array.isArray(v)) {
+    const text = v
+      .map((item) => (typeof item === 'string' ? item : item && typeof item === 'object' && 'text' in item ? String(item.text || '') : ''))
+      .filter(Boolean)
+      .join(' ')
+    return text || undefined
+  }
+  if (typeof v !== 'string' || !v.trim()) return undefined
+  try {
+    const parsed = JSON.parse(v)
+    if (Array.isArray(parsed)) return asText(parsed)
+  } catch {
+    return v
+  }
+  return v
 }
 export function ProductModal({
   slug,
@@ -206,8 +226,8 @@ export function ProductModal({
     const result: CheckResult = {
       id: String(product.id),
       product: product.name,
-      skinType: 'Нормальная',
-      score: data.score ?? 0,
+      skinType: '',
+      score: data.score,
       verdict: a.verdict || '',
       summary: a.summary || '',
       safe_ingredients: asList(a.safe_ingredients),
@@ -218,7 +238,9 @@ export function ProductModal({
       active_ingredients: a.active_ingredients ?? undefined,
       how_to_use: a.how_to_use ?? undefined,
       expectations: a.expectations ?? undefined,
-      report: a.report ?? undefined,
+      report: asText(a.report),
+      what_good: asText(a.what_good),
+      what_caution: asText(a.what_caution),
       analysis_id: a.id ?? null,
     }
     onOpenReport(result)
@@ -408,7 +430,6 @@ export function ProductModal({
     </div>
   )
 }
-
 
 
 

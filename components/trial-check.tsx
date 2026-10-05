@@ -128,7 +128,7 @@ export function TrialCheck({ onAuth }: { onAuth: () => void }) {
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.detail || 'Не удалось проверить')
     setProduct(p)
-    setScore(typeof data.score === 'number' ? data.score : 0)
+    setScore(typeof data.score === 'number' ? data.score : null)
   }
 
   const selectSuggestion = async (s: Product) => {
@@ -395,4 +395,3 @@ export function TrialCheck({ onAuth }: { onAuth: () => void }) {
     </div>
   )
 }
-
