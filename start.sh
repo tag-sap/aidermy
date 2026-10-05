@@ -6,7 +6,7 @@ case "$1" in
     cd /var/www/aidermy/backend
     source venv/bin/activate
     pkill -f gunicorn 2>/dev/null
-    gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 127.0.0.1:8000 --daemon
+    gunicorn -w 1 -k uvicorn.workers.UvicornWorker app.main:app --bind 127.0.0.1:8000 --daemon --capture-output --error-logfile /var/www/aidermy/backend/gunicorn.log --access-logfile /var/www/aidermy/backend/gunicorn_access.log
     sleep 2
     curl -s http://127.0.0.1:8000/api/health > /dev/null && echo "✅ Бэкенд работает" || echo "❌ Бэкенд не работает"
     ;;

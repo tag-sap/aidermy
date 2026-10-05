@@ -818,6 +818,7 @@ def _build_user_profile(user: Dict[str, Any]) -> Dict[str, Any]:
     for a in structured_allergies:
         if a not in profile["allergies"]:
             profile["allergies"].append(a)
+    profile["structured"] = structured
     return profile
 
 

@@ -37,7 +37,20 @@ _SEED_RULES = [
 _TAXONOMY_SEED = {
     "retinoids": {
         "label": "Ретиноиды",
-        "ingredients": ["retinol", "retinal", "retinyl palmitate", "tretinoin", "adapalene", "tazarotene"],
+        "ingredients": [
+            "retinol",
+            "retinal",
+            "retinyl palmitate",
+            "retinyl acetate",
+            "retinyl linoleate",
+            "retinyl propionate",
+            "retinyl retinoate",
+            "hydroxypinacolone retinoate",
+            "sodium retinoyl hyaluronate",
+            "tretinoin",
+            "adapalene",
+            "tazarotene",
+        ],
     },
     "exfoliants": {
         "label": "Отшелушивающие",
@@ -295,7 +308,33 @@ class IngredientRepository:
         Ingredient Graph (Фаза 2). Non-destructive: исходные claims не меняются.
         """
         from .axes import canonicalize_knowledge_map
-        return canonicalize_knowledge_map(self.get_knowledge_map())
+        knowledge = canonicalize_knowledge_map(self.get_knowledge_map())
+
+        conn = get_connection(self.db_path)
+        rows = conn.cursor().execute(
+            "SELECT i.normalized_name, a.sensitization_potential, a.confidence "
+            "FROM ingredients_catalog i "
+            "JOIN allergen_sensitizer a ON a.ingredient_id=i.id "
+            "WHERE a.is_sensitizer=1"
+        ).fetchall()
+        conn.close()
+
+        for row in rows:
+            ingredient = (row["normalized_name"] or "").strip().lower()
+            strength = max(0.0, min(1.0, float(row["sensitization_potential"] or 0.0)))
+            confidence = max(0.0, min(1.0, float(row["confidence"] or 0.0)))
+            if not ingredient or strength <= 0:
+                continue
+            knowledge.setdefault(ingredient, {})
+            if "sensitization" not in knowledge[ingredient]:
+                knowledge[ingredient]["sensitization"] = {
+                    "direction": "positive",
+                    "strength": strength,
+                    "confidence": confidence,
+                    "_source": "allergen_sensitizer",
+                }
+
+        return knowledge
 
     # ------------------------------------------------------------------
     # Фаза 3A — Ingredient Interactions (глобальная knowledge-таблица)

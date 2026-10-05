@@ -140,6 +140,8 @@ def score_product_against_profile_canonical(
         }
 
     dimensions = {axis: 0.0 for axis in AXES}
+    axis_positive: Dict[str, List[float]] = {axis: [] for axis in AXES}
+    axis_negative: Dict[str, List[float]] = {axis: [] for axis in AXES}
     positive_factors: List[Dict[str, Any]] = []
     negative_factors: List[Dict[str, Any]] = []
     unknown_factors: List[Dict[str, Any]] = []
@@ -170,8 +172,53 @@ def score_product_against_profile_canonical(
             sign = _canonical_direction_sign(axis, axis_direction)
             if sign == 0.0:
                 continue
-            weighted_value = sign * strength * confidence * position_weight
-            dimensions[axis] += weighted_value
+            weighted_value = strength * confidence * position_weight
+
+            # Layer 4: context multiplier.
+            # Для чувствительного/реактивного профиля с активным
+            # наружным ретиноидом усиливаем только отрицательные claims
+            # по irritation/sensitization.
+            #
+            # Не проверяем recent_peeling: если анализируем сам кислотный
+            # пилинг, пилинг находится в продукте, а не в профиле пользователя.
+            if sign < 0 and axis in {"irritation", "sensitization"}:
+                profile_context = (
+                    user_profile.get("structured")
+                    if isinstance(user_profile, dict)
+                    and isinstance(user_profile.get("structured"), dict)
+                    else user_profile
+                ) or {}
+
+                skin_type = str(profile_context.get("skin_type") or "").strip().lower()
+                concerns = {
+                    str(x).strip().lower()
+                    for x in (profile_context.get("concerns") or [])
+                    if str(x).strip()
+                }
+
+                therapy = {
+                    str(item.get("id")).strip().lower()
+                    for item in (profile_context.get("therapy") or [])
+                    if isinstance(item, dict)
+                    and item.get("active")
+                    and item.get("id")
+                }
+
+                topical_retinoids = {"adapalene", "tretinoin", "tazarotene"}
+
+                is_sensitive_or_reactive = (
+                    "sensitive" in skin_type
+                    or "reactive_skin" in concerns
+                )
+                has_active_topical_retinoid = bool(therapy & topical_retinoids)
+
+                if is_sensitive_or_reactive and has_active_topical_retinoid:
+                    weighted_value *= 1.5 if axis == "sensitization" else 2.0
+
+            if sign > 0:
+                axis_positive[axis].append(weighted_value)
+            else:
+                axis_negative[axis].append(weighted_value)
             factor = {
                 'ingredient': ingredient,
                 'property': axis,
@@ -184,6 +231,25 @@ def score_product_against_profile_canonical(
                 positive_factors.append(factor)
             else:
                 negative_factors.append(factor)
+
+    # Diminishing returns для однотипных ingredient claims.
+    # Сильнейший claim получает полный вес, последующие — 1/rank.
+    for axis in AXES:
+        positive_values = sorted(axis_positive[axis], reverse=True)
+        negative_values = sorted(axis_negative[axis], reverse=True)
+
+        if axis in {"hydration", "barrier"}:
+            dimensions[axis] += positive_values[0] if positive_values else 0.0
+        else:
+            dimensions[axis] += sum(
+                value / rank
+                for rank, value in enumerate(positive_values, start=1)
+            )
+
+        dimensions[axis] -= sum(
+            value / rank
+            for rank, value in enumerate(negative_values, start=1)
+        )
 
     for item in user_profile.get('intolerances') or []:
         key = normalize_ingredient_name(item)

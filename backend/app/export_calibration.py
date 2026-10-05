@@ -30,6 +30,7 @@ from .analysis_service import AnalysisService
 from .axes import canonicalize_weights
 from .database import AIDERMY_DB, PRODUCTS_DB, get_connection
 from .decision_engine import priorities_for_profile
+from .profile_resolver import resolve_personal_profile
 from .ingredient_normalizer import normalize_ingredient_name
 from .scoring_config import (
     AXES,
@@ -407,9 +408,9 @@ def score_one(
     scoring_profile = _scoring_profile(profile)
 
     hard_filters = apply_hard_filters(scoring_profile, normalized)
-    weights = canonicalize_weights(
-        priorities_for_profile(scoring_profile, scoring_profile.get("skin_type", ""))
-    )
+    weights = resolve_personal_profile(
+        scoring_profile.get("structured", scoring_profile)
+    )["weights"]
     result = score_product_against_profile_canonical(
         ingredients=normalized,
         canonical_knowledge=knowledge,

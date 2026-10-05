@@ -686,7 +686,7 @@ def setup_admin_routes(app: FastAPI):
                 const prodCfg = p.config || {};
                 const changes = Object.keys(SE.cand).filter(k => SE.cand[k] !== prodCfg[k]);
                 if (!changes.length) { alert('Нет изменений для применения'); return; }
-                const msg = 'Применить Candidate в Production?\n\nProduction: ' + p.version + '\nChanges:\n' + changes.map(k => `${k}: ${prodCfg[k]} → ${SE.cand[k]}`).join('\n');
+                const msg = 'Применить Candidate в Production?\\n\\nProduction: ' + p.version + '\\nChanges:\\n' + changes.map(k => `${k}: ${prodCfg[k]} → ${SE.cand[k]}`).join('\\n');
                 if (!confirm(msg)) return;
                 const r = await j('POST','/admin/calibration/api/production/apply', { config: SE.cand, note: 'apply candidate', author: 'admin' });
                 if (r.error) { alert(r.error); return; }

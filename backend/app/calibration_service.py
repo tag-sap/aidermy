@@ -526,15 +526,35 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
     except Exception:
         knowledge = None
     results: List[Dict[str, Any]] = []
+    interactions_cache: Dict[str, Any] = {}
+
     for case in cases:
         p = case["product"]
         pr = case["profile"]
         structured = dict(pr["structured"])
+
+        # Calibration должен использовать тот же Layer 2 pipeline,
+        # что и production /check: internal ingredient interactions.
+        ingredients = p.get("ingredients") or ""
+        interaction_key = f"{p.get('name', '')}\x00{ingredients}"
+
+        if interaction_key not in interactions_cache:
+            try:
+                from .product_model import get_internal_interactions
+                interactions_cache[interaction_key] = (
+                    get_internal_interactions({"ingredients": ingredients}) or None
+                )
+            except Exception:
+                interactions_cache[interaction_key] = None
+
+        interactions = interactions_cache[interaction_key]
+
         try:
             res = engine.analyze(
-                p["name"], p.get("ingredients") or "", {"structured": structured},
+                p["name"], ingredients, {"structured": structured},
                 skin_type=structured.get("skin_type") or "Нормальная",
                 knowledge=knowledge,
+                interactions=interactions,
                 saturation_scale=saturation,
             )
         except TypeError:
