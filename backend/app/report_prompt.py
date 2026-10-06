@@ -274,19 +274,45 @@ def build_report_context(
     profile: Dict[str, Any],
     product_type: str = "",
 ) -> Dict[str, Any]:
-    """Собирает контекст placeholders из deterministic analysis (source of truth)."""
+    """Собирает контекст placeholders для персонального Report."""
     from .services import _build_report_input, _report_input_text
 
     inp = _build_report_input(analysis)
-    skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
-    goal_context = json.dumps(inp.get("goal_evidence") or [], ensure_ascii=False)
+    profile = profile or {}
+
+    skin = str(
+        profile.get("skin_type")
+        or profile.get("skin_type_determined")
+        or ""
+    )
+
+    profile_context = {
+        "skin_type": skin,
+        "age": profile.get("age") or "",
+        "concerns": profile.get("concerns") or [],
+        "allergies": profile.get("allergies") or [],
+        "custom_text": profile.get("custom_text") or "",
+        "structured": profile.get("structured") or {},
+    }
+
+    goal_context = json.dumps(
+        inp.get("goal_evidence") or [],
+        ensure_ascii=False,
+    )
     input_text = _report_input_text(inp)
     inci = ", ".join(str(i) for i in (inp.get("inci") or []))
+
     return {
         "product_name": product_name,
         "product_type": product_type or "не указан",
         "skin_type": skin or "не указан",
+        "profile_context": json.dumps(
+            profile_context,
+            ensure_ascii=False,
+            indent=2,
+        ),
         "goal_evidence": goal_context or "[]",
         "deterministic_input": input_text,
         "inci": inci or "—",
     }
+
