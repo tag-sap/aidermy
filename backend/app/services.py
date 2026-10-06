@@ -653,78 +653,119 @@ def _report_input_text(inp: dict) -> str:
 
 
 def _validate_report_once(inp: dict, output: dict) -> bool:
-    """Проверяет AI-ответ на явные противоречия с deterministic input."""
-    if not isinstance(output, dict) or set(output) != {
-        "explanation",
-        "how_to_use",
-        "expectations",
-    }:
+    """Проверяет новый короткий Report на соответствие deterministic input."""
+    if not isinstance(output, dict):
+        print("[REPORT VALIDATOR] reject: output is not dict")
         return False
-    explanation = output.get("explanation")
+
+    expected_keys = {"summary", "how_to_use", "expectations"}
+    if set(output) != expected_keys:
+        print(f"[REPORT VALIDATOR] reject: keys={list(output.keys())}")
+        return False
+
+    explanation = output.get("summary")
     if not isinstance(explanation, str) or not explanation.strip():
+        print("[REPORT VALIDATOR] reject: empty summary")
         return False
+
     how_to_use = output.get("how_to_use")
-    if how_to_use is not None:
-        if not isinstance(how_to_use, dict) or set(how_to_use) - {"application", "time", "note"}:
+    if how_to_use is not None and not isinstance(how_to_use, (str, dict)):
+        print("[REPORT VALIDATOR] reject: invalid how_to_use type")
+        return False
+
+    if isinstance(how_to_use, dict):
+        if set(how_to_use) - {"application", "time", "note"}:
+            print(f"[REPORT VALIDATOR] reject: invalid how_to_use keys={list(how_to_use.keys())}")
             return False
         if any(value is not None and not isinstance(value, str) for value in how_to_use.values()):
+            print("[REPORT VALIDATOR] reject: invalid how_to_use value type")
             return False
+
     expectations = output.get("expectations")
     if expectations is not None and not isinstance(expectations, str):
+        print("[REPORT VALIDATOR] reject: invalid expectations type")
         return False
+
     parts = [explanation]
-    for key in ("application", "time", "note", "expectations"):
-        value = output.get(key)
-        if isinstance(value, str):
-            parts.append(value)
+    if isinstance(how_to_use, str):
+        parts.append(how_to_use)
+    elif isinstance(how_to_use, dict):
+        for key in ("application", "time", "note"):
+            value = how_to_use.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+
+    if isinstance(expectations, str):
+        parts.append(expectations)
+
     low = " ".join(parts).lower()
 
     score = int(inp.get("score") or 0)
-    neg_strong = [n for n in inp["negative"] if n.get("significance") in {"significant", "moderate"}]
-    pos_strong = [p for p in inp["positive"] if p.get("significance") in {"significant", "moderate"}]
 
-    # Значимый/умеренный отрицательный фактор не должен называться отсутствующим.
+    neg_strong = [
+        n for n in inp["negative"]
+        if n.get("significance") in {"significant", "moderate"}
+    ]
+    pos_strong = [
+        p for p in inp["positive"]
+        if p.get("significance") in {"significant", "moderate"}
+    ]
+
     for n in inp["negative"]:
         if n.get("significance") not in {"significant", "moderate"}:
             continue
-        stem = n["label"][:-2] if len(n["label"]) > 4 else n["label"]
+        label = str(n.get("label") or "")
+        stem = label[:-2] if len(label) > 4 else label
         if f"минусов по {stem}" in low:
+            print(f"[REPORT VALIDATOR] reject: forbidden phrase 'минусов по {stem}'")
             return False
 
-    # «Отрицательных факторов нет» при реальном вкладе >= 2 п.п. — противоречие.
     if neg_strong:
         for phrase in _NO_NEGATIVE_PHRASES:
             if phrase in low:
+                print(f"[REPORT VALIDATOR] reject: forbidden negative phrase={phrase!r}")
                 return False
-    # Аналогично для положительной стороны.
+
     if pos_strong:
         for phrase in _NO_POSITIVE_PHRASES:
             if phrase in low:
+                print(f"[REPORT VALIDATOR] reject: forbidden positive phrase={phrase!r}")
                 return False
 
-    # При низком результате объяснение должно называть хотя бы одну значимую
-    # отрицательную ось, а не просто содержать общее упоминание состава.
     explanation_low = explanation.lower()
+
     negative_stems = [
         str(item.get("label") or "").lower()[:-3]
         if len(str(item.get("label") or "")) > 4
         else str(item.get("label") or "").lower()
         for item in neg_strong
     ]
+
     if score < 50 and neg_strong and not any(
         stem and stem in explanation_low for stem in negative_stems
     ):
+        print(
+            "[REPORT VALIDATOR] reject: low score without negative factor; "
+            f"score={score}, negative_labels={[item.get('label') for item in neg_strong]}, "
+            f"negative_stems={negative_stems}, summary={explanation!r}"
+        )
         return False
 
     for phrase in _REPORT_MEDICAL_CLAIMS:
         if phrase in low:
+            print(f"[REPORT VALIDATOR] reject: medical phrase={phrase!r}")
             return False
+
     for phrase in _REPORT_TECHNICAL_PHRASES:
         if phrase in low:
+            print(f"[REPORT VALIDATOR] reject: technical phrase={phrase!r}")
             return False
+
     for key in _REPORT_AXIS_LABELS:
         if key in low:
+            print(f"[REPORT VALIDATOR] reject: axis label={key!r}")
             return False
+
     return True
 
 
@@ -768,7 +809,7 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
                 response = await client.post(
                     DEEPSEEK_API_URL,
                     headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": model_name, "messages": messages, "temperature": 0.3, "max_tokens": 900},
+                    json={"model": model_name, "messages": messages, "temperature": 0.2, "max_tokens": 500},
                     timeout=40,
                 )
             if response.status_code != 200:
@@ -777,14 +818,22 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
             content = (data["choices"][0]["message"]["content"] or "").strip()
             if not content:
                 continue
-            parsed = extract_json_from_response(content)
+            try:
+                parsed = extract_json_from_response(content)
+            except Exception as exc:
+                print(f"[REPORT ONCE] JSON parse failed: {exc!r}")
+                print(f"[REPORT ONCE] RAW AI OUTPUT: {content[:4000]}")
+                continue
+
             if not isinstance(parsed, dict):
                 continue
             if not _validate_report_once(inp, parsed):
+                print(f"[REPORT ONCE] validation failed: keys={list(parsed.keys())}")
                 continue
+
             allowed = _report_allowed_ingredients(analysis)
             explanation = _ground_report_text(
-                parsed["explanation"].strip(),
+                parsed["summary"].strip(),
                 allowed,
                 bool(analysis.get("negative_factors")),
                 deterministic=analysis,
@@ -792,6 +841,8 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
             if explanation is None:
                 continue
             how_to_use = parsed.get("how_to_use")
+            if isinstance(how_to_use, str):
+                how_to_use = {"application": how_to_use.strip(), "time": None, "note": None}
             if isinstance(how_to_use, dict):
                 how_to_use = _ground_report_sections(
                     {"how_to_use": how_to_use},
@@ -811,6 +862,7 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
                 expectations = None
             result = {
                 "explanation": explanation,
+                "summary": explanation,
                 "how_to_use": how_to_use,
                 "expectations": expectations,
                 "report_prompt_version": prompt.get("version"),
