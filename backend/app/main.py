@@ -38,6 +38,7 @@ from .community_routes import router as community_router
 from .billing_routes import router as billing_router
 from .admin_routes import setup_admin_routes
 from .calibration_routes import setup_calibration_routes
+from .report_prompt_routes import setup_report_prompt_routes
 from typing import Optional, List
 from .auth import get_current_user_optional, get_current_user
 from .scraper import ProductImportError, import_product
@@ -101,6 +102,7 @@ app.include_router(billing_router)
 # Регистрируем админ-роуты
 setup_admin_routes(app)
 setup_calibration_routes(app)
+setup_report_prompt_routes(app)
 
 @app.get("/api/health")
 async def health():
@@ -1595,6 +1597,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         what_good="",
         what_caution="",
         report_score_engine_version=analysis.get("score_engine_version"),
+        report_prompt_version=full.get("report_prompt_version"),
     )
     save_ai_report(current_user["id"], slug, review_text)
 

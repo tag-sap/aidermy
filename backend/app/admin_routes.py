@@ -213,6 +213,7 @@ def setup_admin_routes(app: FastAPI):
                     <button class="tab-btn" onclick="switchTab('users')">👤 Пользователи ({len(users)})</button>
                     <button class="tab-btn" onclick="switchTab('ingredients')">🧪 Ингредиенты ({len(ingredients)})</button>
                     <button class="tab-btn" onclick="switchTab('scoreengine')">⚙️ Score Engine</button>
+                    <a class="tab-btn" href="/admin/report" style="text-decoration:none;color:inherit;display:inline-block">🤖 AI / Report</a>
                 </div>
 
                 <!-- Вкладка: История -->

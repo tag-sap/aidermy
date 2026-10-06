@@ -728,8 +728,15 @@ def _validate_report_once(inp: dict, output: dict) -> bool:
     return True
 
 
-async def generate_report_once(product_name: str, analysis: dict, profile: dict, product_type: str = "") -> dict | None:
-    """Один LLM-вызов формулирует только объяснение Match и короткие практические блоки."""
+async def generate_report_once(product_name: str, analysis: dict, profile: dict, product_type: str = "", prompt: dict | None = None, debug: bool = False) -> dict | None:
+    """Один LLM-вызов формулирует только объяснение Match и короткие практические блоки.
+
+    prompt — версия Report prompt (из report_prompt). Если не передана, берётся
+    production prompt из БД. Score/verdict НЕ пересчитываются.
+
+    debug=True дополнительно возвращает в результате ключи _raw_input и _raw_output
+    (для Admin Playground — диагностика реального LLM input/output).
+    """
     if not DEEPSEEK_API_KEY:
         return None
 
@@ -741,48 +748,19 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
     if not inp["positive"] and not inp["negative"] and not has_goal_evidence:
         return None
 
-    skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
-    goal_context = json.dumps(inp["goal_evidence"], ensure_ascii=False)
-    input_text = _report_input_text(inp)
-    inci = ", ".join(str(i) for i in inp["inci"])
+    from .report_prompt import get_production_report_prompt, render_report_prompt, build_report_context
 
-    prompt = f"""Ты — помощник, который объясняет уже рассчитанный персональный результат проверки продукта.
+    if prompt is None:
+        prompt = get_production_report_prompt()
+    if not prompt or not prompt.get("user_prompt_template"):
+        return None
 
-НЕ анализируй состав заново, НЕ пересчитывай совместимость и НЕ придумывай evidence. Все допустимые факты уже даны ниже.
-
-Продукт: {product_name}
-Тип продукта (категория): {product_type or 'не указан'}
-Тип кожи: {skin or 'не указан'}
-
-Цели пользователя и сохранённые детерминированные связи ингредиент × concern.
-Используй только связи с verdict supports или may_hinder. Для neutral/insufficient_data
-не утверждай наличие пользы или вреда:
-{goal_context or '[]'}
-
-ЕДИНЫЙ НАБОР ФАКТОВ (источник истины — НЕ переопределяй):
-{input_text}
-
-Полный состав (только для справки о названиях ингредиентов, НЕ для самостоятельного анализа):
-{inci or '—'}
-
-ТРЕБОВАНИЯ:
-- Верни короткое персональное объяснение: concern пользователя → только подтверждённый ингредиент и связь → что это значит для профиля; объясни, как значимые общие факторы сочетаются в итоговом результате.
-- Если у concern нет подтверждённой связи, не приписывай продукту влияние на него. Можно сослаться только на другие факторы профиля, действительно присутствующие ниже.
-- Используй имена ингредиентов только из INCI и только свойства из goal evidence либо deterministic factors.
-- Skin type сам по себе не означает цель лечить акне или иную проблему.
-- Не обещай лечение/результат, не прогнозируй ощущение кожи и не давай медицинских советов.
-- How_to_use: только короткие, безопасные и category-specific практические действия; если данных мало — null.
-- Expectations: одно короткое нейтральное ожидание, выведенное только из подтверждённых фактов, без обещания эффекта; если безопасной формулировки нет — null.
-- Не упоминай score или verdict в объяснении: они показываются отдельно и неизменны.
-- Не меняй score/verdict; слабые факторы не используй как причины.
-
-Верни ТОЛЬКО JSON:
-{{
-  "explanation": "...",
-  "how_to_use": {{"application": "...", "time": "...", "note": "..."}} | null,
-  "expectations": "..." | null
-}}
-"""
+    context = build_report_context(product_name, analysis, profile, product_type)
+    rendered = render_report_prompt(prompt, context)
+    messages = []
+    if rendered.get("system"):
+        messages.append({"role": "system", "content": rendered["system"]})
+    messages.append({"role": "user", "content": rendered["user"]})
 
     for model_name in DEEPSEEK_MODEL_FALLBACKS:
         try:
@@ -790,7 +768,7 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
                 response = await client.post(
                     DEEPSEEK_API_URL,
                     headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": model_name, "messages": [{"role": "user", "content": prompt}], "temperature": 0.3, "max_tokens": 900},
+                    json={"model": model_name, "messages": messages, "temperature": 0.3, "max_tokens": 900},
                     timeout=40,
                 )
             if response.status_code != 200:
@@ -813,27 +791,34 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
             )
             if explanation is None:
                 continue
-            parsed["explanation"] = explanation
             how_to_use = parsed.get("how_to_use")
             if isinstance(how_to_use, dict):
-                grounded_how_to_use = _ground_report_sections(
+                how_to_use = _ground_report_sections(
                     {"how_to_use": how_to_use},
                     allowed,
                     bool(analysis.get("negative_factors")),
                     deterministic=analysis,
                 ).get("how_to_use")
-                parsed["how_to_use"] = grounded_how_to_use
             expectations = parsed.get("expectations")
             if isinstance(expectations, str) and expectations.strip():
-                parsed["expectations"] = _ground_report_text(
+                expectations = _ground_report_text(
                     expectations.strip(),
                     allowed,
                     bool(analysis.get("negative_factors")),
                     deterministic=analysis,
                 )
             else:
-                parsed["expectations"] = None
-            return parsed
+                expectations = None
+            result = {
+                "explanation": explanation,
+                "how_to_use": how_to_use,
+                "expectations": expectations,
+                "report_prompt_version": prompt.get("version"),
+            }
+            if debug:
+                result["_raw_input"] = rendered
+                result["_raw_output"] = content
+            return result
         except Exception as exc:
             print(f"[REPORT ONCE] AI failed: {exc!r}")
             continue
@@ -877,12 +862,14 @@ async def generate_full_report(
     if DEEPSEEK_API_KEY:
         parts = await generate_report_once(product_name, deterministic, profile, product_type)
 
+    report_prompt_version = None
     explanation = None
     expectations = None
     how_to_use = category_hint.get("how_to_use")
     if parts:
         explanation = parts.get("explanation")
         how_to_use = parts.get("how_to_use") or how_to_use
+        report_prompt_version = parts.get("report_prompt_version")
         expectations_text = parts.get("expectations")
         if isinstance(expectations_text, str) and expectations_text.strip():
             grounded_expectation = _ground_report_text(
@@ -909,6 +896,7 @@ async def generate_full_report(
         "review": review,
         "how_to_use": how_to_use,
         "expectations": expectations,
+        "report_prompt_version": report_prompt_version,
     }
 
 

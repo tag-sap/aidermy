@@ -231,6 +231,8 @@ def init_db():
         cursor.execute('ALTER TABLE analysis ADD COLUMN report_score_engine_version TEXT')
     if 'deterministic_json' not in _analysis_cols:
         cursor.execute('ALTER TABLE analysis ADD COLUMN deterministic_json TEXT')
+    if 'report_prompt_version' not in _analysis_cols:
+        cursor.execute('ALTER TABLE analysis ADD COLUMN report_prompt_version TEXT')
 
     # Аватар и имя пользователя (личный кабинет)
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
@@ -1082,6 +1084,7 @@ def _analysis_to_dict(row) -> dict:
         "goal_evidence": [],
         "score_engine_version": d.get("score_engine_version"),
         "report_score_engine_version": d.get("report_score_engine_version"),
+        "report_prompt_version": d.get("report_prompt_version"),
         "created_at": d.get("created_at"),
         "expires_at": d.get("expires_at"),
     }
@@ -1418,6 +1421,7 @@ def save_analysis_details(
     what_good: str = "",
     what_caution: str = "",
     report_score_engine_version: str | None = None,
+    report_prompt_version: str | None = None,
 ) -> bool:
     """Сохраняет ВСЕ блоки отчёта к актуальному User Analysis. Score/verdict не трогает."""
     conn = get_connection(AIDERMY_DB)
@@ -1428,17 +1432,18 @@ def save_analysis_details(
     if report_score_engine_version is None:
         from .score_version import SCORE_ENGINE_VERSION
         report_score_engine_version = SCORE_ENGINE_VERSION
+    prompt_ver = None if report_prompt_version is None else str(report_prompt_version)
     if product_id is not None:
         cursor.execute(
-            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ?, report_score_engine_version = ? "
+            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ?, report_score_engine_version = ?, report_prompt_version = ? "
             "WHERE user_id = ? AND product_id = ?",
-            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, report_score_engine_version, user_id, product_id),
+            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, report_score_engine_version, prompt_ver, user_id, product_id),
         )
     else:
         cursor.execute(
-            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ?, report_score_engine_version = ? "
+            "UPDATE analysis SET report = ?, active_ingredients = ?, how_to_use = ?, expectations = ?, what_good = ?, what_caution = ?, report_score_engine_version = ?, report_prompt_version = ? "
             "WHERE user_id = ? AND slug = ?",
-            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, report_score_engine_version, user_id, slug),
+            (report or None, active_json, how_json, exp_json, what_good or None, what_caution or None, report_score_engine_version, prompt_ver, user_id, slug),
         )
     conn.commit()
     updated = cursor.rowcount > 0

@@ -1,0 +1,292 @@
+# report_prompt.py
+# Управляемая конфигурация AI Report prompt (admin AI/Report tab).
+#
+# Prompt хранится в БД (report_prompt_versions), версии immutable после создания.
+# Production prompt — ровно одна строка с is_production=1. Это ОТДЕЛЬНАЯ версия,
+# независимая от score_engine_version: Score Engine считает score/verdict, а Report
+# prompt лишь определяет, КАК LLM объясняет уже готовый deterministic result.
+#
+# НЕ содержит знание о скоринге и НЕ меняет score/verdict/factors/weights.
+
+from __future__ import annotations
+
+import json
+from typing import Any, Dict, List, Optional
+
+from .database import get_connection
+
+# ---------------------------------------------------------------------------
+# Первичный production prompt (v1) — текущий prompt, вынесенный из services.py
+# generate_report_once(). Сохраняется как первая DB-версия при первом обращении.
+# ---------------------------------------------------------------------------
+REPORT_PROMPT_V1_SYSTEM = """Ты — помощник, который объясняет уже рассчитанный персональный результат проверки продукта.
+
+НЕ анализируй состав заново, НЕ пересчитывай совместимость и НЕ придумывай evidence. Все допустимые факты уже даны ниже.
+
+ТРЕБОВАНИЯ:
+- Верни короткое персональное объяснение: concern пользователя → только подтверждённый ингредиент и связь → что это значит для профиля; объясни, как значимые общие факторы сочетаются в итоговом результате.
+- Если у concern нет подтверждённой связи, не приписывай продукту влияние на него. Можно сослаться только на другие факторы профиля, действительно присутствующие ниже.
+- Используй имена ингредиентов только из INCI и только свойства из goal evidence либо deterministic factors.
+- Skin type сам по себе не означает цель лечить акне или иную проблему.
+- Не обещай лечение/результат, не прогнозируй ощущение кожи и не давай медицинских советов.
+- How_to_use: только короткие, безопасные и category-specific практические действия; если данных мало — null.
+- Expectations: одно короткое нейтральное ожидание, выведенное только из подтверждённых фактов, без обещания эффекта; если безопасной формулировки нет — null.
+- Не упоминай score или verdict в объяснении: они показываются отдельно и неизменны.
+- Не меняй score/verdict; слабые факторы не используй как причины.
+
+Верни ТОЛЬКО JSON:
+{
+  "explanation": "...",
+  "how_to_use": {"application": "...", "time": "...", "note": "..."} | null,
+  "expectations": "..." | null
+}"""
+
+REPORT_PROMPT_V1_USER_TEMPLATE = """Продукт: {{product_name}}
+Тип продукта (категория): {{product_type}}
+Тип кожи: {{skin_type}}
+
+Цели пользователя и сохранённые детерминированные связи ингредиент × concern.
+Используй только связи с verdict supports или may_hinder. Для neutral/insufficient_data
+не утверждай наличие пользы или вреда:
+{{goal_evidence}}
+
+ЕДИНЫЙ НАБОР ФАКТОВ (источник истины — НЕ переопределяй):
+{{deterministic_input}}
+
+Полный состав (только для справки о названиях ингредиентов, НЕ для самостоятельного анализа):
+{{inci}}"""
+
+# Доступные placeholders в user_prompt_template (для Admin UI).
+REPORT_PROMPT_PLACEHOLDERS: List[str] = [
+    "product_name",
+    "product_type",
+    "skin_type",
+    "goal_evidence",
+    "deterministic_input",
+    "inci",
+]
+
+
+def _now() -> str:
+    from datetime import datetime
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def ensure_report_prompt_tables() -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS report_prompt_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                version INTEGER NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                system_prompt TEXT NOT NULL DEFAULT '',
+                user_prompt_template TEXT NOT NULL,
+                description TEXT,
+                is_production INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT,
+                created_by TEXT
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _row_to_dict(row) -> Dict[str, Any]:
+    d = dict(row)
+    return {
+        "id": d.get("id"),
+        "version": d.get("version"),
+        "name": d.get("name") or "",
+        "system_prompt": d.get("system_prompt") or "",
+        "user_prompt_template": d.get("user_prompt_template") or "",
+        "description": d.get("description"),
+        "is_production": bool(d.get("is_production")),
+        "created_at": d.get("created_at"),
+        "created_by": d.get("created_by") or "",
+    }
+
+
+def seed_report_prompt() -> Optional[Dict[str, Any]]:
+    """Создаёт v1 из первичного prompt, если таблица пуста. Возвращает v1."""
+    ensure_report_prompt_tables()
+    conn = get_connection()
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM report_prompt_versions").fetchone()[0]
+        if n > 0:
+            return None
+        conn.execute(
+            "INSERT INTO report_prompt_versions "
+            "(version, name, system_prompt, user_prompt_template, description, is_production, created_at, created_by) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+            (
+                1,
+                "Report Prompt v1",
+                REPORT_PROMPT_V1_SYSTEM,
+                REPORT_PROMPT_V1_USER_TEMPLATE,
+                "Первичный production prompt (перенесён из services.generate_report_once)",
+                _now(),
+                "system",
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM report_prompt_versions WHERE version = 1").fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_report_prompts() -> List[Dict[str, Any]]:
+    ensure_report_prompt_tables()
+    seed_report_prompt()
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM report_prompt_versions ORDER BY version DESC"
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_report_prompt_by_id(prompt_id: int) -> Optional[Dict[str, Any]]:
+    ensure_report_prompt_tables()
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM report_prompt_versions WHERE id = ?", (prompt_id,)
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_report_prompt_by_version(version: int) -> Optional[Dict[str, Any]]:
+    ensure_report_prompt_tables()
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM report_prompt_versions WHERE version = ?", (version,)
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_production_report_prompt() -> Dict[str, Any]:
+    """Возвращает production prompt (создавая v1 при первом обращении)."""
+    ensure_report_prompt_tables()
+    seed_report_prompt()
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM report_prompt_versions WHERE is_production = 1 ORDER BY version DESC LIMIT 1"
+        ).fetchone()
+        if row:
+            return _row_to_dict(row)
+    finally:
+        conn.close()
+    v1 = get_report_prompt_by_version(1)
+    return v1 or {}
+
+
+def create_report_prompt(
+    name: str,
+    system_prompt: str,
+    user_prompt_template: str,
+    description: str = "",
+    created_by: str = "",
+) -> Dict[str, Any]:
+    """Создаёт НОВУЮ версию (immutable). Версия = max(version)+1."""
+    ensure_report_prompt_tables()
+    seed_report_prompt()
+    conn = get_connection()
+    try:
+        max_v = conn.execute(
+            "SELECT COALESCE(MAX(version), 0) FROM report_prompt_versions"
+        ).fetchone()[0]
+        new_version = int(max_v) + 1
+        conn.execute(
+            "INSERT INTO report_prompt_versions "
+            "(version, name, system_prompt, user_prompt_template, description, is_production, created_at, created_by) "
+            "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+            (
+                new_version,
+                (name or "").strip() or f"Report Prompt v{new_version}",
+                system_prompt or "",
+                user_prompt_template or "",
+                description or None,
+                _now(),
+                created_by or "",
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM report_prompt_versions WHERE version = ?", (new_version,)
+        ).fetchone()
+        return _row_to_dict(row) if row else {}
+    finally:
+        conn.close()
+
+
+def publish_report_prompt(prompt_id: int) -> Optional[Dict[str, Any]]:
+    """Делает версию production (ровно одна). Старые версии НЕ удаляются."""
+    ensure_report_prompt_tables()
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM report_prompt_versions WHERE id = ?", (prompt_id,)
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute("UPDATE report_prompt_versions SET is_production = 0")
+        conn.execute(
+            "UPDATE report_prompt_versions SET is_production = 1 WHERE id = ?", (prompt_id,)
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM report_prompt_versions WHERE id = ?", (prompt_id,)
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def render_report_prompt(
+    prompt: Dict[str, Any],
+    context: Dict[str, Any],
+) -> Dict[str, str]:
+    """Заполняет placeholders в user_prompt_template. Возвращает {system, user}."""
+    system_prompt = str(prompt.get("system_prompt") or "")
+    template = str(prompt.get("user_prompt_template") or "")
+    rendered = template
+    for key, value in context.items():
+        rendered = rendered.replace("{{" + key + "}}", str(value if value is not None else ""))
+    return {"system": system_prompt, "user": rendered}
+
+
+def build_report_context(
+    product_name: str,
+    analysis: Dict[str, Any],
+    profile: Dict[str, Any],
+    product_type: str = "",
+) -> Dict[str, Any]:
+    """Собирает контекст placeholders из deterministic analysis (source of truth)."""
+    from .services import _build_report_input, _report_input_text
+
+    inp = _build_report_input(analysis)
+    skin = str((profile or {}).get("skin_type") or (profile or {}).get("skin_type_determined") or "")
+    goal_context = json.dumps(inp.get("goal_evidence") or [], ensure_ascii=False)
+    input_text = _report_input_text(inp)
+    inci = ", ".join(str(i) for i in (inp.get("inci") or []))
+    return {
+        "product_name": product_name,
+        "product_type": product_type or "не указан",
+        "skin_type": skin or "не указан",
+        "goal_evidence": goal_context or "[]",
+        "deterministic_input": input_text,
+        "inci": inci or "—",
+    }

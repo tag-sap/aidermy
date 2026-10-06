@@ -95,7 +95,10 @@ class PersonalizedReportStructureTests(unittest.TestCase):
                         )
                     )
                     prompts.append(
-                        async_client.post.call_args.kwargs["json"]["messages"][0]["content"]
+                        "\n".join(
+                            m["content"]
+                            for m in async_client.post.call_args.kwargs["json"]["messages"]
+                        )
                     )
                 self.assertIsNotNone(parts)
 
@@ -149,7 +152,8 @@ class PersonalizedReportStructureTests(unittest.TestCase):
         self.assertEqual(report["review"][0]["text"], generated["explanation"])
         self.assertEqual(
             set(report),
-            {"score", "verdict", "explanation", "review", "how_to_use", "expectations"},
+            {"score", "verdict", "explanation", "review", "how_to_use", "expectations",
+             "report_prompt_version"},
         )
 
 
