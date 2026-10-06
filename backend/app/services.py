@@ -809,7 +809,7 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
                 response = await client.post(
                     DEEPSEEK_API_URL,
                     headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": model_name, "messages": messages, "temperature": 0.2, "max_tokens": 500},
+                    json={"model": model_name, "messages": messages, "temperature": 0.2, "max_tokens": 800},
                     timeout=40,
                 )
             if response.status_code != 200:
