@@ -1563,7 +1563,6 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
             "verdict": analysis.get("verdict") or "",
             "explanation": _fragments_to_text(review),
             "review": review,
-            "how_to_use": analysis.get("how_to_use"),
             "expectations": analysis.get("expectations"),
             "report_ready": True,
         }
@@ -1592,7 +1591,6 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         slug,
         report=_json.dumps(review_fragments, ensure_ascii=False),
         active_ingredients=None,
-        how_to_use=full.get("how_to_use"),
         expectations=full.get("expectations"),
         what_good="",
         what_caution="",
@@ -1606,7 +1604,6 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         "verdict": analysis.get("verdict") or "",
         "explanation": _fragments_to_text(review_fragments),
         "review": review_fragments,
-        "how_to_use": full.get("how_to_use"),
         "expectations": full.get("expectations"),
         "report_ready": True,
     }

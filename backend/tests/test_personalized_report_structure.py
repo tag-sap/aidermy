@@ -69,7 +69,6 @@ class PersonalizedReportStructureTests(unittest.TestCase):
         prompts = []
         output = {
             "explanation": "Формулировка основана на предоставленных данных состава и профиля.",
-            "how_to_use": None,
             "expectations": None,
         }
 
@@ -106,11 +105,12 @@ class PersonalizedReportStructureTests(unittest.TestCase):
         self.assertIn("irritation_prone", sensitive_prompt)
         self.assertIn("acne_general", acne_prompt)
         self.assertIn("post_acne_pigmentation", pigmentation_prompt)
-        self.assertIn(":\n[]", neutral_prompt)
+        self.assertIn('"concerns": []', neutral_prompt)
         self.assertNotIn("acne_general", neutral_prompt)
         for prompt in prompts:
-            self.assertIn('"explanation"', prompt)
-            self.assertIn('"how_to_use"', prompt)
+            self.assertIn('"summary"', prompt)
+            self.assertIn('"expectations"', prompt)
+            self.assertNotIn('"how_to_use"', prompt)
             self.assertIn('"expectations"', prompt)
             self.assertNotIn('"positive":', prompt)
             self.assertNotIn('"negative":', prompt)
@@ -130,7 +130,6 @@ class PersonalizedReportStructureTests(unittest.TestCase):
         }
         generated = {
             "explanation": "Состав требует осторожности с учётом сохранённых факторов.",
-            "how_to_use": {"application": "Нанести после очищения.", "time": "Вечером.", "note": ""},
             "expectations": "Ориентируйтесь на переносимость состава.",
         }
         with patch.object(services, "DEEPSEEK_API_KEY", "test-key"), \
@@ -152,7 +151,7 @@ class PersonalizedReportStructureTests(unittest.TestCase):
         self.assertEqual(report["review"][0]["text"], generated["explanation"])
         self.assertEqual(
             set(report),
-            {"score", "verdict", "explanation", "review", "how_to_use", "expectations",
+            {"score", "verdict", "explanation", "review", "expectations",
              "report_prompt_version"},
         )
 

@@ -21,7 +21,6 @@ class ReportHumanTermsTests(unittest.TestCase):
     def test_rejects_contribution_term(self):
         output = {
             "explanation": "Фактор увлажнения даёт положительный вклад.",
-            "how_to_use": None,
             "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
@@ -29,7 +28,6 @@ class ReportHumanTermsTests(unittest.TestCase):
     def test_rejects_neutral_zone_term(self):
         output = {
             "explanation": "Балл находится ниже нейтральной зоны.",
-            "how_to_use": None,
             "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
@@ -37,7 +35,6 @@ class ReportHumanTermsTests(unittest.TestCase):
     def test_accepts_human_text(self):
         output = {
             "explanation": "Состав поддерживает увлажнение.",
-            "how_to_use": None,
             "expectations": None,
         }
         self.assertTrue(_validate_report_once(self._inp(), output))

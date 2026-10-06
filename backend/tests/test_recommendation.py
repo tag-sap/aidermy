@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+os.environ["VECTOR_RETRIEVAL_ENABLED"] = "0"
 
 from app.shelf_service import (
     _aggregate_scores,

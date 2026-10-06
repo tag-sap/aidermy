@@ -194,6 +194,7 @@ export function ProductModal({
       if (!res.ok) throw new Error('Не удалось убрать с полки')
       setData((prev) => (prev ? { ...prev, on_shelf: null } : prev))
       onChanged()
+      await refreshDetail()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось убрать с полки')
     } finally {

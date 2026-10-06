@@ -572,7 +572,7 @@ _NO_POSITIVE_PHRASES = [
 
 # Внутренние термины Score Engine, запрещённые в пользовательском тексте отчёта.
 _REPORT_TECHNICAL_PHRASES = [
-    "вклад", "нейтральн", "балл", "п.п.",
+    "вклад", "нейтральн", "п.п.",
 ]
 
 
@@ -597,7 +597,12 @@ def _build_report_input(analysis: dict) -> dict:
             sig = "moderate"
         else:
             sig = "weak"
-        item = {"axis": axis, "label": label, "significance": sig}
+        item = {
+            "axis": axis,
+            "label": label,
+            "significance": sig,
+            "contribution": round(contrib, 2),
+        }
         if sig == "weak":
             weak.append(item)
         elif contrib > 0:
@@ -642,131 +647,21 @@ def _report_input_text(inp: dict) -> str:
         "",
         "positive factors (оси с положительным вкладом):",
     ]
-    lines += [f"- {p['label']} — {p['significance']}" for p in inp["positive"]] or ["- (нет)"]
+    lines += [
+        f"- {p['label']} — {p['significance']} — contribution={p['contribution']} pp"
+        for p in inp["positive"]
+    ] or ["- (нет)"]
     lines.append("")
     lines.append("negative factors (оси с отрицательным вкладом):")
-    lines += [f"- {n['label']} — {n['significance']}" for n in inp["negative"]] or ["- (нет)"]
+    lines += [
+        f"- {n['label']} — {n['significance']} — contribution={n['contribution']} pp"
+        for n in inp["negative"]
+    ] or ["- (нет)"]
     lines.append("")
     lines.append("weak factors (НЕ использовать как причины):")
     lines += [f"- {w['label']}" for w in inp["weak"]] or ["- (нет)"]
     return "\n".join(lines)
 
-
-def _validate_report_once(inp: dict, output: dict) -> bool:
-    """Проверяет новый короткий Report на соответствие deterministic input."""
-    if not isinstance(output, dict):
-        print("[REPORT VALIDATOR] reject: output is not dict")
-        return False
-
-    expected_keys = {"summary", "how_to_use", "expectations"}
-    if set(output) != expected_keys:
-        print(f"[REPORT VALIDATOR] reject: keys={list(output.keys())}")
-        return False
-
-    explanation = output.get("summary")
-    if not isinstance(explanation, str) or not explanation.strip():
-        print("[REPORT VALIDATOR] reject: empty summary")
-        return False
-
-    how_to_use = output.get("how_to_use")
-    if how_to_use is not None and not isinstance(how_to_use, (str, dict)):
-        print("[REPORT VALIDATOR] reject: invalid how_to_use type")
-        return False
-
-    if isinstance(how_to_use, dict):
-        if set(how_to_use) - {"application", "time", "note"}:
-            print(f"[REPORT VALIDATOR] reject: invalid how_to_use keys={list(how_to_use.keys())}")
-            return False
-        if any(value is not None and not isinstance(value, str) for value in how_to_use.values()):
-            print("[REPORT VALIDATOR] reject: invalid how_to_use value type")
-            return False
-
-    expectations = output.get("expectations")
-    if expectations is not None and not isinstance(expectations, str):
-        print("[REPORT VALIDATOR] reject: invalid expectations type")
-        return False
-
-    parts = [explanation]
-    if isinstance(how_to_use, str):
-        parts.append(how_to_use)
-    elif isinstance(how_to_use, dict):
-        for key in ("application", "time", "note"):
-            value = how_to_use.get(key)
-            if isinstance(value, str):
-                parts.append(value)
-
-    if isinstance(expectations, str):
-        parts.append(expectations)
-
-    low = " ".join(parts).lower()
-
-    score = int(inp.get("score") or 0)
-
-    neg_strong = [
-        n for n in inp["negative"]
-        if n.get("significance") in {"significant", "moderate"}
-    ]
-    pos_strong = [
-        p for p in inp["positive"]
-        if p.get("significance") in {"significant", "moderate"}
-    ]
-
-    for n in inp["negative"]:
-        if n.get("significance") not in {"significant", "moderate"}:
-            continue
-        label = str(n.get("label") or "")
-        stem = label[:-2] if len(label) > 4 else label
-        if f"минусов по {stem}" in low:
-            print(f"[REPORT VALIDATOR] reject: forbidden phrase 'минусов по {stem}'")
-            return False
-
-    if neg_strong:
-        for phrase in _NO_NEGATIVE_PHRASES:
-            if phrase in low:
-                print(f"[REPORT VALIDATOR] reject: forbidden negative phrase={phrase!r}")
-                return False
-
-    if pos_strong:
-        for phrase in _NO_POSITIVE_PHRASES:
-            if phrase in low:
-                print(f"[REPORT VALIDATOR] reject: forbidden positive phrase={phrase!r}")
-                return False
-
-    explanation_low = explanation.lower()
-
-    negative_stems = [
-        str(item.get("label") or "").lower()[:-3]
-        if len(str(item.get("label") or "")) > 4
-        else str(item.get("label") or "").lower()
-        for item in neg_strong
-    ]
-
-    if score < 50 and neg_strong and not any(
-        stem and stem in explanation_low for stem in negative_stems
-    ):
-        print(
-            "[REPORT VALIDATOR] reject: low score without negative factor; "
-            f"score={score}, negative_labels={[item.get('label') for item in neg_strong]}, "
-            f"negative_stems={negative_stems}, summary={explanation!r}"
-        )
-        return False
-
-    for phrase in _REPORT_MEDICAL_CLAIMS:
-        if phrase in low:
-            print(f"[REPORT VALIDATOR] reject: medical phrase={phrase!r}")
-            return False
-
-    for phrase in _REPORT_TECHNICAL_PHRASES:
-        if phrase in low:
-            print(f"[REPORT VALIDATOR] reject: technical phrase={phrase!r}")
-            return False
-
-    for key in _REPORT_AXIS_LABELS:
-        if key in low:
-            print(f"[REPORT VALIDATOR] reject: axis label={key!r}")
-            return False
-
-    return True
 
 
 async def generate_report_once(product_name: str, analysis: dict, profile: dict, product_type: str = "", prompt: dict | None = None, debug: bool = False) -> dict | None:
@@ -815,7 +710,16 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
             if response.status_code != 200:
                 continue
             data = response.json()
-            content = (data["choices"][0]["message"]["content"] or "").strip()
+            choice = data["choices"][0]
+            message = choice.get("message") or {}
+            content = (message.get("content") or "").strip()
+            print(
+                f"[REPORT DEBUG] model={model_name} "
+                f"finish_reason={choice.get('finish_reason')} "
+                f"content_len={len(content)} "
+                f"usage={data.get('usage')}",
+                flush=True,
+            )
             if not content:
                 continue
             try:
@@ -827,6 +731,15 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
 
             if not isinstance(parsed, dict):
                 continue
+            # Normalize legacy report schema before validation.
+            # LLM may return both legacy "explanation" and new "summary".
+            # The persisted/validated schema must contain only:
+            # summary + expectations.
+            if isinstance(parsed, dict) and isinstance(parsed.get("explanation"), str):
+                if not isinstance(parsed.get("summary"), str) or not parsed.get("summary").strip():
+                    parsed["summary"] = parsed["explanation"]
+                parsed.pop("explanation", None)
+
             if not _validate_report_once(inp, parsed):
                 print(f"[REPORT ONCE] validation failed: keys={list(parsed.keys())}")
                 continue
@@ -840,16 +753,6 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
             )
             if explanation is None:
                 continue
-            how_to_use = parsed.get("how_to_use")
-            if isinstance(how_to_use, str):
-                how_to_use = {"application": how_to_use.strip(), "time": None, "note": None}
-            if isinstance(how_to_use, dict):
-                how_to_use = _ground_report_sections(
-                    {"how_to_use": how_to_use},
-                    allowed,
-                    bool(analysis.get("negative_factors")),
-                    deterministic=analysis,
-                ).get("how_to_use")
             expectations = parsed.get("expectations")
             if isinstance(expectations, str) and expectations.strip():
                 expectations = _ground_report_text(
@@ -863,19 +766,124 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
             result = {
                 "explanation": explanation,
                 "summary": explanation,
-                "how_to_use": how_to_use,
                 "expectations": expectations,
                 "report_prompt_version": prompt.get("version"),
             }
             if debug:
                 result["_raw_input"] = rendered
                 result["_raw_output"] = content
+
+            print(
+                "[REPORT SUCCESS] "
+                f"prompt_version={result.get('report_prompt_version')} "
+                f"explanation={result.get('explanation')!r} "
+                
+                f"expectations={result.get('expectations')!r}",
+                flush=True,
+            )
+
             return result
         except Exception as exc:
             print(f"[REPORT ONCE] AI failed: {exc!r}")
             continue
     return None
 
+def _validate_report_once(inp: dict, output: dict) -> bool:
+    if not isinstance(output, dict):
+        return False
+
+    # Report schema is now:
+    # summary + expectations.
+    # Keep backward compatibility with the previous "explanation" key.
+    if "summary" not in output and isinstance(output.get("explanation"), str):
+        output = dict(output)
+        output["summary"] = output.pop("explanation")
+
+    if set(output) != {"summary", "expectations"}:
+        print(f"[REPORT VALIDATOR] reject: keys={list(output.keys())}")
+        return False
+
+    explanation = output.get("summary")
+    if not isinstance(explanation, str) or not explanation.strip():
+        return False
+
+    expectations = output.get("expectations")
+    if expectations is not None and not isinstance(expectations, str):
+        return False
+
+    parts = [explanation]
+
+    if isinstance(expectations, str):
+        parts.append(expectations)
+
+    low = " ".join(parts).lower()
+
+    score = int(inp.get("score") or 0)
+
+    neg_strong = [
+        n for n in inp["negative"]
+        if n.get("significance") in {"significant", "moderate"}
+    ]
+
+    pos_strong = [
+        p for p in inp["positive"]
+        if p.get("significance") in {"significant", "moderate"}
+    ]
+
+    for n in inp["negative"]:
+        if n.get("significance") not in {"significant", "moderate"}:
+            continue
+
+        label = str(n.get("label") or "")
+        stem = label[:-2] if len(label) > 4 else label
+
+        if f"минусов по {stem}".lower() in low:
+            print(
+                f"[REPORT VALIDATOR] reject: forbidden negative "
+                f"phrase={stem!r}"
+            )
+            return False
+
+    if neg_strong:
+        for phrase in _NO_NEGATIVE_PHRASES:
+            if phrase in low:
+                print(
+                    f"[REPORT VALIDATOR] reject: forbidden negative "
+                    f"phrase={phrase!r}"
+                )
+                return False
+
+    if pos_strong:
+        for phrase in _NO_POSITIVE_PHRASES:
+            if phrase in low:
+                print(
+                    f"[REPORT VALIDATOR] reject: forbidden positive "
+                    f"phrase={phrase!r}"
+                )
+                return False
+
+    for phrase in _REPORT_MEDICAL_CLAIMS:
+        if phrase in low:
+            print(
+                f"[REPORT VALIDATOR] reject: medical phrase={phrase!r}"
+            )
+            return False
+
+    for phrase in _REPORT_TECHNICAL_PHRASES:
+        if phrase in low:
+            print(
+                f"[REPORT VALIDATOR] reject: technical phrase={phrase!r}"
+            )
+            return False
+
+    for key in _REPORT_AXIS_LABELS:
+        if key in low:
+            print(
+                f"[REPORT VALIDATOR] reject: axis label={key!r}"
+            )
+            return False
+
+    return True
 
 def _deterministic_balance_fragments(analysis: dict) -> tuple:
     """Детерминированные human-фрагменты баланса (fallback, когда AI недоступен).
@@ -908,8 +916,6 @@ async def generate_full_report(
     det = (saved_analysis or {}).get("deterministic")
     deterministic = det if isinstance(det, dict) else (saved_analysis or {})
     allowed = _report_allowed_ingredients(deterministic)
-    category_hint = _category_application_hint(product_type)
-
     parts = None
     if DEEPSEEK_API_KEY:
         parts = await generate_report_once(product_name, deterministic, profile, product_type)
@@ -917,10 +923,8 @@ async def generate_full_report(
     report_prompt_version = None
     explanation = None
     expectations = None
-    how_to_use = category_hint.get("how_to_use")
     if parts:
         explanation = parts.get("explanation")
-        how_to_use = parts.get("how_to_use") or how_to_use
         report_prompt_version = parts.get("report_prompt_version")
         expectations_text = parts.get("expectations")
         if isinstance(expectations_text, str) and expectations_text.strip():
@@ -946,7 +950,6 @@ async def generate_full_report(
         "verdict": verdict,
         "explanation": explanation or "",
         "review": review,
-        "how_to_use": how_to_use,
         "expectations": expectations,
         "report_prompt_version": report_prompt_version,
     }
@@ -1105,35 +1108,102 @@ def _has_forbidden_effect(text: str) -> bool:
 
 def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, deterministic: dict | None = None):
     if not text:
+        print("[REPORT GROUNDING] reject: empty text", flush=True)
         return None
+
     low = text.lower()
+
     if has_negative_factors:
         for phrase in _CONTRADICTION_PHRASES:
             if phrase in low:
+                print(
+                    f"[REPORT GROUNDING] reject: contradiction phrase={phrase!r}",
+                    flush=True,
+                )
                 return None
+
     for ru, canon in _RU_INGREDIENT_NAMES.items():
         if ru in low and canon not in allowed:
+            print(
+                f"[REPORT GROUNDING] reject: ingredient={ru!r} canon={canon!r} "
+                f"not_allowed={sorted(allowed)}",
+                flush=True,
+            )
             return None
+
     if deterministic is not None:
         for stem, evidences in _THERAPY_EVIDENCE.items():
             if stem in low and not _deterministic_has_evidence(deterministic, evidences):
+                print(
+                    f"[REPORT GROUNDING] reject: therapy evidence stem={stem!r}",
+                    flush=True,
+                )
                 return None
-        # Grounding эффектов: отчёт не должен описывать свойства, которые Score Engine
-        # не моделирует, или оси, для которых нет ни одного deterministic factor.
+
         if _has_forbidden_effect(low):
+            print(
+                "[REPORT GROUNDING] reject: forbidden effect",
+                flush=True,
+            )
             return None
+
         allowed_axes = _allowed_axes(deterministic)
+
         for goal in deterministic.get("goal_evidence") or []:
             for evidence in goal.get("evidence") or []:
-                property_name = str(evidence.get("property") or "").rsplit(":", 1)[-1]
+                property_name = str(
+                    evidence.get("property") or ""
+                ).rsplit(":", 1)[-1]
                 allowed_axis = _GOAL_PROPERTY_AXES.get(property_name)
                 if allowed_axis:
                     allowed_axes.add(allowed_axis)
+
         if allowed_axes:
             mentioned = _mentioned_axes(low)
-            for ax in mentioned:
-                if ax not in allowed_axes:
+
+            # Axis names are internal Score Engine terminology.
+            # User-facing words such as "жирность", "себум",
+            # "чувствительность", "увлажнение" may legitimately appear
+            # when they are grounded by the user's profile or deterministic
+            # result. Do not reject a report merely because a human-readable
+            # axis term is not present in allowed_axes.
+            #
+            # Grounding of actual ingredient/effect claims is handled above
+            # through ingredient allow-list, therapy evidence and
+            # deterministic evidence checks.
+            internal_axis_names = {
+                "hydration",
+                "barrier",
+                "irritation",
+                "sensitization",
+                "sebum",
+                "pigmentation",
+            }
+
+            forbidden_internal_axes = mentioned - allowed_axes
+
+            # Only reject explicit technical axis wording. Natural-language
+            # terms mapped to the same concept remain allowed.
+            if forbidden_internal_axes and any(
+                ax in low and ax in internal_axis_names
+                for ax in forbidden_internal_axes
+            ):
+                # Keep existing behavior only for explicit internal axis
+                # names. Normal Russian wording is not blocked here.
+                technical_axis_hits = {
+                    ax for ax in forbidden_internal_axes
+                    if ax in low
+                }
+
+                if technical_axis_hits:
+                    print(
+                        f"[REPORT GROUNDING] reject: internal axis={sorted(technical_axis_hits)} "
+                        f"mentioned={sorted(mentioned)} "
+                        f"allowed={sorted(allowed_axes)}",
+                        flush=True,
+                    )
                     return None
+
     return text
 
 

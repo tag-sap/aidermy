@@ -27,7 +27,6 @@ class ReportOnceValidationTests(unittest.TestCase):
     def test_rejects_significant_negative_claimed_absent(self):
         output = {
             "explanation": "Существенных минусов по сенсибилизации не выявлено.",
-            "how_to_use": None,
             "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
@@ -35,7 +34,6 @@ class ReportOnceValidationTests(unittest.TestCase):
     def test_rejects_medical_claim(self):
         output = {
             "explanation": "PEG-100 стеарат ослабляет барьер.",
-            "how_to_use": None,
             "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
@@ -43,7 +41,6 @@ class ReportOnceValidationTests(unittest.TestCase):
     def test_rejects_technical_keys(self):
         output = {
             "explanation": "hydration поддерживает увлажнение.",
-            "how_to_use": None,
             "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))
@@ -51,7 +48,6 @@ class ReportOnceValidationTests(unittest.TestCase):
     def test_accepts_correct_output(self):
         output = {
             "explanation": "Состав требует внимания: есть потенциально нежелательные факторы сенсибилизации.",
-            "how_to_use": None,
             "expectations": None,
         }
         self.assertTrue(_validate_report_once(self._inp(), output))
@@ -59,7 +55,6 @@ class ReportOnceValidationTests(unittest.TestCase):
     def test_rejects_score_changes_and_legacy_sections(self):
         output = {
             "explanation": "Состав требует внимания.",
-            "how_to_use": None,
             "expectations": None,
             "score": 100,
         }

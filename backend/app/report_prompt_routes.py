@@ -425,11 +425,10 @@ async function generateTest(){
     const rep = d.report||{};
     document.getElementById('report-preview').innerHTML =
       '<div class="kv">'+
-      '<b>Score</b><span><b>'+(d.deterministic&&d.deterministic.score??0)+'%</b></span>'+
+      '<b>Score</b><span><b>'+((d.deterministic&&d.deterministic.score) ?? 0)+'%</b></span>'+
       '<b>Verdict</b><span>'+esc((d.deterministic&&d.deterministic.verdict)||'')+'</span>'+
       '<b>Prompt</b><span>v'+esc((d.prompt&&d.prompt.version)||'—')+'</span>'+
       '<b>Объяснение</b><span>'+esc(rep.explanation||'—')+'</span>'+
-      '<b>Как применять</b><span>'+esc(JSON.stringify(rep.how_to_use))+'</span>'+
       '<b>Чего ожидать</b><span>'+esc(JSON.stringify(rep.expectations))+'</span>'+
       '</div>';
     document.getElementById('ai-output').textContent = d.ai_output || '(пусто)';

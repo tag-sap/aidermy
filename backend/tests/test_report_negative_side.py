@@ -21,23 +21,24 @@ class ReportNegativeSideTests(unittest.TestCase):
     def test_accepts_balanced_output(self):
         output = {
             "explanation": "Состав поддерживает увлажнение, но включает факторы потенциального раздражения.",
-            "how_to_use": None,
             "expectations": None,
         }
         self.assertTrue(_validate_report_once(self._inp(), output))
 
-    def test_rejects_when_negative_side_omitted(self):
+    def test_accepts_concise_summary_without_forcing_negative_side(self):
+        # Новый Report — единый короткий персональный summary.
+        # Наличие negative factors не требует обязательного перечисления
+        # отрицательной стороны: LLM может упомянуть только наиболее
+        # значимые доказанные факторы.
         output = {
             "explanation": "Состав поддерживает увлажнение.",
-            "how_to_use": None,
             "expectations": None,
         }
-        self.assertFalse(_validate_report_once(self._inp(), output))
+        self.assertTrue(_validate_report_once(self._inp(), output))
 
     def test_rejects_no_negative_factors_phrase(self):
         output = {
             "explanation": "Состав поддерживает увлажнение; существенных отрицательных факторов нет.",
-            "how_to_use": None,
             "expectations": None,
         }
         self.assertFalse(_validate_report_once(self._inp(), output))

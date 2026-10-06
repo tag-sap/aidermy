@@ -241,7 +241,7 @@ export function CatalogTab({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Поиск по названию…"
-              className="w-full bg-transparent text-sm focus:outline-none"
+              className="w-full bg-transparent text-base focus:outline-none"
             />
             {search && (
               <button onClick={() => setSearch('')} className="text-muted-foreground/40 hover:text-foreground">

@@ -198,7 +198,6 @@ export function ResultSheet({
         verdict: typeof d.verdict === 'string' ? d.verdict : result.verdict,
         report: fragmentsToText(d.review) ?? result.report,
         report_ready: d.report_ready === true,
-        how_to_use: d.how_to_use ?? result.how_to_use,
         expectations: d.expectations ?? result.expectations,
       })
     } catch {
@@ -324,19 +323,7 @@ export function ResultSheet({
                 )}
               </Section>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-
-                  {reportReady && result.how_to_use && (
-                    <Section icon={Clock} title="Как применять" className="border-blue-100/50">
-                      <div className="space-y-0.5 text-xs text-foreground/70 font-light">
-                        {result.how_to_use.application && <p><span className="font-medium text-foreground/80">Нанесение:</span> {result.how_to_use.application}</p>}
-                        {result.how_to_use.time && <p><span className="font-medium text-foreground/80">Время:</span> {result.how_to_use.time}</p>}
-                        {result.how_to_use.note && <p className="text-[11px] text-muted-foreground/60 mt-0.5"><MarkupText text={result.how_to_use.note} /></p>}
-                      </div>
-                    </Section>
-                  )}
-
-                  {reportReady && result.expectations && (
+              {reportReady && result.expectations && (
                     <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50">
                       <div className="space-y-0.5 text-xs text-foreground/70 font-light">
                         {result.expectations.when && <p><span className="font-medium text-foreground/80">Когда:</span> {result.expectations.when}</p>}
