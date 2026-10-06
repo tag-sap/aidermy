@@ -6,7 +6,7 @@ from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingre
 from .ingredient_repository import IngredientRepository
 from .scoring_engine import apply_hard_filters, score_product_against_profile_canonical
 from .goal_evidence import evaluate_goal_evidence, selected_concern_ids
-from .profile_resolver import normalize_scoring_profile
+from .profile_resolver import normalize_scoring_profile, resolve_personal_profile
 
 
 class AnalysisService:
@@ -46,6 +46,8 @@ class AnalysisService:
         if knowledge is None:
             knowledge = self.repository.get_canonical_knowledge_map()
         scoring_profile = normalize_scoring_profile(user_profile)
+        resolved_profile = resolve_personal_profile(scoring_profile.get("structured") or {})
+        scoring_profile["structured"]["axis_multipliers"] = resolved_profile["axis_multipliers"]
 
         # Hard filters выполняются ДО скоринга: если есть нарушения — товар исключён.
         hard_filters = apply_hard_filters(scoring_profile, normalized_ingredients)
@@ -64,6 +66,18 @@ class AnalysisService:
         result['normalized_ingredients'] = normalized_ingredients
         result['hard_filters'] = hard_filters
         result['excluded'] = bool(hard_filters)
+        structured = scoring_profile.get("structured") or {}
+        result['profile_effects'] = {
+            "skin_type": structured.get("skin_type") or "",
+            "sensitivity": structured.get("sensitivity") or "",
+            "selected_ids": resolved_profile.get("selected_ids") or [],
+            "concern_severity": resolved_profile.get("concern_severity") or {},
+            "weights": canonical_weights,
+            "axis_multipliers": resolved_profile.get("axis_multipliers") or {},
+            "active_therapy": resolved_profile.get("active_therapy") or [],
+            "active_procedures": resolved_profile.get("active_procedures") or [],
+            "context": resolved_profile.get("context") or [],
+        }
         result['goal_evidence'] = (
             evaluate_goal_evidence(
                 user_profile,

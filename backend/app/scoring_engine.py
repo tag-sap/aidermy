@@ -111,6 +111,57 @@ def _legacyize_factor(factor: Dict[str, Any]) -> Dict[str, Any]:
     return factor
 
 
+def _profile_axis_multiplier(axis: str, profile: Dict[str, Any]) -> float:
+    context = profile.get("structured") if isinstance(profile.get("structured"), dict) else profile
+    multipliers = context.get("axis_multipliers") or {}
+    return clamp(float(multipliers.get(axis, 1.0)), 0.5, 1.5)
+
+
+PROFILE_CONFLICT_SCALE = 1.5
+PROFILE_CONFLICT_DECAY = 2.0
+
+
+def _profile_negative_multiplier(axis: str, profile: Dict[str, Any]) -> float:
+    """Saturating risk modifier from matching concerns, active therapy, and procedures."""
+    from .profile_matrix import PROFILE_MATRIX
+    from .profile_resolver import (
+        _canonical_matrix_id,
+        _element_id,
+        _procedure_factor,
+        _severity_factor,
+        _therapy_factor,
+    )
+
+    context = profile.get("structured") if isinstance(profile.get("structured"), dict) else profile
+    risk_items: Dict[str, Tuple[Dict[str, Any], float]] = {}
+    for key in ("concerns", "imperfections", "states", "selected"):
+        for item in context.get(key) or []:
+            sid = _canonical_matrix_id(_element_id(item))
+            node = PROFILE_MATRIX.get(sid) if sid else None
+            if node and node.get("mode") == "score":
+                risk_items[sid] = (node, _severity_factor(item) if isinstance(item, dict) else 1.0)
+    for item in context.get("therapy") or []:
+        sid = _canonical_matrix_id(_element_id(item))
+        node = PROFILE_MATRIX.get(sid) if sid else None
+        if node and node.get("mode") == "score":
+            risk_items[sid] = (node, _therapy_factor(item) if isinstance(item, dict) else 0.0)
+    for item in context.get("procedures") or []:
+        sid = _canonical_matrix_id(_element_id(item))
+        node = PROFILE_MATRIX.get(sid) if sid else None
+        if node and node.get("mode") == "score":
+            risk_items[sid] = (node, _procedure_factor(item) if isinstance(item, dict) else 0.0)
+
+    load = sum(float(node.get("axes", {}).get(axis, 0.0)) * factor
+               for node, factor in risk_items.values())
+    sensitivity = str(context.get("sensitivity") or "").strip().lower()
+    if axis in {"irritation", "sensitization"}:
+        load += {"medium": 0.25, "moderate": 0.25, "high": 0.75,
+                 "very_high": 1.0, "severe": 1.0}.get(sensitivity, 0.0)
+    if load <= 0.0:
+        return 1.0
+    return round(1.0 + PROFILE_CONFLICT_SCALE * (1.0 - math.exp(-load / PROFILE_CONFLICT_DECAY)), 3)
+
+
 def score_product_against_profile_canonical(
     ingredients: List[str],
     canonical_knowledge: Dict[str, Dict[str, Dict[str, Any]]],
@@ -126,9 +177,14 @@ def score_product_against_profile_canonical(
     factors с property=canonical axis, direction=benefit-oriented).
     """
     from .axes import AXES
-    from .profile_resolver import normalize_scoring_profile
+    from .profile_resolver import normalize_scoring_profile, resolve_personal_profile
 
     user_profile = normalize_scoring_profile(user_profile)
+    structured_profile = user_profile.get("structured")
+    if isinstance(structured_profile, dict):
+        structured_profile["axis_multipliers"] = resolve_personal_profile(
+            structured_profile
+        )["axis_multipliers"]
     valid_ingredients = [ingredient for ingredient in ingredients if ingredient and str(ingredient).strip()]
     empty_dims = {axis: 0.0 for axis in AXES}
     if not valid_ingredients:
@@ -179,46 +235,14 @@ def score_product_against_profile_canonical(
                 continue
             weighted_value = strength * confidence * position_weight
 
-            # Layer 4: context multiplier.
-            # Для чувствительного/реактивного профиля с активным
-            # наружным ретиноидом усиливаем только отрицательные claims
-            # по irritation/sensitization.
-            #
-            # Не проверяем recent_peeling: если анализируем сам кислотный
-            # пилинг, пилинг находится в продукте, а не в профиле пользователя.
-            if sign < 0 and axis in {"irritation", "sensitization"}:
-                profile_context = (
-                    user_profile.get("structured")
-                    if isinstance(user_profile, dict)
-                    and isinstance(user_profile.get("structured"), dict)
-                    else user_profile
-                ) or {}
-
-                skin_type = str(profile_context.get("skin_type") or "").strip().lower()
-                concerns = {
-                    str(x).strip().lower()
-                    for x in (profile_context.get("concerns") or [])
-                    if str(x).strip()
-                }
-
-                therapy = {
-                    str(item.get("id")).strip().lower()
-                    for item in (profile_context.get("therapy") or [])
-                    if isinstance(item, dict)
-                    and item.get("active")
-                    and item.get("id")
-                }
-
-                topical_retinoids = {"adapalene", "tretinoin", "tazarotene"}
-
-                is_sensitive_or_reactive = (
-                    "sensitive" in skin_type
-                    or "reactive_skin" in concerns
-                )
-                has_active_topical_retinoid = bool(therapy & topical_retinoids)
-
-                if is_sensitive_or_reactive and has_active_topical_retinoid:
-                    weighted_value *= 1.5 if axis == "sensitization" else 2.0
+            axis_multiplier = (
+                _profile_axis_multiplier(axis, user_profile) if sign < 0 else 1.0
+            )
+            weighted_value *= axis_multiplier
+            profile_multiplier = 1.0
+            if sign < 0:
+                profile_multiplier = _profile_negative_multiplier(axis, user_profile)
+                weighted_value *= profile_multiplier
 
             if sign > 0:
                 axis_positive[axis].append(weighted_value)
@@ -231,6 +255,9 @@ def score_product_against_profile_canonical(
                 'strength': strength,
                 'confidence': confidence,
                 'position_weight': round(position_weight, 3),
+                'profile_multiplier': profile_multiplier,
+                'axis_multiplier': axis_multiplier,
+                'weighted_value': round(weighted_value, 6),
             }
             if sign > 0:
                 positive_factors.append(factor)
@@ -286,8 +313,27 @@ def score_product_against_profile_canonical(
     if interactions:
         from . import interaction_scoring
         if interaction_scoring.INTERACTION_SCORING_ENABLED:
-            agg, interaction_breakdown = interaction_scoring.aggregate_interactions(interactions)
-            for axis, contrib in agg.items():
+            _, interaction_breakdown = interaction_scoring.aggregate_interactions(interactions)
+            adjusted_agg: Dict[str, float] = {}
+            for item in interaction_breakdown:
+                axis = item["axis"]
+                contribution = float(item["contribution"])
+                axis_multiplier = (
+                    _profile_axis_multiplier(axis, user_profile)
+                    if contribution < 0 else 1.0
+                )
+                profile_multiplier = (
+                    _profile_negative_multiplier(axis, user_profile)
+                    if contribution < 0
+                    else 1.0
+                )
+                item["axis_multiplier"] = axis_multiplier
+                item["profile_multiplier"] = profile_multiplier
+                item["weighted_contribution"] = round(
+                    contribution * axis_multiplier * profile_multiplier, 6
+                )
+                adjusted_agg[axis] = adjusted_agg.get(axis, 0.0) + item["weighted_contribution"]
+            for axis, contrib in adjusted_agg.items():
                 dimensions[axis] += contrib
 
     weighted_total = 0.0
@@ -314,13 +360,43 @@ def score_product_against_profile_canonical(
     if hard_flags:
         final_score = min(final_score, HARD_FLAG_SCORE_CAP)
 
+    ingredient_confidence: Dict[str, float] = {}
+    for factor in positive_factors + negative_factors:
+        key = normalize_ingredient_name(str(factor.get('ingredient') or ''))
+        if key:
+            ingredient_confidence[key] = max(
+                ingredient_confidence.get(key, 0.0),
+                float(factor.get('confidence') or 0.0),
+            )
+    for factor in interaction_breakdown:
+        evidence_confidence = float(factor.get('confidence') or 0.0)
+        for key in (factor.get('ingredient_a'), factor.get('ingredient_b')):
+            normalized_key = normalize_ingredient_name(str(key or ''))
+            if normalized_key:
+                ingredient_confidence[normalized_key] = max(
+                    ingredient_confidence.get(normalized_key, 0.0), evidence_confidence
+                )
+    for flag in hard_flags:
+        key = normalize_ingredient_name(str(flag.get('ingredient') or ''))
+        if key:
+            ingredient_confidence[key] = max(ingredient_confidence.get(key, 0.0), 1.0)
+    ingredient_confidence_denominator = {
+        normalize_ingredient_name(str(ingredient))
+        for ingredient in valid_ingredients
+        if normalize_ingredient_name(str(ingredient))
+    }
+
     return {
         'score': int(final_score),
         'dimensions': {axis: round(value, 3) for axis, value in dimensions.items()},
         'positive_factors': positive_factors,
         'negative_factors': negative_factors,
         'unknown_factors': unknown_factors,
-        'confidence': round(clamp((sum(1 for _ in positive_factors) + sum(1 for _ in negative_factors)) / max(len(valid_ingredients), 1), 0.0, 1.0), 3),
+        'confidence': round(clamp(
+            sum(ingredient_confidence.values()) / max(len(ingredient_confidence_denominator), 1),
+            0.0,
+            1.0,
+        ), 3),
         'hard_flags': hard_flags,
         'interaction_breakdown': interaction_breakdown,
         'interaction_scoring_version': _interaction_scoring_version(),

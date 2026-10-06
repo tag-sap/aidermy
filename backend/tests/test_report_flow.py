@@ -55,13 +55,18 @@ class ReportFlowTests(unittest.TestCase):
     def test_shelf_analyze_returns_analysis_id(self):
         """Карточка товара должна получать analysis_id, чтобы открыть отчёт по нему."""
         self._seed_analysis()
-        token = create_access_token({"sub": str(USER_ID)})
+        from app.auth import get_current_user
+
         client = TestClient(app)
-        r = client.post(
-            "/api/shelf/analyze",
-            json={"slug": SLUG},
-            headers={"Authorization": f"Bearer {token}"},
-        )
+        previous_override = app.dependency_overrides.get(get_current_user)
+        app.dependency_overrides[get_current_user] = lambda: {"id": USER_ID}
+        try:
+            r = client.post("/api/shelf/analyze", json={"slug": SLUG})
+        finally:
+            if previous_override is None:
+                app.dependency_overrides.pop(get_current_user, None)
+            else:
+                app.dependency_overrides[get_current_user] = previous_override
         self.assertEqual(r.status_code, 200, f"unexpected {r.status_code}: {r.text}")
         body = r.json()
         analysis = body.get("analysis")
@@ -171,24 +176,37 @@ class ReportFlowTests(unittest.TestCase):
         """Повторное открытие отчёта по тому же analysis_id даёт тот же результат."""
         saved = self._seed_analysis()
         analysis_id = saved["id"]
-        token = create_access_token({"sub": str(USER_ID)})
+        from app.database import get_product_by_slug
+        from app.shelf_service import get_personalized_analysis
+
+        product = get_product_by_slug(SLUG)
+        self.assertIsNotNone(product, "test product must exist in products.db")
+        card_score, card_analysis = get_personalized_analysis({"id": USER_ID}, product)
+        self.assertEqual(card_analysis.get("id"), analysis_id)
+        from app.auth import get_current_user
+
         client = TestClient(app)
+        previous_override = app.dependency_overrides.get(get_current_user)
+        app.dependency_overrides[get_current_user] = lambda: {"id": USER_ID}
+        try:
+            r1 = client.post(
+                "/api/analysis/report",
+                json={"slug": SLUG, "analysis_id": analysis_id},
+            )
+            self.assertEqual(r1.status_code, 200, f"unexpected {r1.status_code}: {r1.text}")
+            rep1 = r1.json()
 
-        r1 = client.post(
-            "/api/analysis/report",
-            json={"slug": SLUG, "analysis_id": analysis_id},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        self.assertEqual(r1.status_code, 200, f"unexpected {r1.status_code}: {r1.text}")
-        rep1 = r1.json()
-
-        r2 = client.post(
-            "/api/analysis/report",
-            json={"slug": SLUG, "analysis_id": analysis_id},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        self.assertEqual(r2.status_code, 200, f"unexpected {r2.status_code}: {r2.text}")
-        rep2 = r2.json()
+            r2 = client.post(
+                "/api/analysis/report",
+                json={"slug": SLUG, "analysis_id": analysis_id},
+            )
+            self.assertEqual(r2.status_code, 200, f"unexpected {r2.status_code}: {r2.text}")
+            rep2 = r2.json()
+        finally:
+            if previous_override is None:
+                app.dependency_overrides.pop(get_current_user, None)
+            else:
+                app.dependency_overrides[get_current_user] = previous_override
         generate.assert_awaited_once()
 
         # Инвариант: score/verdict/report совпадают при повторном открытии.
@@ -200,6 +218,8 @@ class ReportFlowTests(unittest.TestCase):
         self.assertNotIn("what_bad", rep1)
         self.assertEqual(rep1.get("score"), rep2.get("score"))
         self.assertEqual(rep1.get("review"), rep2.get("review"))
+        self.assertEqual(rep1.get("score"), card_score)
+        self.assertEqual(rep2.get("score"), card_score)
 
     def test_scan_match_can_generate_report_before_catalog_approval(self):
         analysis = {

@@ -36,7 +36,22 @@ def _set_created_at(conn, user_id, product_id, ts):
 
 
 class AnalysisLifecycleTests(unittest.TestCase):
+    def _remove_test_user(self):
+        conn = get_connection(AIDERMY_DB)
+        conn.execute("DELETE FROM users WHERE id = ?", (USER_ID,))
+        conn.commit()
+        conn.close()
+
     def _seed(self, ttl_days=7):
+        conn = get_connection(AIDERMY_DB)
+        inserted = conn.execute(
+            "INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (?, ?, ?)",
+            (USER_ID, "lifecycle-test@example.invalid", "test-only-hash"),
+        ).rowcount
+        conn.commit()
+        conn.close()
+        if inserted:
+            self.addCleanup(self._remove_test_user)
         det = {"score": 64, "verdict": "Требует внимания", "normalized_ingredients": ["aqua", "glycerin"]}
         return upsert_analysis(
             user_id=USER_ID,

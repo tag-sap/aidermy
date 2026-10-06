@@ -23,6 +23,7 @@ from .profile_matrix import (
     LEGACY_SKIN_TYPE_MAP,
     PROCEDURE_TEMPORAL_DECAY,
     PROFILE_MATRIX,
+    SKIN_TYPE_MATRIX,
     THERAPY_TEMPORAL_FACTOR,
 )
 
@@ -41,7 +42,7 @@ def _element_id(item: Any) -> Optional[str]:
     if isinstance(item, str):
         return item
     if isinstance(item, dict):
-        return item.get("id")
+        return item.get("id") or item.get("value") or item.get("key")
     return None
 
 
@@ -97,6 +98,17 @@ def _canonical_matrix_id(sid: str) -> Optional[str]:
     return _MATRIX_ID_ALIASES.get(sid, sid)
 
 
+def _canonical_skin_type(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    canonical = _canonical_matrix_id(raw)
+    if canonical in SKIN_TYPE_MATRIX:
+        return canonical
+    for alias, skin_type in LEGACY_SKIN_TYPE_MAP.items():
+        if alias in raw:
+            return skin_type
+    return ""
+
+
 def _therapy_factor(item: Dict[str, Any]) -> float:
     cfg = THERAPY_TEMPORAL_FACTOR
     if item.get("active"):
@@ -117,6 +129,22 @@ def _procedure_factor(item: Dict[str, Any]) -> float:
     return float(PROCEDURE_TEMPORAL_DECAY.get(period, 0.0))
 
 
+def _severity_factor(item: Dict[str, Any]) -> float:
+    severity = item.get("severity")
+    if isinstance(severity, (int, float)) and not isinstance(severity, bool):
+        if severity <= 2:
+            return 0.75
+        if severity >= 4:
+            return 1.25
+        return 1.0
+    value = str(severity or "").strip().lower()
+    if value in {"low", "mild", "легкая", "лёгкая", "низкая"}:
+        return 0.75
+    if value in {"high", "severe", "тяжелая", "тяжёлая", "высокая"}:
+        return 1.25
+    return 1.0
+
+
 def _collect_score_ids(profile: Dict[str, Any]) -> Tuple[List[str], Dict[str, Dict[str, Any]]]:
     ids: List[str] = []
     temporal: Dict[str, Dict[str, Any]] = {}
@@ -129,21 +157,30 @@ def _collect_score_ids(profile: Dict[str, Any]) -> Tuple[List[str], Dict[str, Di
         for item in _as_list(profile.get(key)):
             sid = _element_id(item)
             if sid:
-                ids.append(str(sid).strip().lower())
+                sid = _canonical_matrix_id(str(sid).strip().lower())
+                ids.append(sid)
+                if isinstance(item, dict):
+                    temporal.setdefault(sid, dict(item))
 
     for item in _as_list(profile.get("therapy")):
         sid = _canonical_matrix_id(_element_id(item))
         if sid:
             sid = str(sid).strip().lower()
             ids.append(sid)
-            temporal[sid] = item if isinstance(item, dict) else {"active": True}
+            temporal[sid] = {
+                **(item if isinstance(item, dict) else {"active": True}),
+                "_profile_source": "therapy",
+            }
 
     for item in _as_list(profile.get("procedures")):
         sid = _canonical_matrix_id(_element_id(item))
         if sid:
             sid = str(sid).strip().lower()
             ids.append(sid)
-            temporal[sid] = item if isinstance(item, dict) else {}
+            temporal[sid] = {
+                **(item if isinstance(item, dict) else {}),
+                "_profile_source": "procedure",
+            }
 
     return ids, temporal
 
@@ -181,6 +218,8 @@ def resolve_personal_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
 
     # 3) аккумулируем axes (с temporal factor).
     raw = {axis: 0.0 for axis in AXES}
+    severity_totals = {axis: 0.0 for axis in AXES}
+    severity_weights = {axis: 0.0 for axis in AXES}
     warnings: List[str] = []
     context: List[str] = []
     active_therapy: List[str] = []
@@ -191,20 +230,28 @@ def resolve_personal_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
             continue
         node = matrix[sid]
         factor = 1.0
+        t = temporal.get(sid, {})
         if node.get("temporal"):
-            t = temporal.get(sid, {})
-            if node.get("category") == "therapy":
-                factor = _therapy_factor(t)
-                if factor > 0:
-                    active_therapy.append(sid)
-            elif node.get("category") == "procedure":
+            source = t.get("_profile_source")
+            if source == "procedure" or node.get("category") == "procedure":
                 factor = _procedure_factor(t)
                 if factor > 0:
                     active_procedures.append(sid)
+            elif source == "therapy" or node.get("category") == "therapy":
+                factor = _therapy_factor(t)
+                if factor > 0:
+                    active_therapy.append(sid)
         if factor <= 0:
             continue
+        severity_factor = _severity_factor(t)
+        temporal_modifier = t.get("_profile_source") in {"therapy", "procedure"} \
+            or node.get("category") in {"therapy", "procedure"}
         for axis, w in node["axes"].items():
-            raw[axis] += min(float(w), float(node.get("max_contribution", 1.0))) * factor
+            contribution = min(float(w), float(node.get("max_contribution", 1.0))) * factor
+            raw[axis] += contribution
+            if not temporal_modifier:
+                severity_totals[axis] += contribution * severity_factor
+                severity_weights[axis] += contribution
         if node.get("warning"):
             warnings.append(node["warning"])
 
@@ -227,6 +274,11 @@ def resolve_personal_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "weights": weights,
+        "axis_multipliers": {
+            axis: round(severity_totals[axis] / severity_weights[axis], 6)
+            if severity_weights[axis] > 0 else 1.0
+            for axis in AXES
+        },
         "warnings": _dedupe(warnings),
         "restrictions": _as_list(profile.get("restrictions")),
         "intolerances": _as_list(profile.get("intolerances")),
@@ -235,6 +287,12 @@ def resolve_personal_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
         "context": _dedupe(context),
         "active_therapy": _dedupe(active_therapy),
         "active_procedures": _dedupe(active_procedures),
+        "selected_ids": _dedupe(list(selected_set)),
+        "concern_severity": {
+            sid: temporal[sid].get("severity")
+            for sid in selected_set
+            if temporal.get(sid, {}).get("severity") is not None
+        },
     }
 
 
@@ -257,7 +315,9 @@ def profile_weights(profile: Dict[str, Any], skin_type: str = "") -> Dict[str, f
 def legacy_profile_to_structured(profile: Dict[str, Any]) -> Dict[str, Any]:
     """Старые RU-поля (skinType/concerns/allergies) -> новый structured профиль."""
     profile = profile or {}
-    raw_st = str(profile.get("skin_type") or "").strip().lower()
+    raw_st = str(
+        profile.get("skin_type") or profile.get("skin_type_determined") or ""
+    ).strip().lower()
     skin_type = ""
     for key, canon in LEGACY_SKIN_TYPE_MAP.items():
         if key in raw_st:
@@ -266,7 +326,11 @@ def legacy_profile_to_structured(profile: Dict[str, Any]) -> Dict[str, Any]:
 
     concerns: List[str] = []
     for raw in _as_list(profile.get("concerns")):
-        c = str(raw).strip().lower()
+        c = str(_element_id(raw) or raw).strip().lower()
+        if c in PROFILE_MATRIX and PROFILE_MATRIX[c].get("mode") == "score":
+            if c not in concerns:
+                concerns.append(c)
+            continue
         for key, canon in LEGACY_CONCERN_MAP.items():
             if key in c:
                 if canon not in concerns:
@@ -345,12 +409,80 @@ def intolerance_ingredient_aliases(item: Any) -> List[str]:
 def _as_profile_values(value: Any) -> List[Any]:
     if value is None:
         return []
-    return value if isinstance(value, list) else [value]
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str) and "," in value:
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return [value]
+
+
+def _merge_profile_items(*groups: List[Any]) -> List[Any]:
+    merged: List[Any] = []
+    positions: Dict[str, int] = {}
+    for group in groups:
+        for item in group:
+            item_id = _element_id(item)
+            key = str(item_id if item_id is not None else item).strip().lower()
+            if not key:
+                continue
+            position = positions.get(key)
+            if position is None:
+                positions[key] = len(merged)
+                merged.append(item)
+            elif isinstance(item, dict) and not isinstance(merged[position], dict):
+                merged[position] = item
+    return merged
+
+
+def merge_profile_layers(profile: Dict[str, Any], skin_type: str = "") -> Dict[str, Any]:
+    """Merge legacy API fields with the canonical structured profile."""
+    result = dict(profile or {})
+    structured = result.get("structured")
+    structured = dict(structured) if isinstance(structured, dict) else {}
+
+    legacy_source = dict(result)
+    if not legacy_source.get("skin_type"):
+        legacy_source["skin_type"] = (
+            legacy_source.get("skin_type_determined") or skin_type
+        )
+    legacy = legacy_profile_to_structured(legacy_source)
+
+    concern_items = []
+    for item in _as_profile_values(result.get("concerns")):
+        item_id = _element_id(item) or item
+        if str(item_id).strip().lower() in PROFILE_MATRIX:
+            concern_items.append(item)
+
+    keys = (
+        "concerns", "imperfections", "states", "selected", "therapy", "procedures",
+        "goals", "skin_goals", "intolerances", "allergies", "restrictions",
+    )
+    for key in keys:
+        additions = _as_profile_values(result.get(key))
+        if key == "concerns":
+            additions = concern_items + legacy.get("concerns", [])
+        structured[key] = _merge_profile_items(
+            _as_profile_values(structured.get(key)), additions
+        )
+
+    raw_skin_type = (
+        result.get("skin_type") or result.get("skin_type_determined") or skin_type
+    )
+    canonical_skin_type = _canonical_skin_type(raw_skin_type) or legacy.get("skin_type") or ""
+    structured["skin_type"] = (
+        _canonical_skin_type(structured.get("skin_type")) or canonical_skin_type
+    )
+    structured["sensitivity"] = (
+        structured.get("sensitivity") or result.get("sensitivity") or ""
+    )
+    structured["age"] = structured.get("age") or result.get("age")
+    result["structured"] = structured
+    return result
 
 
 def normalize_scoring_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     """Merge legacy and structured constraints into the Score Engine input."""
-    result = dict(profile or {})
+    result = merge_profile_layers(profile)
     structured = result.get("structured")
     structured = structured if isinstance(structured, dict) else {}
 

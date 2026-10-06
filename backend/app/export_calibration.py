@@ -351,14 +351,10 @@ def _ingredient_contributions(
     negative_factors: List[Dict[str, Any]],
     matched_intolerances: set,
 ) -> List[Dict[str, Any]]:
-    """Группирует factors по ингредиенту → per-axis signed contribution.
-
-    contribution(фактора) = sign × strength × confidence × position_weight.
-    Непереносимости (intolerance) выносятся отдельно в penalties и не попадают
-    сюда, чтобы не задваиваться с dimension_delta (их вычет в движке — плоский).
-    """
+    """Allocate the engine's weighted, diminishing-return contributions by ingredient."""
     aggregated: Dict[str, Dict[str, float]] = {}
     seen_order: List[str] = []
+    grouped: Dict[Tuple[str, bool], List[Tuple[str, float]]] = {}
 
     def _add(ingredient: str, axis: str, value: float) -> None:
         if ingredient not in aggregated:
@@ -366,24 +362,32 @@ def _ingredient_contributions(
             seen_order.append(ingredient)
         aggregated[ingredient][axis] = aggregated[ingredient].get(axis, 0.0) + value
 
-    for sign, factors in ((1.0, positive_factors), (-1.0, negative_factors)):
-        for f in factors:
-            ingredient = str(f.get("ingredient") or "")
+    for positive, factors in ((True, positive_factors), (False, negative_factors)):
+        for factor in factors:
+            ingredient = str(factor.get("ingredient") or "")
             key = normalize_ingredient_name(ingredient)
-            if not ingredient:
+            axis = str(factor.get("property") or "")
+            if not ingredient or axis not in AXES:
                 continue
-            if key and key in matched_intolerances and f.get("property") == INTOLERANCE_PENALTY["axis"]:
-                continue  # intolerance → penalties
-            axis = str(f.get("property") or "")
-            if axis not in AXES:
+            if key and key in matched_intolerances and axis == INTOLERANCE_PENALTY["axis"]:
                 continue
-            value = (
-                sign
-                * float(f.get("strength") or 0.0)
-                * float(f.get("confidence") or 0.0)
-                * float(f.get("position_weight") or 1.0)
-            )
-            _add(ingredient, axis, value)
+            value = factor.get("weighted_value")
+            if value is None:
+                value = (
+                    float(factor.get("strength") or 0.0)
+                    * float(factor.get("confidence") or 0.0)
+                    * float(factor.get("position_weight") or 1.0)
+                    * float(factor.get("axis_multiplier") or 1.0)
+                    * float(factor.get("profile_multiplier") or 1.0)
+                )
+            grouped.setdefault((axis, positive), []).append((ingredient, float(value)))
+
+    for (axis, positive), factors in grouped.items():
+        ordered = sorted(factors, key=lambda item: item[1], reverse=True)
+        use_max = positive and axis in {"hydration", "barrier"}
+        for rank, (ingredient, value) in enumerate(ordered, start=1):
+            contribution = value if use_max and rank == 1 else (0.0 if use_max else value / rank)
+            _add(ingredient, axis, contribution if positive else -contribution)
 
     out: List[Dict[str, Any]] = []
     for ingredient in seen_order:

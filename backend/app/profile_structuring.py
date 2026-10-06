@@ -38,7 +38,6 @@ _CONCERN_TO_GOALS: Dict[str, List[str]] = {
     "купероз": ["sensitivity", "barrier_support"],
     "чувствительн": ["sensitivity", "barrier_support"],
     "сух": ["hydration", "barrier_support"],
-    "жирн": ["acne_control", "sensitivity"],
 }
 
 # Ключевые слова для классификации custom_text. Порядок важен: сначала
@@ -87,27 +86,18 @@ def _infer_sensitivity(profile: Dict[str, Any]) -> str:
     ).lower()
     if "чувствительн" in text or "купероз" in text or "покраснен" in text:
         return "high"
-    if "жирн" in text or "комбинирован" in text:
-        return "medium"
     return "low"
 
 
 def _skin_goals_from_concerns(profile: Dict[str, Any]) -> List[str]:
-    """Цели ухода (измерения) из concern'ов и типа кожи."""
+    """Цели ухода (измерения) только из явно указанных concern'ов."""
     goals: List[str] = []
-    text = " ".join(
-        [
-            _skin_type_from_profile(profile),
-            " ".join(_normalize_list((profile or {}).get("concerns"))),
-        ]
-    ).lower()
+    text = " ".join(_normalize_list((profile or {}).get("concerns"))).lower()
     for key, dims in _CONCERN_TO_GOALS.items():
         if key in text:
             for d in dims:
                 if d not in goals:
                     goals.append(d)
-    if not goals:
-        goals = ["hydration", "barrier_support"]
     return goals
 
 

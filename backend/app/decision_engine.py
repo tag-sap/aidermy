@@ -93,42 +93,14 @@ def priorities_for_profile(profile: Dict[str, Any], skin_type: str = "") -> Dict
 
 
 def profile_weights(profile: Dict[str, Any], skin_type: str = "") -> Dict[str, float]:
-    """6 canonical weights (нормализованы) для scoring engine.
+    """6 canonical weights (нормализованы) для scoring engine."""
+    from .profile_resolver import normalize_scoring_profile, resolve_personal_profile
 
-    Принимает НОВЫЙ structured profile (English IDs) либо legacy RU-поля —
-    в этом случае сначала прогоняет legacy -> structured mapper.
-    """
-    from .profile_matrix import PROFILE_MATRIX
-    from .profile_resolver import legacy_profile_to_structured, resolve_personal_profile
-
-    profile = profile or {}
-
-    # Явный structured-профиль (новый формат) — используем напрямую.
-    if isinstance(profile.get("structured"), dict):
-        return resolve_personal_profile(profile["structured"])["weights"]
-
-    st = _effective_skin_type(profile, skin_type).lower()
-
-    concerns = profile.get("concerns") or []
-    if isinstance(concerns, str):
-        concerns = [c.strip() for c in concerns.split(",") if c.strip()]
-
-    is_structured = (
-        st in PROFILE_MATRIX
-        or any((str(c).strip().lower() in PROFILE_MATRIX) for c in concerns)
-        or any(k in profile for k in ("imperfections", "states", "therapy", "procedures", "selected"))
-    )
-
-    if is_structured:
-        p = dict(profile)
-        if not p.get("skin_type") and st:
-            p["skin_type"] = st
-        return resolve_personal_profile(p)["weights"]
-
-    structured = legacy_profile_to_structured(profile)
-    if st and not structured["skin_type"]:
-        structured["skin_type"] = st
-    return resolve_personal_profile(structured)["weights"]
+    payload = dict(profile or {})
+    if not payload.get("skin_type") and skin_type:
+        payload["skin_type"] = skin_type
+    normalized = normalize_scoring_profile(payload)
+    return resolve_personal_profile(normalized.get("structured") or {})["weights"]
 
 
 def build_verdict(score: int) -> str:
@@ -209,6 +181,11 @@ class DecisionEngine:
         interactions: Optional[List[Dict[str, Any]]] = None,
         saturation_scale: float | None = None,
     ) -> Dict[str, Any]:
+        profile = dict(profile or {})
+        if not profile.get("skin_type") and skin_type:
+            profile["skin_type"] = skin_type
+        from .profile_resolver import normalize_scoring_profile
+        profile = normalize_scoring_profile(profile)
         priorities = profile_weights(profile, skin_type)
         result = self.analysis_service.analyze(
             product_name,
@@ -228,5 +205,7 @@ class DecisionEngine:
         result["safe_ingredients"] = safe
         result["caution_ingredients"] = caution
         result["priorities"] = priorities
+        from .score_version import SCORE_ENGINE_VERSION
+        result["score_engine_version"] = SCORE_ENGINE_VERSION
         return result
 
