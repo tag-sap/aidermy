@@ -396,7 +396,15 @@ function HScroll({ children }: { children: ReactNode }) {
 }
 const SWIPE_THRESHOLD = 70
 
-function RecommendationCarousel({ items, onOpen }: { items: Product[]; onOpen: (p: Product) => void }) {
+function AutoPickCarousel({
+  items,
+  onOpen,
+  onAdd,
+}: {
+  items: Product[]
+  onOpen: (p: Product) => void
+  onAdd: (p: Product) => void
+}) {
   const [index, setIndex] = useState(0)
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
@@ -407,7 +415,9 @@ function RecommendationCarousel({ items, onOpen }: { items: Product[]; onOpen: (
 
   if (total === 0) return null
 
-  const go = (dir: 1 | -1) => setIndex((i) => (i + dir + total) % total)
+  const go = (dir: 1 | -1) => {
+    setIndex((i) => (i + dir + total) % total)
+  }
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.pointerType === "mouse" && e.button !== 0) return
@@ -417,30 +427,39 @@ function RecommendationCarousel({ items, onOpen }: { items: Product[]; onOpen: (
     lastDx.current = 0
     setDragX(0)
   }
+
   const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!dragging) return
+
     const dx = e.clientX - startX.current
-    if (Math.abs(dx) > 8) movedRef.current = true
+
+    if (Math.abs(dx) > 8) {
+      movedRef.current = true
+    }
+
     lastDx.current = dx
     setDragX(dx)
   }
+
   const handlePointerUp = () => {
     if (!dragging) return
+
     setDragging(false)
+
     const dx = lastDx.current
     setDragX(0)
+
     if (movedRef.current && Math.abs(dx) > SWIPE_THRESHOLD) {
       go(dx < 0 ? 1 : -1)
     }
   }
 
-  // Показываем только верхние карточки стопки (текущая + до 3 позади).
   const visible = Math.min(total, 4)
   const order = Array.from({ length: visible }, (_, k) => (index + k) % total)
 
   return (
     <div
-      className={`rec-carousel ${dragging ? "rec-carousel--dragging" : ""}`}
+      className={`autopick-carousel ${dragging ? "autopick-carousel--dragging" : ""}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -450,26 +469,52 @@ function RecommendationCarousel({ items, onOpen }: { items: Product[]; onOpen: (
         const p = items[itemIdx]
         const isFront = k === 0
         const style: CSSProperties = {}
+
         if (isFront && dragging && dragX !== 0) {
-          style.transform = `translateX(${dragX}px) rotate(${dragX * 0.04}deg)`
+          style.transform = `translateX(${dragX}px) rotate(${dragX * 0.025}deg)`
         }
+
         return (
-          <button
+          <article
             key={`${p.id}-${itemIdx}`}
-            type="button"
-            className="rec rec-carousel__card"
+            className="autopick-carousel__card"
             data-stack={k}
             style={style}
-            onClick={() => { if (!movedRef.current) onOpen(p) }}
-            aria-hidden={!isFront}
-            tabIndex={isFront ? 0 : -1}
+            onClick={() => {
+              if (!movedRef.current) onOpen(p)
+            }}
           >
-            <img src={p.image} alt="" loading="lazy" draggable={false} />
-            <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-            {p.match && <ScoreBadge score={p.match.score} />}
-          </button>
+            <div className="autopick-carousel__image">
+              <img src={p.image} alt="" loading="lazy" draggable={false} />
+              {p.match && <ScoreBadge score={p.match.score} />}
+            </div>
+
+            <div className="autopick-carousel__body">
+              <p className="autopick-carousel__brand">{p.brand}</p>
+              <h3>{p.name}</h3>
+              <p className="autopick-carousel__category">{p.category}</p>
+
+              <button
+                type="button"
+                className="autopick-carousel__add"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onAdd(p)
+                }}
+              >
+                <Icon name="plus" size={17} />
+                Добавить на полку
+              </button>
+            </div>
+          </article>
         )
       })}
+
+      {total > 1 && (
+        <div className="autopick-carousel__counter">
+          {index + 1} / {total}
+        </div>
+      )}
     </div>
   )
 }
@@ -487,7 +532,7 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
   })()
   // Реальные рекомендации: есть match, не на полке, отсортированы по score.
   // Показываем до 6 карточек (если доступно), без изменения ранжирования.
-  const recommended = items.filter((p) => p.match != null && !p.state).sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 6)
+  const recommended = items.filter((p) => p.match != null && !p.state).sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 3)
   return (
     <div className="page">
       <section className="hero">
@@ -536,7 +581,15 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
 
       <section className="block">
         <SectionHead eyebrow="Рекомендации" title="Проверьте ещё" action={() => onNavigate("catalog")} actionLabel="Каталог" />
-        <RecommendationCarousel items={recommended} onOpen={onOpen} />
+        <div className="rec-list">
+          {recommended.map((p) => (
+            <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
+              <img src={p.image} alt="" loading="lazy" />
+              <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+              {p.match && <ScoreBadge score={p.match.score} />}
+            </button>
+          ))}
+        </div>
       </section>
     </div>
   )
@@ -1705,20 +1758,32 @@ function ShelfAddModal({ items, onClose, onAdd, onScan, onOpen }: { items: Produ
                   ))}
                 </div>
               )}
-              <div className="add-modal__list">
-                {(recsLoading || catLoading) ? (
-                  <p className="empty">Ищем…</p>
-                ) : list.map((p) => (
-                  <div key={p.id} className="rec">
-                    <button type="button" className="rec__main" onClick={() => onOpen(p)}>
-                      <img src={p.image} alt="" loading="lazy" />
-                      <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-                    </button>
-                    <button type="button" className="add-modal__add" onClick={() => onAdd(p)} aria-label="Добавить"><Icon name="plus" size={16} /></button>
+              {mode === "auto" ? (
+                recsLoading ? (
+                  <div className="autopick-carousel__loading">
+                    <span className="spin" /> Подбираем средства…
                   </div>
-                ))}
-                {!recsLoading && list.length === 0 && <p className="empty">{mode === "auto" ? "Выберите категорию для подбора." : "Ничего не нашлось."}</p>}
-              </div>
+                ) : list.length ? (
+                  <AutoPickCarousel items={list} onOpen={onOpen} onAdd={onAdd} />
+                ) : (
+                  <p className="empty">Выберите категорию для подбора.</p>
+                )
+              ) : (
+                <div className="add-modal__list">
+                  {catLoading ? (
+                    <p className="empty">Ищем…</p>
+                  ) : list.map((p) => (
+                    <div key={p.id} className="rec">
+                      <button type="button" className="rec__main" onClick={() => onOpen(p)}>
+                        <img src={p.image} alt="" loading="lazy" />
+                        <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+                      </button>
+                      <button type="button" className="add-modal__add" onClick={() => onAdd(p)} aria-label="Добавить"><Icon name="plus" size={16} /></button>
+                    </div>
+                  ))}
+                  {!catLoading && list.length === 0 && <p className="empty">Ничего не нашлось.</p>}
+                </div>
+              )}
             </>
           )}
         </div>
