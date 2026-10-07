@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
 import { api, setToken, getToken, type ReportResult } from "./api"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
@@ -394,6 +394,86 @@ function HScroll({ children }: { children: ReactNode }) {
     </div>
   )
 }
+const SWIPE_THRESHOLD = 70
+
+function RecommendationCarousel({ items, onOpen }: { items: Product[]; onOpen: (p: Product) => void }) {
+  const [index, setIndex] = useState(0)
+  const [dragX, setDragX] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const startX = useRef(0)
+  const movedRef = useRef(false)
+  const lastDx = useRef(0)
+  const total = items.length
+
+  if (total === 0) return null
+
+  const go = (dir: 1 | -1) => setIndex((i) => (i + dir + total) % total)
+
+  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return
+    setDragging(true)
+    movedRef.current = false
+    startX.current = e.clientX
+    lastDx.current = 0
+    setDragX(0)
+  }
+  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging) return
+    const dx = e.clientX - startX.current
+    if (Math.abs(dx) > 8) movedRef.current = true
+    lastDx.current = dx
+    setDragX(dx)
+  }
+  const handlePointerUp = () => {
+    if (!dragging) return
+    setDragging(false)
+    const dx = lastDx.current
+    setDragX(0)
+    if (movedRef.current && Math.abs(dx) > SWIPE_THRESHOLD) {
+      go(dx < 0 ? 1 : -1)
+    }
+  }
+
+  // Показываем только верхние карточки стопки (текущая + до 3 позади).
+  const visible = Math.min(total, 4)
+  const order = Array.from({ length: visible }, (_, k) => (index + k) % total)
+
+  return (
+    <div
+      className={`rec-carousel ${dragging ? "rec-carousel--dragging" : ""}`}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+    >
+      {order.map((itemIdx, k) => {
+        const p = items[itemIdx]
+        const isFront = k === 0
+        const style: CSSProperties = {}
+        if (isFront && dragging && dragX !== 0) {
+          style.transform = `translateX(${dragX}px) rotate(${dragX * 0.04}deg)`
+        }
+        return (
+          <button
+            key={`${p.id}-${itemIdx}`}
+            type="button"
+            className="rec rec-carousel__card"
+            data-stack={k}
+            style={style}
+            onClick={() => { if (!movedRef.current) onOpen(p) }}
+            aria-hidden={!isFront}
+            tabIndex={isFront ? 0 : -1}
+          >
+            <img src={p.image} alt="" loading="lazy" draggable={false} />
+            <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+            {p.match && <ScoreBadge score={p.match.score} />}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
   onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]; shelfItems: Product[]
 }) {
@@ -405,7 +485,9 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
     const scored = shelfSource.filter((p) => p.match != null)
     return scored.length ? Math.round(scored.reduce((s, p) => s + (p.match?.score ?? 0), 0) / scored.length) : null
   })()
-  const recommended = items.filter((p) => p.match != null && !p.state).sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 3)
+  // Реальные рекомендации: есть match, не на полке, отсортированы по score.
+  // Показываем до 6 карточек (если доступно), без изменения ранжирования.
+  const recommended = items.filter((p) => p.match != null && !p.state).sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 6)
   return (
     <div className="page">
       <section className="hero">
@@ -454,15 +536,7 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
 
       <section className="block">
         <SectionHead eyebrow="Рекомендации" title="Проверьте ещё" action={() => onNavigate("catalog")} actionLabel="Каталог" />
-        <div className="rec-list">
-          {recommended.map((p) => (
-            <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
-              <img src={p.image} alt="" loading="lazy" />
-              <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-              {p.match && <ScoreBadge score={p.match.score} />}
-            </button>
-          ))}
-        </div>
+        <RecommendationCarousel items={recommended} onOpen={onOpen} />
       </section>
     </div>
   )
