@@ -315,23 +315,59 @@ export function ResultSheet({
             )}
 
             <>
-              <Section icon={Sparkles} title={reportReady ? 'Почему такой результат' : 'Результат'} className="border-primary/10">
-                {reportReady && result.report ? (
-                  <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.report} /></p>
-                ) : (
-                  <p className="text-sm text-foreground/80 leading-relaxed font-light">{result.summary}</p>
+              <div
+                key={reportReady ? 'report' : 'result'}
+                className={cn(
+                  'transition-all duration-500 ease-out',
+                  reportReady ? 'animate-in fade-in slide-in-from-bottom-2' : 'opacity-100'
                 )}
-              </Section>
+              >
+                <Section
+                  icon={Sparkles}
+                  title={reportReady ? 'Почему такой результат' : 'Результат'}
+                  className={cn(
+                    'border-primary/10',
+                    reportReady && 'p-5 md:p-6'
+                  )}
+                >
+                  {reportReady && result.report ? (
+                    <p className="text-[17px] md:text-lg leading-[1.75] text-foreground/90 font-light">
+                      <MarkupText text={result.report} />
+                    </p>
+                  ) : (
+                    <p className="text-sm text-foreground/80 leading-relaxed font-light">
+                      {result.summary}
+                    </p>
+                  )}
+                </Section>
+              </div>
 
               {reportReady && result.expectations && (
-                    <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50">
-                      <div className="space-y-0.5 text-xs text-foreground/70 font-light">
-                        {result.expectations.when && <p><span className="font-medium text-foreground/80">Когда:</span> {result.expectations.when}</p>}
-                        {result.expectations.normal && <p className="text-[11px] flex items-start gap-1"><CheckCircle className="size-3.5 text-primary/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.normal} /></span></p>}
-                        {result.expectations.danger && <p className="text-[11px] flex items-start gap-1"><AlertCircle className="size-3.5 text-red-400/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.danger} /></span></p>}
-                      </div>
-                    </Section>
-                  )}
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50 p-4 md:p-5">
+                    <div className="space-y-1 text-sm md:text-[15px] leading-relaxed text-foreground/75 font-light">
+                      {result.expectations.when && (
+                        <p>
+                          <span className="font-medium text-foreground/80">Когда:</span>{' '}
+                          {result.expectations.when}
+                        </p>
+                      )}
+                      {result.expectations.normal && (
+                        <p className="flex items-start gap-2">
+                          <CheckCircle className="size-4 text-primary/60 mt-0.5 flex-shrink-0" />
+                          <span><MarkupText text={result.expectations.normal} /></span>
+                        </p>
+                      )}
+                      {result.expectations.danger && (
+                        <p className="flex items-start gap-2">
+                          <AlertCircle className="size-4 text-red-400/60 mt-0.5 flex-shrink-0" />
+                          <span><MarkupText text={result.expectations.danger} /></span>
+                        </p>
+                      )}
+                    </div>
+                  </Section>
+                </div>
+              )}
 
 
             </>
