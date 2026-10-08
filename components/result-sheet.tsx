@@ -342,7 +342,7 @@ export function ResultSheet({
                 </div>
               )}
 
-              {reportReady && result.report && (
+              {reportReady && reportText && (
                 <div className="md:hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <button
                     type="button"
@@ -447,13 +447,13 @@ export function ResultSheet({
                     {reportExpectations.normal && (
                       <p className="flex items-start gap-2">
                         <CheckCircle className="size-4 text-primary/60 mt-1 flex-shrink-0" />
-                        <span><MarkupText text={result.expectations.normal} /></span>
+                        <span><MarkupText text={reportExpectations.normal} /></span>
                       </p>
                     )}
                     {reportExpectations.danger && (
                       <p className="flex items-start gap-2">
                         <AlertCircle className="size-4 text-red-400/60 mt-1 flex-shrink-0" />
-                        <span><MarkupText text={result.expectations.danger} /></span>
+                        <span><MarkupText text={reportExpectations.danger} /></span>
                       </p>
                     )}
                   </div>
