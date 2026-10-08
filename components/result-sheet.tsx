@@ -224,6 +224,7 @@ export function ResultSheet({
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
   const reportReady = Boolean(reportText)
+  const reportAvailable = Boolean(reportText)
 
 
   const Section = ({ icon: Icon, title, children, className, onClick }: any) => (
@@ -332,7 +333,7 @@ export function ResultSheet({
                 <p className="text-sm text-foreground/80 leading-relaxed font-light">{result.summary}</p>
               </Section>
 
-              {reportReady && reportText && (
+              {reportAvailable && reportText && (
                 <div className="hidden md:block animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <Section icon={Sparkles} title="Почему такой результат" className="border-primary/10 p-6">
                     <p className="text-xl leading-[1.75] text-foreground/90 font-light">
@@ -393,7 +394,7 @@ export function ResultSheet({
             )}
 
             <div className="flex gap-2 pt-0.5">
-              {typeof result.score === 'number' && !reportReady ? (
+              {typeof result.score === 'number' ? (
                 <div className="flex flex-1 flex-col gap-2">
                   {detailsError && <p className="text-center text-xs text-red-500">{detailsError}</p>}
                   <button
