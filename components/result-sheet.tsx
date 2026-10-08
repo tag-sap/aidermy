@@ -418,7 +418,7 @@ export function ResultSheet({
         ) : null}
       </div>
 
-      {reportModalOpen && reportReady && result?.report && (
+      {reportModalOpen && reportReady && reportText && (
         <div className="absolute inset-0 z-[95] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop md:hidden" onClick={() => setReportModalOpen(false)}>
           <div
             className="flex max-h-[80dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/75 p-4 backdrop-blur-xl animate-modal-panel"
@@ -432,25 +432,25 @@ export function ResultSheet({
             </div>
             <div className="min-h-0 overflow-y-auto overflow-x-hidden pr-1">
               <p className="text-xl leading-[1.75] text-foreground/90 font-light">
-                <MarkupText text={result.report} />
+                <MarkupText text={reportText} />
               </p>
-              {result.expectations && (
+              {reportExpectations && (
                 <div className="mt-5 border-t border-gray-200/60 pt-4">
                   <div className="mb-2 flex items-center gap-1.5">
                     <AlertCircle className="size-4 text-primary/60" strokeWidth={1.5} />
                     <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Чего ожидать</h4>
                   </div>
                   <div className="space-y-2 text-base leading-relaxed text-foreground/80 font-light">
-                    {result.expectations.when && (
+                    {reportExpectations.when && (
                       <p><span className="font-medium text-foreground/80">Когда:</span>{' '}{reportExpectations.when}</p>
                     )}
-                    {result.expectations.normal && (
+                    {reportExpectations.normal && (
                       <p className="flex items-start gap-2">
                         <CheckCircle className="size-4 text-primary/60 mt-1 flex-shrink-0" />
                         <span><MarkupText text={result.expectations.normal} /></span>
                       </p>
                     )}
-                    {result.expectations.danger && (
+                    {reportExpectations.danger && (
                       <p className="flex items-start gap-2">
                         <AlertCircle className="size-4 text-red-400/60 mt-1 flex-shrink-0" />
                         <span><MarkupText text={result.expectations.danger} /></span>
