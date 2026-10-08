@@ -66,6 +66,14 @@ function ScoreRing({ score }: { score: number }) {
   )
 }
 
+function getDeterministicVerdict(score: number): string {
+  if (score >= 80) return 'Очень хорошо подходит'
+  if (score >= 60) return 'Хорошо подходит'
+  if (score >= 40) return 'Подходит частично'
+  if (score >= 20) return 'Скорее не подходит'
+  return 'Не подходит'
+}
+
 const GOAL_VERDICT_LABELS = {
   supports: 'Поддерживает',
   neutral: 'Нейтрально',
@@ -119,8 +127,16 @@ export function ResultSheet({
   const [gettingDetails, setGettingDetails] = useState(false)
   const [detailsError, setDetailsError] = useState('')
   const [reportModalOpen, setReportModalOpen] = useState(false)
+  const [reportText, setReportText] = useState<string | null>(result?.report ?? null)
+  const [reportExpectations, setReportExpectations] = useState(result?.expectations ?? null)
 
   useScrollLock(isOpen)
+
+  useEffect(() => {
+    setReportText(result?.report ?? null)
+    setReportExpectations(result?.expectations ?? null)
+    setReportModalOpen(false)
+  }, [result?.analysis_id, result?.slug])
 
   useEffect(() => {
     if (isOpen) {
@@ -193,15 +209,10 @@ export function ResultSheet({
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.detail || 'Не удалось подготовить подробный анализ')
-      onResultUpdate({
-        ...result,
-        score: typeof d.score === 'number' ? d.score : result.score,
-        verdict: typeof d.verdict === 'string' ? d.verdict : result.verdict,
-        report: fragmentsToText(d.review) ?? result.report,
-        report_ready: d.report_ready === true,
-        expectations: d.expectations ?? result.expectations,
-      })
-      if (d.report_ready === true) setReportModalOpen(true)
+      if (d.report_ready === true) {
+        setReportText(fragmentsToText(d.review) ?? null)
+        setReportExpectations(d.expectations ?? null)
+      }
     } catch {
       setDetailsError('Не удалось подготовить подробный анализ')
     } finally {
@@ -212,7 +223,7 @@ export function ResultSheet({
   if (!isOpen) return null
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
-  const reportReady = Boolean(result?.report_ready || (result?.report && result.report !== result.summary))
+  const reportReady = Boolean(reportText)
 
 
   const Section = ({ icon: Icon, title, children, className, onClick }: any) => (
@@ -275,7 +286,7 @@ export function ResultSheet({
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className={cn('text-base font-medium', typeof result.score === 'number' && result.score >= 70 ? 'text-primary' : typeof result.score === 'number' && result.score >= 40 ? 'text-primary/70' : 'text-muted-foreground')}>{result.verdict}</p>
+                  <p className={cn('text-base font-medium', typeof result.score === 'number' && result.score >= 70 ? 'text-primary' : typeof result.score === 'number' && result.score >= 40 ? 'text-primary/70' : 'text-muted-foreground')}>{typeof result.score === 'number' ? getDeterministicVerdict(result.score) : result.verdict}</p>
                   <p className="text-xs text-muted-foreground/50 font-light">
                     {typeof result.score === 'number' ? 'SCORE · VERDICT' : 'оценка пока недоступна'}
                   </p>
@@ -321,11 +332,11 @@ export function ResultSheet({
                 <p className="text-sm text-foreground/80 leading-relaxed font-light">{result.summary}</p>
               </Section>
 
-              {reportReady && result.report && (
+              {reportReady && reportText && (
                 <div className="hidden md:block animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <Section icon={Sparkles} title="Почему такой результат" className="border-primary/10 p-6">
                     <p className="text-xl leading-[1.75] text-foreground/90 font-light">
-                      <MarkupText text={result.report} />
+                      <MarkupText text={reportText} />
                     </p>
                   </Section>
                 </div>
@@ -343,23 +354,23 @@ export function ResultSheet({
                 </div>
               )}
 
-              {reportReady && result.expectations && (
+              {reportReady && reportExpectations && (
                 <div className="hidden md:block animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50 p-5">
                     <div className="space-y-2 text-base leading-relaxed text-foreground/80 font-light">
-                      {result.expectations.when && (
+                      {reportExpectations.when && (
                         <p>
                           <span className="font-medium text-foreground/80">Когда:</span>{' '}
                           {result.expectations.when}
                         </p>
                       )}
-                      {result.expectations.normal && (
+                      {reportExpectations.normal && (
                         <p className="flex items-start gap-2">
                           <CheckCircle className="size-4 text-primary/60 mt-1 flex-shrink-0" />
                           <span><MarkupText text={result.expectations.normal} /></span>
                         </p>
                       )}
-                      {result.expectations.danger && (
+                      {reportExpectations.danger && (
                         <p className="flex items-start gap-2">
                           <AlertCircle className="size-4 text-red-400/60 mt-1 flex-shrink-0" />
                           <span><MarkupText text={result.expectations.danger} /></span>
@@ -431,7 +442,7 @@ export function ResultSheet({
                   </div>
                   <div className="space-y-2 text-base leading-relaxed text-foreground/80 font-light">
                     {result.expectations.when && (
-                      <p><span className="font-medium text-foreground/80">Когда:</span>{' '}{result.expectations.when}</p>
+                      <p><span className="font-medium text-foreground/80">Когда:</span>{' '}{reportExpectations.when}</p>
                     )}
                     {result.expectations.normal && (
                       <p className="flex items-start gap-2">
