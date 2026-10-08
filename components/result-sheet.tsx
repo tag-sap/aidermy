@@ -118,6 +118,7 @@ export function ResultSheet({
   const [isCheckingIngredients, setIsCheckingIngredients] = useState(false)
   const [gettingDetails, setGettingDetails] = useState(false)
   const [detailsError, setDetailsError] = useState('')
+  const [reportModalOpen, setReportModalOpen] = useState(false)
 
   useScrollLock(isOpen)
 
@@ -200,6 +201,7 @@ export function ResultSheet({
         report_ready: d.report_ready === true,
         expectations: d.expectations ?? result.expectations,
       })
+      if (d.report_ready === true) setReportModalOpen(true)
     } catch {
       setDetailsError('Не удалось подготовить подробный анализ')
     } finally {
@@ -315,37 +317,24 @@ export function ResultSheet({
             )}
 
             <>
-              <div
-                key={reportReady ? 'report' : 'result'}
-                className={cn(
-                  'transition-all duration-500 ease-out',
-                  reportReady ? 'animate-in fade-in slide-in-from-bottom-2' : 'opacity-100'
-                )}
-              >
-                <Section
-                  icon={Sparkles}
-                  title={reportReady ? 'Почему такой результат' : 'Результат'}
-                  className={cn(
-                    'border-primary/10',
-                    reportReady && 'p-5 md:p-6'
-                  )}
-                >
-                  {reportReady && result.report ? (
-                    <p className="text-[17px] md:text-lg leading-[1.75] text-foreground/90 font-light">
+              <Section icon={Sparkles} title="Результат" className="border-primary/10">
+                <p className="text-sm text-foreground/80 leading-relaxed font-light">{result.summary}</p>
+              </Section>
+
+              {reportReady && result.report && (
+                <div className="hidden md:block animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <Section icon={Sparkles} title="Почему такой результат" className="border-primary/10 p-6">
+                    <p className="text-xl leading-[1.75] text-foreground/90 font-light">
                       <MarkupText text={result.report} />
                     </p>
-                  ) : (
-                    <p className="text-sm text-foreground/80 leading-relaxed font-light">
-                      {result.summary}
-                    </p>
-                  )}
-                </Section>
-              </div>
+                  </Section>
+                </div>
+              )}
 
               {reportReady && result.expectations && (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50 p-4 md:p-5">
-                    <div className="space-y-1 text-sm md:text-[15px] leading-relaxed text-foreground/75 font-light">
+                <div className="hidden md:block animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50 p-5">
+                    <div className="space-y-2 text-base leading-relaxed text-foreground/80 font-light">
                       {result.expectations.when && (
                         <p>
                           <span className="font-medium text-foreground/80">Когда:</span>{' '}
@@ -354,13 +343,13 @@ export function ResultSheet({
                       )}
                       {result.expectations.normal && (
                         <p className="flex items-start gap-2">
-                          <CheckCircle className="size-4 text-primary/60 mt-0.5 flex-shrink-0" />
+                          <CheckCircle className="size-4 text-primary/60 mt-1 flex-shrink-0" />
                           <span><MarkupText text={result.expectations.normal} /></span>
                         </p>
                       )}
                       {result.expectations.danger && (
                         <p className="flex items-start gap-2">
-                          <AlertCircle className="size-4 text-red-400/60 mt-0.5 flex-shrink-0" />
+                          <AlertCircle className="size-4 text-red-400/60 mt-1 flex-shrink-0" />
                           <span><MarkupText text={result.expectations.danger} /></span>
                         </p>
                       )}
@@ -368,8 +357,6 @@ export function ResultSheet({
                   </Section>
                 </div>
               )}
-
-
             </>
 
 
@@ -407,6 +394,52 @@ export function ResultSheet({
           </div>
         ) : null}
       </div>
+
+      {reportModalOpen && reportReady && result.report && (
+        <div className="absolute inset-0 z-[95] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop md:hidden" onClick={() => setReportModalOpen(false)}>
+          <div
+            className="flex max-h-[80dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/75 p-4 backdrop-blur-xl animate-modal-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex shrink-0 items-center justify-between">
+              <h2 className="text-base font-normal text-foreground">Почему такой результат</h2>
+              <button type="button" onClick={() => setReportModalOpen(false)} className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground" aria-label="Закрыть отчёт">
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="min-h-0 overflow-y-auto overflow-x-hidden pr-1">
+              <p className="text-xl leading-[1.75] text-foreground/90 font-light">
+                <MarkupText text={result.report} />
+              </p>
+              {result.expectations && (
+                <div className="mt-5 border-t border-gray-200/60 pt-4">
+                  <div className="mb-2 flex items-center gap-1.5">
+                    <AlertCircle className="size-4 text-primary/60" strokeWidth={1.5} />
+                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Чего ожидать</h4>
+                  </div>
+                  <div className="space-y-2 text-base leading-relaxed text-foreground/80 font-light">
+                    {result.expectations.when && (
+                      <p><span className="font-medium text-foreground/80">Когда:</span>{' '}{result.expectations.when}</p>
+                    )}
+                    {result.expectations.normal && (
+                      <p className="flex items-start gap-2">
+                        <CheckCircle className="size-4 text-primary/60 mt-1 flex-shrink-0" />
+                        <span><MarkupText text={result.expectations.normal} /></span>
+                      </p>
+                    )}
+                    {result.expectations.danger && (
+                      <p className="flex items-start gap-2">
+                        <AlertCircle className="size-4 text-red-400/60 mt-1 flex-shrink-0" />
+                        <span><MarkupText text={result.expectations.danger} /></span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
