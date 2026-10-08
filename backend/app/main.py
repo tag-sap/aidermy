@@ -1511,6 +1511,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
     from .database import get_product_by_slug, save_ai_report, save_analysis_details
     from .shelf_service import recalculate_stale_analysis, score_product
     from .score_version import SCORE_ENGINE_VERSION
+    from .report_version import REPORT_GENERATOR_VERSION
     from .services import generate_full_report
     from .catalog_taxonomy import classify_product
 
@@ -1556,6 +1557,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         and analysis.get("report")
         and analysis.get("report_score_engine_version") == analysis.get("score_engine_version")
         and analysis.get("score_engine_version") == SCORE_ENGINE_VERSION
+        and analysis.get("report_generator_version") == REPORT_GENERATOR_VERSION
     ):
         review = _fragments_from_value(analysis.get("report"))
         return {
@@ -1596,6 +1598,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         what_caution="",
         report_score_engine_version=analysis.get("score_engine_version"),
         report_prompt_version=full.get("report_prompt_version"),
+        report_generator_version=REPORT_GENERATOR_VERSION,
     )
     save_ai_report(current_user["id"], slug, review_text)
 
