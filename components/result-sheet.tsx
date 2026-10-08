@@ -212,6 +212,7 @@ export function ResultSheet({
       if (d.report_ready === true) {
         setReportText(fragmentsToText(d.review) ?? null)
         setReportExpectations(d.expectations ?? null)
+        setReportModalOpen(true)
       }
     } catch {
       setDetailsError('Не удалось подготовить подробный анализ')
