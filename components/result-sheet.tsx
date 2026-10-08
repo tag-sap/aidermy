@@ -361,19 +361,19 @@ export function ResultSheet({
                       {reportExpectations.when && (
                         <p>
                           <span className="font-medium text-foreground/80">Когда:</span>{' '}
-                          {result.expectations.when}
+                          {reportExpectations.when}
                         </p>
                       )}
                       {reportExpectations.normal && (
                         <p className="flex items-start gap-2">
                           <CheckCircle className="size-4 text-primary/60 mt-1 flex-shrink-0" />
-                          <span><MarkupText text={result.expectations.normal} /></span>
+                          <span><MarkupText text={reportExpectations.normal} /></span>
                         </p>
                       )}
                       {reportExpectations.danger && (
                         <p className="flex items-start gap-2">
                           <AlertCircle className="size-4 text-red-400/60 mt-1 flex-shrink-0" />
-                          <span><MarkupText text={result.expectations.danger} /></span>
+                          <span><MarkupText text={reportExpectations.danger} /></span>
                         </p>
                       )}
                     </div>
