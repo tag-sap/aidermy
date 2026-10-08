@@ -692,13 +692,6 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
         return None
 
     inp = _build_report_input(analysis)
-    has_goal_evidence = any(
-        item.get("evidence")
-        for item in inp["goal_evidence"]
-    )
-    if not inp["positive"] and not inp["negative"] and not has_goal_evidence:
-        return None
-
     from .report_prompt import get_production_report_prompt, render_report_prompt, build_report_context
 
     if prompt is None:
@@ -1140,171 +1133,6 @@ def _report_ingredient_label(ingredient: str) -> str:
     return text[:1].upper() + text[1:]
 
 
-def _build_deterministic_report_fallback(deterministic: dict) -> str:
-    """
-    Надёжный пользовательский fallback, если LLM не дал пригодного отчёта.
-
-    Источник истины:
-    - score/verdict уже сохранены Score Engine;
-    - ingredient × concern берутся только из goal_evidence;
-    - свойства ингредиентов берутся только из deterministic factors;
-    - ничего не вычисляется заново и не придумывается.
-
-    goal_evidence не заменяет deterministic factors:
-    подтверждённая связь ingredient × concern используется для
-    персонализации, а значимые положительные/отрицательные факторы
-    сохраняются в общем объяснении результата.
-    """
-    goals = _report_concern_evidence(deterministic)
-    positive, negative = _report_significant_factors(deterministic)
-
-    supporting = [x for x in goals if x.get("verdict") == "supports"]
-    hindering = [x for x in goals if x.get("verdict") == "may_hinder"]
-
-    def property_label(value: str) -> str:
-        labels = {
-            "hydration": "увлажнения",
-            "barrier": "поддержки барьера",
-            "barrier_support": "поддержки барьера",
-            "irritation": "раздражения",
-            "sensitization": "чувствительности",
-            "sebum": "контроля себума",
-            "pigmentation": "пигментации",
-        }
-        return labels.get(
-            str(value or "").strip().lower(),
-            str(value or "").strip(),
-        )
-
-    def factor_phrase(factor: dict) -> str:
-        ingredient = _report_ingredient_label(factor.get("ingredient"))
-        prop = property_label(factor.get("property"))
-
-        if ingredient and prop:
-            return f"{ingredient}, связанный с {prop}"
-        if ingredient:
-            return ingredient
-        return ""
-
-    def goal_phrase(item: dict) -> str:
-        ingredient = _report_ingredient_label(item.get("ingredient"))
-        concern = str(item.get("concern") or "").strip()
-
-        if ingredient and concern:
-            return f"{ingredient}, связанный с вашей целью «{concern}»"
-        if ingredient:
-            return ingredient
-        return ""
-
-    sentences = []
-
-    # ------------------------------------------------------------
-    # Положительная сторона.
-    #
-    # Сначала используем реальный deterministic factor. Если для
-    # него есть подтверждённая goal_evidence, делаем формулировку
-    # персональной, но не создаём новую связь самостоятельно.
-    # ------------------------------------------------------------
-    pos_phrase = factor_phrase(positive[0]) if positive else ""
-
-    supporting_phrase = ""
-    if supporting:
-        supporting_phrase = goal_phrase(supporting[0])
-
-    if pos_phrase:
-        if supporting_phrase:
-            sentences.append(
-                f"В составе есть {supporting_phrase}, что работает в пользу "
-                "ваших целей."
-            )
-        else:
-            sentences.append(
-                f"В составе есть {pos_phrase}, что работает в пользу результата."
-            )
-    elif supporting_phrase:
-        sentences.append(
-            f"В составе есть {supporting_phrase}, что работает в пользу "
-            "ваших целей."
-        )
-
-    # ------------------------------------------------------------
-    # Ограничивающая сторона.
-    # ------------------------------------------------------------
-    neg_phrase = factor_phrase(negative[0]) if negative else ""
-
-    hindering_phrase = ""
-    if hindering:
-        hindering_phrase = goal_phrase(hindering[0])
-
-    if neg_phrase:
-        negative_ingredient = _report_ingredient_label(
-            negative[0].get("ingredient")
-        )
-        hindering_ingredient = (
-            _report_ingredient_label(hindering[0].get("ingredient"))
-            if hindering
-            else ""
-        )
-
-        if (
-            hindering_phrase
-            and negative_ingredient
-            and hindering_ingredient
-            and negative_ingredient.lower() == hindering_ingredient.lower()
-        ):
-            sentences.append(
-                f"При этом {hindering_phrase} является ограничивающим "
-                "фактором для вашего профиля."
-            )
-        else:
-            sentences.append(
-                f"При этом {neg_phrase} снижает совместимость с вашим профилем."
-            )
-    elif hindering_phrase:
-        sentences.append(
-            f"При этом {hindering_phrase} относится к фактору, который может "
-            "снижать совместимость с вашим профилем."
-        )
-
-    # ------------------------------------------------------------
-    # Только goal_evidence, если deterministic factors отсутствуют.
-    # ------------------------------------------------------------
-    if not sentences and goals:
-        items = []
-
-        for item in goals[:2]:
-            phrase = goal_phrase(item)
-            if phrase and phrase not in items:
-                items.append(phrase)
-
-        if items:
-            sentences.append(
-                "В составе есть "
-                + " и ".join(items)
-                + ", что связано с вашими целями."
-            )
-
-    # ------------------------------------------------------------
-    # Вообще нет достаточных данных.
-    # ------------------------------------------------------------
-    if not sentences:
-        sentences.append(
-            "По сохранённым данным нет достаточно выраженных персональных "
-            "факторов для более конкретного объяснения результата."
-        )
-
-    # Verdict уже принят Score Engine и сохранён в analysis.
-    # Fallback никогда не вычисляет его заново из score.
-    verdict = str(deterministic.get("verdict") or "").strip()
-    if verdict:
-        sentences.append(f"Поэтому результат — «{verdict}».")
-
-    return " ".join(
-        sentence.strip()
-        for sentence in sentences
-        if isinstance(sentence, str) and sentence.strip()
-    )
-
 async def generate_full_report(
     product_name: str,
     ingredients: str,
@@ -1372,11 +1200,8 @@ async def generate_full_report(
                 product_type,
             )
         except Exception as exc:
-            # Report must never fail only because the LLM layer failed.
-            # The deterministic result remains the source of truth and
-            # generate_full_report() will use the deterministic fallback below.
             print(f"[REPORT FULL] LLM generation failed: {exc!r}", flush=True)
-            parts = None
+            raise
 
     report_prompt_version = None
     explanation = None
@@ -1397,10 +1222,9 @@ async def generate_full_report(
 
     score = int((saved_analysis or {}).get("score", deterministic.get("score") or 0))
 
-    # LLM failure must never turn into a technical/empty placeholder.
-    # Generate a deterministic human explanation from saved evidence instead.
+    # Report существует только при успешном LLM-ответе. Deterministic fallback запрещён.
     if not explanation:
-        explanation = _build_deterministic_report_fallback(deterministic)
+        raise RuntimeError("LLM report generation returned no usable explanation")
     verdict = (saved_analysis or {}).get("verdict") or deterministic.get("verdict") or ""
     review = [
         {"text": explanation, "sentiment": "negative" if score < 60 else "positive"}
