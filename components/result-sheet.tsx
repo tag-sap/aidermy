@@ -283,7 +283,7 @@ export function ResultSheet({
               </div>
             </div>
 
-            {!reportReady && result.goal_evidence && result.goal_evidence.length > 0 && (
+            {result.goal_evidence && result.goal_evidence.length > 0 && (
               <Section icon={Sparkles} title="Под ваши задачи" className="border-primary/10">
                 <p className="mb-2 text-[11px] text-muted-foreground/60">
                   По доступным данным о свойствах ингредиентов; это не оценка клинической эффективности.
@@ -328,6 +328,18 @@ export function ResultSheet({
                       <MarkupText text={result.report} />
                     </p>
                   </Section>
+                </div>
+              )}
+
+              {reportReady && result.report && (
+                <div className="md:hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <button
+                    type="button"
+                    onClick={() => setReportModalOpen(true)}
+                    className="w-full rounded-xl border border-primary/10 bg-white/60 px-4 py-3 text-left text-sm font-medium text-foreground/80 transition-colors hover:border-primary/20 hover:bg-white/80"
+                  >
+                    Почему такой результат
+                  </button>
                 </div>
               )}
 
