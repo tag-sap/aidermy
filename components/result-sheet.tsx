@@ -395,7 +395,7 @@ export function ResultSheet({
         ) : null}
       </div>
 
-      {reportModalOpen && reportReady && result.report && (
+      {reportModalOpen && reportReady && result?.report && (
         <div className="absolute inset-0 z-[95] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop md:hidden" onClick={() => setReportModalOpen(false)}>
           <div
             className="flex max-h-[80dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/75 p-4 backdrop-blur-xl animate-modal-panel"
