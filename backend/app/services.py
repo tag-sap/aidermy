@@ -559,8 +559,13 @@ _REPORT_MEDICAL_CLAIMS = [
 
 # Фразы, отрицающие наличие реальных (>=2 п.п.) вкладов — противоречие с deterministic input.
 _NO_NEGATIVE_PHRASES = [
-    "существенных отрицательных факторов нет", "отрицательных факторов нет",
-    "нет отрицательных факторов", "значимых минусов нет", "существенных минусов нет",
+    "существенных отрицательных факторов нет",
+    "отрицательных факторов нет",
+    "нет отрицательных факторов",
+    "значимых минусов нет",
+    "существенных минусов нет",
+    "существенных минусов по",
+    "значимых минусов по",
     "минусов нет",
 ]
 
@@ -641,25 +646,35 @@ def _build_report_input(analysis: dict) -> dict:
 
 
 def _report_input_text(inp: dict) -> str:
+    """Human-readable deterministic context for Report generation.
+
+    Score/verdict are already calculated by Score Engine and are immutable.
+    Internal pp/contribution/weak-factor details are intentionally hidden
+    from the LLM because they are implementation details, not user-facing
+    explanations.
+    """
     lines = [
-        f"score: {inp['score']}",
-        f"verdict: {inp['verdict']}",
+        f"Рассчитанный результат: {inp['score']}%",
+        f"Сохранённый verdict: {inp['verdict'] or 'не указан'}",
         "",
-        "positive factors (оси с положительным вкладом):",
+        "Значимые факторы в пользу профиля:",
     ]
+
     lines += [
-        f"- {p['label']} — {p['significance']} — contribution={p['contribution']} pp"
-        for p in inp["positive"]
-    ] or ["- (нет)"]
+        f"- {item['label']}"
+        for item in inp["positive"]
+        if item.get("significance") in {"significant", "moderate"}
+    ] or ["- нет"]
+
     lines.append("")
-    lines.append("negative factors (оси с отрицательным вкладом):")
+    lines.append("Значимые факторы, снижающие совместимость:")
+
     lines += [
-        f"- {n['label']} — {n['significance']} — contribution={n['contribution']} pp"
-        for n in inp["negative"]
-    ] or ["- (нет)"]
-    lines.append("")
-    lines.append("weak factors (НЕ использовать как причины):")
-    lines += [f"- {w['label']}" for w in inp["weak"]] or ["- (нет)"]
+        f"- {item['label']}"
+        for item in inp["negative"]
+        if item.get("significance") in {"significant", "moderate"}
+    ] or ["- нет"]
+
     return "\n".join(lines)
 
 
@@ -731,38 +746,66 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
 
             if not isinstance(parsed, dict):
                 continue
-            # Normalize legacy report schema before validation.
-            # LLM may return both legacy "explanation" and new "summary".
-            # The persisted/validated schema must contain only:
-            # summary + expectations.
-            if isinstance(parsed, dict) and isinstance(parsed.get("explanation"), str):
-                if not isinstance(parsed.get("summary"), str) or not parsed.get("summary").strip():
-                    parsed["summary"] = parsed["explanation"]
-                parsed.pop("explanation", None)
 
-            if not _validate_report_once(inp, parsed):
-                print(f"[REPORT ONCE] validation failed: keys={list(parsed.keys())}")
+            # LLM may return the current schema, the previous explanation key,
+            # or harmless extra metadata. Extract only the fields we actually use.
+            # Extra fields must never make an otherwise valid human explanation fail.
+            if isinstance(parsed.get("summary"), str):
+                summary_text = parsed["summary"].strip()
+            elif isinstance(parsed.get("explanation"), str):
+                summary_text = parsed["explanation"].strip()
+            else:
+                summary_text = ""
+
+            if not summary_text:
+                print(
+                    f"[REPORT ONCE] no usable summary: keys={list(parsed.keys())}",
+                    flush=True,
+                )
+                continue
+
+            expectations_text = parsed.get("expectations")
+            if not isinstance(expectations_text, str) or not expectations_text.strip():
+                expectations_text = None
+            else:
+                expectations_text = expectations_text.strip()
+
+            normalized = {
+                "summary": summary_text,
+                "expectations": expectations_text,
+            }
+
+            if not _validate_report_once(inp, normalized):
+                print(
+                    f"[REPORT ONCE] validation failed: keys={list(normalized.keys())}",
+                    flush=True,
+                )
                 continue
 
             allowed = _report_allowed_ingredients(analysis)
+
             explanation = _ground_report_text(
-                parsed["summary"].strip(),
+                summary_text,
                 allowed,
                 bool(analysis.get("negative_factors")),
                 deterministic=analysis,
             )
             if explanation is None:
+                print(
+                    "[REPORT ONCE] summary failed grounding; trying next model/fallback",
+                    flush=True,
+                )
                 continue
-            expectations = parsed.get("expectations")
-            if isinstance(expectations, str) and expectations.strip():
+
+            expectations = None
+            if expectations_text:
                 expectations = _ground_report_text(
-                    expectations.strip(),
+                    expectations_text,
                     allowed,
                     bool(analysis.get("negative_factors")),
                     deterministic=analysis,
                 )
-            else:
-                expectations = None
+
             result = {
                 "explanation": explanation,
                 "summary": explanation,
@@ -789,67 +832,83 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
     return None
 
 def _validate_report_once(inp: dict, output: dict) -> bool:
+    """Проверяет только структуру, безопасность и явные противоречия.
+
+    Score/verdict здесь не пересчитываются.
+    Персональная связь ingredient -> concern проверяется отдельным
+    grounding-слоем после этой функции.
+
+    Важно: validator не должен навязывать старый формат good/bad
+    и не должен запрещать нормальные пользовательские формулировки
+    вроде «увлажнение», «поддержка барьера» или «раздражение».
+    """
     if not isinstance(output, dict):
         return False
 
-    # Report schema is now:
-    # summary + expectations.
-    # Keep backward compatibility with the previous "explanation" key.
-    if "summary" not in output and isinstance(output.get("explanation"), str):
-        output = dict(output)
-        output["summary"] = output.pop("explanation")
-
-    if set(output) != {"summary", "expectations"}:
-        print(f"[REPORT VALIDATOR] reject: keys={list(output.keys())}")
+    # LLM не имеет права возвращать собственные score/verdict:
+    # deterministic Score Engine остаётся единственным источником истины.
+    if "score" in output or "verdict" in output:
+        print("[REPORT VALIDATOR] reject: LLM attempted to override score/verdict", flush=True)
         return False
 
+    # Старые пользовательские секции больше не являются частью Report.
+    legacy_keys = {
+        "what_good",
+        "what_bad",
+        "what_caution",
+        "how_to_use",
+        "safe_ingredients",
+        "caution_ingredients",
+        "active_ingredients",
+    }
+    if any(key in output for key in legacy_keys):
+        print("[REPORT VALIDATOR] reject: legacy report field", flush=True)
+        return False
+
+    # Новый формат использует summary.
+    # Старый внутренний lifecycle/tests могут передавать explanation.
+    # Поддерживаем оба варианта, не меняя пользовательскую схему Report.
     explanation = output.get("summary")
     if not isinstance(explanation, str) or not explanation.strip():
+        explanation = output.get("explanation")
+
+    if not isinstance(explanation, str) or not explanation.strip():
+        print("[REPORT VALIDATOR] reject: empty summary", flush=True)
         return False
 
     expectations = output.get("expectations")
     if expectations is not None and not isinstance(expectations, str):
+        print("[REPORT VALIDATOR] reject: invalid expectations type", flush=True)
         return False
 
-    parts = [explanation]
-
-    if isinstance(expectations, str):
-        parts.append(expectations)
+    parts = [explanation.strip()]
+    if isinstance(expectations, str) and expectations.strip():
+        parts.append(expectations.strip())
 
     low = " ".join(parts).lower()
 
-    score = int(inp.get("score") or 0)
-
+    # Не допускаем утверждения, которые противоречат deterministic result.
     neg_strong = [
-        n for n in inp["negative"]
-        if n.get("significance") in {"significant", "moderate"}
+        item
+        for item in inp.get("negative", [])
+        if isinstance(item, dict)
+        and item.get("significance") in {"significant", "moderate"}
     ]
 
     pos_strong = [
-        p for p in inp["positive"]
-        if p.get("significance") in {"significant", "moderate"}
+        item
+        for item in inp.get("positive", [])
+        if isinstance(item, dict)
+        and item.get("significance") in {"significant", "moderate"}
     ]
-
-    for n in inp["negative"]:
-        if n.get("significance") not in {"significant", "moderate"}:
-            continue
-
-        label = str(n.get("label") or "")
-        stem = label[:-2] if len(label) > 4 else label
-
-        if f"минусов по {stem}".lower() in low:
-            print(
-                f"[REPORT VALIDATOR] reject: forbidden negative "
-                f"phrase={stem!r}"
-            )
-            return False
 
     if neg_strong:
         for phrase in _NO_NEGATIVE_PHRASES:
             if phrase in low:
                 print(
-                    f"[REPORT VALIDATOR] reject: forbidden negative "
-                    f"phrase={phrase!r}"
+                    f"[REPORT VALIDATOR] reject: contradiction negative "
+                    f"phrase={phrase!r}",
+                    flush=True,
                 )
                 return False
 
@@ -857,32 +916,51 @@ def _validate_report_once(inp: dict, output: dict) -> bool:
         for phrase in _NO_POSITIVE_PHRASES:
             if phrase in low:
                 print(
-                    f"[REPORT VALIDATOR] reject: forbidden positive "
-                    f"phrase={phrase!r}"
+                    f"[REPORT VALIDATOR] reject: contradiction positive "
+                    f"phrase={phrase!r}",
+                    flush=True,
                 )
                 return False
 
+    # Медицинские обещания, диагнозы и категоричные прогнозы запрещены.
     for phrase in _REPORT_MEDICAL_CLAIMS:
         if phrase in low:
             print(
-                f"[REPORT VALIDATOR] reject: medical phrase={phrase!r}"
+                f"[REPORT VALIDATOR] reject: medical phrase={phrase!r}",
+                flush=True,
             )
             return False
 
+    # Внутренние ключи Score Engine не должны попадать пользователю.
+    # Например: "hydration поддерживает..." — это не пользовательский язык.
+    internal_axis_keys = {
+        "hydration",
+        "barrier",
+        "irritation",
+        "sensitization",
+        "sebum",
+        "pigmentation",
+    }
+    for axis in internal_axis_keys:
+        if axis in low:
+            print(
+                f"[REPORT VALIDATOR] reject: internal axis key={axis!r}",
+                flush=True,
+            )
+            return False
+
+    # Внутренние термины Score Engine не должны попадать пользователю.
     for phrase in _REPORT_TECHNICAL_PHRASES:
         if phrase in low:
             print(
-                f"[REPORT VALIDATOR] reject: technical phrase={phrase!r}"
+                f"[REPORT VALIDATOR] reject: technical phrase={phrase!r}",
+                flush=True,
             )
             return False
 
-    for key in _REPORT_AXIS_LABELS:
-        if key in low:
-            print(
-                f"[REPORT VALIDATOR] reject: axis label={key!r}"
-            )
-            return False
-
+    # Не запрещаем human-readable названия осей/эффектов.
+    # Например: «увлажнение», «поддержка барьера», «раздражение» —
+    # это нормальная пользовательская формулировка отчёта.
     return True
 
 def _deterministic_balance_fragments(analysis: dict) -> tuple:
@@ -904,6 +982,329 @@ def _deterministic_balance_fragments(analysis: dict) -> tuple:
 
 
 
+def _report_verdict_text(score: int) -> str:
+    """Человеческий verdict для fallback. Источник score — только deterministic."""
+    score = max(0, min(100, int(score)))
+    if score >= 80:
+        return "Очень хорошо подходит"
+    if score >= 60:
+        return "Хорошо подходит"
+    if score >= 40:
+        return "Подходит частично"
+    if score >= 20:
+        return "Скорее не подходит"
+    return "Не подходит"
+
+
+def _report_concern_evidence(deterministic: dict) -> list[dict]:
+    """Только сохранённые подтверждённые ingredient × concern связи.
+
+    Связи сортируются по strength × confidence, чтобы fallback использовал
+    наиболее убедительные сохранённые evidence, а не первые элементы списка.
+    Никаких свойств или связей от себя здесь не создаём.
+    """
+    result = []
+
+    for goal in deterministic.get("goal_evidence") or []:
+        if not isinstance(goal, dict):
+            continue
+
+        concern_label = str(
+            goal.get("label") or goal.get("concern_id") or ""
+        ).strip()
+        if not concern_label:
+            continue
+
+        goal_verdict = str(goal.get("verdict") or "").strip().lower()
+        if goal_verdict not in {"supports", "may_hinder"}:
+            continue
+
+        for evidence in goal.get("evidence") or []:
+            if not isinstance(evidence, dict):
+                continue
+
+            ingredient = str(evidence.get("ingredient") or "").strip()
+            property_name = str(evidence.get("property") or "").strip()
+            evidence_verdict = str(
+                evidence.get("verdict") or goal_verdict
+            ).strip().lower()
+
+            if not ingredient:
+                continue
+            if evidence_verdict not in {"supports", "may_hinder"}:
+                continue
+
+            try:
+                strength = float(evidence.get("strength") or 0)
+            except (TypeError, ValueError):
+                strength = 0.0
+
+            try:
+                confidence = float(evidence.get("confidence") or 0)
+            except (TypeError, ValueError):
+                confidence = 0.0
+
+            result.append({
+                "concern": concern_label,
+                "ingredient": ingredient,
+                "property": property_name,
+                "verdict": evidence_verdict,
+                "evidence_score": strength * confidence,
+            })
+
+    result.sort(
+        key=lambda item: float(item.get("evidence_score") or 0),
+        reverse=True,
+    )
+
+    return result
+
+
+def _report_significant_factors(deterministic: dict) -> tuple[list[dict], list[dict]]:
+    """
+    Выбирает наиболее заметные сохранённые ingredient-факторы для Report fallback.
+
+    Важно:
+    - ничего не пересчитывает в Score Engine;
+    - не меняет score/verdict;
+    - использует только уже сохранённые deterministic factors;
+    - weighted_value используется только для порядка отображения;
+    - для старых записей без weighted_value используется strength × confidence
+      с учётом position_weight.
+    """
+    def factor_strength(factor: dict) -> float:
+        try:
+            if factor.get("weighted_value") is not None:
+                return abs(float(factor.get("weighted_value") or 0))
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            strength = abs(float(factor.get("strength") or 0))
+        except (TypeError, ValueError):
+            strength = 0.0
+
+        try:
+            confidence = float(factor.get("confidence") or 0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+
+        try:
+            position_weight = float(factor.get("position_weight") or 1.0)
+        except (TypeError, ValueError):
+            position_weight = 1.0
+
+        return strength * confidence * position_weight
+
+    positive = [
+        factor
+        for factor in (deterministic.get("positive_factors") or [])
+        if isinstance(factor, dict) and str(factor.get("ingredient") or "").strip()
+    ]
+
+    negative = [
+        factor
+        for factor in (deterministic.get("negative_factors") or [])
+        if isinstance(factor, dict) and str(factor.get("ingredient") or "").strip()
+    ]
+
+    positive.sort(key=factor_strength, reverse=True)
+    negative.sort(key=factor_strength, reverse=True)
+
+    return positive[:6], negative[:6]
+
+
+def _report_ingredient_label(ingredient: str) -> str:
+    """
+    Возвращает человекочитаемое название canonical ingredient.
+
+    Использует уже существующий _RU_INGREDIENT_NAMES:
+    русский label -> canonical name.
+
+    Никаких новых свойств или ingredient aliases здесь не придумывается.
+    """
+    text = str(ingredient or "").strip()
+    if not text:
+        return ""
+
+    canonical = text.lower()
+
+    # _RU_INGREDIENT_NAMES объявлен ниже в файле, поэтому при раннем
+    # вызове helper просто используем canonical name как fallback.
+    names = globals().get("_RU_INGREDIENT_NAMES") or {}
+
+    for russian_name, canonical_name in names.items():
+        if str(canonical_name or "").strip().lower() == canonical:
+            return str(russian_name).strip()
+
+    return text[:1].upper() + text[1:]
+
+
+def _build_deterministic_report_fallback(deterministic: dict) -> str:
+    """
+    Надёжный пользовательский fallback, если LLM не дал пригодного отчёта.
+
+    Источник истины:
+    - score/verdict уже сохранены Score Engine;
+    - ingredient × concern берутся только из goal_evidence;
+    - свойства ингредиентов берутся только из deterministic factors;
+    - ничего не вычисляется заново и не придумывается.
+
+    goal_evidence не заменяет deterministic factors:
+    подтверждённая связь ingredient × concern используется для
+    персонализации, а значимые положительные/отрицательные факторы
+    сохраняются в общем объяснении результата.
+    """
+    goals = _report_concern_evidence(deterministic)
+    positive, negative = _report_significant_factors(deterministic)
+
+    supporting = [x for x in goals if x.get("verdict") == "supports"]
+    hindering = [x for x in goals if x.get("verdict") == "may_hinder"]
+
+    def property_label(value: str) -> str:
+        labels = {
+            "hydration": "увлажнения",
+            "barrier": "поддержки барьера",
+            "barrier_support": "поддержки барьера",
+            "irritation": "раздражения",
+            "sensitization": "чувствительности",
+            "sebum": "контроля себума",
+            "pigmentation": "пигментации",
+        }
+        return labels.get(
+            str(value or "").strip().lower(),
+            str(value or "").strip(),
+        )
+
+    def factor_phrase(factor: dict) -> str:
+        ingredient = _report_ingredient_label(factor.get("ingredient"))
+        prop = property_label(factor.get("property"))
+
+        if ingredient and prop:
+            return f"{ingredient}, связанный с {prop}"
+        if ingredient:
+            return ingredient
+        return ""
+
+    def goal_phrase(item: dict) -> str:
+        ingredient = _report_ingredient_label(item.get("ingredient"))
+        concern = str(item.get("concern") or "").strip()
+
+        if ingredient and concern:
+            return f"{ingredient}, связанный с вашей целью «{concern}»"
+        if ingredient:
+            return ingredient
+        return ""
+
+    sentences = []
+
+    # ------------------------------------------------------------
+    # Положительная сторона.
+    #
+    # Сначала используем реальный deterministic factor. Если для
+    # него есть подтверждённая goal_evidence, делаем формулировку
+    # персональной, но не создаём новую связь самостоятельно.
+    # ------------------------------------------------------------
+    pos_phrase = factor_phrase(positive[0]) if positive else ""
+
+    supporting_phrase = ""
+    if supporting:
+        supporting_phrase = goal_phrase(supporting[0])
+
+    if pos_phrase:
+        if supporting_phrase:
+            sentences.append(
+                f"В составе есть {supporting_phrase}, что работает в пользу "
+                "ваших целей."
+            )
+        else:
+            sentences.append(
+                f"В составе есть {pos_phrase}, что работает в пользу результата."
+            )
+    elif supporting_phrase:
+        sentences.append(
+            f"В составе есть {supporting_phrase}, что работает в пользу "
+            "ваших целей."
+        )
+
+    # ------------------------------------------------------------
+    # Ограничивающая сторона.
+    # ------------------------------------------------------------
+    neg_phrase = factor_phrase(negative[0]) if negative else ""
+
+    hindering_phrase = ""
+    if hindering:
+        hindering_phrase = goal_phrase(hindering[0])
+
+    if neg_phrase:
+        negative_ingredient = _report_ingredient_label(
+            negative[0].get("ingredient")
+        )
+        hindering_ingredient = (
+            _report_ingredient_label(hindering[0].get("ingredient"))
+            if hindering
+            else ""
+        )
+
+        if (
+            hindering_phrase
+            and negative_ingredient
+            and hindering_ingredient
+            and negative_ingredient.lower() == hindering_ingredient.lower()
+        ):
+            sentences.append(
+                f"При этом {hindering_phrase} является ограничивающим "
+                "фактором для вашего профиля."
+            )
+        else:
+            sentences.append(
+                f"При этом {neg_phrase} снижает совместимость с вашим профилем."
+            )
+    elif hindering_phrase:
+        sentences.append(
+            f"При этом {hindering_phrase} относится к фактору, который может "
+            "снижать совместимость с вашим профилем."
+        )
+
+    # ------------------------------------------------------------
+    # Только goal_evidence, если deterministic factors отсутствуют.
+    # ------------------------------------------------------------
+    if not sentences and goals:
+        items = []
+
+        for item in goals[:2]:
+            phrase = goal_phrase(item)
+            if phrase and phrase not in items:
+                items.append(phrase)
+
+        if items:
+            sentences.append(
+                "В составе есть "
+                + " и ".join(items)
+                + ", что связано с вашими целями."
+            )
+
+    # ------------------------------------------------------------
+    # Вообще нет достаточных данных.
+    # ------------------------------------------------------------
+    if not sentences:
+        sentences.append(
+            "По сохранённым данным нет достаточно выраженных персональных "
+            "факторов для более конкретного объяснения результата."
+        )
+
+    # Verdict уже принят Score Engine и сохранён в analysis.
+    # Fallback никогда не вычисляет его заново из score.
+    verdict = str(deterministic.get("verdict") or "").strip()
+    if verdict:
+        sentences.append(f"Поэтому результат — «{verdict}».")
+
+    return " ".join(
+        sentence.strip()
+        for sentence in sentences
+        if isinstance(sentence, str) and sentence.strip()
+    )
+
 async def generate_full_report(
     product_name: str,
     ingredients: str,
@@ -913,12 +1314,69 @@ async def generate_full_report(
     saved_analysis: dict | None = None,
 ) -> dict:
     """Explains the saved deterministic Match without recalculating its score."""
-    det = (saved_analysis or {}).get("deterministic")
-    deterministic = det if isinstance(det, dict) else (saved_analysis or {})
+    saved = saved_analysis or {}
+    det = saved.get("deterministic")
+
+    if isinstance(det, dict):
+        deterministic = det
+    elif any(
+        key in saved
+        for key in (
+            "dimensions",
+            "priorities",
+            "positive_factors",
+            "negative_factors",
+            "normalized_ingredients",
+            "goal_evidence",
+        )
+    ):
+        # Внутренние вызовы и тесты могут передавать deterministic
+        # payload непосредственно как saved_analysis.
+        deterministic = saved
+    else:
+        # Здесь действительно нет deterministic payload.
+        # Не пересчитываем Score Engine и не придумываем новый Report.
+        saved_text = (
+            saved.get("report")
+            or saved.get("summary")
+            or saved.get("explanation")
+            or ""
+        )
+
+        score = int(saved.get("score") or 0)
+        verdict = saved.get("verdict") or ""
+
+        review = (
+            [{"text": saved_text, "sentiment": "negative" if score < 60 else "positive"}]
+            if isinstance(saved_text, str) and saved_text.strip()
+            else []
+        )
+
+        return {
+            "score": score,
+            "verdict": verdict,
+            "explanation": saved_text,
+            "review": review,
+            "expectations": None,
+            "report_prompt_version": saved.get("report_prompt_version"),
+        }
+
     allowed = _report_allowed_ingredients(deterministic)
     parts = None
     if DEEPSEEK_API_KEY:
-        parts = await generate_report_once(product_name, deterministic, profile, product_type)
+        try:
+            parts = await generate_report_once(
+                product_name,
+                deterministic,
+                profile,
+                product_type,
+            )
+        except Exception as exc:
+            # Report must never fail only because the LLM layer failed.
+            # The deterministic result remains the source of truth and
+            # generate_full_report() will use the deterministic fallback below.
+            print(f"[REPORT FULL] LLM generation failed: {exc!r}", flush=True)
+            parts = None
 
     report_prompt_version = None
     explanation = None
@@ -937,9 +1395,12 @@ async def generate_full_report(
             if grounded_expectation:
                 expectations = {"when": None, "normal": grounded_expectation, "danger": None}
 
-    if not explanation:
-        explanation = str(deterministic.get("summary") or "").strip()
     score = int((saved_analysis or {}).get("score", deterministic.get("score") or 0))
+
+    # LLM failure must never turn into a technical/empty placeholder.
+    # Generate a deterministic human explanation from saved evidence instead.
+    if not explanation:
+        explanation = _build_deterministic_report_fallback(deterministic)
     verdict = (saved_analysis or {}).get("verdict") or deterministic.get("verdict") or ""
     review = [
         {"text": explanation, "sentiment": "negative" if score < 60 else "positive"}
@@ -992,6 +1453,7 @@ async def generate_ai_review(product_name: str, skin_type: str, profile: dict, i
 
 # --- Report grounding (Phase 18): actual INCI is the only source of truth for ingredients. ---
 _RU_INGREDIENT_NAMES = {
+    "отдушка": "fragrance",
     "ниацинамид": "niacinamid",
     "гиалуронов": "hyaluronic acid",
     "гиалуронат": "sodium hyaluronate",
@@ -1158,51 +1620,27 @@ def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, det
                 if allowed_axis:
                     allowed_axes.add(allowed_axis)
 
-        if allowed_axes:
-            mentioned = _mentioned_axes(low)
+        # Любое human-readable утверждение об эффекте должно быть
+        # подтверждено deterministic factors или goal_evidence.
+        #
+        # Например:
+        #   "увлажняет" -> hydration
+        #   "матирует" -> sebum
+        #   "раздражает" -> irritation
+        #
+        # Если соответствующей оси нет в deterministic result,
+        # LLM не имеет права придумывать такой эффект.
+        mentioned = _mentioned_axes(low)
+        forbidden_axes = mentioned - allowed_axes
 
-            # Axis names are internal Score Engine terminology.
-            # User-facing words such as "жирность", "себум",
-            # "чувствительность", "увлажнение" may legitimately appear
-            # when they are grounded by the user's profile or deterministic
-            # result. Do not reject a report merely because a human-readable
-            # axis term is not present in allowed_axes.
-            #
-            # Grounding of actual ingredient/effect claims is handled above
-            # through ingredient allow-list, therapy evidence and
-            # deterministic evidence checks.
-            internal_axis_names = {
-                "hydration",
-                "barrier",
-                "irritation",
-                "sensitization",
-                "sebum",
-                "pigmentation",
-            }
-
-            forbidden_internal_axes = mentioned - allowed_axes
-
-            # Only reject explicit technical axis wording. Natural-language
-            # terms mapped to the same concept remain allowed.
-            if forbidden_internal_axes and any(
-                ax in low and ax in internal_axis_names
-                for ax in forbidden_internal_axes
-            ):
-                # Keep existing behavior only for explicit internal axis
-                # names. Normal Russian wording is not blocked here.
-                technical_axis_hits = {
-                    ax for ax in forbidden_internal_axes
-                    if ax in low
-                }
-
-                if technical_axis_hits:
-                    print(
-                        f"[REPORT GROUNDING] reject: internal axis={sorted(technical_axis_hits)} "
-                        f"mentioned={sorted(mentioned)} "
-                        f"allowed={sorted(allowed_axes)}",
-                        flush=True,
-                    )
-                    return None
+        if forbidden_axes:
+            print(
+                f"[REPORT GROUNDING] reject: unsupported human axis="
+                f"{sorted(forbidden_axes)} mentioned={sorted(mentioned)} "
+                f"allowed={sorted(allowed_axes)}",
+                flush=True,
+            )
+            return None
 
     return text
 

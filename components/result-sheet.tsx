@@ -332,7 +332,7 @@ export function ResultSheet({
                       </div>
                     </Section>
                   )}
-                </div>
+
 
             </>
 

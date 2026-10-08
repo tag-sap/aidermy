@@ -193,6 +193,397 @@ class ReportGenerationUsesPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result)
 
 
+class ReportGenerationReliabilityTests(unittest.IsolatedAsyncioTestCase):
+    """Report остаётся рабочим даже при полном отказе/браке LLM."""
+
+    def _analysis(self):
+        return {
+            "score": 67,
+            "verdict": "Хорошо подходит",
+            "dimensions": {
+                "hydration": 0.8,
+                "barrier": 0.6,
+                "irritation": -0.4,
+                "sensitization": 0.0,
+                "sebum": 0.0,
+                "pigmentation": 0.0,
+            },
+            "priorities": {
+                "hydration": 0.3,
+                "barrier": 0.2,
+                "irritation": 0.3,
+                "sensitization": 0.05,
+                "sebum": 0.1,
+                "pigmentation": 0.05,
+            },
+            "positive_factors": [
+                {
+                    "ingredient": "glycerin",
+                    "property": "hydration",
+                    "direction": "positive",
+                    "strength": 0.9,
+                    "confidence": 0.9,
+                    "position_weight": 1.0,
+                }
+            ],
+            "negative_factors": [
+                {
+                    "ingredient": "fragrance",
+                    "property": "irritation",
+                    "direction": "negative",
+                    "strength": 0.8,
+                    "confidence": 0.9,
+                    "position_weight": 1.0,
+                }
+            ],
+            "normalized_ingredients": [
+                "water",
+                "glycerin",
+                "fragrance",
+            ],
+            "goal_evidence": [
+                {
+                    "concern_id": "sensitive",
+                    "label": "чувствительность",
+                    "verdict": "may_hinder",
+                    "evidence": [
+                        {
+                            "ingredient": "fragrance",
+                            "property": "irritation",
+                            "verdict": "may_hinder",
+                            "evidence_level": "high",
+                            "source_title": "Stored evidence",
+                        }
+                    ],
+                }
+            ],
+        }
+
+    async def test_broken_json_falls_back_to_deterministic_report(self):
+        from app import services
+
+        with patch.object(
+            services,
+            "generate_report_once",
+            new=AsyncMock(return_value=None),
+        ):
+            result = await services.generate_full_report(
+                "Крем",
+                "water, glycerin, fragrance",
+                {"skin_type": "Чувствительная", "concerns": ["sensitive"]},
+                product_type="Крем",
+                saved_analysis=self._analysis(),
+            )
+
+        self.assertEqual(result["score"], 67)
+        self.assertEqual(result["verdict"], "Хорошо подходит")
+        self.assertTrue(result["explanation"])
+
+        text = result["explanation"].lower()
+
+        # Fallback должен быть человеческим, а не технической заглушкой.
+        self.assertNotIn("не удалось сформировать отчёт", text)
+        self.assertNotIn("ошибка", text)
+        self.assertNotIn("json", text)
+        self.assertNotIn("score engine", text)
+
+        # Должна сохраниться реальная персонализация.
+        self.assertIn("отдушка", text)
+        self.assertIn("чувствительност", text)
+
+    async def test_llm_timeout_still_returns_deterministic_report(self):
+        from app import services
+
+        with patch.object(
+            services,
+            "generate_report_once",
+            new=AsyncMock(side_effect=TimeoutError("LLM timeout")),
+        ):
+            # generate_full_report сейчас вызывает generate_report_once
+            # только при наличии API key; fallback должен остаться доступным.
+            with patch.object(services, "DEEPSEEK_API_KEY", "test"):
+                try:
+                    result = await services.generate_full_report(
+                        "Крем",
+                        "water, glycerin, fragrance",
+                        {"skin_type": "Чувствительная", "concerns": ["sensitive"]},
+                        product_type="Крем",
+                        saved_analysis=self._analysis(),
+                    )
+                except TimeoutError:
+                    self.fail("generate_full_report пробросил ошибку LLM вместо fallback")
+
+        self.assertEqual(result["score"], 67)
+        self.assertEqual(result["verdict"], "Хорошо подходит")
+        self.assertTrue(result["explanation"])
+
+    async def test_saved_verdict_is_not_recalculated_by_fallback(self):
+        from app import services
+
+        analysis = self._analysis()
+        analysis["score"] = 67
+        analysis["verdict"] = "Мой сохранённый verdict"
+
+        with patch.object(
+            services,
+            "generate_report_once",
+            new=AsyncMock(return_value=None),
+        ):
+            result = await services.generate_full_report(
+                "Крем",
+                "water, glycerin, fragrance",
+                {"skin_type": "Чувствительная", "concerns": ["sensitive"]},
+                product_type="Крем",
+                saved_analysis=analysis,
+            )
+
+        self.assertEqual(result["score"], 67)
+        self.assertEqual(result["verdict"], "Мой сохранённый verdict")
+        self.assertIn("мой сохранённый verdict", result["explanation"].lower())
+
+    async def test_llm_invalid_output_does_not_expose_placeholder(self):
+        from app import services
+
+        # Имитируем уже полностью отфильтрованный/непригодный ответ LLM.
+        with patch.object(
+            services,
+            "generate_report_once",
+            new=AsyncMock(return_value=None),
+        ):
+            result = await services.generate_full_report(
+                "Крем",
+                "water, glycerin, fragrance",
+                {"skin_type": "Чувствительная", "concerns": ["sensitive"]},
+                product_type="Крем",
+                saved_analysis=self._analysis(),
+            )
+
+        self.assertIsInstance(result, dict)
+        self.assertIsInstance(result["review"], list)
+        self.assertGreaterEqual(len(result["review"]), 1)
+        self.assertEqual(result["review"][0]["text"], result["explanation"])
+
+
+    async def test_validator_allows_normal_human_effect_terms(self):
+        from app import services
+
+        inp = {
+            "score": 67,
+            "verdict": "Хорошо подходит",
+            "positive": [
+                {
+                    "label": "Увлажнение",
+                    "significance": "significant",
+                    "contribution": 8.0,
+                }
+            ],
+            "negative": [
+                {
+                    "label": "Раздражение",
+                    "significance": "moderate",
+                    "contribution": -3.0,
+                }
+            ],
+        }
+
+        output = {
+            "summary": (
+                "В составе есть компоненты для увлажнения и поддержки "
+                "барьера, что работает в пользу ваших целей. "
+                "При этом раздражение остаётся ограничивающим фактором."
+            ),
+            "expectations": None,
+        }
+
+        self.assertTrue(services._validate_report_once(inp, output))
+
+    async def test_validator_rejects_medical_claim_but_not_axis_word(self):
+        from app import services
+
+        inp = {
+            "score": 67,
+            "verdict": "Хорошо подходит",
+            "positive": [],
+            "negative": [],
+        }
+
+        safe_output = {
+            "summary": "Состав поддерживает увлажнение и барьер.",
+            "expectations": None,
+        }
+
+        medical_output = {
+            "summary": "Этот компонент укрепляет барьер и лечит проблему.",
+            "expectations": None,
+        }
+
+        self.assertTrue(services._validate_report_once(inp, safe_output))
+        self.assertFalse(services._validate_report_once(inp, medical_output))
+
+    async def test_fallback_names_significant_ingredient(self):
+        from app import services
+
+        analysis = self._analysis()
+
+        fallback = services._build_deterministic_report_fallback(analysis)
+
+        self.assertIsInstance(fallback, str)
+        self.assertTrue(fallback.strip())
+
+        # В fallback должен попасть реальный значимый фактор,
+        # а не абстрактное "есть положительные факторы".
+        self.assertIn("глицерин", fallback.lower())
+        self.assertIn("отдушка", fallback.lower())
+
+    async def test_fallback_preserves_saved_verdict(self):
+        from app import services
+
+        analysis = self._analysis()
+        analysis["score"] = 67
+        analysis["verdict"] = "МОЙ СОХРАНЁННЫЙ VERDICT"
+
+        fallback = services._build_deterministic_report_fallback(analysis)
+
+        self.assertIn("МОЙ СОХРАНЁННЫЙ VERDICT", fallback)
+        self.assertNotIn("Хорошо подходит", fallback)
+
+    async def test_fallback_does_not_invent_goal_evidence(self):
+        from app import services
+
+        analysis = self._analysis()
+        analysis["goal_evidence"] = []
+
+        fallback = services._build_deterministic_report_fallback(analysis)
+
+        # Без goal_evidence нельзя превращать фактор в доказанную
+        # связь с конкретной пользовательской проблемой.
+        self.assertNotIn("вашей чувствительности", fallback.lower())
+        self.assertNotIn("ваших высыпаниях", fallback.lower())
+
+    async def test_generate_report_once_accepts_json_code_fence(self):
+        from app import services
+
+        content = """```json
+{
+  "summary": "В составе есть глицерин для поддержки увлажнения.",
+  "expectations": null
+}
+```"""
+
+        fake_resp = MagicMock()
+        fake_resp.status_code = 200
+        fake_resp.json.return_value = {
+            "choices": [{"message": {"content": content}}]
+        }
+
+        fake_client = AsyncMock()
+        fake_client.post = AsyncMock(return_value=fake_resp)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+
+        prompt = {
+            "version": 8,
+            "system_prompt": "SYS",
+            "user_prompt_template": "USER {{product_name}}",
+        }
+
+        with patch.object(services, "DEEPSEEK_API_KEY", "test"), \
+             patch.object(
+                 services.httpx,
+                 "AsyncClient",
+                 return_value=fake_client,
+             ):
+            result = await services.generate_report_once(
+                "Крем",
+                self._analysis(),
+                {"skin_type": "Жирная"},
+                "",
+                prompt=prompt,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertIn("глицерин", result["summary"].lower())
+
+    async def test_generate_report_once_accepts_json_with_surrounding_text(self):
+        from app import services
+
+        content = """
+        Вот готовый отчёт:
+
+        {
+          "summary": "В составе есть глицерин для поддержки увлажнения.",
+          "expectations": null
+        }
+
+        """
+
+        fake_resp = MagicMock()
+        fake_resp.status_code = 200
+        fake_resp.json.return_value = {
+            "choices": [{"message": {"content": content}}]
+        }
+
+        fake_client = AsyncMock()
+        fake_client.post = AsyncMock(return_value=fake_resp)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+
+        prompt = {
+            "version": 9,
+            "system_prompt": "SYS",
+            "user_prompt_template": "USER {{product_name}}",
+        }
+
+        with patch.object(services, "DEEPSEEK_API_KEY", "test"), \
+             patch.object(
+                 services.httpx,
+                 "AsyncClient",
+                 return_value=fake_client,
+             ):
+            result = await services.generate_report_once(
+                "Крем",
+                self._analysis(),
+                {"skin_type": "Жирная"},
+                "",
+                prompt=prompt,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertIn("глицерин", result["summary"].lower())
+
+    async def test_generate_full_report_falls_back_when_llm_is_unusable(self):
+        from app import services
+
+        analysis = self._analysis()
+
+        with patch.object(services, "DEEPSEEK_API_KEY", "test"), \
+             patch.object(
+                 services,
+                 "generate_report_once",
+                 new=AsyncMock(return_value=None),
+             ):
+            result = await services.generate_full_report(
+                product_name="Тестовый крем",
+                ingredients="water, glycerin, fragrance",
+                profile={"skin_type": "Чувствительная"},
+                saved_analysis={
+                    "score": 67,
+                    "verdict": "Хорошо подходит",
+                    "deterministic": analysis,
+                },
+            )
+
+        self.assertEqual(result["score"], 67)
+        self.assertEqual(result["verdict"], "Хорошо подходит")
+        self.assertTrue(result["explanation"].strip())
+        self.assertIn("глицерин", result["explanation"].lower())
+        self.assertIn("отдушка", result["explanation"].lower())
+        self.assertNotEqual(
+            result["explanation"],
+            "Не удалось сформировать отчёт.",
+        )
+
+
 class ReportPromptRoutesTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
