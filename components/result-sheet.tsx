@@ -126,7 +126,7 @@ export function ResultSheet({
   const [isCheckingIngredients, setIsCheckingIngredients] = useState(false)
   const [gettingDetails, setGettingDetails] = useState(false)
   const [detailsError, setDetailsError] = useState('')
-  const [reportModalOpen, setReportModalOpen] = useState(false)
+  const [reportExpanded, setReportExpanded] = useState(false)
   const [reportText, setReportText] = useState<string | null>(result?.report ?? null)
   const [reportExpectations, setReportExpectations] = useState(result?.expectations ?? null)
 
@@ -135,7 +135,7 @@ export function ResultSheet({
   useEffect(() => {
     setReportText(result?.report ?? null)
     setReportExpectations(result?.expectations ?? null)
-    setReportModalOpen(false)
+    setReportExpanded(false)
   }, [result?.analysis_id, result?.slug])
 
   useEffect(() => {
@@ -212,7 +212,7 @@ export function ResultSheet({
       if (d.report_ready === true) {
         setReportText(fragmentsToText(d.review) ?? null)
         setReportExpectations(d.expectations ?? null)
-        setReportModalOpen(true)
+        setReportExpanded(true)
       }
     } catch {
       setDetailsError('Не удалось подготовить подробный анализ')
@@ -225,7 +225,6 @@ export function ResultSheet({
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
   const reportReady = Boolean(reportText)
-  const reportAvailable = Boolean(reportText)
 
 
   const Section = ({ icon: Icon, title, children, className, onClick }: any) => (
@@ -334,8 +333,8 @@ export function ResultSheet({
                 <p className="text-sm text-foreground/80 leading-relaxed font-light">{result.summary}</p>
               </Section>
 
-              {reportAvailable && reportText && (
-                <div className="hidden md:block animate-in fade-in slide-in-from-bottom-2 duration-500">
+              {reportReady && reportExpanded && reportText && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <Section icon={Sparkles} title="Почему такой результат" className="border-primary/10 p-6">
                     <p className="text-xl leading-[1.75] text-foreground/90 font-light">
                       <MarkupText text={reportText} />
@@ -344,20 +343,8 @@ export function ResultSheet({
                 </div>
               )}
 
-              {reportReady && reportText && (
-                <div className="md:hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <button
-                    type="button"
-                    onClick={() => setReportModalOpen(true)}
-                    className="w-full rounded-xl border border-primary/10 bg-white/60 px-4 py-3 text-left text-sm font-medium text-foreground/80 transition-colors hover:border-primary/20 hover:bg-white/80"
-                  >
-                    Почему такой результат
-                  </button>
-                </div>
-              )}
-
-              {reportReady && reportExpectations && (
-                <div className="hidden md:block animate-in fade-in slide-in-from-bottom-2 duration-500">
+              {reportReady && reportExpanded && reportExpectations && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
                   <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50 p-5">
                     <div className="space-y-2 text-base leading-relaxed text-foreground/80 font-light">
                       {reportExpectations.when && (
@@ -400,7 +387,13 @@ export function ResultSheet({
                   {detailsError && <p className="text-center text-xs text-red-500">{detailsError}</p>}
                   <button
                     type="button"
-                    onClick={handleGetDetails}
+                    onClick={() => {
+                      if (reportReady) {
+                        setReportExpanded((expanded) => !expanded)
+                      } else {
+                        void handleGetDetails()
+                      }
+                    }}
                     disabled={gettingDetails || (!result.slug && !result.analysis_id)}
                     className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-opacity disabled:opacity-50"
                   >
@@ -409,7 +402,7 @@ export function ResultSheet({
                         <LoaderCircle className="size-4 animate-spin" />
                         Готовим отчёт...
                       </>
-                    ) : detailsError ? 'Повторить' : 'Посмотреть отчёт'}
+                    ) : detailsError ? 'Повторить' : reportReady ? (reportExpanded ? 'Свернуть отчёт' : 'Показать отчёт') : 'Посмотреть отчёт'}
                   </button>
                 </div>
               ) : null}
@@ -420,52 +413,7 @@ export function ResultSheet({
         ) : null}
       </div>
 
-      {reportModalOpen && reportReady && reportText && (
-        <div className="absolute inset-0 z-[95] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop md:hidden" onClick={() => setReportModalOpen(false)}>
-          <div
-            className="flex max-h-[80dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-white/50 bg-white/75 p-4 backdrop-blur-xl animate-modal-panel"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex shrink-0 items-center justify-between">
-              <h2 className="text-base font-normal text-foreground">Почему такой результат</h2>
-              <button type="button" onClick={() => setReportModalOpen(false)} className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground" aria-label="Закрыть отчёт">
-                <X className="size-4" />
-              </button>
-            </div>
-            <div className="min-h-0 overflow-y-auto overflow-x-hidden pr-1">
-              <p className="text-xl leading-[1.75] text-foreground/90 font-light">
-                <MarkupText text={reportText} />
-              </p>
-              {reportExpectations && (
-                <div className="mt-5 border-t border-gray-200/60 pt-4">
-                  <div className="mb-2 flex items-center gap-1.5">
-                    <AlertCircle className="size-4 text-primary/60" strokeWidth={1.5} />
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Чего ожидать</h4>
-                  </div>
-                  <div className="space-y-2 text-base leading-relaxed text-foreground/80 font-light">
-                    {reportExpectations.when && (
-                      <p><span className="font-medium text-foreground/80">Когда:</span>{' '}{reportExpectations.when}</p>
-                    )}
-                    {reportExpectations.normal && (
-                      <p className="flex items-start gap-2">
-                        <CheckCircle className="size-4 text-primary/60 mt-1 flex-shrink-0" />
-                        <span><MarkupText text={reportExpectations.normal} /></span>
-                      </p>
-                    )}
-                    {reportExpectations.danger && (
-                      <p className="flex items-start gap-2">
-                        <AlertCircle className="size-4 text-red-400/60 mt-1 flex-shrink-0" />
-                        <span><MarkupText text={reportExpectations.danger} /></span>
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
+      
     </div>
   )
 }
