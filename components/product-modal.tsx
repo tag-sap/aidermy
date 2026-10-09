@@ -412,31 +412,28 @@ export function ProductModal({
 
             {hasReport && reportExpanded && data?.analysis && (
               <section className="mt-4 space-y-3 border-t border-gray-100 pt-4 animate-in fade-in slide-in-from-bottom-2 duration-300" aria-label="Подробный отчёт">
-                {asText(data.analysis.report) && (
-                  <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
-                    <h3 className="text-sm font-medium text-foreground">Почему такой результат</h3>
+                <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
+                  <h3 className="text-sm font-medium text-foreground">Почему такой результат</h3>
+                  {asText(data.analysis.report) ? (
                     <p className="mt-2 text-sm leading-relaxed text-foreground/80">{asText(data.analysis.report)}</p>
-                  </div>
-                )}
-                {data.analysis.how_to_use && (data.analysis.how_to_use.application || data.analysis.how_to_use.time || data.analysis.how_to_use.note) && (
-                  <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
-                    <h3 className="text-sm font-medium text-foreground">Как применять</h3>
-                    {data.analysis.how_to_use.application && <p className="mt-2 text-sm leading-relaxed text-foreground/80">{data.analysis.how_to_use.application}</p>}
-                    {data.analysis.how_to_use.time && <p className="mt-1 text-xs text-muted-foreground">Когда: {data.analysis.how_to_use.time}</p>}
-                    {data.analysis.how_to_use.note && <p className="mt-1 text-xs text-muted-foreground">{data.analysis.how_to_use.note}</p>}
-                  </div>
-                )}
-                {data.analysis.expectations && (data.analysis.expectations.when || data.analysis.expectations.normal || data.analysis.expectations.danger) && (
-                  <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
-                    <h3 className="text-sm font-medium text-foreground">Чего ожидать</h3>
-                    {data.analysis.expectations.when && <p className="mt-2 text-sm leading-relaxed text-foreground/80">Когда: {data.analysis.expectations.when}</p>}
-                    {data.analysis.expectations.normal && <p className="mt-1 text-sm leading-relaxed text-foreground/80">{data.analysis.expectations.normal}</p>}
-                    {data.analysis.expectations.danger && <p className="mt-1 text-sm leading-relaxed text-foreground/70">{data.analysis.expectations.danger}</p>}
-                  </div>
-                )}
-                {!asText(data.analysis.report) && !data.analysis.how_to_use && !data.analysis.expectations && (
-                  <p className="rounded-xl border border-dashed border-gray-200 p-3 text-sm text-muted-foreground">Подробный отчёт пока не содержит дополнительных разделов.</p>
-                )}
+                  ) : (
+                    <p className="mt-2 text-sm text-muted-foreground">Основное объяснение в сохранённом отчёте отсутствует.</p>
+                  )}
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
+                  <h3 className="text-sm font-medium text-foreground">Как применять</h3>
+                  {data.analysis.how_to_use?.application && <p className="mt-2 text-sm leading-relaxed text-foreground/80">{data.analysis.how_to_use.application}</p>}
+                  {data.analysis.how_to_use?.time && <p className="mt-1 text-xs text-muted-foreground">Когда: {data.analysis.how_to_use.time}</p>}
+                  {data.analysis.how_to_use?.note && <p className="mt-1 text-xs text-muted-foreground">{data.analysis.how_to_use.note}</p>}
+                  {!data.analysis.how_to_use?.application && !data.analysis.how_to_use?.time && !data.analysis.how_to_use?.note && <p className="mt-2 text-sm text-muted-foreground">Этот раздел не заполнен в сохранённом отчёте.</p>}
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
+                  <h3 className="text-sm font-medium text-foreground">Чего ожидать</h3>
+                  {data.analysis.expectations?.when && <p className="mt-2 text-sm leading-relaxed text-foreground/80">Когда: {data.analysis.expectations.when}</p>}
+                  {data.analysis.expectations?.normal && <p className="mt-1 text-sm leading-relaxed text-foreground/80">{data.analysis.expectations.normal}</p>}
+                  {data.analysis.expectations?.danger && <p className="mt-1 text-sm leading-relaxed text-foreground/70">{data.analysis.expectations.danger}</p>}
+                  {!data.analysis.expectations?.when && !data.analysis.expectations?.normal && !data.analysis.expectations?.danger && <p className="mt-2 text-sm text-muted-foreground">Этот раздел не заполнен в сохранённом отчёте.</p>}
+                </div>
               </section>
             )}
 
