@@ -50,20 +50,6 @@ function scoreColor(s: number) {
   return 'text-[#151515]/70 bg-[#151515]/5 border-[#151515]/15'
 }
 
-function asList(v: unknown): string[] {
-  if (Array.isArray(v)) return v as string[]
-  if (typeof v === 'string') {
-    try {
-      const p = JSON.parse(v)
-      if (Array.isArray(p)) return p.map(String)
-    } catch {
-      /* ignore */
-    }
-    return v.trim() ? [v] : []
-  }
-  return []
-}
-
 function asText(v: unknown): string | undefined {
   if (Array.isArray(v)) {
     const text = v
@@ -86,7 +72,6 @@ export function ProductModal({
   shelfContext,
   onClose,
   onChanged,
-  onOpenReport,
   onOpenBrand,
   onOpenCategory,
 }: {
@@ -104,6 +89,7 @@ export function ProductModal({
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
   const [showComposition, setShowComposition] = useState(false)
+  const [reportExpanded, setReportExpanded] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
   const productPanelRef = useRef<HTMLDivElement>(null)
   const productContentRef = useRef<HTMLDivElement>(null)
@@ -133,6 +119,7 @@ export function ProductModal({
     setLoading(true)
     setError('')
     setShowComposition(false)
+    setReportExpanded(false)
     fetch(`/api/products/${encodeURIComponent(slug)}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
@@ -242,34 +229,8 @@ export function ProductModal({
   }
 
   const openFullReport = () => {
-    if (!data || !product || !data.analysis || !onOpenReport) return
-    const a = data.analysis
-    const result: CheckResult = {
-      id: String(product.id),
-      product: product.name,
-      skinType: '',
-      score: data.score,
-      verdict: a.verdict || '',
-      summary: a.summary || '',
-      safe_ingredients: asList(a.safe_ingredients),
-      caution_ingredients: asList(a.caution_ingredients),
-      slug: product.slug,
-      image_url: product.image_url,
-      createdAt: Date.now(),
-      active_ingredients: a.active_ingredients ?? undefined,
-      how_to_use: a.how_to_use ?? undefined,
-      expectations: a.expectations ?? undefined,
-      report: asText(a.report),
-      what_good: asText(a.what_good),
-      what_caution: asText(a.what_caution),
-      analysis_id: a.id ?? null,
-      goal_evidence: Array.isArray(a.goal_evidence)
-        ? a.goal_evidence
-        : Array.isArray(a.deterministic?.goal_evidence)
-          ? a.deterministic.goal_evidence
-          : [],
-    }
-    onOpenReport(result)
+    // Раскрываем подробности внутри этой же карточки, не открывая отдельный ResultSheet.
+    setReportExpanded((expanded) => !expanded)
   }
 
   const hasAnalysis = typeof data?.score === 'number' && data?.analysis != null
@@ -394,7 +355,7 @@ export function ProductModal({
                   className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#D6F264] py-2.5 text-sm text-[#151515] transition-colors hover:bg-[#c8e64f]"
                 >
                   <FileText className="size-4" />
-                  Посмотреть отчёт
+                  {reportExpanded ? 'Свернуть отчёт' : 'Посмотреть отчёт'}
                 </button>
               ) : (
                 <>
@@ -448,6 +409,36 @@ export function ProductModal({
                 )
               )}
             </div>
+
+            {hasReport && reportExpanded && data?.analysis && (
+              <section className="mt-4 space-y-3 border-t border-gray-100 pt-4 animate-in fade-in slide-in-from-bottom-2 duration-300" aria-label="Подробный отчёт">
+                {asText(data.analysis.report) && (
+                  <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
+                    <h3 className="text-sm font-medium text-foreground">Почему такой результат</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-foreground/80">{asText(data.analysis.report)}</p>
+                  </div>
+                )}
+                {data.analysis.how_to_use && (data.analysis.how_to_use.application || data.analysis.how_to_use.time || data.analysis.how_to_use.note) && (
+                  <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
+                    <h3 className="text-sm font-medium text-foreground">Как применять</h3>
+                    {data.analysis.how_to_use.application && <p className="mt-2 text-sm leading-relaxed text-foreground/80">{data.analysis.how_to_use.application}</p>}
+                    {data.analysis.how_to_use.time && <p className="mt-1 text-xs text-muted-foreground">Когда: {data.analysis.how_to_use.time}</p>}
+                    {data.analysis.how_to_use.note && <p className="mt-1 text-xs text-muted-foreground">{data.analysis.how_to_use.note}</p>}
+                  </div>
+                )}
+                {data.analysis.expectations && (data.analysis.expectations.when || data.analysis.expectations.normal || data.analysis.expectations.danger) && (
+                  <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
+                    <h3 className="text-sm font-medium text-foreground">Чего ожидать</h3>
+                    {data.analysis.expectations.when && <p className="mt-2 text-sm leading-relaxed text-foreground/80">Когда: {data.analysis.expectations.when}</p>}
+                    {data.analysis.expectations.normal && <p className="mt-1 text-sm leading-relaxed text-foreground/80">{data.analysis.expectations.normal}</p>}
+                    {data.analysis.expectations.danger && <p className="mt-1 text-sm leading-relaxed text-foreground/70">{data.analysis.expectations.danger}</p>}
+                  </div>
+                )}
+                {!asText(data.analysis.report) && !data.analysis.how_to_use && !data.analysis.expectations && (
+                  <p className="rounded-xl border border-dashed border-gray-200 p-3 text-sm text-muted-foreground">Подробный отчёт пока не содержит дополнительных разделов.</p>
+                )}
+              </section>
+            )}
 
             <CommunitySection
               slug={product.slug}
