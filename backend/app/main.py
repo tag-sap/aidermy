@@ -778,90 +778,112 @@ async def get_catalog(
     sort: str = "popular",
     current_user: dict = Depends(get_current_user_optional),
 ):
-    conn = get_connection(PRODUCTS_DB)
-    cursor = conn.cursor()
-    
-    where = ["is_canonical = 1"]
-    params = []
+    # Переключение только чтения каталога; по умолчанию используется SQLite.
+    use_postgres = os.getenv("CATALOG_READ_FROM_POSTGRES", "").strip().lower() == "true"
 
-    # Категория (таксономия, верхний уровень) — точное совпадение по колонке.
-    if category:
-        where.append("taxonomy_category = ?")
-        params.append(category)
-    # Подкатегория (таксономия) — точное совпадение по колонке subcategory.
-    if subcategory:
-        where.append("subcategory = ?")
-        params.append(subcategory)
-    # Legacy-категория (старое поле category, «Сыворотка» и т.д.) — обратная совместимость.
-    if cat:
-        where.append("category = ?")
-        params.append(cat)
-    # Категория полки (шкаф + категория) — фильтр «из базы» по правилам подбора.
-    if shelf_category and cabinet:
-        from .shelf_service import RECOMMEND_RULES
-        rule = (RECOMMEND_RULES.get(cabinet) or {}).get(shelf_category) or {}
-        shelf_cats = rule.get("categories") or []
-        shelf_kws = rule.get("keywords") or []
-        shelf_conds = []
-        if shelf_cats:
-            ph = ",".join(["?"] * len(shelf_cats))
-            shelf_conds.append(f"category IN ({ph})")
-            params.extend(shelf_cats)
-        if shelf_kws:
-            kw_conds = []
-            for kw in shelf_kws:
-                kw_conds.append("lower_ru(name) LIKE ?")
-                params.append(f"%{kw.lower()}%")
-            shelf_conds.append("(" + " OR ".join(kw_conds) + ")")
-        if shelf_conds:
-            where.append("(" + " OR ".join(shelf_conds) + ")")
-    if brand:
-        # бренд хранится первой строкой в name (до переноса строки)
-        where.append("lower_ru(name) LIKE ?")
-        params.append(f"{brand.lower()}%")
-    if search:
-        for word in search.strip().lower().split():
+    if use_postgres:
+        from .postgres_catalog import get_catalog_page
+
+        result = get_catalog_page(
+            category=category,
+            subcategory=subcategory,
+            brand=brand,
+            cat=cat,
+            search=search,
+            letter=letter,
+            shelf_category=shelf_category,
+            cabinet=cabinet,
+            limit=limit,
+            offset=offset,
+            sort=sort,
+        )
+        products = [dict(row) for row in result["products"]]
+        total = result["total"]
+    else:
+        conn = get_connection(PRODUCTS_DB)
+        cursor = conn.cursor()
+
+        where = ["is_canonical = 1"]
+        params = []
+
+        if category:
+            where.append("taxonomy_category = ?")
+            params.append(category)
+        if subcategory:
+            where.append("subcategory = ?")
+            params.append(subcategory)
+        if cat:
+            where.append("category = ?")
+            params.append(cat)
+
+        if shelf_category and cabinet:
+            from .shelf_service import RECOMMEND_RULES
+            rule = (RECOMMEND_RULES.get(cabinet) or {}).get(shelf_category) or {}
+            shelf_cats = rule.get("categories") or []
+            shelf_kws = rule.get("keywords") or []
+            shelf_conds = []
+            if shelf_cats:
+                ph = ",".join(["?"] * len(shelf_cats))
+                shelf_conds.append(f"category IN ({ph})")
+                params.extend(shelf_cats)
+            if shelf_kws:
+                kw_conds = []
+                for kw in shelf_kws:
+                    kw_conds.append("lower_ru(name) LIKE ?")
+                    params.append(f"%{kw.lower()}%")
+                shelf_conds.append("(" + " OR ".join(kw_conds) + ")")
+            if shelf_conds:
+                where.append("(" + " OR ".join(shelf_conds) + ")")
+
+        if brand:
             where.append("lower_ru(name) LIKE ?")
-            params.append(f"%{word}%")
-    if letter:
-        where.append(f"lower_ru(SUBSTR({TITLE_SQL}, 1, 1)) = ?")
-        params.append(letter.lower())
+            params.append(f"{brand.lower()}%")
+        if search:
+            for word in search.strip().lower().split():
+                where.append("lower_ru(name) LIKE ?")
+                params.append(f"%{word}%")
+        if letter:
+            where.append(f"lower_ru(SUBSTR({TITLE_SQL}, 1, 1)) = ?")
+            params.append(letter.lower())
 
-    where_sql = " AND ".join(where)
-    order_sql = f"{TITLE_SQL} COLLATE NOCASE_RU ASC" if sort == "alpha" else "name ASC"
+        where_sql = " AND ".join(where)
+        order_sql = f"{TITLE_SQL} COLLATE NOCASE_RU ASC" if sort == "alpha" else "name ASC"
 
-    cursor.execute(
-        f"SELECT id, name, slug, image_url, ingredients, category, subcategory, taxonomy_category, brand FROM products WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
-        params + [limit, offset],
-    )
-    rows = cursor.fetchall()
-    
-    cursor.execute(f"SELECT COUNT(*) FROM products WHERE {where_sql}", params)
-    total = cursor.fetchone()[0]
-    
-    conn.close()
+        cursor.execute(
+            f"SELECT id, name, slug, image_url, ingredients, category, subcategory, taxonomy_category, brand "
+            f"FROM products WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        )
+        products = [dict(row) for row in cursor.fetchall()]
 
-    products = [dict(row) for row in rows]
+        cursor.execute(f"SELECT COUNT(*) FROM products WHERE {where_sql}", params)
+        total = cursor.fetchone()[0]
+        conn.close()
+
     try:
         from .community_service import CommunityIntelligenceService
-        ratings = CommunityIntelligenceService().get_products_community_rating([p["id"] for p in products])
+        ratings = CommunityIntelligenceService().get_products_community_rating(
+            [p["id"] for p in products]
+        )
     except Exception:
         ratings = {}
-    for p in products:
-        r = ratings.get(p.get("id")) or {}
-        p["rating"] = r.get("average")
-        p["rating_count"] = r.get("count", 0)
 
-    # Персональное состояние анализа для авторизованного пользователя (единая карточка).
-    # Отсутствие User Analysis НЕ скрывает продукт из каталога (#19).
+    for p in products:
+        rating = ratings.get(p.get("id")) or {}
+        p["rating"] = rating.get("average")
+        p["rating_count"] = rating.get("count", 0)
+
+    # Отсутствие User Analysis не скрывает продукт из каталога.
     if current_user:
         try:
             from .database import get_current_analyses_map
-            analyses = get_current_analyses_map(current_user["id"], [p["id"] for p in products])
+            analyses = get_current_analyses_map(
+                current_user["id"], [p["id"] for p in products]
+            )
             for p in products:
-                a = analyses.get(p.get("id"))
-                p["score"] = a.get("score") if a else None
-                p["analysis"] = a
+                analysis = analyses.get(p.get("id"))
+                p["score"] = analysis.get("score") if analysis else None
+                p["analysis"] = analysis
         except Exception:
             for p in products:
                 p["score"] = None
@@ -871,12 +893,39 @@ async def get_catalog(
         "products": products,
         "total": total,
         "limit": limit,
-        "offset": offset
+        "offset": offset,
     }
+
 
 @app.get("/api/catalog/letters")
 async def get_catalog_letters():
     """Первые буквы названий продуктов для алфавитной навигации."""
+    use_postgres = os.getenv("CATALOG_READ_FROM_POSTGRES", "").strip().lower() == "true"
+
+    if use_postgres:
+        from .postgres_catalog import TITLE_SQL as POSTGRES_TITLE_SQL
+        from .postgres_connection import get_postgres_connection
+
+        with get_postgres_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SET TRANSACTION READ ONLY")
+                cursor.execute(f"""
+                    SELECT letter
+                    FROM (
+                        SELECT DISTINCT
+                            lower(substring(({POSTGRES_TITLE_SQL}) from 1 for 1)) AS letter
+                        FROM public.products
+                        WHERE is_canonical = 1 AND name IS NOT NULL AND name <> ''
+                    ) AS distinct_letters
+                    ORDER BY letter COLLATE "C"
+                """)
+                letters = [
+                    row["letter"] for row in cursor.fetchall()
+                    if row["letter"] and row["letter"].isalnum()
+                ]
+            conn.rollback()
+        return {"letters": letters}
+
     conn = get_connection(PRODUCTS_DB)
     cursor = conn.cursor()
     cursor.execute(f"""
