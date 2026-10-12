@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.score_version import SCORE_ENGINE_VERSION
+from app.report_version import REPORT_GENERATOR_VERSION
 from app.database import upsert_analysis
 from app.auth import create_access_token
 from app.main import ShelfAnalyzeRequest, _save_system_analysis, app, review_shelf_product
@@ -276,6 +277,7 @@ class ReportFlowTests(unittest.TestCase):
             "report": '[{"text":"Сохранённый отчёт","sentiment":"positive"}]',
             "score_engine_version": SCORE_ENGINE_VERSION,
             "report_score_engine_version": SCORE_ENGINE_VERSION,
+            "report_generator_version": REPORT_GENERATOR_VERSION,
             "deterministic": {"normalized_ingredients": ["aqua"]},
             "active_ingredients": None,
             "what_good": None,

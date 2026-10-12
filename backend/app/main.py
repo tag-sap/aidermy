@@ -417,7 +417,7 @@ async def analyze_composition_endpoint(
 
         pending = bool(result.get("pending"))
         return {
-            "score": result.get("score") if (result.get("deterministic") or {}).get("normalized_ingredients") else None,
+            "score": result.get("score") if result.get("phase1_status") == "passed" and (result.get("deterministic") or {}).get("normalized_ingredients") else None,
             "verdict": "Требуется время" if pending else (result.get("verdict") or "Неизвестный состав"),
             "summary": (
                 "Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже."
@@ -437,6 +437,9 @@ async def analyze_composition_endpoint(
             "ingredient_ids": [r["id"] for r in registered],
             "analysis_id": analysis_id,
             "report": None,
+            "phase1_status": result.get("phase1_status"),
+            "recommendation_status": result.get("recommendation_status"),
+            "negative_only_score": result.get("negative_only_score"),
             "pending": pending,
         }
     except Exception as exc:
@@ -561,7 +564,7 @@ async def check_product(
 
         pending = bool(result.get("pending"))
         return CheckResponse(
-            score=None if pending or not (result.get("deterministic") or {}).get("normalized_ingredients") else result.get("score"),
+            score=result.get("score") if not pending and result.get("phase1_status") == "passed" and (result.get("deterministic") or {}).get("normalized_ingredients") else None,
             verdict="Требуется время" if pending else (result.get("verdict") or "Неизвестный состав"),
             summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else (result.get("summary") or "")),
             safe_ingredients=result.get("safe_ingredients", []),
@@ -575,6 +578,9 @@ async def check_product(
             goal_evidence=result.get("goal_evidence") or [],
             report=None,
             analysis_id=analysis_id,
+            phase1_status=result.get("phase1_status"),
+            recommendation_status=result.get("recommendation_status"),
+            negative_only_score=result.get("negative_only_score"),
             pending=pending,
         )
     except Exception as e:
@@ -638,7 +644,7 @@ async def check_with_ingredients(
         
         pending = bool(result.get("pending"))
         return CheckResponse(
-            score=None if pending or not (result.get("deterministic") or {}).get("normalized_ingredients") else result.get("score"),
+            score=result.get("score") if not pending and result.get("phase1_status") == "passed" and (result.get("deterministic") or {}).get("normalized_ingredients") else None,
             verdict="Требуется время" if pending else (result.get("verdict") or "Неизвестный состав"),
             summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else (result.get("summary") or "")),
             safe_ingredients=result.get("safe_ingredients", []),
@@ -652,6 +658,9 @@ async def check_with_ingredients(
             goal_evidence=result.get("goal_evidence") or [],
             report=None,
             analysis_id=analysis_id,
+            phase1_status=result.get("phase1_status"),
+            recommendation_status=result.get("recommendation_status"),
+            negative_only_score=result.get("negative_only_score"),
             pending=pending,
         )
         

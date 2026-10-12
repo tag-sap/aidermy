@@ -519,7 +519,9 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     # Отчёт и его поясняющие блоки создаются только отдельным запросом после
     # явного действия пользователя; этап проверки возвращает только Match.
     return {
-        'score': int(deterministic.get('score') or 0),
+        # None сохраняется как None: при blocked/insufficient_data обычный score
+        # не рассчитывается и не превращается в 0.
+        'score': deterministic.get('score'),
         'verdict': deterministic.get('verdict') or 'Требует внимания',
         'summary': deterministic.get('summary') or '',
         'report': None,
@@ -530,6 +532,12 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'expectations': None,
         'research_status': research_status,
         'goal_evidence': deterministic.get('goal_evidence') or [],
+        'phase1_status': deterministic.get('phase1_status'),
+        'recommendation_status': deterministic.get('recommendation_status'),
+        'negative_only_score': deterministic.get('negative_only_score'),
+        'phase1_violations': (deterministic.get('phase1') or {}).get('violations') or [],
+        'phase1_branches': (deterministic.get('phase1') or {}).get('branches') or {},
+        'phase1_version': deterministic.get('phase1_version'),
         # Полный deterministic-результат Score Engine — источник истины для Report.
         'deterministic': deterministic,
     }

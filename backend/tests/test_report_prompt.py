@@ -41,6 +41,7 @@ def _analysis_row_schema() -> str:
         score_engine_version TEXT,
         report_score_engine_version TEXT,
         report_prompt_version TEXT,
+        report_generator_version TEXT,
         created_at TEXT,
         expires_at TEXT,
         what_good TEXT,

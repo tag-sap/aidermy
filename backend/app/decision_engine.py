@@ -197,11 +197,31 @@ class DecisionEngine:
             priorities_are_canonical=True,
             saturation_scale=saturation_scale,
         )
-        score = int(result.get("score") or 0)
+        raw_score = result.get("score")
+        score = int(raw_score) if raw_score is not None else None
         safe, caution = ingredient_lists(result)
         result["score"] = score
-        result["verdict"] = build_verdict(score)
-        result["summary"] = build_summary(result, profile, skin_type, score)
+
+        if score is None:
+            status = result.get("phase1_status")
+            fallback = {
+                "blocked": "Не рекомендовано",
+                "insufficient_data": "Недостаточно данных",
+            }
+            result["verdict"] = (
+                result.get("recommendation_status")
+                or fallback.get(status, "Недостаточно данных")
+            )
+            result["summary"] = (
+                "Обычная оценка совместимости не рассчитана: "
+                "первая фаза проверки не пройдена."
+                if status == "blocked"
+                else "Недостаточно данных для достоверной оценки совместимости."
+            )
+        else:
+            result["verdict"] = build_verdict(score)
+            result["summary"] = build_summary(result, profile, skin_type, score)
+
         result["safe_ingredients"] = safe
         result["caution_ingredients"] = caution
         result["priorities"] = priorities

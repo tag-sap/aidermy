@@ -54,6 +54,19 @@ class AnalysisService:
 
         canonical_weights = priorities if priorities_are_canonical else canonicalize_weights(priorities)
 
+        from .phase1 import (
+            compute_negative_only_score,
+            evaluate_phase1,
+            recommendation_status,
+        )
+
+        def phase1_gate(preliminary_result):
+            return evaluate_phase1(
+                preliminary_result,
+                scoring_profile,
+                normalized_ingredients,
+            )
+
         result = score_product_against_profile_canonical(
             ingredients=normalized_ingredients,
             canonical_knowledge=knowledge,
@@ -61,7 +74,25 @@ class AnalysisService:
             canonical_weights=canonical_weights,
             interactions=interactions,
             saturation_scale=saturation_scale,
+            pre_score_check=phase1_gate,
         )
+
+        phase1_result = result.get("phase1")
+        result["negative_only_score"] = None
+        if phase1_result:
+            if phase1_result.get("status") == "blocked":
+                result["negative_only_score"] = compute_negative_only_score(
+                    phase1_result,
+                    result,
+                    scoring_profile,
+                    normalized_ingredients,
+                    canonical_weights,
+                )
+            result["recommendation_status"] = recommendation_status(
+                phase1_result,
+                result.get("score"),
+            )
+
         result['product_name'] = product_name
         result['normalized_ingredients'] = normalized_ingredients
         result['hard_filters'] = hard_filters

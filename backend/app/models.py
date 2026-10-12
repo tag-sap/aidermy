@@ -48,6 +48,9 @@ class CheckResponse(BaseModel):
     verdict: str
     summary: str
     pending: Optional[bool] = None
+    phase1_status: Optional[str] = None
+    recommendation_status: Optional[str] = None
+    negative_only_score: Optional[int] = None
     stats: Optional[Dict[str, int]] = Field(default_factory=dict)
     skin_type_recommendation: Optional[str] = None
     safe_ingredients: List[str] = []

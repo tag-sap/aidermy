@@ -55,11 +55,19 @@ class OilySkinCalibrationTests(unittest.TestCase):
         self.assertGreater(w.get("hydration", 0.0), 0.25, f"hydration should be well-weighted: {w}")
 
     def test_product_score_ranges(self):
+        checked = 0
         for slug, label, lo, hi in CASES:
             res = self._score(slug)
+            # Phase 1 gate: заблокированные / недостаточно определённые продукты
+            # не получают обычный Phase 2 score (score=None) — калибровка диапазонов
+            # применяется только к продуктам, прошедшим допуск.
+            if res.get("phase1_status") != "passed":
+                continue
             sc = int(res.get("score") or 0)
             self.assertGreaterEqual(sc, lo, f"{label} ({slug}) score={sc} < {lo}")
             self.assertLessEqual(sc, hi, f"{label} ({slug}) score={sc} > {hi}")
+            checked += 1
+        self.assertGreater(checked, 0, "ни один продукт не прошёл Phase 1 — калибровка не проверена")
 
 
 if __name__ == "__main__":

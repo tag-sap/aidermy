@@ -1095,7 +1095,13 @@ def _analysis_to_dict(row) -> dict:
     if det:
         try:
             result["deterministic"] = _json.loads(det) if isinstance(det, str) else det
-            result["goal_evidence"] = result["deterministic"].get("goal_evidence") or []
+            deterministic = result["deterministic"]
+            result["goal_evidence"] = deterministic.get("goal_evidence") or []
+            # Expose Phase 1 metadata while preserving the full deterministic payload.
+            result["phase1_version"] = deterministic.get("phase1_version")
+            result["phase1_status"] = deterministic.get("phase1_status") or (deterministic.get("phase1") or {}).get("status")
+            result["recommendation_status"] = deterministic.get("recommendation_status")
+            result["negative_only_score"] = deterministic.get("negative_only_score")
             result["score_engine_version"] = (
                 result.get("score_engine_version")
                 or result["deterministic"].get("score_engine_version")

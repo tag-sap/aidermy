@@ -72,12 +72,15 @@ class DecisionEngineTests(unittest.TestCase):
         weights = priorities_for_profile({"skin_type": "Чувствительная", "concerns": []}, "Чувствительная")
         self.assertGreater(weights["sensitivity"], weights["brightening"])
 
-    def test_engine_allergy_hard_flag_lowers_score(self):
+    def test_engine_allergy_hard_flag_blocks_phase2_score(self):
         engine = DecisionEngine()
         profile = {"skin_type": "Сухая", "concerns": [], "allergies": ["glycerin"]}
         result = engine.analyze("Крем", "Aqua, Glycerin", profile, "Сухая")
+
         self.assertTrue(any(f["type"] == "allergy" for f in result.get("hard_flags", [])))
-        self.assertLessEqual(result["score"], 35)
+        self.assertEqual(result["phase1_status"], "blocked")
+        self.assertEqual(result["recommendation_status"], "Не рекомендовано")
+        self.assertIsNone(result["score"])
 
 
 if __name__ == "__main__":

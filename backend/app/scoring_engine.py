@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from .ingredient_normalizer import normalize_ingredient_name
 from .scoring_config import (
@@ -169,6 +169,7 @@ def score_product_against_profile_canonical(
     canonical_weights: Dict[str, float],
     interactions: List[Dict[str, Any]] | None = None,
     saturation_scale: float | None = None,
+    pre_score_check: Callable[[Dict[str, Any]], Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     """Канонический Scoring Vector на 6 осях (axes.AXES), benefit-oriented.
 
@@ -188,7 +189,7 @@ def score_product_against_profile_canonical(
     valid_ingredients = [ingredient for ingredient in ingredients if ingredient and str(ingredient).strip()]
     empty_dims = {axis: 0.0 for axis in AXES}
     if not valid_ingredients:
-        return {
+        empty_result = {
             'score': 0,
             'dimensions': empty_dims,
             'positive_factors': [],
@@ -199,6 +200,15 @@ def score_product_against_profile_canonical(
             'interaction_breakdown': [],
             'interaction_scoring_version': _interaction_scoring_version(),
         }
+        if pre_score_check is not None:
+            phase1_result = pre_score_check(empty_result)
+            empty_result.update({
+                'score': None,
+                'phase1': phase1_result,
+                'phase1_status': phase1_result.get('status'),
+                'phase1_version': phase1_result.get('version'),
+            })
+        return empty_result
 
     dimensions = {axis: 0.0 for axis in AXES}
     axis_positive: Dict[str, List[float]] = {axis: [] for axis in AXES}
@@ -336,6 +346,28 @@ def score_product_against_profile_canonical(
             for axis, contrib in adjusted_agg.items():
                 dimensions[axis] += contrib
 
+    phase1_result = None
+    if pre_score_check is not None:
+        preliminary_result = {
+            'dimensions': {axis: round(value, 3) for axis, value in dimensions.items()},
+            'positive_factors': positive_factors,
+            'negative_factors': negative_factors,
+            'unknown_factors': unknown_factors,
+            'hard_flags': hard_flags,
+            'interaction_breakdown': interaction_breakdown,
+            'interaction_scoring_version': _interaction_scoring_version(),
+        }
+        phase1_result = pre_score_check(preliminary_result)
+        if phase1_result.get('status') != 'passed':
+            return {
+                **preliminary_result,
+                'score': None,
+                'confidence': 0.0,
+                'phase1': phase1_result,
+                'phase1_status': phase1_result.get('status'),
+                'phase1_version': phase1_result.get('version'),
+            }
+
     weighted_total = 0.0
     if saturation_scale is None:
         from .scoring_config_store import get_production_saturation_scale
@@ -400,6 +432,9 @@ def score_product_against_profile_canonical(
         'hard_flags': hard_flags,
         'interaction_breakdown': interaction_breakdown,
         'interaction_scoring_version': _interaction_scoring_version(),
+        'phase1': phase1_result,
+        'phase1_status': phase1_result.get('status') if phase1_result else None,
+        'phase1_version': phase1_result.get('version') if phase1_result else None,
     }
 
 
