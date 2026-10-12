@@ -66,6 +66,14 @@ function ScoreRing({ score }: { score: number }) {
   )
 }
 
+function getDeterministicVerdict(score: number): string {
+  if (score >= 80) return 'Очень хорошо подходит'
+  if (score >= 60) return 'Хорошо подходит'
+  if (score >= 40) return 'Подходит частично'
+  if (score >= 20) return 'Скорее не подходит'
+  return 'Не подходит'
+}
+
 const GOAL_VERDICT_LABELS = {
   supports: 'Поддерживает',
   neutral: 'Нейтрально',
@@ -118,8 +126,17 @@ export function ResultSheet({
   const [isCheckingIngredients, setIsCheckingIngredients] = useState(false)
   const [gettingDetails, setGettingDetails] = useState(false)
   const [detailsError, setDetailsError] = useState('')
+  const [reportExpanded, setReportExpanded] = useState(false)
+  const [reportText, setReportText] = useState<string | null>(result?.report ?? null)
+  const [reportExpectations, setReportExpectations] = useState(result?.expectations ?? null)
 
   useScrollLock(isOpen)
+
+  useEffect(() => {
+    setReportText(result?.report ?? null)
+    setReportExpectations(result?.expectations ?? null)
+    setReportExpanded(false)
+  }, [result?.analysis_id, result?.slug])
 
   useEffect(() => {
     if (isOpen) {
@@ -192,14 +209,11 @@ export function ResultSheet({
       })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(d.detail || 'Не удалось подготовить подробный анализ')
-      onResultUpdate({
-        ...result,
-        score: typeof d.score === 'number' ? d.score : result.score,
-        verdict: typeof d.verdict === 'string' ? d.verdict : result.verdict,
-        report: fragmentsToText(d.review) ?? result.report,
-        report_ready: d.report_ready === true,
-        expectations: d.expectations ?? result.expectations,
-      })
+      if (d.report_ready === true) {
+        setReportText(fragmentsToText(d.review) ?? null)
+        setReportExpectations(d.expectations ?? null)
+        setReportExpanded(true)
+      }
     } catch {
       setDetailsError('Не удалось подготовить подробный анализ')
     } finally {
@@ -210,7 +224,7 @@ export function ResultSheet({
   if (!isOpen) return null
 
   const showIngredientsInput = result?.summary?.includes("НЕИЗВЕСТНЫЙ СОСТАВ")
-  const reportReady = Boolean(result?.report_ready || (result?.report && result.report !== result.summary))
+  const reportReady = Boolean(reportText)
 
 
   const Section = ({ icon: Icon, title, children, className, onClick }: any) => (
@@ -273,7 +287,7 @@ export function ResultSheet({
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className={cn('text-base font-medium', typeof result.score === 'number' && result.score >= 70 ? 'text-primary' : typeof result.score === 'number' && result.score >= 40 ? 'text-primary/70' : 'text-muted-foreground')}>{result.verdict}</p>
+                  <p className={cn('text-base font-medium', typeof result.score === 'number' && result.score >= 70 ? 'text-primary' : typeof result.score === 'number' && result.score >= 40 ? 'text-primary/70' : 'text-muted-foreground')}>{typeof result.score === 'number' ? getDeterministicVerdict(result.score) : result.verdict}</p>
                   <p className="text-xs text-muted-foreground/50 font-light">
                     {typeof result.score === 'number' ? 'SCORE · VERDICT' : 'оценка пока недоступна'}
                   </p>
@@ -281,7 +295,7 @@ export function ResultSheet({
               </div>
             </div>
 
-            {!reportReady && result.goal_evidence && result.goal_evidence.length > 0 && (
+            {result.goal_evidence && result.goal_evidence.length > 0 && (
               <Section icon={Sparkles} title="Под ваши задачи" className="border-primary/10">
                 <p className="mb-2 text-[11px] text-muted-foreground/60">
                   По доступным данным о свойствах ингредиентов; это не оценка клинической эффективности.
@@ -315,25 +329,46 @@ export function ResultSheet({
             )}
 
             <>
-              <Section icon={Sparkles} title={reportReady ? 'Почему такой результат' : 'Результат'} className="border-primary/10">
-                {reportReady && result.report ? (
-                  <p className="text-sm text-foreground/80 leading-relaxed font-light"><MarkupText text={result.report} /></p>
-                ) : (
-                  <p className="text-sm text-foreground/80 leading-relaxed font-light">{result.summary}</p>
-                )}
+              <Section icon={Sparkles} title="Результат" className="border-primary/10">
+                <p className="text-sm text-foreground/80 leading-relaxed font-light">{result.summary}</p>
               </Section>
 
-              {reportReady && result.expectations && (
-                    <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50">
-                      <div className="space-y-0.5 text-xs text-foreground/70 font-light">
-                        {result.expectations.when && <p><span className="font-medium text-foreground/80">Когда:</span> {result.expectations.when}</p>}
-                        {result.expectations.normal && <p className="text-[11px] flex items-start gap-1"><CheckCircle className="size-3.5 text-primary/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.normal} /></span></p>}
-                        {result.expectations.danger && <p className="text-[11px] flex items-start gap-1"><AlertCircle className="size-3.5 text-red-400/60 mt-0.5 flex-shrink-0" /><span><MarkupText text={result.expectations.danger} /></span></p>}
-                      </div>
-                    </Section>
-                  )}
+              {reportReady && reportExpanded && reportText && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <Section icon={Sparkles} title="Почему такой результат" className="border-primary/10 p-6">
+                    <p className="text-xl leading-[1.75] text-foreground/90 font-light">
+                      <MarkupText text={reportText} />
+                    </p>
+                  </Section>
+                </div>
+              )}
 
-
+              {reportReady && reportExpanded && reportExpectations && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <Section icon={AlertCircle} title="Чего ожидать" className="border-amber-100/50 p-5">
+                    <div className="space-y-2 text-base leading-relaxed text-foreground/80 font-light">
+                      {reportExpectations.when && (
+                        <p>
+                          <span className="font-medium text-foreground/80">Когда:</span>{' '}
+                          {reportExpectations.when}
+                        </p>
+                      )}
+                      {reportExpectations.normal && (
+                        <p className="flex items-start gap-2">
+                          <CheckCircle className="size-4 text-primary/60 mt-1 flex-shrink-0" />
+                          <span><MarkupText text={reportExpectations.normal} /></span>
+                        </p>
+                      )}
+                      {reportExpectations.danger && (
+                        <p className="flex items-start gap-2">
+                          <AlertCircle className="size-4 text-red-400/60 mt-1 flex-shrink-0" />
+                          <span><MarkupText text={reportExpectations.danger} /></span>
+                        </p>
+                      )}
+                    </div>
+                  </Section>
+                </div>
+              )}
             </>
 
 
@@ -347,12 +382,18 @@ export function ResultSheet({
             )}
 
             <div className="flex gap-2 pt-0.5">
-              {typeof result.score === 'number' && !reportReady ? (
+              {typeof result.score === 'number' ? (
                 <div className="flex flex-1 flex-col gap-2">
                   {detailsError && <p className="text-center text-xs text-red-500">{detailsError}</p>}
                   <button
                     type="button"
-                    onClick={handleGetDetails}
+                    onClick={() => {
+                      if (reportReady) {
+                        setReportExpanded((expanded) => !expanded)
+                      } else {
+                        void handleGetDetails()
+                      }
+                    }}
                     disabled={gettingDetails || (!result.slug && !result.analysis_id)}
                     className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-opacity disabled:opacity-50"
                   >
@@ -361,7 +402,7 @@ export function ResultSheet({
                         <LoaderCircle className="size-4 animate-spin" />
                         Готовим отчёт...
                       </>
-                    ) : detailsError ? 'Повторить' : 'Посмотреть отчёт'}
+                    ) : detailsError ? 'Повторить' : reportReady ? (reportExpanded ? 'Свернуть отчёт' : 'Показать отчёт') : 'Посмотреть отчёт'}
                   </button>
                 </div>
               ) : null}
@@ -372,6 +413,7 @@ export function ResultSheet({
         ) : null}
       </div>
 
+      
     </div>
   )
 }
