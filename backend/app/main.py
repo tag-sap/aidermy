@@ -75,6 +75,13 @@ try:
 except Exception as exc:
     print(f"[INIT] knowledge graph init failed: {exc!r}")
 
+# Миграция report prompt: добавляем {{category_knowledge}} (база знаний категорий).
+try:
+    from .report_prompt import ensure_category_knowledge_prompt
+    ensure_category_knowledge_prompt()
+except Exception as exc:
+    print(f"[INIT] category knowledge prompt migration failed: {exc!r}")
+
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 app = FastAPI(

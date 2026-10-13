@@ -61,6 +61,8 @@ REPORT_PROMPT_V1_SYSTEM = """Ты объясняешь уже рассчитан
 
 REPORT_PROMPT_V1_USER_TEMPLATE = """Продукт: {{product_name}}
 Тип продукта (категория): {{product_type}}
+Инструкция по категории (что можно/нельзя заключать для этого типа средства):
+{{category_knowledge}}
 Тип кожи: {{skin_type}}
 
 Цели пользователя и сохранённые детерминированные связи ингредиент × concern.
@@ -78,6 +80,7 @@ REPORT_PROMPT_V1_USER_TEMPLATE = """Продукт: {{product_name}}
 REPORT_PROMPT_PLACEHOLDERS: List[str] = [
     "product_name",
     "product_type",
+    "category_knowledge",
     "skin_type",
     "goal_evidence",
     "deterministic_input",
@@ -320,9 +323,12 @@ def build_report_context(
     input_text = _report_input_text(inp)
     inci = ", ".join(str(i) for i in (inp.get("inci") or []))
 
+    from .category_knowledge import render_category_knowledge
+
     return {
         "product_name": product_name,
         "product_type": product_type or "не указан",
+        "category_knowledge": render_category_knowledge(product_type) or "—",
         "skin_type": skin or "не указан",
         "profile_context": json.dumps(
             profile_context,
@@ -334,3 +340,36 @@ def build_report_context(
         "inci": inci or "—",
     }
 
+
+def _inject_category_knowledge_placeholder(template: str) -> str:
+    if "{{category_knowledge}}" in template:
+        return template
+    marker = "{{product_type}}"
+    if marker in template:
+        return template.replace(
+            marker,
+            marker + "\nИнструкция по категории (что можно/нельзя заключать для этого типа средства):\n{{category_knowledge}}",
+            1,
+        )
+    return template + "\nИнструкция по категории:\n{{category_knowledge}}"
+
+
+def ensure_category_knowledge_prompt() -> Optional[Dict[str, Any]]:
+    """Миграция: добавляет placeholder {{category_knowledge}} в production prompt,
+    если он ещё отсутствует. Создаёт новую версию и публикует её (идемпотентно)."""
+    prompt = get_production_report_prompt()
+    if not prompt or not prompt.get("user_prompt_template"):
+        return None
+    if "{{category_knowledge}}" in prompt["user_prompt_template"]:
+        return prompt
+    new_template = _inject_category_knowledge_placeholder(prompt["user_prompt_template"])
+    created = create_report_prompt(
+        name=f"{prompt.get('name', 'Report Prompt')} + category knowledge",
+        system_prompt=prompt.get("system_prompt") or "",
+        user_prompt_template=new_template,
+        description="Добавлен placeholder {{category_knowledge}} (база знаний категорий).",
+        created_by="system",
+    )
+    if created and created.get("id"):
+        return publish_report_prompt(created["id"])
+    return None
