@@ -6,9 +6,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.phase1 import (
     PHASE1_VERSION,
-    BLOCKING_BRANCHES,
-    PHASE1_THRESHOLDS,
-    calculate_dynamic_threshold,
     compute_negative_loads,
     evaluate_phase1,
     compute_negative_only_score,
@@ -87,20 +84,19 @@ class EvaluatePhase1Tests(unittest.TestCase):
         ph = evaluate_phase1(r, _profile(), ["fragrance"])
         self.assertEqual(ph["status"], "passed")
         self.assertFalse(ph["branches"]["irritation"]["blocking"])
-        self.assertIsNone(ph["branches"]["irritation"]["threshold"])
+        self.assertFalse(ph["branches"]["irritation"]["violated"])
         self.assertEqual(ph["violations"], [])
 
-    def test_profile_load_activates_axis_and_reduces_threshold(self):
+    def test_profile_load_activates_axis_and_any_negative_blocks_without_threshold(self):
         r = _result(negative_factors=[
-            {"ingredient": "fragrance", "property": "irritation", "weighted_value": 0.5}
+            {"ingredient": "fragrance", "property": "irritation", "weighted_value": 0.01}
         ])
         profile = _profile(sensitivity="high")
-        threshold = calculate_dynamic_threshold("irritation", profile)
         ph = evaluate_phase1(r, profile, ["fragrance"])
-        self.assertIsNotNone(threshold)
-        self.assertLess(threshold, PHASE1_THRESHOLDS["irritation"])
+        self.assertGreater(ph["branches"]["irritation"]["profile_negative_multiplier"], 1.0)
         self.assertTrue(ph["branches"]["irritation"]["blocking"])
         self.assertTrue(ph["branches"]["irritation"]["violated"])
+        self.assertNotIn("threshold", ph["branches"]["irritation"])
         self.assertEqual(ph["status"], "blocked")
 
     def test_blocked_single_branch(self):
@@ -342,27 +338,24 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
         self.assertIn("negative_only_score", full)
         self.assertEqual(full["phase1"]["version"], PHASE1_VERSION)
 
-    def test_dynamic_threshold_decreases_with_sensitivity(self):
-        """Чувствительность меняет порог Phase 1, а не силу вкладов."""
-        # Нейтральный профиль (множитель ровно 1.0) не активирует ветку.
-        self.assertIsNone(calculate_dynamic_threshold("irritation", {}))
-        self.assertIsNone(calculate_dynamic_threshold("sensitization", {}))
-
-        medium_irritation = calculate_dynamic_threshold(
-            "irritation", {"sensitivity": "medium"}
-        )
-        high_irritation = calculate_dynamic_threshold(
-            "irritation", {"sensitivity": "high"}
-        )
-        high_sensitization = calculate_dynamic_threshold(
-            "sensitization", {"sensitivity": "high"}
-        )
-
-        self.assertIsNotNone(medium_irritation)
-        self.assertIsNotNone(high_irritation)
-        self.assertLess(medium_irritation, PHASE1_THRESHOLDS["irritation"])
-        self.assertLess(high_irritation, medium_irritation)
-        self.assertLess(high_sensitization, PHASE1_THRESHOLDS["sensitization"])
+    def test_profile_load_selects_axis_not_negative_magnitude(self):
+        """Множитель выбирает ось, а величина негативного вклада остаётся отдельной."""
+        from app.scoring_engine import _profile_negative_multiplier
+        profile = _profile(sensitivity="high")
+        multiplier = _profile_negative_multiplier("irritation", profile)
+        self.assertGreater(multiplier, 1.0)
+        low = _result(negative_factors=[
+            {"ingredient": "x", "property": "irritation", "weighted_value": 0.01}
+        ])
+        higher = _result(negative_factors=[
+            {"ingredient": "x", "property": "irritation", "weighted_value": 0.5}
+        ])
+        low_phase = evaluate_phase1(low, profile, ["x"])
+        high_phase = evaluate_phase1(higher, profile, ["x"])
+        self.assertEqual(low_phase["status"], "blocked")
+        self.assertEqual(high_phase["status"], "blocked")
+        self.assertLess(low_phase["branches"]["irritation"]["load"],
+                        high_phase["branches"]["irritation"]["load"])
 
     def test_sensitive_profile_does_not_multiply_ingredient_load(self):
         """Профиль больше не усиливает отрицательные вклады напрямую."""
@@ -399,9 +392,9 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
         load_neutral = neutral["phase1"]["branches"]["irritation"]["load"]
         load_sensitive = sensitive["phase1"]["branches"]["irritation"]["load"]
         self.assertAlmostEqual(load_sensitive, load_neutral)
-        self.assertLess(
-            sensitive["phase1"]["branches"]["irritation"]["threshold"],
-            neutral["phase1"]["branches"]["irritation"]["threshold"],
+        self.assertGreater(
+            sensitive["phase1"]["branches"]["irritation"]["profile_negative_multiplier"],
+            neutral["phase1"]["branches"]["irritation"]["profile_negative_multiplier"],
         )
 
 
