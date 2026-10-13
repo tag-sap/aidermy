@@ -518,7 +518,16 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
     from .scoring_config import SATURATION_SCALE
 
     override = config_override or {}
-    saturation = float(override.get("saturation_scale", SATURATION_SCALE))
+    if "saturation_scale" in override:
+        saturation = float(override["saturation_scale"])
+    else:
+        # Без candidate override калибровка должна повторять активный production config,
+        # а не статическую константу, которая может отличаться от runtime DB-настройки.
+        try:
+            from .scoring_config_store import get_production_saturation_scale
+            saturation = float(get_production_saturation_scale())
+        except Exception:
+            saturation = float(SATURATION_SCALE)
     engine = DecisionEngine()
     try:
         from .ingredient_repository import IngredientRepository
@@ -563,10 +572,16 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
                 skin_type=structured.get("skin_type") or "Нормальная",
                 knowledge=knowledge,
             )
+        # Blocked cases have no Phase 2 score by design. Compare their explicit
+        # negative-only score instead of silently turning None into zero.
+        phase1_status = res.get("phase1_status")
+        score = res.get("score")
+        if score is None and phase1_status == "blocked":
+            score = res.get("negative_only_score")
         results.append({
             "product": p,
             "profile": pr,
-            "score": int(res.get("score") or 0),
+            "score": int(score) if score is not None else None,
             "verdict": res.get("verdict") or "",
             "trace": {
                 "dimensions": res.get("dimensions") or {},
@@ -576,6 +591,12 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
                 "hard_flags": res.get("hard_flags") or [],
                 "interaction_breakdown": res.get("interaction_breakdown") or [],
                 "interaction_scoring_version": res.get("interaction_scoring_version"),
+                "phase1_status": phase1_status,
+                "phase1_version": res.get("phase1_version"),
+                "phase1_branches": ((res.get("phase1") or {}).get("branches") or {}),
+                "phase1_violations": ((res.get("phase1") or {}).get("violations") or []),
+                "negative_only_score": res.get("negative_only_score"),
+                "recommendation_status": res.get("recommendation_status"),
                 "saturation_scale": saturation,
             },
         })
@@ -609,10 +630,15 @@ def audit(results: List[Dict[str, Any]], references: Dict[str, Dict[str, Any]]) 
     confs: List[float] = []
     conf_weighted: List[float] = []
     n = 0
+    skipped_no_score = 0
     for r in results:
         key = f'{r["product"]["id"]}:{r["profile"]["id"]}'
         ref = references.get(key)
         if ref is None:
+            continue
+        # Missing/insufficient result is not a numeric score and must not become 0%.
+        if r.get("score") is None:
+            skipped_no_score += 1
             continue
         n += 1
         m = _case_metrics(ref, r["score"])
@@ -628,9 +654,10 @@ def audit(results: List[Dict[str, Any]], references: Dict[str, Dict[str, Any]]) 
         else:
             under += 1
     if n == 0:
-        return {"case_count": 0}
+        return {"case_count": 0, "skipped_no_score": skipped_no_score}
     return {
         "case_count": n,
+        "skipped_no_score": skipped_no_score,
         "mae": round(sum(abs_deltas) / n, 2),
         "median_abs_error": round(sorted(abs_deltas)[n // 2], 2),
         "mean_signed_error": round(sum(signed) / n, 2),
@@ -649,7 +676,7 @@ def find_drift(results: List[Dict[str, Any]], references: Dict[str, Dict[str, An
     for r in results:
         key = f'{r["product"]["id"]}:{r["profile"]["id"]}'
         ref = references.get(key)
-        if ref is None:
+        if ref is None or r.get("score") is None:
             continue
         m = _case_metrics(ref, r["score"])
         r["_m"] = m
@@ -708,6 +735,8 @@ def compare(prod_results: List[Dict[str, Any]], cand_results: List[Dict[str, Any
         if ref is None or key not in prod_by_key:
             continue
         p = prod_by_key[key]
+        if p.get("score") is None or r.get("score") is None:
+            continue
         pm = _case_metrics(ref, p["score"])
         cm = _case_metrics(ref, r["score"])
         if cm["inside_range"] and not pm["inside_range"]:
@@ -1041,6 +1070,12 @@ def get_case_detail(run_key: str, product_id: int, profile_id: str) -> Optional[
             "verdict": row["verdict"],
         },
         "profile_structured": _profile_structured(row["profile_id"]),
+        "phase1_status": trace.get("phase1_status"),
+        "phase1_version": trace.get("phase1_version"),
+        "phase1_branches": trace.get("phase1_branches") or {},
+        "phase1_violations": trace.get("phase1_violations") or [],
+        "negative_only_score": trace.get("negative_only_score"),
+        "recommendation_status": trace.get("recommendation_status"),
         "interaction_breakdown": trace.get("interaction_breakdown") or [],
         "positive_factors": trace.get("positive_factors") or [],
         "negative_factors": trace.get("negative_factors") or [],
@@ -1154,7 +1189,7 @@ def run_candidate_comparison(run_key: str, candidate_config: Dict[str, Any]) -> 
     top = []
     for key, pr in prod_by_key.items():
         ref = references.get(key)
-        if ref is None:
+        if ref is None or pr.get("score") is None:
             continue
         pd = pr["score"] - int(ref.get("estimate", 50))
         cr = cand_by_key.get(key)
