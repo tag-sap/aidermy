@@ -18,28 +18,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from .scoring_config import AXES, INTOLERANCE_PENALTY, SATURATION_SCALE
 from .ingredient_normalizer import normalize_ingredient_name
 
-PHASE1_VERSION = "1.1.0"
+PHASE1_VERSION = "1.2.0"
 
-# Ветки, для которых определён базовый порог. В конкретном профиле ветка
-# блокирует только при _profile_negative_multiplier(axis, profile) > 1.0.
-BLOCKING_BRANCHES: Tuple[str, ...] = ("irritation", "sensitization")
-
-# Оси, по которым считается негативная нагрузка (для диагностики).
-# barrier/sebum/pigmentation не блокируют: их негативные сигналы редки и/или
-# слабо подтверждены — см. отчёт. Нагрузка всё равно попадает в trace.
-TRACKED_BRANCHES: Tuple[str, ...] = ("irritation", "sensitization", "barrier", "sebum", "pigmentation")
-
-# Пороги негативной нагрузки. ПРЕДВАРИТЕЛЬНЫЕ значения, НЕ откалиброваны по
-# независимым эталонным меткам (их нет в репозитории). Обоснование:
-#   irritation    — нагрузка ~0.7 = один сильный подтверждённый ирритант
-#                   (strength 0.8 * confidence 0.9 * position_weight 1.0 ≈ 0.72)
-#                   при отсутствии профильных множителей;
-#   sensitization — нагрузка ~0.5 = известный сенсибилизатор из allergen_sensitizer
-#                   (potential 0.7 * confidence 0.8 ≈ 0.56).
-PHASE1_THRESHOLDS: Dict[str, float] = {
-    "irritation": 0.7,
-    "sensitization": 0.5,
-}
+# Phase 1 не использует количественные пороги. Профиль активирует ось только
+# когда на ней есть негативная нагрузка профиля (> 1.0); любой подтверждённый
+# негативный вклад продукта на активной оси блокирует допуск.
+TRACKED_BRANCHES: Tuple[str, ...] = tuple(AXES)
 
 # Коэффициент повышения веса нарушенной ветви в negative_only_score.
 # ПРЕДВАРИТЕЛЬНЫЙ (lambda=1.0 => вес нарушенной ветви удваивается до нормализации).
@@ -116,29 +100,6 @@ def compute_negative_loads(
 
 
 
-def calculate_dynamic_threshold(
-    axis: str,
-    user_profile: Dict[str, Any],
-) -> Optional[float]:
-    """Индивидуальный порог: профиль меняет допустимую нагрузку,
-    а не силу отдельных вкладов ингредиентов.
-    """
-    base = PHASE1_THRESHOLDS.get(axis)
-    if base is None:
-        return None
-
-    # Используем уже существующую оценку профильного риска:
-    # чувствительность, состояния, терапия и процедуры.
-    # Импорт локальный, чтобы избежать циклического импорта модулей.
-    from .scoring_engine import _profile_negative_multiplier
-
-    multiplier = max(1.0, float(_profile_negative_multiplier(axis, user_profile) or 1.0))
-    # 1.0 означает отсутствие негативной нагрузки профиля: ветка не активна.
-    if multiplier <= 1.0:
-        return None
-    return round(base / multiplier, 4)
-
-
 def evaluate_phase1(
     scoring_result: Dict[str, Any],
     user_profile: Dict[str, Any],
@@ -154,7 +115,7 @@ def evaluate_phase1(
     Возвращает:
       status            — passed | blocked | insufficient_data;
       branches          — результат каждой отслеживаемой ветви;
-      violations        — нарушенные количественные ветви;
+      violations        — активные профильные оси с негативным сигналом продукта;
       hard_violations   — жёсткие ограничения (аллергия/restriction);
       negative_dimensions — негативная часть измерений (диагностика).
     """
@@ -164,17 +125,21 @@ def evaluate_phase1(
 
     negative_dim, neg_weights = compute_negative_loads(scoring_result, user_profile, ingredients)
 
+    # Профиль выбирает активные оси; ингредиенты дают независимую накопленную
+    # негативную нагрузку. Порогов и масштабирования ингредиентного негатива нет.
+    from .scoring_engine import _profile_negative_multiplier
+
     branches: Dict[str, Any] = {}
     for axis in TRACKED_BRANCHES:
         load = max(0.0, -negative_dim.get(axis, 0.0))
-        threshold = calculate_dynamic_threshold(axis, user_profile) if axis in BLOCKING_BRANCHES else None
-        blocking = axis in BLOCKING_BRANCHES and threshold is not None
-        violated = bool(blocking and load > threshold)
+        multiplier = float(_profile_negative_multiplier(axis, user_profile) or 1.0)
+        blocking = multiplier > 1.0
+        violated = bool(blocking and load > 0.0)
         branches[axis] = {
             "axis": axis,
             "load": round(load, 4),
+            "profile_negative_multiplier": round(multiplier, 3),
             "blocking": blocking,
-            "threshold": threshold,
             "violated": violated,
             "factor_count": len(neg_weights.get(axis, [])),
         }
