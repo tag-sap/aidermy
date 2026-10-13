@@ -245,14 +245,11 @@ def score_product_against_profile_canonical(
                 continue
             weighted_value = strength * confidence * position_weight
 
-            axis_multiplier = (
-                _profile_axis_multiplier(axis, user_profile) if sign < 0 else 1.0
-            )
-            weighted_value *= axis_multiplier
+            # Profile-specific risk changes Phase 1 admissibility threshold,
+            # not the intrinsic strength of an ingredient claim. Applying profile
+            # multipliers here also lowers Phase 2 scores and double-counts risk.
+            axis_multiplier = 1.0
             profile_multiplier = 1.0
-            if sign < 0:
-                profile_multiplier = _profile_negative_multiplier(axis, user_profile)
-                weighted_value *= profile_multiplier
 
             if sign > 0:
                 axis_positive[axis].append(weighted_value)
@@ -328,15 +325,10 @@ def score_product_against_profile_canonical(
             for item in interaction_breakdown:
                 axis = item["axis"]
                 contribution = float(item["contribution"])
-                axis_multiplier = (
-                    _profile_axis_multiplier(axis, user_profile)
-                    if contribution < 0 else 1.0
-                )
-                profile_multiplier = (
-                    _profile_negative_multiplier(axis, user_profile)
-                    if contribution < 0
-                    else 1.0
-                )
+                # As with ingredient claims, profile risk is reflected in
+                # Phase 1's threshold, not multiplied into the interaction signal.
+                axis_multiplier = 1.0
+                profile_multiplier = 1.0
                 item["axis_multiplier"] = axis_multiplier
                 item["profile_multiplier"] = profile_multiplier
                 item["weighted_contribution"] = round(
