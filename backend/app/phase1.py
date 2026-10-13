@@ -3,7 +3,7 @@
 #
 # Отвечает на вопрос: допустимо ли рекомендовать продукт этому пользователю?
 # Это ОТДЕЛЬНОЕ решение, принимаемое ДО Phase 2 (обычный Score Engine).
-# Положительные свойства НЕ компенсируют превышение порога негативной нагрузки.
+# Положительные свойства не компенсируют негатив на активной профильной оси.
 #
 # Phase 1 использует уже вычисленные факторы Score Engine (negative_factors,
 # interaction_breakdown, hard_flags), поэтому НЕ дублирует per-ingredient цикл
@@ -87,8 +87,8 @@ def compute_negative_loads(
     if _detect_intolerance(user_profile, ingredients):
         negative_dim[INTOLERANCE_PENALTY["axis"]] -= float(INTOLERANCE_PENALTY["dimension_delta"])
 
-    # Негативные взаимодействия — один раз (weighted_contribution уже содержит
-    # профильные множители; НЕ складываем с исходным contribution повторно).
+    # Негативные взаимодействия учитываем один раз по weighted_contribution;
+    # исходный contribution повторно не прибавляем. Сам вклад профиль-независим.
     for item in scoring_result.get("interaction_breakdown") or []:
         wc = item.get("weighted_contribution")
         if wc is not None and float(wc) < 0:
