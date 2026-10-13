@@ -80,11 +80,34 @@ class EvaluatePhase1Tests(unittest.TestCase):
         self.assertEqual(ph["status"], "passed")
         self.assertEqual(ph["violations"], [])
 
-    def test_blocked_single_branch(self):
+    def test_neutral_profile_does_not_activate_negative_axis(self):
         r = _result(negative_factors=[
             {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0}
         ])
         ph = evaluate_phase1(r, _profile(), ["fragrance"])
+        self.assertEqual(ph["status"], "passed")
+        self.assertFalse(ph["branches"]["irritation"]["blocking"])
+        self.assertIsNone(ph["branches"]["irritation"]["threshold"])
+        self.assertEqual(ph["violations"], [])
+
+    def test_profile_load_activates_axis_and_reduces_threshold(self):
+        r = _result(negative_factors=[
+            {"ingredient": "fragrance", "property": "irritation", "weighted_value": 0.5}
+        ])
+        profile = _profile(sensitivity="high")
+        threshold = calculate_dynamic_threshold("irritation", profile)
+        ph = evaluate_phase1(r, profile, ["fragrance"])
+        self.assertIsNotNone(threshold)
+        self.assertLess(threshold, PHASE1_THRESHOLDS["irritation"])
+        self.assertTrue(ph["branches"]["irritation"]["blocking"])
+        self.assertTrue(ph["branches"]["irritation"]["violated"])
+        self.assertEqual(ph["status"], "blocked")
+
+    def test_blocked_single_branch(self):
+        r = _result(negative_factors=[
+            {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0}
+        ])
+        ph = evaluate_phase1(r, _profile(sensitivity="high"), ["fragrance"])
         self.assertEqual(ph["status"], "blocked")
         self.assertTrue(any(v["axis"] == "irritation" for v in ph["violations"]))
 
@@ -93,7 +116,7 @@ class EvaluatePhase1Tests(unittest.TestCase):
             {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0},
             {"ingredient": "sensitizer", "property": "sensitization", "weighted_value": 0.8},
         ])
-        ph = evaluate_phase1(r, _profile(), ["fragrance", "sensitizer"])
+        ph = evaluate_phase1(r, _profile(sensitivity="high"), ["fragrance", "sensitizer"])
         self.assertEqual(ph["status"], "blocked")
         axes = {v["axis"] for v in ph["violations"]}
         self.assertIn("irritation", axes)
@@ -108,7 +131,7 @@ class EvaluatePhase1Tests(unittest.TestCase):
                 {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0}
             ],
         )
-        ph = evaluate_phase1(r, _profile(), ["glycerin", "fragrance"])
+        ph = evaluate_phase1(r, _profile(sensitivity="high"), ["glycerin", "fragrance"])
         self.assertEqual(ph["status"], "blocked")
 
     def test_hard_flag_blocks(self):
@@ -142,7 +165,7 @@ class NegativeOnlyScoreTests(unittest.TestCase):
         r = _result(negative_factors=[
             {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0}
         ])
-        return evaluate_phase1(r, _profile(), ["fragrance"]), r
+        return evaluate_phase1(r, _profile(sensitivity="high"), ["fragrance"]), r
 
     def test_negative_only_in_range(self):
         ph, r = self._phase1_blocked()
@@ -321,11 +344,9 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
 
     def test_dynamic_threshold_decreases_with_sensitivity(self):
         """Чувствительность меняет порог Phase 1, а не силу вкладов."""
-        base_irritation = calculate_dynamic_threshold("irritation", {})
-        base_sensitization = calculate_dynamic_threshold("sensitization", {})
-
-        self.assertEqual(base_irritation, PHASE1_THRESHOLDS["irritation"])
-        self.assertEqual(base_sensitization, PHASE1_THRESHOLDS["sensitization"])
+        # Нейтральный профиль (множитель ровно 1.0) не активирует ветку.
+        self.assertIsNone(calculate_dynamic_threshold("irritation", {}))
+        self.assertIsNone(calculate_dynamic_threshold("sensitization", {}))
 
         medium_irritation = calculate_dynamic_threshold(
             "irritation", {"sensitivity": "medium"}
@@ -337,9 +358,11 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
             "sensitization", {"sensitivity": "high"}
         )
 
-        self.assertLess(medium_irritation, base_irritation)
+        self.assertIsNotNone(medium_irritation)
+        self.assertIsNotNone(high_irritation)
+        self.assertLess(medium_irritation, PHASE1_THRESHOLDS["irritation"])
         self.assertLess(high_irritation, medium_irritation)
-        self.assertLess(high_sensitization, base_sensitization)
+        self.assertLess(high_sensitization, PHASE1_THRESHOLDS["sensitization"])
 
     def test_sensitive_profile_does_not_multiply_ingredient_load(self):
         """Профиль больше не усиливает отрицательные вклады напрямую."""
