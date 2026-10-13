@@ -249,10 +249,9 @@ def score_product_against_profile_canonical(
                 _profile_axis_multiplier(axis, user_profile) if sign < 0 else 1.0
             )
             weighted_value *= axis_multiplier
+            # Profile risk narrows the Phase 1 allowance; it must not multiply
+            # the ingredient's negative load a second time.
             profile_multiplier = 1.0
-            if sign < 0:
-                profile_multiplier = _profile_negative_multiplier(axis, user_profile)
-                weighted_value *= profile_multiplier
 
             if sign > 0:
                 axis_positive[axis].append(weighted_value)
@@ -332,15 +331,13 @@ def score_product_against_profile_canonical(
                     _profile_axis_multiplier(axis, user_profile)
                     if contribution < 0 else 1.0
                 )
-                profile_multiplier = (
-                    _profile_negative_multiplier(axis, user_profile)
-                    if contribution < 0
-                    else 1.0
-                )
+                # Profile risk is applied by the Phase 1 threshold, not by
+                # scaling the same negative interaction contribution again.
+                profile_multiplier = 1.0
                 item["axis_multiplier"] = axis_multiplier
                 item["profile_multiplier"] = profile_multiplier
                 item["weighted_contribution"] = round(
-                    contribution * axis_multiplier * profile_multiplier, 6
+                    contribution * axis_multiplier, 6
                 )
                 adjusted_agg[axis] = adjusted_agg.get(axis, 0.0) + item["weighted_contribution"]
             for axis, contrib in adjusted_agg.items():
