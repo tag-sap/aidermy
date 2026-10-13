@@ -245,12 +245,9 @@ def score_product_against_profile_canonical(
                 continue
             weighted_value = strength * confidence * position_weight
 
-            axis_multiplier = (
-                _profile_axis_multiplier(axis, user_profile) if sign < 0 else 1.0
-            )
-            weighted_value *= axis_multiplier
-            # Profile risk narrows the Phase 1 allowance; it must not multiply
-            # the ingredient's negative load a second time.
+            # Product negativity is measured independently of the profile.
+            # Profile risk selects Phase 1 axes; it does not amplify ingredient loads.
+            axis_multiplier = 1.0
             profile_multiplier = 1.0
 
             if sign > 0:
@@ -327,12 +324,9 @@ def score_product_against_profile_canonical(
             for item in interaction_breakdown:
                 axis = item["axis"]
                 contribution = float(item["contribution"])
-                axis_multiplier = (
-                    _profile_axis_multiplier(axis, user_profile)
-                    if contribution < 0 else 1.0
-                )
-                # Profile risk is applied by the Phase 1 threshold, not by
-                # scaling the same negative interaction contribution again.
+                # Product interaction negativity is also profile-independent.
+                # Phase 1 applies profile relevance by selecting the axis only.
+                axis_multiplier = 1.0
                 profile_multiplier = 1.0
                 item["axis_multiplier"] = axis_multiplier
                 item["profile_multiplier"] = profile_multiplier
