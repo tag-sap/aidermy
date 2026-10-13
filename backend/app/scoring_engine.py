@@ -159,7 +159,7 @@ def _profile_negative_multiplier(axis: str, profile: Dict[str, Any]) -> float:
                  "very_high": 1.0, "severe": 1.0}.get(sensitivity, 0.0)
     if load <= 0.0:
         return 1.0
-    return round(1.0 + PROFILE_CONFLICT_SCALE * (1.0 - math.exp(-load / PROFILE_CONFLICT_DECAY)), 3)
+    return min(2.0, round(1.0 + PROFILE_CONFLICT_SCALE * (1.0 - math.exp(-load / PROFILE_CONFLICT_DECAY)), 3))
 
 
 def score_product_against_profile_canonical(
@@ -245,9 +245,9 @@ def score_product_against_profile_canonical(
                 continue
             weighted_value = strength * confidence * position_weight
 
-            # Profile-specific risk changes Phase 1 admissibility threshold,
-            # not the intrinsic strength of an ingredient claim. Applying profile
-            # multipliers here also lowers Phase 2 scores and double-counts risk.
+            # Product negativity is independent of the user profile.
+            # Profile risk selects relevant Phase 1 axes; it must not amplify
+            # ingredient claims or double-count risk in Phase 2.
             axis_multiplier = 1.0
             profile_multiplier = 1.0
 
@@ -325,14 +325,15 @@ def score_product_against_profile_canonical(
             for item in interaction_breakdown:
                 axis = item["axis"]
                 contribution = float(item["contribution"])
-                # As with ingredient claims, profile risk is reflected in
-                # Phase 1's threshold, not multiplied into the interaction signal.
+                # Interaction negativity is independent of the user profile.
+                # Phase 1 selects relevant axes; profile risk must not amplify
+                # the interaction signal or double-count risk in Phase 2.
                 axis_multiplier = 1.0
                 profile_multiplier = 1.0
                 item["axis_multiplier"] = axis_multiplier
                 item["profile_multiplier"] = profile_multiplier
                 item["weighted_contribution"] = round(
-                    contribution * axis_multiplier * profile_multiplier, 6
+                    contribution * axis_multiplier, 6
                 )
                 adjusted_agg[axis] = adjusted_agg.get(axis, 0.0) + item["weighted_contribution"]
             for axis, contrib in adjusted_agg.items():

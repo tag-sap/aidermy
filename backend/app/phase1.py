@@ -18,30 +18,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from .scoring_config import AXES, INTOLERANCE_PENALTY, SATURATION_SCALE
 from .ingredient_normalizer import normalize_ingredient_name
 
-PHASE1_VERSION = "1.0.0"
-
-# Блокирующие ветви допуска (по итогам аудита).
-BLOCKING_BRANCHES: Tuple[str, ...] = ("irritation", "sensitization")
-
-# Оси, по которым считается негативная нагрузка (для диагностики).
-# barrier/sebum/pigmentation не блокируют: их негативные сигналы редки и/или
-# слабо подтверждены — см. отчёт. Нагрузка всё равно попадает в trace.
-TRACKED_BRANCHES: Tuple[str, ...] = ("irritation", "sensitization", "barrier", "sebum", "pigmentation")
-
-# Пороги негативной нагрузки. ПРЕДВАРИТЕЛЬНЫЕ значения, НЕ откалиброваны по
-# независимым эталонным меткам (их нет в репозитории). Обоснование:
-#   irritation    — нагрузка ~0.7 = один сильный подтверждённый ирритант
-#                   (strength 0.8 * confidence 0.9 * position_weight 1.0 ≈ 0.72)
-#                   при отсутствии профильных множителей;
-#   sensitization — нагрузка ~0.5 = известный сенсибилизатор из allergen_sensitizer
-#                   (potential 0.7 * confidence 0.8 ≈ 0.56).
-PHASE1_THRESHOLDS: Dict[str, float] = {
-    "irritation": 0.7,
-    "sensitization": 0.5,
-}
-
-# Коэффициент повышения веса нарушенной ветви в negative_only_score.
-# ПРЕДВАРИТЕЛЬНЫЙ (lambda=1.0 => вес нарушенной ветви удваивается до нормализации).
+PHASE1_VERSION = "2.0.0"
+# Все оси рассматриваются; блокирующими становятся только оси с multiplier > 1.
+TRACKED_BRANCHES: Tuple[str, ...] = tuple(AXES)
+BLOCKING_BRANCHES: Tuple[str, ...] = tuple(AXES)
 PHASE1_LAMBDA = 1.0
 
 
@@ -102,8 +82,8 @@ def compute_negative_loads(
     if _detect_intolerance(user_profile, ingredients):
         negative_dim[INTOLERANCE_PENALTY["axis"]] -= float(INTOLERANCE_PENALTY["dimension_delta"])
 
-    # Негативные взаимодействия — один раз (weighted_contribution уже содержит
-    # профильные множители; НЕ складываем с исходным contribution повторно).
+    # Негативные взаимодействия учитываются один раз через weighted_contribution.
+    # Профильный риск отдельно определяет блокирующие оси и пороги Phase 1.
     for item in scoring_result.get("interaction_breakdown") or []:
         wc = item.get("weighted_contribution")
         if wc is not None and float(wc) < 0:
@@ -119,21 +99,14 @@ def calculate_dynamic_threshold(
     axis: str,
     user_profile: Dict[str, Any],
 ) -> Optional[float]:
-    """Индивидуальный порог: профиль меняет допустимую нагрузку,
-    а не силу отдельных вкладов ингредиентов.
-    """
-    base = PHASE1_THRESHOLDS.get(axis)
-    if base is None:
-        return None
-
-    # Используем уже существующую оценку профильного риска:
-    # чувствительность, состояния, терапия и процедуры.
-    # Импорт локальный, чтобы избежать циклического импорта модулей.
+    """Возвращает None при multiplier <= 1, иначе порог 2 - multiplier."""
     from .scoring_engine import _profile_negative_multiplier
 
-    multiplier = _profile_negative_multiplier(axis, user_profile)
-    multiplier = max(1.0, float(multiplier or 1.0))
-    return round(base / multiplier, 4)
+    multiplier = float(_profile_negative_multiplier(axis, user_profile) or 1.0)
+    multiplier = min(2.0, max(1.0, multiplier))
+    if multiplier <= 1.0:
+        return None
+    return round(2.0 - multiplier, 4)
 
 
 def evaluate_phase1(
@@ -161,21 +134,29 @@ def evaluate_phase1(
 
     negative_dim, neg_weights = compute_negative_loads(scoring_result, user_profile, ingredients)
 
+    from .scoring_engine import _profile_negative_multiplier
     branches: Dict[str, Any] = {}
     for axis in TRACKED_BRANCHES:
         load = max(0.0, -negative_dim.get(axis, 0.0))
-        blocking = axis in BLOCKING_BRANCHES
-        threshold = calculate_dynamic_threshold(axis, user_profile) if blocking else None
-        violated = bool(blocking and threshold is not None and load > threshold)
+        multiplier = min(
+            2.0, max(1.0, float(_profile_negative_multiplier(axis, user_profile) or 1.0))
+        )
+        # Ось участвует в допуске только при коэффициенте строго больше 1.
+        blocking = multiplier > 1.0
+        threshold = round(2.0 - multiplier, 4) if blocking else None
+        violated = bool(
+            blocking and threshold is not None and load > threshold
+        )
+
         branches[axis] = {
             "axis": axis,
             "load": round(load, 4),
+            "profile_negative_multiplier": round(multiplier, 3),
             "blocking": blocking,
             "threshold": threshold,
             "violated": violated,
             "factor_count": len(neg_weights.get(axis, [])),
         }
-
     violations = [b for b in branches.values() if b.get("violated")]
     hard_violations = [
         {

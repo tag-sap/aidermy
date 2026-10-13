@@ -1,13 +1,13 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.phase1 import (
     PHASE1_VERSION,
     BLOCKING_BRANCHES,
-    PHASE1_THRESHOLDS,
     calculate_dynamic_threshold,
     compute_negative_loads,
     evaluate_phase1,
@@ -84,16 +84,27 @@ class EvaluatePhase1Tests(unittest.TestCase):
         r = _result(negative_factors=[
             {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0}
         ])
-        ph = evaluate_phase1(r, _profile(), ["fragrance"])
+        with patch(
+            "app.scoring_engine._profile_negative_multiplier",
+            side_effect=lambda axis, profile: 1.6 if axis == "irritation" else 1.0,
+        ):
+            ph = evaluate_phase1(r, _profile(), ["fragrance"])
         self.assertEqual(ph["status"], "blocked")
         self.assertTrue(any(v["axis"] == "irritation" for v in ph["violations"]))
+        self.assertEqual(ph["branches"]["irritation"]["threshold"], 0.4)
 
     def test_blocked_multiple_branches(self):
         r = _result(negative_factors=[
             {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0},
             {"ingredient": "sensitizer", "property": "sensitization", "weighted_value": 0.8},
         ])
-        ph = evaluate_phase1(r, _profile(), ["fragrance", "sensitizer"])
+        with patch(
+            "app.scoring_engine._profile_negative_multiplier",
+            side_effect=lambda axis, profile: (
+                1.6 if axis in ("irritation", "sensitization") else 1.0
+            ),
+        ):
+            ph = evaluate_phase1(r, _profile(), ["fragrance", "sensitizer"])
         self.assertEqual(ph["status"], "blocked")
         axes = {v["axis"] for v in ph["violations"]}
         self.assertIn("irritation", axes)
@@ -108,7 +119,11 @@ class EvaluatePhase1Tests(unittest.TestCase):
                 {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0}
             ],
         )
-        ph = evaluate_phase1(r, _profile(), ["glycerin", "fragrance"])
+        with patch(
+            "app.scoring_engine._profile_negative_multiplier",
+            side_effect=lambda axis, profile: 1.6 if axis == "irritation" else 1.0,
+        ):
+            ph = evaluate_phase1(r, _profile(), ["glycerin", "fragrance"])
         self.assertEqual(ph["status"], "blocked")
 
     def test_hard_flag_blocks(self):
@@ -308,6 +323,57 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
                 self.assertEqual(result["phase1"]["status"], status)
 
 
+    def test_real_phase1_gate_blocks_negative_load_despite_positive_factors(self):
+        """Положительные факторы не компенсируют превышение порога Phase 1."""
+        import app.scoring_engine as scoring_engine
+        from app.phase1 import evaluate_phase1
+        from app.scoring_engine import score_product_against_profile_canonical
+        from app.profile_resolver import normalize_scoring_profile, resolve_personal_profile
+        from app.decision_engine import profile_weights
+
+        ingredients = ["fragrance", "glycerin", "panthenol"]
+        knowledge = {
+            "fragrance": {"irritation": {
+                "direction": "positive", "strength": 1.0, "confidence": 1.0
+            }},
+            "glycerin": {"hydration": {
+                "direction": "positive", "strength": 0.9, "confidence": 0.95
+            }},
+            "panthenol": {"barrier": {
+                "direction": "positive", "strength": 0.8, "confidence": 0.9
+            }},
+        }
+        profile = {
+            "skin_type": "Нормальная", "concerns": [],
+            "allergies": [], "intolerances": [],
+        }
+        sp = normalize_scoring_profile(profile)
+        sp["structured"]["axis_multipliers"] = resolve_personal_profile(
+            sp.get("structured") or {}
+        )["axis_multipliers"]
+        weights = profile_weights(profile, "Нормальная")
+
+        def run_phase1(preliminary):
+            return evaluate_phase1(preliminary, sp, ingredients)
+
+        with patch(
+            "app.scoring_engine._profile_negative_multiplier",
+            side_effect=lambda axis, _profile: 1.6 if axis == "irritation" else 1.0,
+        ):
+            result = score_product_against_profile_canonical(
+                ingredients=ingredients,
+                canonical_knowledge=knowledge,
+                user_profile=sp,
+                canonical_weights=weights,
+                pre_score_check=run_phase1,
+            )
+
+        self.assertTrue(result["positive_factors"])
+        self.assertEqual(result["phase1"]["status"], "blocked")
+        self.assertEqual(result["phase1"]["branches"]["irritation"]["threshold"], 0.4)
+        self.assertTrue(result["phase1"]["branches"]["irritation"]["violated"])
+        self.assertIsNone(result["score"])
+
     def test_result_carries_phase1_fields(self):
         from app.decision_engine import DecisionEngine
         eng = DecisionEngine()
@@ -319,27 +385,21 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
         self.assertIn("negative_only_score", full)
         self.assertEqual(full["phase1"]["version"], PHASE1_VERSION)
 
-    def test_dynamic_threshold_decreases_with_sensitivity(self):
-        """Чувствительность меняет порог Phase 1, а не силу вкладов."""
-        base_irritation = calculate_dynamic_threshold("irritation", {})
-        base_sensitization = calculate_dynamic_threshold("sensitization", {})
+    def test_dynamic_threshold_uses_multiplier_formula(self):
+        """Ось активируется только при multiplier > 1; порог равен 2 - multiplier."""
+        with patch("app.scoring_engine._profile_negative_multiplier", return_value=1.0):
+            self.assertIsNone(calculate_dynamic_threshold("hydration", {}))
 
-        self.assertEqual(base_irritation, PHASE1_THRESHOLDS["irritation"])
-        self.assertEqual(base_sensitization, PHASE1_THRESHOLDS["sensitization"])
+        with patch("app.scoring_engine._profile_negative_multiplier", return_value=1.6):
+            self.assertEqual(calculate_dynamic_threshold("hydration", {}), 0.4)
 
-        medium_irritation = calculate_dynamic_threshold(
-            "irritation", {"sensitivity": "medium"}
-        )
-        high_irritation = calculate_dynamic_threshold(
-            "irritation", {"sensitivity": "high"}
-        )
-        high_sensitization = calculate_dynamic_threshold(
-            "sensitization", {"sensitivity": "high"}
-        )
+        with patch("app.scoring_engine._profile_negative_multiplier", return_value=2.0):
+            self.assertEqual(calculate_dynamic_threshold("hydration", {}), 0.0)
 
-        self.assertLess(medium_irritation, base_irritation)
-        self.assertLess(high_irritation, medium_irritation)
-        self.assertLess(high_sensitization, base_sensitization)
+        # Даже если вызывающая функция получает значение выше максимума,
+        # порог ограничивается нулём.
+        with patch("app.scoring_engine._profile_negative_multiplier", return_value=2.5):
+            self.assertEqual(calculate_dynamic_threshold("hydration", {}), 0.0)
 
     def test_sensitive_profile_does_not_multiply_ingredient_load(self):
         """Профиль больше не усиливает отрицательные вклады напрямую."""
@@ -376,10 +436,12 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
         load_neutral = neutral["phase1"]["branches"]["irritation"]["load"]
         load_sensitive = sensitive["phase1"]["branches"]["irritation"]["load"]
         self.assertAlmostEqual(load_sensitive, load_neutral)
-        self.assertLess(
-            sensitive["phase1"]["branches"]["irritation"]["threshold"],
-            neutral["phase1"]["branches"]["irritation"]["threshold"],
-        )
+        neutral_branch = neutral["phase1"]["branches"]["irritation"]
+        sensitive_branch = sensitive["phase1"]["branches"]["irritation"]
+        self.assertFalse(neutral_branch["blocking"])
+        self.assertIsNone(neutral_branch["threshold"])
+        self.assertTrue(sensitive_branch["blocking"])
+        self.assertIsNotNone(sensitive_branch["threshold"])
 
 
 if __name__ == "__main__":
