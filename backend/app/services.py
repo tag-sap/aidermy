@@ -623,8 +623,11 @@ def _build_report_input(analysis: dict) -> dict:
         else:
             neg.append(item)
     return {
-        "score": int(analysis.get("score") or 0),
+        "score": int(analysis.get("score") or 0) if analysis.get("score") is not None else None,
         "verdict": analysis.get("verdict") or "",
+        "phase1_status": analysis.get("phase1_status") or (analysis.get("phase1") or {}).get("status"),
+        "recommendation_status": analysis.get("recommendation_status"),
+        "negative_only_score": analysis.get("negative_only_score"),
         "positive": pos,
         "negative": neg,
         "weak": weak,
@@ -661,12 +664,26 @@ def _report_input_text(inp: dict) -> str:
     from the LLM because they are implementation details, not user-facing
     explanations.
     """
-    lines = [
-        f"Рассчитанный результат: {inp['score']}%",
-        f"Сохранённый verdict: {inp['verdict'] or 'не указан'}",
-        "",
-        "Значимые факторы в пользу профиля:",
-    ]
+    phase1 = inp.get("phase1_status")
+    rec = inp.get("recommendation_status")
+    neg_only = inp.get("negative_only_score")
+
+    lines = []
+    if phase1 == "blocked":
+        lines.append("Результат первой фазы проверки: ЗАБЛОКИРОВАНО (присутствуют подтверждённые блокирующие факторы).")
+        if neg_only is not None:
+            lines.append(f"Негативный результат (по факторам ограничений): {neg_only}%")
+        lines.append("Обычный балл совместимости НЕ рассчитывается. НЕ утверждай пригодность и НЕ добавляй положительные бонусы второй фазы, противоречащие блокирующим факторам.")
+    elif phase1 == "insufficient_data":
+        lines.append("Результат первой фазы проверки: НЕДОСТАТОЧНО ДАННЫХ.")
+        lines.append("Обычный балл совместимости НЕ рассчитывается. НЕ выдумывай балл, вердикт или пригодность.")
+    else:
+        lines.append(f"Рассчитанный результат: {inp['score']}%")
+        lines.append(f"Сохранённый verdict: {inp['verdict'] or 'не указан'}")
+    if rec:
+        lines.append(f"Статус рекомендации: {rec}")
+    lines.append("")
+    lines.append("Значимые факторы в пользу профиля:")
 
     lines += [
         f"- {item['label']}"
