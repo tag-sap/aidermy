@@ -238,57 +238,95 @@ def init_db():
 
     # Миграция (двухфазный контракт): score может быть NULL для blocked/insufficient_data.
     # SQLite не поддерживает ALTER COLUMN DROP NOT NULL — пересоздаём таблицу.
-    _score_row = next((r for r in cursor.execute("PRAGMA table_info(analysis)").fetchall() if r[1] == "score"), None)
+    _score_row = next(
+        (r for r in cursor.execute("PRAGMA table_info(analysis)").fetchall()
+         if r[1] == "score"),
+        None,
+    )
     if _score_row is not None and _score_row[3] == 1:
+        # PRAGMA foreign_keys не действует внутри активной транзакции.
+        conn.commit()
         conn.execute("PRAGMA foreign_keys=OFF")
         try:
-            cursor.execute("ALTER TABLE analysis RENAME TO analysis_notnull_bak")
-            cursor.execute('''CREATE TABLE analysis (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                product_id INTEGER,
-                slug TEXT DEFAULT '',
-                score INTEGER,
-                verdict TEXT NOT NULL,
-                summary TEXT DEFAULT '',
-                report TEXT,
-                safe_ingredients TEXT,
-                caution_ingredients TEXT,
-                active_ingredients TEXT,
-                how_to_use TEXT,
-                expectations TEXT,
-                profile_snapshot TEXT DEFAULT '{}',
-                score_engine_version TEXT,
-                report_score_engine_version TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                expires_at TIMESTAMP,
-                what_good TEXT,
-                what_caution TEXT,
-                deterministic_json TEXT,
-                report_prompt_version TEXT,
-                report_generator_version TEXT
-            )''')
+            cursor.execute("""
+                CREATE TABLE analysis_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    product_id INTEGER,
+                    slug TEXT DEFAULT '',
+                    score INTEGER,
+                    verdict TEXT NOT NULL,
+                    summary TEXT DEFAULT '',
+                    report TEXT,
+                    safe_ingredients TEXT,
+                    caution_ingredients TEXT,
+                    active_ingredients TEXT,
+                    how_to_use TEXT,
+                    expectations TEXT,
+                    profile_snapshot TEXT DEFAULT '{}',
+                    score_engine_version TEXT,
+                    report_score_engine_version TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP,
+                    what_good TEXT,
+                    what_caution TEXT,
+                    deterministic_json TEXT,
+                    report_prompt_version TEXT,
+                    report_generator_version TEXT
+                )
+            """)
             _new_cols = [
-                "id", "user_id", "product_id", "slug", "score", "verdict", "summary", "report",
-                "safe_ingredients", "caution_ingredients", "active_ingredients", "how_to_use",
-                "expectations", "profile_snapshot", "score_engine_version",
+                "id", "user_id", "product_id", "slug", "score", "verdict", "summary",
+                "report", "safe_ingredients", "caution_ingredients", "active_ingredients",
+                "how_to_use", "expectations", "profile_snapshot", "score_engine_version",
                 "report_score_engine_version", "created_at", "expires_at", "what_good",
                 "what_caution", "deterministic_json", "report_prompt_version",
                 "report_generator_version",
             ]
-            _old_cols = {r[1] for r in cursor.execute("PRAGMA table_info(analysis_notnull_bak)").fetchall()}
+            _old_cols = {
+                r[1] for r in cursor.execute("PRAGMA table_info(analysis)").fetchall()
+            }
             _common = [c for c in _new_cols if c in _old_cols]
+            if not _common:
+                raise RuntimeError("analysis migration found no shared columns")
+
             _cols = ",".join(_common)
-            cursor.execute(f"INSERT INTO analysis ({_cols}) SELECT {_cols} FROM analysis_notnull_bak")
-            cursor.execute("DROP TABLE analysis_notnull_bak")
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_analysis_user_product ON analysis (user_id, product_id)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_analysis_user_slug ON analysis (user_id, slug)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_analysis_expires ON analysis (expires_at)')
-            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_unique_user_product ON analysis (user_id, product_id) WHERE product_id IS NOT NULL')
+            cursor.execute(
+                f"INSERT INTO analysis_new ({_cols}) SELECT {_cols} FROM analysis"
+            )
+            cursor.execute("DROP TABLE analysis")
+            cursor.execute("ALTER TABLE analysis_new RENAME TO analysis")
+
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_analysis_user_product "
+                "ON analysis (user_id, product_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_analysis_user_slug "
+                "ON analysis (user_id, slug)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_analysis_expires ON analysis (expires_at)"
+            )
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_unique_user_product "
+                "ON analysis (user_id, product_id) WHERE product_id IS NOT NULL"
+            )
             conn.commit()
+
+            _fk_errors = cursor.execute("PRAGMA foreign_key_check").fetchall()
+            if _fk_errors:
+                raise RuntimeError(
+                    f"analysis migration produced foreign-key violations: {_fk_errors[:5]!r}"
+                )
+            print("[MIGRATION] analysis score nullable rebuild completed", flush=True)
         except Exception as _exc:
             conn.rollback()
-            print(f"[MIGRATION] analysis score nullable rebuild failed: {_exc!r}", flush=True)
+            print(
+                f"[MIGRATION] analysis score nullable rebuild failed: {_exc!r}",
+                flush=True,
+            )
+            raise
         finally:
             conn.execute("PRAGMA foreign_keys=ON")
 
