@@ -18,9 +18,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from .scoring_config import AXES, INTOLERANCE_PENALTY, SATURATION_SCALE
 from .ingredient_normalizer import normalize_ingredient_name
 
-PHASE1_VERSION = "1.0.0"
+PHASE1_VERSION = "1.1.0"
 
-# Блокирующие ветви допуска (по итогам аудита).
+# Ветки, для которых определён базовый порог. В конкретном профиле ветка
+# блокирует только при _profile_negative_multiplier(axis, profile) > 1.0.
 BLOCKING_BRANCHES: Tuple[str, ...] = ("irritation", "sensitization")
 
 # Оси, по которым считается негативная нагрузка (для диагностики).
@@ -131,8 +132,10 @@ def calculate_dynamic_threshold(
     # Импорт локальный, чтобы избежать циклического импорта модулей.
     from .scoring_engine import _profile_negative_multiplier
 
-    multiplier = _profile_negative_multiplier(axis, user_profile)
-    multiplier = max(1.0, float(multiplier or 1.0))
+    multiplier = max(1.0, float(_profile_negative_multiplier(axis, user_profile) or 1.0))
+    # 1.0 означает отсутствие негативной нагрузки профиля: ветка не активна.
+    if multiplier <= 1.0:
+        return None
     return round(base / multiplier, 4)
 
 
@@ -164,9 +167,9 @@ def evaluate_phase1(
     branches: Dict[str, Any] = {}
     for axis in TRACKED_BRANCHES:
         load = max(0.0, -negative_dim.get(axis, 0.0))
-        blocking = axis in BLOCKING_BRANCHES
-        threshold = calculate_dynamic_threshold(axis, user_profile) if blocking else None
-        violated = bool(blocking and threshold is not None and load > threshold)
+        threshold = calculate_dynamic_threshold(axis, user_profile) if axis in BLOCKING_BRANCHES else None
+        blocking = axis in BLOCKING_BRANCHES and threshold is not None
+        violated = bool(blocking and load > threshold)
         branches[axis] = {
             "axis": axis,
             "load": round(load, 4),
