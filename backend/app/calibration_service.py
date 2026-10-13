@@ -630,6 +630,7 @@ def audit(results: List[Dict[str, Any]], references: Dict[str, Dict[str, Any]]) 
     confs: List[float] = []
     conf_weighted: List[float] = []
     n = 0
+    skipped_no_score = 0
     for r in results:
         key = f'{r["product"]["id"]}:{r["profile"]["id"]}'
         ref = references.get(key)
@@ -637,6 +638,7 @@ def audit(results: List[Dict[str, Any]], references: Dict[str, Dict[str, Any]]) 
             continue
         # Missing/insufficient result is not a numeric score and must not become 0%.
         if r.get("score") is None:
+            skipped_no_score += 1
             continue
         n += 1
         m = _case_metrics(ref, r["score"])
@@ -652,9 +654,10 @@ def audit(results: List[Dict[str, Any]], references: Dict[str, Dict[str, Any]]) 
         else:
             under += 1
     if n == 0:
-        return {"case_count": 0}
+        return {"case_count": 0, "skipped_no_score": skipped_no_score}
     return {
         "case_count": n,
+        "skipped_no_score": skipped_no_score,
         "mae": round(sum(abs_deltas) / n, 2),
         "median_abs_error": round(sorted(abs_deltas)[n // 2], 2),
         "mean_signed_error": round(sum(signed) / n, 2),
@@ -732,6 +735,8 @@ def compare(prod_results: List[Dict[str, Any]], cand_results: List[Dict[str, Any
         if ref is None or key not in prod_by_key:
             continue
         p = prod_by_key[key]
+        if p.get("score") is None or r.get("score") is None:
+            continue
         pm = _case_metrics(ref, p["score"])
         cm = _case_metrics(ref, r["score"])
         if cm["inside_range"] and not pm["inside_range"]:
@@ -1065,6 +1070,12 @@ def get_case_detail(run_key: str, product_id: int, profile_id: str) -> Optional[
             "verdict": row["verdict"],
         },
         "profile_structured": _profile_structured(row["profile_id"]),
+        "phase1_status": trace.get("phase1_status"),
+        "phase1_version": trace.get("phase1_version"),
+        "phase1_branches": trace.get("phase1_branches") or {},
+        "phase1_violations": trace.get("phase1_violations") or [],
+        "negative_only_score": trace.get("negative_only_score"),
+        "recommendation_status": trace.get("recommendation_status"),
         "interaction_breakdown": trace.get("interaction_breakdown") or [],
         "positive_factors": trace.get("positive_factors") or [],
         "negative_factors": trace.get("negative_factors") or [],
@@ -1178,7 +1189,7 @@ def run_candidate_comparison(run_key: str, candidate_config: Dict[str, Any]) -> 
     top = []
     for key, pr in prod_by_key.items():
         ref = references.get(key)
-        if ref is None:
+        if ref is None or pr.get("score") is None:
             continue
         pd = pr["score"] - int(ref.get("estimate", 50))
         cr = cand_by_key.get(key)
