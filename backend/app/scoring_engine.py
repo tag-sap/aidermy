@@ -245,14 +245,10 @@ def score_product_against_profile_canonical(
                 continue
             weighted_value = strength * confidence * position_weight
 
-            axis_multiplier = (
-                _profile_axis_multiplier(axis, user_profile) if sign < 0 else 1.0
-            )
-            weighted_value *= axis_multiplier
+            # Product negativity is measured independently of the profile.
+            # Profile risk selects Phase 1 axes; it does not amplify ingredient loads.
+            axis_multiplier = 1.0
             profile_multiplier = 1.0
-            if sign < 0:
-                profile_multiplier = _profile_negative_multiplier(axis, user_profile)
-                weighted_value *= profile_multiplier
 
             if sign > 0:
                 axis_positive[axis].append(weighted_value)
@@ -328,19 +324,14 @@ def score_product_against_profile_canonical(
             for item in interaction_breakdown:
                 axis = item["axis"]
                 contribution = float(item["contribution"])
-                axis_multiplier = (
-                    _profile_axis_multiplier(axis, user_profile)
-                    if contribution < 0 else 1.0
-                )
-                profile_multiplier = (
-                    _profile_negative_multiplier(axis, user_profile)
-                    if contribution < 0
-                    else 1.0
-                )
+                # Product interaction negativity is also profile-independent.
+                # Phase 1 applies profile relevance by selecting the axis only.
+                axis_multiplier = 1.0
+                profile_multiplier = 1.0
                 item["axis_multiplier"] = axis_multiplier
                 item["profile_multiplier"] = profile_multiplier
                 item["weighted_contribution"] = round(
-                    contribution * axis_multiplier * profile_multiplier, 6
+                    contribution * axis_multiplier, 6
                 )
                 adjusted_agg[axis] = adjusted_agg.get(axis, 0.0) + item["weighted_contribution"]
             for axis, contrib in adjusted_agg.items():
