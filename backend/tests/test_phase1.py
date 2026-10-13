@@ -36,6 +36,11 @@ def _result(**kw):
 def _profile(**kw):
     base = {"intolerances": [], "allergies": [], "restrictions": [], "structured": {}}
     base.update(kw)
+    # _profile_negative_multiplier reads canonical fields from structured when
+    # that mapping exists; mirror test inputs there to exercise production shape.
+    structured = dict(base.get("structured") or {})
+    structured.update({k: v for k, v in kw.items() if k != "structured"})
+    base["structured"] = structured
     return base
 
 
