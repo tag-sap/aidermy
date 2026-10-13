@@ -476,7 +476,11 @@ def _find_history_score(
             continue
         if created_at and created_at < ttl_cutoff:
             continue
-        return int(h.get("score") or 0), normalize_history_analysis(h)
+        normalized = normalize_history_analysis(h)
+        saved_score = normalized.get("score")
+        if saved_score is None:
+            return None, normalized
+        return int(saved_score), normalized
     return None, None
 
 

@@ -195,7 +195,7 @@ def init_db():
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             product_id INTEGER,
             slug TEXT DEFAULT '',
-            score INTEGER NOT NULL,
+            score INTEGER,
             verdict TEXT NOT NULL,
             summary TEXT DEFAULT '',
             report TEXT,
@@ -235,6 +235,62 @@ def init_db():
         cursor.execute('ALTER TABLE analysis ADD COLUMN report_prompt_version TEXT')
     if 'report_generator_version' not in _analysis_cols:
         cursor.execute('ALTER TABLE analysis ADD COLUMN report_generator_version TEXT')
+
+    # Миграция (двухфазный контракт): score может быть NULL для blocked/insufficient_data.
+    # SQLite не поддерживает ALTER COLUMN DROP NOT NULL — пересоздаём таблицу.
+    _score_row = next((r for r in cursor.execute("PRAGMA table_info(analysis)").fetchall() if r[1] == "score"), None)
+    if _score_row is not None and _score_row[3] == 1:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        try:
+            cursor.execute("ALTER TABLE analysis RENAME TO analysis_notnull_bak")
+            cursor.execute('''CREATE TABLE analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                product_id INTEGER,
+                slug TEXT DEFAULT '',
+                score INTEGER,
+                verdict TEXT NOT NULL,
+                summary TEXT DEFAULT '',
+                report TEXT,
+                safe_ingredients TEXT,
+                caution_ingredients TEXT,
+                active_ingredients TEXT,
+                how_to_use TEXT,
+                expectations TEXT,
+                profile_snapshot TEXT DEFAULT '{}',
+                score_engine_version TEXT,
+                report_score_engine_version TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP,
+                what_good TEXT,
+                what_caution TEXT,
+                deterministic_json TEXT,
+                report_prompt_version TEXT,
+                report_generator_version TEXT
+            )''')
+            _new_cols = [
+                "id", "user_id", "product_id", "slug", "score", "verdict", "summary", "report",
+                "safe_ingredients", "caution_ingredients", "active_ingredients", "how_to_use",
+                "expectations", "profile_snapshot", "score_engine_version",
+                "report_score_engine_version", "created_at", "expires_at", "what_good",
+                "what_caution", "deterministic_json", "report_prompt_version",
+                "report_generator_version",
+            ]
+            _old_cols = {r[1] for r in cursor.execute("PRAGMA table_info(analysis_notnull_bak)").fetchall()}
+            _common = [c for c in _new_cols if c in _old_cols]
+            _cols = ",".join(_common)
+            cursor.execute(f"INSERT INTO analysis ({_cols}) SELECT {_cols} FROM analysis_notnull_bak")
+            cursor.execute("DROP TABLE analysis_notnull_bak")
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_analysis_user_product ON analysis (user_id, product_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_analysis_user_slug ON analysis (user_id, slug)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_analysis_expires ON analysis (expires_at)')
+            cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_unique_user_product ON analysis (user_id, product_id) WHERE product_id IS NOT NULL')
+            conn.commit()
+        except Exception as _exc:
+            conn.rollback()
+            print(f"[MIGRATION] analysis score nullable rebuild failed: {_exc!r}", flush=True)
+        finally:
+            conn.execute("PRAGMA foreign_keys=ON")
 
     # Аватар и имя пользователя (личный кабинет)
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
@@ -1191,7 +1247,7 @@ def upsert_analysis(
     user_id: int,
     product_id: int | None,
     slug: str = "",
-    score: int = 0,
+    score: int | None = 0,
     verdict: str = "",
     summary: str = "",
     safe_ingredients=None,
@@ -1231,7 +1287,7 @@ def upsert_analysis(
                 report_score_engine_version = NULL, created_at = ?, expires_at = ?
                WHERE id = ?""",
             (
-                slug, int(score), verdict, summary,
+                slug, int(score) if score is not None else None, verdict, summary,
                 safe_json, caution_json,
                 active_json, how_json, exp_json,
                 profile_snapshot or "{}", deterministic_json, score_engine_version, now, expires, existing["id"],
@@ -1247,7 +1303,8 @@ def upsert_analysis(
                 created_at, expires_at
             ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                user_id, product_id, slug, int(score), verdict, summary,
+                user_id, product_id, slug,
+                int(score) if score is not None else None, verdict, summary,
                 safe_json, caution_json, active_json, how_json, exp_json,
                 profile_snapshot or "{}", deterministic_json, score_engine_version, now, expires,
             ),
@@ -1303,7 +1360,7 @@ def update_analysis_deterministic_result(
             expires_at = CASE WHEN expires_at IS NULL THEN NULL ELSE ? END
            WHERE id = ? AND user_id = ?""",
         (
-            int(result["score"]),
+            int(result["score"]) if result.get("score") is not None else None,
             result.get("verdict") or "",
             result.get("summary") or "",
             json.dumps(result.get("safe_ingredients") or [], ensure_ascii=False),

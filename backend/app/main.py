@@ -1130,11 +1130,19 @@ def _save_system_analysis(user: dict, product_id: int | None, slug: str, result:
     if not isinstance(deterministic, dict) or not deterministic.get("normalized_ingredients"):
         return None
     raw_score = result.get("score")
+    phase1_status = (
+        result.get("phase1_status")
+        or deterministic.get("phase1_status")
+        or (deterministic.get("phase1") or {}).get("status")
+    )
     if raw_score is None:
-        return None
-    score = int(raw_score)
-    if not 0 <= score <= 100:
-        return None
+        if phase1_status not in {"blocked", "insufficient_data"}:
+            return None
+        score = None
+    else:
+        score = int(raw_score)
+        if not 0 <= score <= 100:
+            return None
 
     try:
         return upsert_analysis(
