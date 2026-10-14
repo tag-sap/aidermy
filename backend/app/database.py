@@ -27,6 +27,74 @@ def get_connection(db_path=None):
         pass
     return conn
 
+
+class _AnalysisCursor:
+    """Small SQLite-style adapter for the PostgreSQL-backed Analysis table."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.lastrowid = None
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def execute(self, sql, params=()):
+        statement = sql.replace("?", "%s")
+        is_analysis_insert = statement.lstrip().upper().startswith("INSERT INTO ANALYSIS")
+        if is_analysis_insert and "RETURNING" not in statement.upper():
+            statement = statement.rstrip().rstrip(";") + " RETURNING id"
+        self._cursor.execute(statement, params or ())
+        self.lastrowid = None
+        if is_analysis_insert:
+            row = self._cursor.fetchone()
+            self.lastrowid = row["id"] if row else None
+        return self
+
+    @staticmethod
+    def _normalise(row):
+        if not row:
+            return row
+        return {
+            key: value.strftime("%Y-%m-%d %H:%M:%S") if isinstance(value, datetime) else value
+            for key, value in row.items()
+        }
+
+    def fetchone(self):
+        return self._normalise(self._cursor.fetchone())
+
+    def fetchall(self):
+        return [self._normalise(row) for row in self._cursor.fetchall()]
+
+
+class _AnalysisConnection:
+    """Expose the small SQLite connection surface used by Analysis functions."""
+
+    def __init__(self, connection):
+        self._connection = connection
+
+    def cursor(self):
+        return _AnalysisCursor(self._connection.cursor())
+
+    def execute(self, sql, params=()):
+        return self.cursor().execute(sql, params)
+
+    def commit(self):
+        return self._connection.commit()
+
+    def rollback(self):
+        return self._connection.rollback()
+
+    def close(self):
+        return self._connection.close()
+
+
+def get_analysis_connection():
+    """Connect to canonical Analysis storage in Supabase/PostgreSQL."""
+    from .postgres_connection import get_postgres_connection
+
+    return _AnalysisConnection(get_postgres_connection())
+
 def init_db():
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
@@ -1209,7 +1277,7 @@ def get_stale_analysis_records() -> list[dict]:
     """Returns stored analyses whose saved deterministic result is not current."""
     from .score_version import SCORE_ENGINE_VERSION
 
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     try:
         rows = conn.execute(
             """
@@ -1303,7 +1371,7 @@ def upsert_analysis(
     обновляются при каждой повторной проверке — бесконечная история не копится.
 
     ttl_days=None означает «бесконечный» срок жизни (для товаров на полке)."""
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     existing = _find_analysis_row(cursor, user_id, product_id, slug)
     now = _now_ts()
@@ -1357,7 +1425,7 @@ def upsert_analysis(
 
 def get_analysis_by_id(user_id: int, analysis_id: int):
     """Возвращает User Analysis по ID (с парсингом deterministic_json)."""
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     row = cursor.execute("SELECT * FROM analysis WHERE id = ? AND user_id = ?", (analysis_id, user_id)).fetchone()
     conn.close()
@@ -1366,7 +1434,7 @@ def get_analysis_by_id(user_id: int, analysis_id: int):
 
 def get_analysis_record(user_id: int, product_id: int | None = None, slug: str = ""):
     """Возвращает сохранённый Analysis без проверки TTL, профиля и версии движка."""
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     row = _find_analysis_row(cursor, user_id, product_id, slug)
     conn.close()
@@ -1388,7 +1456,7 @@ def update_analysis_deterministic_result(
     if version != SCORE_ENGINE_VERSION:
         return None
 
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     cursor.execute(
         """UPDATE analysis SET
@@ -1427,7 +1495,7 @@ def get_current_analysis(user_id: int, product_id: int | None = None, slug: str 
     (3) analysis.created_at >= users.profile_updated_at, (4) версия Score Engine
     совпадает с текущей. Иначе — None.
     """
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     row = _find_analysis_row(cursor, user_id, product_id, slug)
     if not row:
@@ -1439,9 +1507,15 @@ def get_current_analysis(user_id: int, product_id: int | None = None, slug: str 
         conn.close()
         return None
 
-    pua_row = cursor.execute("SELECT profile_updated_at FROM users WHERE id = ?", (user_id,)).fetchone()
-    profile_updated_at = pua_row["profile_updated_at"] if pua_row else None
     conn.close()
+    profile_conn = get_connection(AIDERMY_DB)
+    try:
+        pua_row = profile_conn.execute(
+            "SELECT profile_updated_at FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        profile_updated_at = pua_row["profile_updated_at"] if pua_row else None
+    finally:
+        profile_conn.close()
     if profile_updated_at and row["created_at"] and row["created_at"] < profile_updated_at:
         return None
 
@@ -1465,17 +1539,23 @@ def get_current_analyses_map(user_id: int, product_ids: list) -> dict:
     if not ids:
         return {}
 
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     placeholders = ",".join(["?"] * len(ids))
     rows = cursor.execute(
         f"SELECT * FROM analysis WHERE user_id = ? AND product_id IN ({placeholders})",
         (user_id, *ids),
     ).fetchall()
-    pua_row = cursor.execute("SELECT profile_updated_at FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
+    profile_conn = get_connection(AIDERMY_DB)
+    try:
+        pua_row = profile_conn.execute(
+            "SELECT profile_updated_at FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        profile_updated_at = pua_row["profile_updated_at"] if pua_row else None
+    finally:
+        profile_conn.close()
 
-    profile_updated_at = pua_row["profile_updated_at"] if pua_row else None
     now = _now_ts()
     from .score_version import SCORE_ENGINE_VERSION
     result = {}
@@ -1496,7 +1576,7 @@ def save_analysis_report(user_id: int, product_id: int | None, slug: str = "", r
     """Сохраняет подробное описание (Слой 2) к АКТУАЛЬНОМУ User Analysis."""
     if not report:
         return False
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     if product_id is not None:
         cursor.execute(
@@ -1529,7 +1609,7 @@ def save_analysis_details(
     report_generator_version: str | None = None,
 ) -> bool:
     """Сохраняет ВСЕ блоки отчёта к актуальному User Analysis. Score/verdict не трогает."""
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     active_json = json.dumps(active_ingredients, ensure_ascii=False) if active_ingredients is not None else None
     how_json = json.dumps(how_to_use, ensure_ascii=False) if how_to_use is not None else None
@@ -1559,7 +1639,7 @@ def save_analysis_details(
 
 def set_analysis_expiry(user_id: int, product_id: int, days: int = ANALYSIS_TTL_DAYS) -> bool:
     """Задаёт срок жизни Analysis после снятия товара с полки (по умолчанию 7 суток)."""
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     cursor.execute(
         "UPDATE analysis SET expires_at = ? WHERE user_id = ? AND product_id = ?",
@@ -1574,7 +1654,7 @@ def set_analysis_expiry(user_id: int, product_id: int, days: int = ANALYSIS_TTL_
 def delete_user_analyses(user_id: int) -> int:
     """Инвалидирует все персональные анализы пользователя (при изменении анкеты).
     НЕ трогает Product DB / Static Product Model / Ingredient DB / shelf_products."""
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM analysis WHERE user_id = ?", (user_id,))
     conn.commit()
@@ -1584,35 +1664,44 @@ def delete_user_analyses(user_id: int) -> int:
 
 
 def clear_analysis_history() -> dict[str, int]:
-    """Deletes user analysis/report history and linked legacy checks atomically.
+    """Clear canonical Supabase analyses and user-linked legacy SQLite history.
 
-    User profiles, shelves, products and ingredient knowledge are stored
-    separately and are deliberately left untouched. Anonymous legacy checks
-    are also preserved because they are not associated with a user account.
+    These are separate databases, so the two deletes cannot share one transaction.
     """
-    conn = get_connection(AIDERMY_DB)
+    analysis_conn = get_analysis_connection()
     try:
-        cursor = conn.cursor()
-        cursor.execute("BEGIN IMMEDIATE")
-        cursor.execute("DELETE FROM analysis")
-        analyses_deleted = cursor.rowcount
-        cursor.execute("DELETE FROM check_history WHERE user_id IS NOT NULL")
-        history_deleted = cursor.rowcount
-        conn.commit()
+        analysis_cursor = analysis_conn.cursor()
+        analysis_cursor.execute("DELETE FROM analysis")
+        analyses_deleted = analysis_cursor.rowcount
+
+        history_conn = get_connection(AIDERMY_DB)
+        try:
+            history_cursor = history_conn.cursor()
+            history_cursor.execute("BEGIN IMMEDIATE")
+            history_cursor.execute("DELETE FROM check_history WHERE user_id IS NOT NULL")
+            history_deleted = history_cursor.rowcount
+            history_conn.commit()
+        except Exception:
+            history_conn.rollback()
+            raise
+        finally:
+            history_conn.close()
+
+        analysis_conn.commit()
         return {
             "analyses_deleted": analyses_deleted,
             "legacy_history_deleted": history_deleted,
         }
     except Exception:
-        conn.rollback()
+        analysis_conn.rollback()
         raise
     finally:
-        conn.close()
+        analysis_conn.close()
 
 
 def delete_expired_analyses() -> int:
     """Фоновая очистка: удаляет истёкшие User Analysis (не Product/Ingredient)."""
-    conn = get_connection(AIDERMY_DB)
+    conn = get_analysis_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM analysis WHERE expires_at IS NOT NULL AND expires_at < ?", (_now_ts(),))
     conn.commit()
