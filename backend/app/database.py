@@ -89,8 +89,14 @@ class _AnalysisConnection:
         return self._connection.close()
 
 
+def _analysis_uses_postgres() -> bool:
+    return os.getenv("ANALYSIS_STORAGE", "sqlite").strip().lower() in {"postgres", "postgresql", "supabase"}
+
+
 def get_analysis_connection():
-    """Connect to canonical Analysis storage in Supabase/PostgreSQL."""
+    """Connect to canonical Analysis storage; SQLite remains the safe default."""
+    if not _analysis_uses_postgres():
+        return get_connection(AIDERMY_DB)
     from .postgres_connection import get_postgres_connection
 
     return _AnalysisConnection(get_postgres_connection())
@@ -1664,10 +1670,31 @@ def delete_user_analyses(user_id: int) -> int:
 
 
 def clear_analysis_history() -> dict[str, int]:
-    """Clear canonical Supabase analyses and user-linked legacy SQLite history.
+    """Clear Analysis and user-linked legacy history.
 
-    These are separate databases, so the two deletes cannot share one transaction.
+    SQLite mode uses one transaction. Supabase Analysis and SQLite legacy history
+    are separate databases in PostgreSQL mode and therefore cannot share a transaction.
     """
+    if not _analysis_uses_postgres():
+        conn = get_connection(AIDERMY_DB)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute("DELETE FROM analysis")
+            analyses_deleted = cursor.rowcount
+            cursor.execute("DELETE FROM check_history WHERE user_id IS NOT NULL")
+            history_deleted = cursor.rowcount
+            conn.commit()
+            return {
+                "analyses_deleted": analyses_deleted,
+                "legacy_history_deleted": history_deleted,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     analysis_conn = get_analysis_connection()
     try:
         analysis_cursor = analysis_conn.cursor()
