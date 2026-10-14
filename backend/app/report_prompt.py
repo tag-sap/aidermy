@@ -65,10 +65,10 @@ REPORT_PROMPT_V1_USER_TEMPLATE = """Продукт: {{product_name}}
 {{category_knowledge}}
 Тип кожи: {{skin_type}}
 
-Цели пользователя и сохранённые детерминированные связи ингредиент × concern.
-Используй только связи с verdict supports или may_hinder. Для neutral/insufficient_data
-не утверждай наличие пользы или вреда:
+Данные о целях пользователя и сохранённые связи ингредиент × цель (если применимы):
 {{goal_evidence}}
+Если результат заблокирован на первой фазе, не обсуждай цели пользователя и не оценивай
+потенциальную пользу продукта: объясни только подтверждённые отрицательные факторы.
 
 ЕДИНЫЙ НАБОР ФАКТОВ (источник истины — НЕ переопределяй):
 {{deterministic_input}}
@@ -331,8 +331,10 @@ def build_report_context(
             "structured": profile.get("structured") or {},
         }
 
+    # При blocked цели намеренно исключены из контекста: отчёт объясняет
+    # причину отказа, а не перечисляет потенциальные достоинства продукта.
     goal_context = json.dumps(
-        inp.get("goal_evidence") or [],
+        [] if is_blocked_report else (inp.get("goal_evidence") or []),
         ensure_ascii=False,
     )
     input_text = _report_input_text(inp)
@@ -378,7 +380,7 @@ def build_report_context(
         "product_name": product_name,
         "product_type": product_type or "не указан",
         "category_knowledge": render_category_knowledge(product_type) or "—",
-        "skin_type": skin or "не указан",
+        "skin_type": ("не передаётся при заблокированном результате" if is_blocked_report else (skin or "не указан")),
         "profile_context": json.dumps(
             profile_context,
             ensure_ascii=False,
