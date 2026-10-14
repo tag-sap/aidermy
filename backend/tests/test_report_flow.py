@@ -20,6 +20,7 @@ from app.report_version import REPORT_GENERATOR_VERSION
 from app.database import upsert_analysis
 from app.auth import create_access_token
 from app.main import ShelfAnalyzeRequest, _save_system_analysis, app, review_shelf_product
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 USER_ID = 1
@@ -266,6 +267,162 @@ class ReportFlowTests(unittest.TestCase):
         self.assertEqual(response["review"], full_report["review"])
         self.assertEqual(generate.await_args.args[:2], ("Сканированный продукт", "aqua, glycerin"))
         self.assertIs(generate.await_args.kwargs["saved_analysis"], analysis)
+
+    def test_blocked_analysis_can_open_report_without_normal_score(self):
+        analysis = {
+            "id": 1735,
+            "product_id": None,
+            "slug": "aravia-laboratories-anti-acne-peeling",
+            "score": None,
+            "verdict": "Не рекомендовано",
+            "summary": "Первая фаза обнаружила блокирующие факторы.",
+            "report": None,
+            "score_engine_version": SCORE_ENGINE_VERSION,
+            "phase1_status": "blocked",
+            "recommendation_status": "Не рекомендовано",
+            "negative_only_score": 35,
+            "deterministic": {
+                "phase1_status": "blocked",
+                "negative_only_score": 35,
+                "product_name": "ARAVIA Anti-acne Peeling",
+                "normalized_ingredients": ["gluconolactone", "azelaic acid"],
+            },
+        }
+        full_report = {
+            "score": None,
+            "verdict": "Не рекомендовано",
+            "explanation": "Обнаружены блокирующие факторы.",
+            "review": [
+                {"text": "Обнаружены блокирующие факторы.", "sentiment": "negative"}
+            ],
+            "how_to_use": None,
+            "expectations": None,
+        }
+
+        with (
+            patch("app.database.get_analysis_by_id", return_value=analysis),
+            patch("app.database.get_product_by_slug", return_value=None),
+            patch("app.main._profile_from_user", return_value={}),
+            patch("app.services.generate_full_report", new_callable=AsyncMock, return_value=full_report) as generate,
+            patch("app.database.save_analysis_details", return_value=True),
+            patch("app.database.save_ai_report", return_value=True),
+        ):
+            response = asyncio.run(
+                review_shelf_product(
+                    ShelfAnalyzeRequest(
+                        slug=analysis["slug"],
+                        analysis_id=analysis["id"],
+                    ),
+                    {"id": USER_ID},
+                )
+            )
+
+        self.assertIsNone(response["score"])
+        self.assertEqual(response["negative_only_score"], 35)
+        self.assertEqual(response["phase1_status"], "blocked")
+        self.assertTrue(response["report_ready"])
+        self.assertEqual(response["review"], full_report["review"])
+        generate.assert_awaited_once()
+        self.assertIs(generate.await_args.kwargs["saved_analysis"], analysis)
+
+    def test_insufficient_data_cannot_open_report_without_normal_score(self):
+        analysis = {
+            "id": 1736,
+            "product_id": None,
+            "slug": "insufficient-data-product",
+            "score": None,
+            "verdict": "Недостаточно данных",
+            "summary": "Недостаточно подтверждённых данных.",
+            "report": None,
+            "score_engine_version": SCORE_ENGINE_VERSION,
+            "phase1_status": "insufficient_data",
+            "recommendation_status": "Недостаточно данных",
+            "negative_only_score": None,
+            "deterministic": {
+                "phase1_status": "insufficient_data",
+                "product_name": "Insufficient data product",
+                "normalized_ingredients": [],
+            },
+        }
+
+        with (
+            patch("app.database.get_analysis_by_id", return_value=analysis),
+            patch("app.database.get_product_by_slug", return_value=None),
+            patch("app.services.generate_full_report", new_callable=AsyncMock) as generate,
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(
+                    review_shelf_product(
+                        ShelfAnalyzeRequest(
+                            slug=analysis["slug"],
+                            analysis_id=analysis["id"],
+                        ),
+                        {"id": USER_ID},
+                    )
+                )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        generate.assert_not_awaited()
+
+    def test_blocked_analysis_id_hides_saved_score_and_regenerates_old_report(self):
+        analysis = {
+            "id": 987,
+            "product_id": None,
+            "slug": "blocked-scanned-product",
+            "score": 78,
+            "verdict": "Подходит",
+            "phase1_status": "blocked",
+            "recommendation_status": "Не рекомендовано",
+            "negative_only_score": 21,
+            "score_engine_version": SCORE_ENGINE_VERSION,
+            "report_score_engine_version": SCORE_ENGINE_VERSION,
+            "report_generator_version": "1.0.0",
+            "report": '[{"text":"Старый отчёт: результат ниже нейтрального уровня","sentiment":"positive"}]',
+            "deterministic": {
+                "phase1_status": "blocked",
+                "score": 78,
+                "normalized_ingredients": ["aqua"],
+                "negative_factors": [],
+            },
+            "active_ingredients": None,
+            "what_good": None,
+            "what_caution": None,
+            "how_to_use": None,
+            "expectations": None,
+        }
+        full_report = {
+            "score": None,
+            "verdict": "Не рекомендовано",
+            "explanation": "Средство не рекомендовано.",
+            "review": [{"text": "Средство не рекомендовано.", "sentiment": "negative"}],
+            "how_to_use": None,
+            "expectations": None,
+        }
+
+        with (
+            patch("app.database.get_analysis_by_id", return_value=analysis),
+            patch("app.database.get_product_by_slug", return_value=None),
+            patch("app.main._profile_from_user", return_value={}),
+            patch("app.services.generate_full_report", new_callable=AsyncMock, return_value=full_report) as generate,
+            patch("app.database.save_analysis_details", return_value=True),
+            patch("app.database.save_ai_report", return_value=True),
+        ):
+            response = asyncio.run(
+                review_shelf_product(
+                    ShelfAnalyzeRequest(slug=analysis["slug"], analysis_id=analysis["id"]),
+                    {"id": USER_ID},
+                )
+            )
+
+        generate.assert_awaited_once()
+        saved_analysis = generate.await_args.kwargs["saved_analysis"]
+        self.assertIsNone(saved_analysis["score"])
+        self.assertIsNone(saved_analysis["deterministic"]["score"])
+        self.assertIsNone(response["score"])
+        self.assertEqual(response["phase1_status"], "blocked")
+        self.assertEqual(response["negative_only_score"], 21)
+        self.assertEqual(response["verdict"], "Не рекомендовано")
+        self.assertNotIn("Старый отчёт", response["explanation"])
 
     def test_cached_report_does_not_regenerate_optional_sections(self):
         analysis = {

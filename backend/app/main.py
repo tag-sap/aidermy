@@ -1483,7 +1483,36 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
         return {"status": "pending", "cached": False, "score": None, "analysis": None, "detail": "Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже."}
 
     if not result or result.get("score") is None:
-        return {"status": "error", "cached": False, "score": None, "analysis": None, "detail": "Состав продукта неизвестен"}
+        phase1_status = (result or {}).get("phase1_status")
+        recommendation_status = (result or {}).get("recommendation_status")
+        negative_only_score = (result or {}).get("negative_only_score")
+
+        if phase1_status == "blocked":
+            status = "blocked"
+            detail = (
+                (result or {}).get("summary")
+                or "Обычная оценка совместимости не рассчитана: первая фаза проверки не пройдена."
+            )
+        elif phase1_status == "insufficient_data":
+            status = "insufficient_data"
+            detail = (
+                (result or {}).get("summary")
+                or "Для расчёта совместимости недостаточно подтверждённых данных."
+            )
+        else:
+            status = "error"
+            detail = "Состав продукта неизвестен"
+
+        return {
+            "status": status,
+            "cached": False,
+            "score": None,
+            "analysis": None,
+            "detail": detail,
+            "phase1_status": phase1_status,
+            "recommendation_status": recommendation_status,
+            "negative_only_score": negative_only_score,
+        }
 
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
@@ -1607,10 +1636,47 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
             raise HTTPException(status_code=404, detail="Продукт не найден")
         score, analysis = score_product(current_user, product)
         slug = product.get("slug") or request.slug
-    if score is None:
-        raise HTTPException(status_code=409, detail="Анализ ещё не выполнен — сначала проверьте совместимость.")
-
     deterministic = (analysis or {}).get("deterministic") or {}
+    phase1_status = (
+        (analysis or {}).get("phase1_status")
+        or deterministic.get("phase1_status")
+        or ((analysis or {}).get("phase1") or {}).get("status")
+    )
+
+    # Phase 1 is a hard gate: saved legacy scores must never leak into
+    # reports when the current analysis is blocked or lacks sufficient data.
+    if phase1_status in {"blocked", "insufficient_data"}:
+        score = None
+        deterministic = dict(deterministic) if isinstance(deterministic, dict) else {}
+        deterministic["score"] = None
+        analysis = analysis or {}
+        analysis["score"] = None
+        analysis["deterministic"] = deterministic
+        if phase1_status == "blocked":
+            analysis["verdict"] = (
+                analysis.get("recommendation_status") or "Не рекомендовано"
+            )
+        else:
+            analysis["verdict"] = (
+                analysis.get("recommendation_status") or "Недостаточно данных"
+            )
+
+    negative_only_score = (analysis or {}).get("negative_only_score")
+    if negative_only_score is None:
+        negative_only_score = deterministic.get("negative_only_score")
+
+    valid_negative_score = (
+        isinstance(negative_only_score, (int, float))
+        and not isinstance(negative_only_score, bool)
+        and 0 <= negative_only_score <= 100
+    )
+    blocked_report_allowed = (
+        phase1_status == "blocked"
+        and valid_negative_score
+        and bool(deterministic)
+    )
+    if score is None and not blocked_report_allowed:
+        raise HTTPException(status_code=409, detail="Анализ ещё не выполнен — сначала проверьте совместимость.")
     name = (
         (product.get("name") or "").replace("\n", " ").strip()
         if product
@@ -1639,6 +1705,9 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
             "explanation": _fragments_to_text(review),
             "review": review,
             "expectations": analysis.get("expectations"),
+            "phase1_status": phase1_status,
+            "recommendation_status": (analysis or {}).get("recommendation_status"),
+            "negative_only_score": negative_only_score if phase1_status == "blocked" else None,
             "report_ready": True,
         }
 
@@ -1681,6 +1750,9 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         "explanation": _fragments_to_text(review_fragments),
         "review": review_fragments,
         "expectations": full.get("expectations"),
+        "phase1_status": phase1_status,
+        "recommendation_status": (analysis or {}).get("recommendation_status"),
+        "negative_only_score": negative_only_score if phase1_status == "blocked" else None,
         "report_ready": True,
     }
 

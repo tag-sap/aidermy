@@ -47,3 +47,24 @@ ANALYSIS_USE_POSTGRES=false CATALOG_READ_FROM_POSTGRES=false ./venv/bin/python3 
 - Динамическая схема порогов Phase 1 версии 2.0.0 реализована и покрыта тестами, но НЕ откалибрована по независимым меткам. Параметр `PHASE1_LAMBDA = 1.0` не является подтверждением калибровки.
 - Реализовано сохранение blocked/insufficient результатов с nullable score; тесты `tests/test_analysis_blocked_persistence.py` проверяют сохранение обоих статусов. Сквозное production-поведение истории требует отдельного smoke-теста.
 - 9 предсуществующих падающих тестов (PostgreSQL-подключение и LLM-отчёт) не связаны с Phase 1.
+
+## 2026-10-13 — blocked report context
+- `backend/app/services.py`: blocked phase now excludes positive factors from LLM report context and adds explicit grounding restrictions.
+- Verification: py_compile passed; 12 focused report tests passed; git diff --check passed.
+- Production success for ARAVIA analysis 1735 is not yet confirmed. Next: reload worker, check health, retry report, preserve strict grounding validation.
+
+## 2026-10-13 — Phase 1 gate при чтении сохранённого анализа
+- `backend/app/shelf_service.py`: нормализатор истории сохраняет Phase 1 metadata и скрывает обычный score при `blocked`/`insufficient_data`.
+- `score_product()` теперь возвращает `None` вместо обычного score и не переходит к legacy fallback для этих статусов.
+- `backend/tests/test_analysis_state.py`: добавлены два regression tests на блокировку возврата score/fallback.
+- Verification: targeted pytest — 11 passed; `git diff --check` passed. Четыре предупреждения `datetime.utcnow()` в `app/database.py`.
+- Production health до применения патча: HTTP 200. Production rollout и smoke test ещё не подтверждены.
+- Следующий шаг: установить активный Gunicorn listener, применить патч безопасным reload и проверить Phase 1 в production.
+
+## 2026-10-13 — Phase 1 gate при чтении сохранённого анализа
+- `backend/app/shelf_service.py`: блокируется возврат обычного score для `blocked` и `insufficient_data`, включая legacy fallback.
+- `backend/tests/test_analysis_state.py`: два регрессионных теста; targeted pytest — 11 passed, `git diff --check` passed.
+- Production health до rollout: HTTP 200; production smoke test после патча ещё не выполнен.
+- Следующий шаг: graceful reload Gunicorn и проверка production.
+
+- 2026-10-13: `review_shelf_product()` защищён от утечки сохранённого обычного score при `blocked`/`insufficient_data`; версия отчёта — `1.0.1`. Три целевые группы тестов: 29 passed. Production reload и реальное повторное открытие отчёта ещё не подтверждены.

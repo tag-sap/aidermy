@@ -5,4 +5,4 @@ previously persisted reports unsafe to reuse, even if the production prompt
 version is unchanged.
 """
 
-REPORT_GENERATOR_VERSION = "1.0.0"
+REPORT_GENERATOR_VERSION = "1.0.1"

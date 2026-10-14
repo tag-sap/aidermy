@@ -318,6 +318,46 @@ class ReportGenerationReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["verdict"], "Хорошо подходит")
         self.assertTrue(result["explanation"])
 
+    async def test_blocked_report_preserves_missing_normal_score(self):
+        from app import services
+
+        analysis = {
+            "score": None,
+            "verdict": "Не рекомендовано",
+            "phase1_status": "blocked",
+            "recommendation_status": "Не рекомендовано",
+            "negative_only_score": 35,
+            "deterministic": {
+                "phase1_status": "blocked",
+                "negative_only_score": 35,
+                "product_name": "ARAVIA Anti-acne Peeling",
+                "normalized_ingredients": ["gluconolactone", "azelaic acid"],
+                "negative_factors": [{"ingredient": "azelaic acid"}],
+            },
+        }
+
+        generated = {
+            "explanation": "Обнаружены блокирующие факторы.",
+            "expectations": None,
+            "report_prompt_version": 13,
+        }
+
+        with patch.object(services, "DEEPSEEK_API_KEY", "test"), \
+             patch.object(
+                 services,
+                 "generate_report_once",
+                 new=AsyncMock(return_value=generated),
+             ):
+            result = await services.generate_full_report(
+                product_name="ARAVIA Anti-acne Peeling",
+                ingredients="gluconolactone, azelaic acid",
+                profile={"skin_type": "Чувствительная"},
+                saved_analysis=analysis,
+            )
+
+        self.assertIsNone(result["score"])
+        self.assertEqual(result["verdict"], "Не рекомендовано")
+        self.assertIn("блокирующие факторы", result["explanation"].lower())
     async def test_saved_verdict_is_not_recalculated_by_fallback(self):
         from app import services
 
