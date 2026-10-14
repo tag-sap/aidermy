@@ -71,12 +71,12 @@ ANALYSIS_USE_POSTGRES=false CATALOG_READ_FROM_POSTGRES=false ./venv/bin/python3 
 - 2026-10-13: `review_shelf_product()` защищён от утечки сохранённого обычного score при `blocked`/`insufficient_data`; версия отчёта — `1.0.1`. Три целевые группы тестов: 29 passed. Production reload и реальное повторное открытие отчёта ещё не подтверждены.
 
 
-## 2026-10-14 — Supabase Analysis persistence patch (not yet deployed)
+## 2026-10-14 — Supabase Analysis persistence patch
 
-- Branch: `fix/supabase-analysis-persistence-20261014`.
-- `backend/app/database.py`: Analysis CRUD now routes through `get_analysis_connection()`; the explicit `ANALYSIS_STORAGE=postgres` flag selects Supabase while SQLite remains the default for safe rollout and tests. Profile timestamps continue to come from the existing SQLite `users` table.
-- `backend/sql/20261014_analysis_id_sequence.sql`: creates a sequence/default for `public.analysis.id`, which had no default and would reject new inserts.
-- `clear_analysis_history()`: retains the single SQLite transaction in SQLite mode; in PostgreSQL mode it deletes canonical Analysis in Supabase and legacy user-linked history in SQLite (cross-database atomicity is not possible).
-- Verified facts before patch: Supabase `public.analysis` had 0 rows, primary key on `id`, and no ID default. Existing Analysis functions used SQLite.
-- Not yet verified: Python tests, execution of the SQL sequence migration, production environment flag, deployment, and production write/read smoke test.
-- Next: inspect the branch diff, run focused persistence tests, apply the SQL file to Supabase, deploy code, set `ANALYSIS_STORAGE=postgres` in production `.env`, restart service, then create/read/delete one test Analysis and confirm it exists in Supabase.
+- Commit `3050f3e8b71f17a62f9bf458241cae169045e522` adds the explicit `ANALYSIS_STORAGE=postgres` adapter in `backend/app/database.py`; SQLite remains the default until the production flag is changed. Profile timestamps still come from SQLite `users`.
+- `clear_analysis_history()` deletes canonical Analysis in Supabase and legacy user-linked history in SQLite when PostgreSQL mode is enabled; these operations are not cross-database atomic.
+- Production server pulled the code commit. Backup created at `backend/backups/aidermy_pre_supabase_20261014_133209.db`.
+- Supabase schema inspection returned `is_identity='YES'`, `identity_generation='BY DEFAULT'`, and `pg_get_serial_sequence('public.analysis','id')='public.analysis_id_seq'`. Therefore ID generation is already configured and the original migration's `ALTER SEQUENCE ... OWNED BY` is incompatible with the existing identity sequence.
+- The first migration attempt failed at that `OWNED BY` statement. Do not rerun the original SQL. The migration file was patched on branch `fix/identity-safe-analysis-migration-20261014` to no-op for identity-backed columns and to configure a sequence only for a legacy integer column without a default.
+- Not yet verified: persistence tests, production `ANALYSIS_STORAGE` flag, service restart, and a Supabase write/read/delete smoke test. The flag remains disabled pending those steps.
+- Next: merge the identity-safe migration/doc correction, pull it on production, inspect existing configuration without exposing secrets, then enable `ANALYSIS_STORAGE=postgres`, restart the service, and run a disposable exact-row persistence smoke test.
