@@ -35,6 +35,7 @@
 - `backend/app/decision_engine.py` — обработка `score=None` (verdict/summary для blocked/insufficient).
 - `backend/app/services.py` — `check_product_with_ingredients` передаёт phase1-поля и сохраняет None.
 - `backend/app/main.py` — `/api/check`, `/api/check-with-ingredients` возвращают phase1-поля; `score=None` при не-passed.
+- `backend/app/shelf_service.py` — `score_product` возвращает blocked-анализ (не legacy-фолбэк `check_history`); `build_cabinet_payload` пробрасывает `phase1_status`/`recommendation_status`/`verdict` и не помечает blocked как «нужен речеек».
 - `backend/app/models.py` — `CheckResponse` с phase1-полями.
 
 ## Команды запуска тестов
@@ -45,5 +46,5 @@ ANALYSIS_USE_POSTGRES=false CATALOG_READ_FROM_POSTGRES=false ./venv/bin/python3 
 
 ## Известные ограничения
 - Динамическая схема порогов Phase 1 версии 2.0.0 реализована и покрыта тестами, но НЕ откалибрована по независимым меткам. Параметр `PHASE1_LAMBDA = 1.0` не является подтверждением калибровки.
-- Реализовано сохранение blocked/insufficient результатов с nullable score; тесты `tests/test_analysis_blocked_persistence.py` проверяют сохранение обоих статусов. Сквозное production-поведение истории требует отдельного smoke-теста.
+- Реализовано сохранение blocked/insufficient результатов с nullable score (main.py/database.py) и чтение через полку (`shelf_service.score_product`, commit `b78e91b`). Тесты `tests/test_analysis_blocked_persistence.py` и `tests/test_blocked_persistence.py` проверяют сохранение и чтение. Сквозное production-поведение истории требует отдельного smoke-теста.
 - 9 предсуществующих падающих тестов (PostgreSQL-подключение и LLM-отчёт) не связаны с Phase 1.
