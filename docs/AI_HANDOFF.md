@@ -69,3 +69,14 @@ ANALYSIS_USE_POSTGRES=false CATALOG_READ_FROM_POSTGRES=false ./venv/bin/python3 
 - Следующий шаг: graceful reload Gunicorn и проверка production.
 
 - 2026-10-13: `review_shelf_product()` защищён от утечки сохранённого обычного score при `blocked`/`insufficient_data`; версия отчёта — `1.0.1`. Три целевые группы тестов: 29 passed. Production reload и реальное повторное открытие отчёта ещё не подтверждены.
+
+
+## 2026-10-14 — Supabase Analysis persistence patch (not yet deployed)
+
+- Branch: `fix/supabase-analysis-persistence-20261014`.
+- `backend/app/database.py`: Analysis CRUD now routes through `get_analysis_connection()`; the explicit `ANALYSIS_STORAGE=postgres` flag selects Supabase while SQLite remains the default for safe rollout and tests. Profile timestamps continue to come from the existing SQLite `users` table.
+- `backend/sql/20261014_analysis_id_sequence.sql`: creates a sequence/default for `public.analysis.id`, which had no default and would reject new inserts.
+- `clear_analysis_history()`: retains the single SQLite transaction in SQLite mode; in PostgreSQL mode it deletes canonical Analysis in Supabase and legacy user-linked history in SQLite (cross-database atomicity is not possible).
+- Verified facts before patch: Supabase `public.analysis` had 0 rows, primary key on `id`, and no ID default. Existing Analysis functions used SQLite.
+- Not yet verified: Python tests, execution of the SQL sequence migration, production environment flag, deployment, and production write/read smoke test.
+- Next: inspect the branch diff, run focused persistence tests, apply the SQL file to Supabase, deploy code, set `ANALYSIS_STORAGE=postgres` in production `.env`, restart service, then create/read/delete one test Analysis and confirm it exists in Supabase.
