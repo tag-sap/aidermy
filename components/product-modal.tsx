@@ -223,16 +223,34 @@ export function ProductModal({
         setAnalysisError(d.detail || 'Это займёт больше времени — возвращайтесь позже')
         return
       }
-      // Обновляем локальное состояние напрямую из ответа API (не через refreshKey).
+
+      // Не сохраняем предыдущую оценку, если текущая проверка не дала score.
+      if (
+        d.status === 'blocked' ||
+        d.status === 'insufficient_data' ||
+        d.status === 'error' ||
+        d.phase1_status === 'blocked' ||
+        d.phase1_status === 'insufficient_data' ||
+        typeof d.score !== 'number'
+      ) {
+        setData((prev) =>
+          prev ? { ...prev, score: null, analysis: null } : prev,
+        )
+        setAnalysisError(
+          d.detail ||
+            (d.phase1_status === 'blocked' || d.status === 'blocked'
+              ? 'Обычная оценка не рассчитана: проверка ограничений не пройдена.'
+              : 'Не удалось рассчитать совместимость. Проверьте состав продукта и повторите попытку.'),
+        )
+        onChanged()
+        return
+      }
+
+      // Принимаем оценку только из текущего ответа API.
       setData((prev) =>
-        prev
-          ? {
-              ...prev,
-              score: typeof d.score === 'number' ? d.score : prev.score,
-              analysis: d.analysis ?? prev.analysis,
-            }
-          : prev,
+        prev ? { ...prev, score: d.score, analysis: d.analysis ?? null } : prev,
       )
+      setAnalysisError('')
       onChanged()
     } catch {
       setAnalysisError('Не удалось проверить совместимость')

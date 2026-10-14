@@ -338,18 +338,60 @@ def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
     `report` — отдельный AI-отчёт (человеческая рецензия). НЕ является условием
     наличия User Analysis и НЕ влияет на score.
     """
+    deterministic = _parse_json(h.get("deterministic"))
+    if not isinstance(deterministic, dict):
+        deterministic = _parse_json(h.get("deterministic_json"))
+    if not isinstance(deterministic, dict):
+        deterministic = {}
+
+    phase1 = deterministic.get("phase1")
+    if not isinstance(phase1, dict):
+        phase1 = {}
+
+    phase1_status = (
+        h.get("phase1_status")
+        or deterministic.get("phase1_status")
+        or phase1.get("status")
+    )
+    recommendation_status = (
+        h.get("recommendation_status")
+        or deterministic.get("recommendation_status")
+    )
+    negative_only_score = (
+        h.get("negative_only_score")
+        if h.get("negative_only_score") is not None
+        else deterministic.get("negative_only_score")
+    )
+
+    score = int(h.get("score")) if h.get("score") is not None else None
+    if phase1_status in {"blocked", "insufficient_data"}:
+        score = None
+
     return {
         "verdict": h.get("verdict") or "",
         "summary": h.get("summary") or "",
-        "score": int(h.get("score") or 0) if h.get("score") is not None else None,
+        "score": score,
         "safe_ingredients": _as_str_list(h.get("safe_ingredients")),
         "caution_ingredients": _as_str_list(h.get("caution_ingredients")),
         "active_ingredients": _parse_json(h.get("active_ingredients")),
         "how_to_use": _parse_json(h.get("how_to_use")),
         "expectations": _parse_json(h.get("expectations")),
-        "goal_evidence": _parse_json(h.get("goal_evidence")) or [],
-        "report": h.get("ai_report") or None,
-        "score_engine_version": h.get("score_engine_version"),
+        "goal_evidence": (
+            _parse_json(h.get("goal_evidence"))
+            or deterministic.get("goal_evidence")
+            or []
+        ),
+        "report": h.get("ai_report") or h.get("report") or None,
+        "score_engine_version": (
+            h.get("score_engine_version")
+            or deterministic.get("score_engine_version")
+        ),
+        "phase1_status": phase1_status,
+        "phase1_version": (
+            h.get("phase1_version") or deterministic.get("phase1_version")
+        ),
+        "recommendation_status": recommendation_status,
+        "negative_only_score": negative_only_score,
     }
 
 
@@ -487,9 +529,25 @@ def _find_history_score(
 def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
     """Returns the current saved Match, recalculating legacy engine versions deterministically."""
     score, analysis = _analysis_from_analysis_table(user, product)
-    if analysis is not None:
-        # analysis может быть заблокированным/недостаточным (score is None):
-        # возвращаем его, а не фолбэк в legacy check_history.
+
+    # Phase 1 is a hard gate: never expose or recalculate a normal score
+    # when the persisted analysis says the product is blocked or lacks data.
+    if isinstance(analysis, dict):
+        deterministic = analysis.get("deterministic")
+        if not isinstance(deterministic, dict):
+            deterministic = {}
+        phase1 = deterministic.get("phase1")
+        if not isinstance(phase1, dict):
+            phase1 = {}
+        phase1_status = (
+            analysis.get("phase1_status")
+            or deterministic.get("phase1_status")
+            or phase1.get("status")
+        )
+        if phase1_status in {"blocked", "insufficient_data"}:
+            return None, analysis
+
+    if score is not None:
         return score, analysis
 
     try:

@@ -585,7 +585,7 @@ _NO_POSITIVE_PHRASES = [
 
 # Внутренние термины Score Engine, запрещённые в пользовательском тексте отчёта.
 _REPORT_TECHNICAL_PHRASES = [
-    "вклад", "нейтральн", "п.п.",
+    "вклад", "п.п.",
 ]
 
 
@@ -683,22 +683,64 @@ def _report_input_text(inp: dict) -> str:
     if rec:
         lines.append(f"Статус рекомендации: {rec}")
     lines.append("")
-    lines.append("Значимые факторы в пользу профиля:")
-
-    lines += [
-        f"- {item['label']}"
-        for item in inp["positive"]
-        if item.get("significance") in {"significant", "moderate"}
-    ] or ["- нет"]
+    if phase1 == "blocked":
+        lines.append("ИНСТРУКЦИЯ ДЛЯ ЗАБЛОКИРОВАННОГО РЕЗУЛЬТАТА:")
+        lines.append(
+            "Объясняй отказ только через подтверждённые отрицательные факторы ниже. "
+            "Не перечисляй преимущества средства и не используй их для смягчения "
+            "или оспаривания результата первой фазы."
+        )
+        lines.append(
+            "Не называй ингредиенты, которых нет в переданном составе. "
+            "Не придумывай свойства ингредиентов и связи с особенностями кожи."
+        )
+    else:
+        lines.append("Значимые факторы в пользу профиля:")
+        lines += [
+            f"- {item['label']}"
+            for item in inp["positive"]
+            if item.get("significance") in {"significant", "moderate"}
+        ] or ["- нет"]
 
     lines.append("")
     lines.append("Значимые факторы, снижающие совместимость:")
-
     lines += [
         f"- {item['label']}"
         for item in inp["negative"]
         if item.get("significance") in {"significant", "moderate"}
     ] or ["- нет"]
+
+    if phase1 == "blocked":
+        lines.append("")
+        lines.append(
+            "Сохранённые отрицательные факторы состава. "
+            "Используй только переданные свойства; не выводи из них "
+            "неподтверждённые механизмы, диагнозы или индивидуальные реакции:"
+        )
+        factor_lines = []
+        seen = set()
+        for factor in inp.get("negative_factors") or []:
+            if not isinstance(factor, dict):
+                continue
+            ingredient = str(factor.get("ingredient") or "").strip()
+            property_name = str(factor.get("property") or "").strip()
+            if not ingredient or not property_name:
+                continue
+            key = (ingredient.casefold(), property_name.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            factor_lines.append(f"- {ingredient} → {property_name}")
+            if len(factor_lines) >= 8:
+                break
+
+        if factor_lines:
+            lines.extend(factor_lines)
+        else:
+            lines.append(
+                "- Конкретные отрицательные ingredient-факторы не переданы. "
+                "Не называй ингредиенты и не придумывай причину риска."
+            )
 
     return "\n".join(lines)
 
@@ -1200,7 +1242,7 @@ async def generate_full_report(
         verdict = saved.get("verdict") or ""
 
         review = (
-            [{"text": saved_text, "sentiment": "negative" if score < 60 else "positive"}]
+            [{"text": saved_text, "sentiment": "negative" if (score is None or score < 60) else "positive"}]
             if isinstance(saved_text, str) and saved_text.strip()
             else []
         )
@@ -1245,14 +1287,17 @@ async def generate_full_report(
             if grounded_expectation:
                 expectations = {"when": None, "normal": grounded_expectation, "danger": None}
 
-    score = int((saved_analysis or {}).get("score", deterministic.get("score") or 0))
+    score_value = (saved_analysis or {}).get("score")
+    if score_value is None:
+        score_value = deterministic.get("score")
+    score = int(score_value) if score_value is not None else None
 
     # Report существует только при успешном LLM-ответе. Deterministic fallback запрещён.
     if not explanation:
         raise RuntimeError("LLM report generation returned no usable explanation")
     verdict = (saved_analysis or {}).get("verdict") or deterministic.get("verdict") or ""
     review = [
-        {"text": explanation, "sentiment": "negative" if score < 60 else "positive"}
+        {"text": explanation, "sentiment": "negative" if (score is None or score < 60) else "positive"}
     ] if explanation else []
 
     return {
@@ -1451,9 +1496,10 @@ def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, det
                 )
                 return None
 
-        if _has_forbidden_effect(low):
+        forbidden_effects = [word for word in _FORBIDDEN_EFFECT_WORDS if word in low]
+        if forbidden_effects:
             print(
-                "[REPORT GROUNDING] reject: forbidden effect",
+                f"[REPORT GROUNDING] reject: forbidden effect matched={forbidden_effects!r}",
                 flush=True,
             )
             return None
@@ -1561,7 +1607,7 @@ async def generate_ai_report(product_name: str, analysis: dict, profile: dict, p
             return grounded
     summary = analysis.get("summary") or ""
     if summary:
-        return [{"text": summary, "sentiment": "negative" if score < 60 else "positive"}]
+        return [{"text": summary, "sentiment": "negative" if (score is None or score < 60) else "positive"}]
     return []
 
 async def _enrich_knowledge_with_ai(
