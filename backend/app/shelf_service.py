@@ -487,7 +487,9 @@ def _find_history_score(
 def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
     """Returns the current saved Match, recalculating legacy engine versions deterministically."""
     score, analysis = _analysis_from_analysis_table(user, product)
-    if score is not None:
+    if analysis is not None:
+        # analysis может быть заблокированным/недостаточным (score is None):
+        # возвращаем его, а не фолбэк в legacy check_history.
         return score, analysis
 
     try:
@@ -1245,7 +1247,7 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         if cabinet_applies_scoring(cabinet):
             # score ТОЛЬКО из актуального User Analysis.
             score, analysis = get_personalized_analysis(user, p, history=user_history)
-            if score is None:
+            if analysis is None:
                 # Нет актуального Analysis (нет / TTL / профиль изменён). Если есть состав —
                 # помечаем как требующий перепроверки: фронтенд инициирует её отдельно
                 # (POST /api/shelf/recheck/{product_id}), НЕ внутри этого GET.
@@ -1266,6 +1268,9 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             "score": score,
             "has_report": has_report,
             "needs_recheck": needs_recheck,
+            "phase1_status": (analysis or {}).get("phase1_status"),
+            "recommendation_status": (analysis or {}).get("recommendation_status"),
+            "verdict": (analysis or {}).get("verdict") or "",
         })
 
     cabinets: List[Dict[str, Any]] = []
