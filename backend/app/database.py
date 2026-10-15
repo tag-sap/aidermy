@@ -1344,14 +1344,20 @@ def get_user_profile_updated_at(user_id: int):
 
 def _find_analysis_row(cursor, user_id: int, product_id: int | None, slug: str = ""):
     if product_id is not None:
-        return cursor.execute(
-            "SELECT * FROM analysis WHERE user_id = ? AND product_id = ?", (user_id, product_id)
+        row = cursor.execute(
+            "SELECT * FROM analysis WHERE user_id = ? AND product_id = ?",
+            (user_id, product_id),
         ).fetchone()
+        if row:
+            return row
+
     if slug:
         return cursor.execute(
-            "SELECT * FROM analysis WHERE user_id = ? AND slug = ? AND product_id IS NULL ORDER BY id DESC LIMIT 1",
+            "SELECT * FROM analysis WHERE user_id = ? AND slug = ? "
+            "AND product_id IS NULL ORDER BY id DESC LIMIT 1",
             (user_id, slug),
         ).fetchone()
+
     return None
 
 
