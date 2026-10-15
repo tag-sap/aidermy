@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.score_version import SCORE_ENGINE_VERSION
-from app.shelf_service import score_product
+from app.shelf_service import score_product, recalculate_stale_analysis
 import app.database as database
 from app.database import upsert_analysis
 
@@ -144,6 +144,54 @@ class ScoreEngineVersioningTests(unittest.TestCase):
         self.assertEqual(analysis["report_score_engine_version"], "0.9.0")
         check_with_ai.assert_not_awaited()
 
+
+
+    def test_stale_blocked_analysis_is_persisted_without_phase2_score(self):
+        stale = {
+            "id": 12,
+            "product_id": 20,
+            "slug": "blocked-product",
+            "score": 70,
+            "score_engine_version": None,
+            "deterministic": {"normalized_ingredients": ["fragrance"]},
+        }
+        blocked = {
+            "score": None,
+            "confidence": 0.0,
+            "verdict": "Не рекомендовано",
+            "summary": "Первая фаза не пройдена.",
+            "normalized_ingredients": ["fragrance"],
+            "phase1": {"status": "blocked"},
+            "phase1_status": "blocked",
+            "recommendation_status": "Не рекомендовано",
+            "negative_only_score": 31,
+        }
+        saved = {**stale, "score": None, "deterministic": blocked}
+
+        with patch(
+            "app.database.update_analysis_deterministic_result",
+            return_value=saved,
+        ) as update, patch(
+            "app.shelf_service._deterministic_analysis",
+            return_value=blocked,
+        ), patch(
+            "app.shelf_service._build_user_profile",
+            return_value={"skin_type": "sensitive"},
+        ):
+            result = recalculate_stale_analysis(
+                user={"id": 1},
+                saved_analysis=stale,
+                product={"ingredients": "Fragrance"},
+                scoring_profile={"skin_type": "sensitive"},
+                knowledge={},
+            )
+
+        update.assert_called_once()
+        persisted = update.call_args.args[2]
+        self.assertIsNone(persisted["score"])
+        self.assertEqual(persisted["phase1_status"], "blocked")
+        self.assertEqual(persisted["negative_only_score"], 31)
+        self.assertIs(result, saved)
 
 if __name__ == "__main__":
     unittest.main()

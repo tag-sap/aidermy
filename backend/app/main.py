@@ -1503,11 +1503,32 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
             status = "error"
             detail = "Состав продукта неизвестен"
 
+        saved = None
+        if phase1_status in {"blocked", "insufficient_data"}:
+            saved = _save_system_analysis(
+                current_user,
+                product_id=product.get("id"),
+                slug=product.get("slug") or request.slug,
+                result=result,
+                profile_snapshot=profile,
+            )
+        analysis = None
+        if saved:
+            analysis = {
+                "id": saved.get("id"),
+                "score": None,
+                "verdict": (result or {}).get("verdict") or "",
+                "summary": (result or {}).get("summary") or detail,
+                "phase1_status": phase1_status,
+                "recommendation_status": recommendation_status,
+                "negative_only_score": negative_only_score,
+            }
         return {
             "status": status,
             "cached": False,
             "score": None,
-            "analysis": None,
+            "analysis": analysis,
+            "analysis_id": (saved or {}).get("id"),
             "detail": detail,
             "phase1_status": phase1_status,
             "recommendation_status": recommendation_status,

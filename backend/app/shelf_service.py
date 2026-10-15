@@ -601,7 +601,16 @@ def recalculate_stale_analysis(
             knowledge = None
     refreshed = _deterministic_analysis(profile, ingredients, knowledge=knowledge)
     score = _meaningful_score(refreshed)
-    if score is None:
+
+    # A Phase 1 decision is a persistable deterministic result even when
+    # Phase 2 correctly has no ordinary score. Do not discard blocked or
+    # insufficient-data states during stale Match recalculation.
+    phase1 = (refreshed or {}).get("phase1")
+    phase1_status = (
+        (refreshed or {}).get("phase1_status")
+        or (phase1.get("status") if isinstance(phase1, dict) else None)
+    )
+    if score is None and phase1_status not in {"blocked", "insufficient_data"}:
         return None
 
     if "goal_evidence" not in refreshed and "goal_evidence" in deterministic:
