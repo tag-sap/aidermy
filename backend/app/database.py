@@ -1354,7 +1354,7 @@ def _find_analysis_row(cursor, user_id: int, product_id: int | None, slug: str =
     if slug:
         return cursor.execute(
             "SELECT * FROM analysis WHERE user_id = ? AND slug = ? "
-            "AND product_id IS NULL ORDER BY id DESC LIMIT 1",
+            "ORDER BY id DESC LIMIT 1",
             (user_id, slug),
         ).fetchone()
 
