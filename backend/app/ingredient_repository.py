@@ -197,7 +197,7 @@ class IngredientRepository:
         groups = cursor.execute(
             "SELECT normalized_name, COUNT(*) AS c FROM ingredients_catalog "
             "WHERE normalized_name IS NOT NULL AND normalized_name != '' "
-            "GROUP BY normalized_name HAVING c > 1"
+            "GROUP BY normalized_name HAVING COUNT(*) > 1"
         ).fetchall()
         removed = 0
         for group in groups:

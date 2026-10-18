@@ -8,6 +8,9 @@ AIDERMY_DB = os.path.join(os.path.dirname(__file__), '..', 'aidermy.db')
 PRODUCTS_DB = os.path.join(os.path.dirname(__file__), '..', 'products.db')
 
 def get_connection(db_path=None):
+    if os.getenv("SUPABASE_DATABASE_URL"):
+        from . import pg_adapter
+        return pg_adapter.connect()
     if db_path is None:
         db_path = AIDERMY_DB
     conn = sqlite3.connect(db_path)
@@ -102,6 +105,8 @@ def get_analysis_connection():
     return _AnalysisConnection(get_postgres_connection())
 
 def init_db():
+    if os.getenv("SUPABASE_DATABASE_URL"):
+        return
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
     
