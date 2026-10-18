@@ -32,6 +32,19 @@ def parse_inci_list(raw_text: str) -> List[str]:
 
 def canonicalize_ingredient_name(name: str) -> str:
     normalized = normalize_ingredient_name(name)
+
+    # Варианты воды: нормализуются к единому ключу «water» (вода нейтральна,
+    # но без этого разные написания считались бы «неизвестным» ингредиентом).
+    if normalized in {
+        "purified water", "deionized water", "distilled water",
+        "aqua water", "water aqua", "water aqua eau", "aqua water eau", "eau",
+    }:
+        normalized = "water"
+
+    # Нано-формы УФ-фильтров — тот же ингредиент, что и обычная форма.
+    if normalized in {"titanium dioxide nano", "zinc oxide nano"}:
+        normalized = normalized.replace(" nano", "")
+
     aliases = {
         'niacinamide': 'niacinamide',
         'vitamin b3': 'niacinamide',
@@ -47,5 +60,6 @@ def canonicalize_ingredient_name(name: str) -> str:
         'tocopherol': 'tocopherol',
         'fragrance': 'fragrance',
         'parfum': 'fragrance',
+        'salix alba': 'salix alba bark extract',
     }
     return aliases.get(normalized, normalized)
