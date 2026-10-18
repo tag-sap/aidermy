@@ -56,8 +56,17 @@ oauth.register(
     client_secret=os.getenv('YANDEX_CLIENT_SECRET'),
     authorize_url=YANDEX_AUTHORIZE_URL,
     access_token_url=YANDEX_TOKEN_URL,
-    client_kwargs={'scope': 'login:email login:info login:avatar'},
+    client_kwargs={'scope': 'login:info'},
 )
+
+
+def oauth_success_redirect(app_url: str, access_token: str) -> str:
+    """URL возврата после OAuth.
+
+    Токен передаётся во ФРАГМЕНТЕ (#token=…): фрагмент не отправляется на
+    сервер, поэтому не попадает в access-логи nginx и в заголовок Referer.
+    """
+    return f"{(app_url or '').rstrip('/')}/#token={access_token}"
 
 
 def _email_delivery_configured() -> bool:
@@ -190,7 +199,7 @@ async def google_callback(request: Request):
         
         access_token = create_access_token(data={"sub": str(user['id'])})
         app_url = os.getenv('PUBLIC_APP_URL', 'http://localhost:3000')
-        redirect_url = f"{app_url.rstrip('/')}?token={access_token}"
+        redirect_url = oauth_success_redirect(app_url, access_token)
         return RedirectResponse(url=redirect_url)
         
     except Exception as e:
@@ -289,7 +298,7 @@ async def yandex_callback(request: Request):
         return RedirectResponse(url=f"{app_url}?auth_error=yandex_failed")
 
     access_token = create_access_token(data={"sub": str(user["id"])})
-    return RedirectResponse(url=f"{app_url}?token={access_token}")
+    return RedirectResponse(url=oauth_success_redirect(app_url, access_token))
 
 
 # === РЕГИСТРАЦИЯ ===

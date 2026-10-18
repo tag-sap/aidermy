@@ -129,6 +129,7 @@ let _refreshPromise: Promise<boolean> | null = null
 // 401 не порождают лавину refresh-запросов.
 export function refreshSession(): Promise<boolean> {
   if (_refreshPromise) return _refreshPromise
+  const epoch = _sessionEpoch
   _refreshPromise = (async () => {
     const token = getToken()
     if (!token) return false
@@ -140,6 +141,8 @@ export function refreshSession(): Promise<boolean> {
       if (!res.ok) return false
       const data = (await res.json()) as { access_token?: string }
       if (data && data.access_token) {
+        // Пользователь вышел, пока шёл refresh — не воскрешаем сессию.
+        if (epoch !== _sessionEpoch || !getToken()) return false
         setToken(data.access_token)
         return true
       }
@@ -365,10 +368,18 @@ export const api = {
 export function getToken(): string | null {
   return typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null
 }
+// Поколение сессии: logout инвалидирует уже запущенные refresh-запросы,
+// чтобы поздний ответ не вернул токен обратно после выхода.
+let _sessionEpoch = 0
+
 export function setToken(token: string | null) {
   if (typeof window === "undefined") return
-  if (token) localStorage.setItem(TOKEN_KEY, token)
-  else localStorage.removeItem(TOKEN_KEY)
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token)
+  } else {
+    _sessionEpoch += 1
+    localStorage.removeItem(TOKEN_KEY)
+  }
 }
 
 // ===== СБОРКИ УХОДА (care sets) =====

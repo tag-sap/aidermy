@@ -903,6 +903,106 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
     </div>
   )
 }
+function GuestHomePage({ onAuth }: { onAuth: () => void }) {
+  // Гостевая главная: только презентация продукта. Никаких персональных блоков,
+  // статистики полки или имитации анализа — все действия ведут к входу/регистрации.
+  const steps = [
+    {
+      n: "01",
+      title: "Выберите средство",
+      text: "Найдите продукт в каталоге или отсканируйте упаковку — Aidermy распознаёт состав с этикетки.",
+    },
+    {
+      n: "02",
+      title: "Aidermy разбирает состав",
+      text: "Ингредиенты сопоставляются с вашим профилем кожи: типом, чувствительностью и целями ухода.",
+    },
+    {
+      n: "03",
+      title: "Получите результат",
+      text: "Вы увидите оценку совместимости и объяснение факторов, которые её повышают или снижают.",
+    },
+  ]
+  const shots = [
+    { key: "scan", label: "Сканирование средства", hint: "Распознавание состава" },
+    { key: "result", label: "Результат анализа", hint: "Оценка совместимости" },
+    { key: "report", label: "Подробный отчёт", hint: "Факторы и объяснение" },
+  ]
+  return (
+    <div className="guest-page">
+      <header className="guest-header">
+        <span className="guest-header__brand">айдерми</span>
+        <div className="guest-header__actions">
+          <button type="button" className="guest-link" onClick={onAuth}>Войти</button>
+          <Button small onClick={onAuth}>Начать</Button>
+        </div>
+      </header>
+
+      <section className="guest-hero">
+        <ParticleCanvas tint="rgba(46, 91, 69," />
+        <div className="guest-hero__inner">
+          <p className="eyebrow">Проверка совместимости косметики</p>
+          <h1 className="guest-hero__title">
+            Aidermy анализирует ингредиенты и честно показывает, насколько средство совместимо с вашей кожей.
+          </h1>
+          <p className="guest-hero__lead">Без рекламы и догадок — только состав.</p>
+          <div className="guest-hero__actions">
+            <Button icon="sparkle" onClick={onAuth}>Проверить средство</Button>
+            <Button variant="secondary" onClick={onAuth}>Войти или зарегистрироваться</Button>
+          </div>
+          <p className="guest-hero__note">Для проверки средства и сохранения результата нужен аккаунт. Это бесплатно.</p>
+        </div>
+      </section>
+
+      <section className="guest-block">
+        <SectionHead eyebrow="Как это работает" title="Три шага до понятного результата" />
+        <div className="guest-steps">
+          {steps.map((st) => (
+            <article className="guest-step" key={st.n}>
+              <span className="guest-step__num">{st.n}</span>
+              <h3>{st.title}</h3>
+              <p>{st.text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="guest-block">
+        <SectionHead eyebrow="Интерфейс" title="Как выглядит Aidermy" />
+        <p className="guest-block__lead">
+          Ниже — подготовленные места для скриншотов: распознавание состава, оценка совместимости и подробный разбор.
+        </p>
+        <div className="phone-row">
+          {shots.map((shot) => (
+            <figure className="phone-mock" key={shot.key}>
+              <div className="phone-mock__frame">
+                <div className="phone-mock__screen" data-screenshot-slot={shot.key}>
+                  {/* Слот под будущий скриншот: замените содержимое на <img className="phone-mock__img" src="…" alt="…" /> */}
+                  <span className="phone-mock__tag">Скриншот</span>
+                  <strong>{shot.label}</strong>
+                  <small>{shot.hint}</small>
+                </div>
+              </div>
+              <figcaption>{shot.label}</figcaption>
+            </figure>
+          ))}
+        </div>
+      </section>
+
+      <section className="guest-cta">
+        <h2>Начните с одного средства</h2>
+        <p>
+          Добавьте продукт, посмотрите оценку совместимости и разберитесь, какие ингредиенты работают на вашу кожу.
+        </p>
+        <div className="guest-cta__actions">
+          <Button icon="sparkle" onClick={onAuth}>Начать</Button>
+          <button type="button" className="guest-link" onClick={onAuth}>У меня уже есть аккаунт</button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemove, onClear, onDeleteBatch }: {
   items: Product[]; checkingIds: Set<number>; loading?: boolean; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void; onDeleteBatch: (ids: number[]) => void
 }) {
@@ -3098,6 +3198,7 @@ export default function App() {
   // Восстановление сессии по сохранённому токену (в т.ч. Google OAuth ?token=).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""))
     const authError = params.get("auth_error")
     if (authError) {
       const msg = authError === "yandex_email_taken"
@@ -3109,15 +3210,25 @@ export default function App() {
             : "Не удалось войти через Яндекс. Попробуйте ещё раз."
       setToast(msg)
       params.delete("auth_error")
-      const rest = params.toString()
-      window.history.replaceState(null, "", window.location.pathname + (rest ? "?" + rest : ""))
     }
-    const urlToken = params.get("token")
+    // Токен приходит во фрагменте (#token=…): фрагмент не отправляется на сервер,
+    // поэтому не попадает в логи и Referer. Query-вариант поддержан для совместимости.
+    const urlToken = hashParams.get("token") || params.get("token")
     if (urlToken) {
       setToken(urlToken)
+      hashParams.delete("token")
       params.delete("token")
-      const qs = params.toString()
-      window.history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""))
+    }
+    if (authError || urlToken) {
+      const restQuery = params.toString()
+      const restHash = hashParams.toString()
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname
+          + (restQuery ? "?" + restQuery : "")
+          + (restHash ? "#" + restHash : ""),
+      )
     }
     const token = getToken()
     if (!token) return
@@ -3127,7 +3238,8 @@ export default function App() {
         const plan: Plan = u.plan === "pro" || u.plan === "plus" ? u.plan : "free"
         setUser({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: u.balance || 0 })
         // Скользящая сессия: продлеваем токен, пока пользователь активен.
-        api.refresh().then((r) => setToken(r.access_token)).catch(() => {})
+        // Если пользователь успел выйти, пока шёл refresh, токен не возвращаем.
+        api.refresh().then((r) => { if (getToken()) setToken(r.access_token) }).catch(() => {})
       })
       .catch((err) => {
         // Токен стираем ТОЛЬКО если сервер явно сказал, что сессия недействительна.
@@ -3212,6 +3324,8 @@ export default function App() {
   }, [open, authModal, pricingOpen, addModalOpen, autoPickResults, pointsOpen, removeProduct, clearCabinet])
 
   const navigate = (p: Page) => {
+    // Гостю доступна только «Главная»: остальные разделы требуют входа.
+    if (!user && p !== "home") { setAuthModal("login"); return }
     if (p === "sets") { setPage("home"); window.scrollTo({ top: 0 }); return }
     if (p === "shelf" && !user) { setAuthModal("login"); return }
     if (p === "sets" && !user) { setAuthModal("login"); return }
@@ -3249,7 +3363,8 @@ export default function App() {
     setUser(null)
     setShelfItems([])
     setItems((cur) => cur.map((p) => (p.state === "using" ? { ...p, state: undefined, shelf_id: undefined } : p)))
-    if (page === "shelf" || page === "report" || page === "sets") setPage("home")
+    // Гость видит только главную — после выхода всегда возвращаемся туда.
+    setPage("home")
   }
   const handleSelectPlan = async (p: Plan) => {
     if (getToken()) {
@@ -3346,24 +3461,26 @@ export default function App() {
   const goToCatalog = (q: string) => { setQuery(q); setPage("catalog"); window.scrollTo({ top: 0 }) }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${user ? "" : "app-shell--guest"}`}>
       <LoadingScreen done={!loading} />
-      <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} />
+      {user && <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} />}
       <div className="workspace">
-        <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} onPoints={() => setPointsOpen(true)} />
-        <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />
+        {user && <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} onPoints={() => setPointsOpen(true)} />}
+        {user && <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />}
         <main className="main-content">
-          <div key={page} className="page-anim">
-            {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} shelfItems={shelfItems} />}
-            {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
-            {page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
-            {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
-            {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
-            {page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} />}
+          <div key={user ? page : "guest-home"} className="page-anim">
+            {page === "home" && (user
+              ? <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} shelfItems={shelfItems} />
+              : <GuestHomePage onAuth={() => setAuthModal("login")} />)}
+            {user && page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
+            {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
+            {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
+            {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
+            {user && page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} />}
           </div>
         </main>
       </div>
-      <BottomNav page={page} onNavigate={navigate} />
+      {user && <BottomNav page={page} onNavigate={navigate} />}
       {open && <ProductDrawer key={open.id} product={open} morphOrigin={morphOrigin} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onCheckFinished={onCheckFinished} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
