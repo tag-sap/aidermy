@@ -609,6 +609,25 @@ def subcategory_key_for_title(title: str) -> Optional[Tuple[str, str]]:
     return None
 
 
+# Витрина каталога (CATALOG_TAXONOMY / face_taxonomy.FACE_TAXONOMY) использует
+# актуальные названия категорий. Внутренняя таксономия полки/PPM/рекомендаций
+# исторически оперирует старыми подкатегориями, поэтому UI каталога и автоподбор
+# должны явно отображаться на внутренние названия. Маппинг аддитивный:
+# старые значения продолжают работать через subcategory_key_for_title.
+_CATALOG_TITLE_TO_SUBCATEGORY: Dict[str, str] = {
+    "очищение": "Очищение и демакияж",
+    "тонизация": "Тонизирование",
+    "сыворотки и концентраты": "Сыворотки",
+    "увлажнение": "Увлажнение и питание",
+    "восстановление кожного барьера": "Кремы",
+    "маски": "Маски",
+    "эксфолиация": "Скрабы и пилинги",
+    "защита от солнца": "Специальный уход",
+    "уход за областью вокруг глаз": "Для кожи вокруг глаз",
+    "уход за губами": "Уход для губ",
+}
+
+
 def canonical_subcategory(cabinet: str, raw: str) -> str:
     """Приводит сырую категорию к канонической подкатегории (иначе «Другое»)."""
     candidate = (raw or "").strip()
@@ -618,6 +637,8 @@ def canonical_subcategory(cabinet: str, raw: str) -> str:
     if hit:
         return subcategory_title_for_key(*hit) or "Другое"
     low = candidate.lower()
+    if cabinet == "face" and low in _CATALOG_TITLE_TO_SUBCATEGORY:
+        return _CATALOG_TITLE_TO_SUBCATEGORY[low]
     if low in _LEGACY_FACE_MAP:
         return _LEGACY_FACE_MAP[low][1]
     meta = _BODY_AREA_BY_KEY.get(cabinet) or {}

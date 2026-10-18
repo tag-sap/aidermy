@@ -903,8 +903,8 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
     </div>
   )
 }
-function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear, onDeleteBatch }: {
-  items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void; onDeleteBatch: (ids: number[]) => void
+function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemove, onClear, onDeleteBatch }: {
+  items: Product[]; checkingIds: Set<number>; loading?: boolean; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void; onDeleteBatch: (ids: number[]) => void
 }) {
   const [active, setActive] = useState<CabinetKey>("face")
   const [selectMode, setSelectMode] = useState(false)
@@ -1026,7 +1026,11 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear, onDel
               <div className="shelf-plank" />
             </div>
           ))}
-          {shelved.length === 0 && <p className="empty">Полка пуста. Добавьте первое средство.</p>}
+          {shelved.length === 0 && (
+            loading
+              ? <p className="empty"><span className="spin" /> Загружаем полку…</p>
+              : <p className="empty">Полка пуста. Добавьте первое средство.</p>
+          )}
         </div>
       </div>
       <button type="button" className="shelf-fab" onClick={onAdd} aria-label="Добавить продукт"><Icon name="plus" size={24} /></button>
@@ -2654,37 +2658,60 @@ function ShelfAddModal({
     }, 650)
   }
 
+  const gestureRef = useRef<{ x: number; y: number; cancelled: boolean } | null>(null)
+
+  const scrollerAtTop = () => {
+    const el = sheetRef.current
+    if (!el) return true
+    const scroller = el.querySelector(".add-modal") as HTMLElement | null
+    return !scroller || scroller.scrollTop <= 0
+  }
+
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    dragStartY.current = e.touches[0].clientY
-    dragCurrentY.current = e.touches[0].clientY
+    if (isClosing) return
+    const t = e.touches[0]
+    if (!t) return
+    const target = e.target as HTMLElement | null
+    const insideScroller = !!target?.closest(".add-modal")
+    // Внутри прокрученного списка жест принадлежит списку, а не панели.
+    if (insideScroller && !scrollerAtTop()) { gestureRef.current = null; return }
+    gestureRef.current = { x: t.clientX, y: t.clientY, cancelled: false }
+    dragStartY.current = t.clientY
+    dragCurrentY.current = t.clientY
   }
 
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (dragStartY.current == null) return
-
-    const currentY = e.touches[0].clientY
-    dragCurrentY.current = currentY
-
-    const delta = currentY - dragStartY.current
-
-    if (delta > 0) {
-      setDragY(Math.min(delta, window.innerHeight))
+    const g = gestureRef.current
+    if (!g || g.cancelled) return
+    const t = e.touches[0]
+    if (!t) return
+    const dx = t.clientX - g.x
+    const dy = t.clientY - g.y
+    // Горизонтальный жест (свайп карусели/списка) не должен закрывать панель.
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 12) {
+      g.cancelled = true
+      dragStartY.current = null
+      dragCurrentY.current = null
+      setDragY(0)
+      return
     }
+    dragCurrentY.current = t.clientY
+    if (dy > 0) setDragY(Math.min(dy, window.innerHeight))
   }
 
   const handleTouchEnd = () => {
-    if (dragStartY.current == null || dragCurrentY.current == null) return
-
-    const delta = dragCurrentY.current - dragStartY.current
-
+    const g = gestureRef.current
+    gestureRef.current = null
+    if (!g) return
+    const delta = dragStartY.current != null && dragCurrentY.current != null
+      ? dragCurrentY.current - dragStartY.current
+      : 0
     dragStartY.current = null
     dragCurrentY.current = null
-
-    if (delta > 100) {
+    if (!g.cancelled && (delta > 100 || dragY > 100)) {
       closeWithAnimation()
       return
     }
-
     setDragY(0)
   }
 
@@ -2700,6 +2727,10 @@ function ShelfAddModal({
     <div
       className={`modal-backdrop modal-backdrop--shelf-add${isClosing ? " is-closing" : ""}`}
       onClick={closeWithAnimation}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
     >
       <div className="shelf-add-sheet-enter">
         <div
@@ -2720,13 +2751,7 @@ function ShelfAddModal({
         </button>
 
         <div className="add-modal">
-          <div
-            className="add-modal__handle"
-            aria-hidden="true"
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-          />
+          <div className="add-modal__handle" aria-hidden="true" />
           <p className="eyebrow">Моя полка</p>
           <h2>{title}</h2>
 
@@ -2793,8 +2818,8 @@ function ShelfAddModal({
                   </p>
 
                   <div className="autopick-category-grid">
-                    {(CABINETS.find((c) => c.key === "face")?.categories || [])
-                      .slice(0, 8)
+                    {FACE_TAXONOMY.filter((c) => c.title !== "Уход за губами")
+                      .map((c) => c.title)
                       .map((c, i) => (
                         <button
                           key={c}
@@ -2983,6 +3008,7 @@ export default function App() {
   const [query, setQuery] = useState("")
   const [helpOpen, setHelpOpen] = useState(false)
   const [toast, setToast] = useState("")
+  const [shelfLoading, setShelfLoading] = useState(false)
 
   useEffect(() => { const t = window.setTimeout(() => setLoading(false), 1200); return () => window.clearTimeout(t) }, [])
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(""), 2200); return () => window.clearTimeout(t) }, [toast])
@@ -3034,9 +3060,10 @@ export default function App() {
   }, [])
 
   // Полка: грузим реальные шкафы и отмечаем продукты как «использую».
-  const loadShelf = () => {
-    if (!getToken()) return
-    api.shelf()
+  const loadShelf = (): Promise<void> => {
+    if (!getToken()) return Promise.resolve()
+    setShelfLoading(true)
+    return api.shelf()
       .then((res) => {
         const shelfIds = new Set<number>()
         const mapped: Product[] = []
@@ -3049,9 +3076,16 @@ export default function App() {
           }
         }
         setShelfItems(mapped)
-        setItems((cur) => cur.map((p) => (shelfIds.has(p.id) ? { ...p, state: "using" } : p)))
+        // Полка — источник истины для статуса «использую»: то, что с неё убрали
+        // (в другой вкладке/устройстве), не должно оставаться «использую» в UI.
+        setItems((cur) => cur.map((p) => (
+          shelfIds.has(p.id)
+            ? { ...p, state: "using" as ProductState }
+            : (p.state === "using" ? { ...p, state: undefined, shelf_id: undefined } : p)
+        )))
       })
       .catch(() => {})
+      .finally(() => setShelfLoading(false))
   }
   useEffect(() => { loadShelf() }, [])
 
@@ -3087,18 +3121,34 @@ export default function App() {
 
   const onChecking = (id: number) => setCheckingIds((prev) => new Set(prev).add(id))
   const onChecked = (id: number, score: number | null, verdict: Verdict | null, recommendationStatus?: string, analysisId?: number) => {
-    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: { ...(p.match ?? {}), score, verdict: verdict ?? p.match?.verdict, recommendation_status: recommendationStatus ?? p.match?.recommendation_status, analysis_id: analysisId ?? p.match?.analysis_id } } : p)))
-    setOpen((o) => (o && o.id === id ? { ...o, match: { ...(o.match ?? {}), score, verdict: verdict ?? o.match?.verdict, recommendation_status: recommendationStatus ?? o.match?.recommendation_status, analysis_id: analysisId ?? o.match?.analysis_id } } : o))
+    // Один и тот же результат проверки должен немедленно отражаться везде,
+    // где показан продукт: каталог (items), полка (shelfItems) и открытая карточка (open).
+    const applyMatch = (p: Product): Product => (p.id === id
+      ? { ...p, match: { ...(p.match ?? { score: null }), score, verdict: verdict ?? p.match?.verdict, recommendation_status: recommendationStatus ?? p.match?.recommendation_status, analysis_id: analysisId ?? p.match?.analysis_id } }
+      : p)
+    setItems((cur) => cur.map(applyMatch))
+    setShelfItems((cur) => cur.map(applyMatch))
+    setOpen((o) => (o && o.id === id ? applyMatch(o) : o))
     setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
   }
   const onCheckFinished = (id: number) => setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
   const onReported = (id: number, analysisId?: number) => {
-    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: p.match ? { ...p.match, analysis_id: analysisId ?? p.match.analysis_id } : undefined } : p)))
-    setOpen((o) => (o && o.id === id ? { ...o, match: o.match ? { ...o.match, analysis_id: analysisId ?? o.match.analysis_id } : undefined } : o))
+    const applyAnalysis = (p: Product): Product => (p.id === id
+      ? { ...p, match: p.match ? { ...p.match, analysis_id: analysisId ?? p.match.analysis_id } : undefined }
+      : p)
+    setItems((cur) => cur.map(applyAnalysis))
+    setShelfItems((cur) => cur.map(applyAnalysis))
+    setOpen((o) => (o && o.id === id ? applyAnalysis(o) : o))
   }
 
-  const handleLogin = (u: User) => { setUser(u); setAuthModal(null) }
-  const handleLogout = () => { setToken(null); setUser(null); if (page === "shelf" || page === "report" || page === "sets") setPage("home") }
+  const handleLogin = (u: User) => { setUser(u); setAuthModal(null); void loadShelf() }
+  const handleLogout = () => {
+    setToken(null)
+    setUser(null)
+    setShelfItems([])
+    setItems((cur) => cur.map((p) => (p.state === "using" ? { ...p, state: undefined, shelf_id: undefined } : p)))
+    if (page === "shelf" || page === "report" || page === "sets") setPage("home")
+  }
   const handleSelectPlan = async (p: Plan) => {
     if (getToken()) {
       try { const r = await api.subscription(p); setUser((u) => (u ? { ...u, plan: p, points: r.balance } : u)) } catch { setUser((u) => (u ? { ...u, plan: p } : u)) }
@@ -3129,10 +3179,16 @@ export default function App() {
     }
     if (error) { setToast(error); return false }
     setItems((cur) => cur.map((x) => (x.id === id ? { ...x, state: "using", shelf_id: shelfId ?? x.shelf_id } : x)))
+    // Оптимистично добавляем на полку, чтобы карточка появилась сразу,
+    // а затем сверяемся с сервером (он вернёт канонический shelf_id/категорию).
+    setShelfItems((cur) => {
+      const withoutDup = cur.filter((x) => x.id !== id)
+      return [...withoutDup, { ...p, state: "using", shelf_id: shelfId ?? p.shelf_id, cabinet: (p.cabinet || "face") as CabinetKey }]
+    })
     setOpen((o) => (o && o.id === id ? { ...o, state: "using", shelf_id: shelfId ?? o.shelf_id } : o))
     setAddModalOpen(false)
     setToast("Добавлено на полку ✓")
-    loadShelf()
+    void loadShelf()
     return true
   }
   const handleRemoveFromShelf = async () => {
@@ -3142,6 +3198,7 @@ export default function App() {
       if (p?.shelf_id) { try { await api.removeFromShelf(p.shelf_id) } catch { /* ignore */ } }
     }
     setItems((cur) => cur.map((x) => (x.id === p?.id ? { ...x, state: undefined, shelf_id: undefined } : x)))
+    if (p?.id != null) setShelfItems((cur) => cur.filter((x) => x.id !== p.id))
     setRemoveProduct(null)
     setRemoveReason("")
     loadShelf()
@@ -3161,13 +3218,15 @@ export default function App() {
       try { await api.deleteBatch(ids) } catch { /* ignore */ }
     }
     setItems((cur) => cur.map((x) => (ids.includes(x.shelf_id ?? -1) ? { ...x, state: undefined, shelf_id: undefined } : x)))
-    loadShelf()
+    setShelfItems((cur) => cur.filter((x) => !ids.includes(x.shelf_id ?? -1)))
+    void loadShelf()
   }
   const handleCategoryEdit = async (shelfId: number, category: string) => {
     if (shelfId && getToken()) {
       try { await api.updateShelfCategory(shelfId, category) } catch { /* ignore */ }
     }
-    loadShelf()
+    setShelfItems((cur) => cur.map((x) => (x.shelf_id === shelfId ? { ...x, category, tags: category ? [category] : [] } : x)))
+    void loadShelf()
   }
   const handleTopUp = async (amount: number) => {
     if (getToken()) {
@@ -3194,7 +3253,7 @@ export default function App() {
         <main className="main-content">
           <div key={page} className="page-anim">
             {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} shelfItems={shelfItems} />}
-            {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
+            {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
             {page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
