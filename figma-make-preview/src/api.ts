@@ -123,7 +123,36 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+let _refreshPromise: Promise<boolean> | null = null
+
+// Продление сессии по действующему токену. Один общий промис: параллельные
+// 401 не порождают лавину refresh-запросов.
+export function refreshSession(): Promise<boolean> {
+  if (_refreshPromise) return _refreshPromise
+  _refreshPromise = (async () => {
+    const token = getToken()
+    if (!token) return false
+    try {
+      const res = await fetch(BASE + "/auth/refresh", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return false
+      const data = (await res.json()) as { access_token?: string }
+      if (data && data.access_token) {
+        setToken(data.access_token)
+        return true
+      }
+      return false
+    } catch {
+      return false
+    }
+  })()
+  _refreshPromise.finally(() => { _refreshPromise = null })
+  return _refreshPromise
+}
+
+async function request<T>(path: string, options: RequestInit = {}, _retried = false): Promise<T> {
   const headers: Record<string, string> = { ...(options.headers as Record<string, string> | undefined) }
   const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null
   if (token) headers["Authorization"] = `Bearer ${token}`
@@ -137,6 +166,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (!res.ok) {
+    if (res.status === 401 && !_retried && !path.startsWith("/auth/")) {
+      // Access token истёк — пробуем продлить сессию один раз и повторить.
+      const renewed = await refreshSession()
+      if (renewed) return request<T>(path, options, true)
+    }
     let detail = `Ошибка ${res.status}`
     try {
       const data = await res.json()
@@ -154,10 +188,48 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   // ===== auth =====
   async register(email: string, password: string, name: string) {
-    return request<{ message: string; email: string }>("/auth/register", {
+    return request<{
+      verification_required?: boolean
+      message?: string
+      email?: string
+      access_token?: string
+      token_type?: string
+      user?: ApiUser
+    }>("/auth/register", {
       method: "POST",
       body: JSON.stringify({ email, password, name }),
     })
+  },
+  async refresh() {
+    return request<{ access_token: string; token_type: string; user: ApiUser }>("/auth/refresh", {
+      method: "POST",
+    })
+  },
+  // Загрузка фото продукта (multipart). Content-Type НЕ задаём вручную:
+  // браузер сам проставит boundary; сервер проверяет реальный формат по байтам.
+  async uploadProductImage(file: File) {
+    const token = getToken()
+    const headers: Record<string, string> = {}
+    if (token) headers["Authorization"] = `Bearer ${token}`
+    let res: Response
+    try {
+      res = await fetch(BASE + "/uploads/product-image", { method: "POST", headers, body: (() => {
+        const form = new FormData()
+        form.append("file", file)
+        return form
+      })() })
+    } catch {
+      throw new ApiError("Нет соединения с сервером", 0)
+    }
+    if (!res.ok) {
+      let detail = `Ошибка ${res.status}`
+      try {
+        const data = await res.json() as { detail?: string }
+        if (data && data.detail) detail = data.detail
+      } catch { /* ignore */ }
+      throw new ApiError(detail, res.status)
+    }
+    return (await res.json()) as { url: string; key: string }
   },
   async login(email: string, password: string) {
     const body = new URLSearchParams({ username: email, password })

@@ -55,6 +55,7 @@ class AnalysisService:
         canonical_weights = priorities if priorities_are_canonical else canonicalize_weights(priorities)
 
         from .phase1 import evaluate_phase1, recommendation_status
+        from .scoring_engine import PHASE1_AFFECTS_SCORE
 
         def phase1_gate(preliminary_result):
             return evaluate_phase1(
@@ -70,15 +71,36 @@ class AnalysisService:
             canonical_weights=canonical_weights,
             interactions=interactions,
             saturation_scale=saturation_scale,
-            pre_score_check=phase1_gate,
+            # Экспериментальный режим: pre_score_check=None → Phase 2 считает score
+            # ровно так же, как для «прошедших» товаров. Phase 1 при этом
+            # вычисляется ниже отдельно — только для диагностики.
+            pre_score_check=phase1_gate if PHASE1_AFFECTS_SCORE else None,
         )
 
-        phase1_result = result.get("phase1")
-        if phase1_result:
-            result["recommendation_status"] = recommendation_status(
-                phase1_result,
-                result.get("score"),
+        if PHASE1_AFFECTS_SCORE:
+            phase1_result = result.get("phase1")
+            if phase1_result:
+                result["recommendation_status"] = recommendation_status(
+                    phase1_result,
+                    result.get("score"),
+                )
+        else:
+            # Phase 1 не влияет на score; статус считаем для отчёта/диагностики.
+            diagnostic = evaluate_phase1(
+                result,
+                scoring_profile,
+                normalized_ingredients,
             )
+            result["phase1"] = diagnostic
+            result["phase1_status"] = diagnostic.get("status")
+            result["phase1_diagnostics_only"] = True
+            score_value = result.get("score")
+            if score_value is None:
+                result["recommendation_status"] = "Недостаточно данных"
+            elif score_value >= 60:
+                result["recommendation_status"] = "Рекомендовано"
+            else:
+                result["recommendation_status"] = "Требует внимания"
 
         result['product_name'] = product_name
         result['normalized_ingredients'] = normalized_ingredients

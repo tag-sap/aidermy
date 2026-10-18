@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from typing import Any, Callable, Dict, List, Tuple
 
 from .ingredient_normalizer import normalize_ingredient_name
@@ -123,6 +124,12 @@ PROFILE_CONFLICT_DECAY = 2.0
 # вкладов. inf = только сильнейший (top-1, текущее поведение); 1.0 = 1/rank (как harm-оси).
 import math as _math
 BENEFIT_DECAY = 2.5
+
+# Экспериментальный режим (НЕ production по умолчанию): Phase 1 вычисляется и
+# попадает в результат для диагностики, но НЕ меняет итоговый score и ветку
+# расчёта. Управляется переменной окружения PHASE1_AFFECTS_SCORE=0.
+# Production-поведение (значение по умолчанию) остаётся прежним.
+PHASE1_AFFECTS_SCORE = os.getenv("PHASE1_AFFECTS_SCORE", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _profile_negative_multiplier(axis: str, profile: Dict[str, Any]) -> float:

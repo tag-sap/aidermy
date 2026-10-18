@@ -2937,3 +2937,39 @@ select:focus-visible,
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
+
+/* Ошибка получения отчёта: отдельное состояние, не путается с «нет состава». */
+.drawer__report-error {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(180, 35, 24, 0.28);
+  border-radius: 12px;
+  background: rgba(180, 35, 24, 0.06);
+  color: #8f1d14;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* Ручное добавление: необязательное фото продукта. */
+.manual-photo { display: grid; gap: 8px; }
+.manual-photo__label { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+.manual-photo__add {
+  min-height: 48px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+.manual-photo__add:disabled { opacity: .6; }
+.manual-photo__preview { display: flex; align-items: center; gap: 12px; }
+.manual-photo__preview img {
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.manual-photo__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.manual-photo__error { margin: 0; color: #8f1d14; font-size: 12.5px; }

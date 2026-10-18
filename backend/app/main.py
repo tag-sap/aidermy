@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Header
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Header, File, UploadFile
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -515,6 +515,67 @@ async def create_product_endpoint(
         raise HTTPException(status_code=500, detail=f"Ошибка создания продукта: {str(exc)}") from exc
 
 
+@app.post("/api/uploads/product-image")
+async def upload_product_image(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Загрузка фото продукта при ручном добавлении.
+
+    Безопасность:
+      * размер ограничен 8 МБ;
+      * формат определяется по СОДЕРЖИМОМУ (Pillow), а не по MIME клиента;
+      * допускаются только JPEG/PNG/WebP;
+      * EXIF удаляется, изображение перекодируется и уменьшается до 1600px;
+      * файл кладётся в S3 (Yandex Object Storage) под user-uploads/<user_id>/,
+        а не в отдельное поле продукта.
+    """
+    import io
+    import uuid
+
+    from PIL import Image, ImageOps
+
+    from .image_storage import upload_image
+
+    MAX_BYTES = 8 * 1024 * 1024
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Пустой файл")
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Файл больше 8 МБ")
+
+    try:
+        probe = Image.open(io.BytesIO(data))
+        probe.verify()
+        real_format = (probe.format or "").upper()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Не удалось распознать изображение")
+
+    if real_format not in {"JPEG", "PNG", "WEBP"}:
+        raise HTTPException(status_code=400, detail="Поддерживаются только JPEG, PNG и WebP")
+
+    try:
+        img = Image.open(io.BytesIO(data))
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in {"RGB", "L"}:
+            img = img.convert("RGB")
+        img.thumbnail((1600, 1600))
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=88, optimize=True)
+        payload = out.getvalue()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Не удалось обработать изображение")
+
+    key = f"user-uploads/{current_user['id']}/{uuid.uuid4().hex}.jpg"
+    try:
+        url = upload_image(key, payload, content_type="image/jpeg")
+    except Exception as exc:
+        print(f"[UPLOAD] s3 failed: {exc!r}")
+        raise HTTPException(status_code=502, detail="Хранилище изображений недоступно")
+
+    return {"url": url, "key": key, "content_type": "image/jpeg", "bytes": len(payload)}
+
+
 @app.get("/api/brands")
 async def get_brands(q: str = ""):
     data = await get_categories()
@@ -555,6 +616,15 @@ async def check_product(
         user_id = current_user.get('id') if current_user else None
         product_id = existing_product['id'] if existing_product else None
 
+        # Пользовательское фото (если приложено при ручном добавлении).
+        request_image_url = (getattr(request, "image_url", None) or "").strip()
+        if user_id and slug and request_image_url:
+            try:
+                from .database import save_user_product_image
+                save_user_product_image(user_id, slug, request_image_url)
+            except Exception as exc:
+                print(f"[IMAGE] save failed: {exc!r}")
+
         # Списание балла за проверку (Слой 1).
         if user_id:
             try:
@@ -585,7 +655,7 @@ async def check_product(
             caution_ingredients=result.get("caution_ingredients", []),
             cached=False,
             slug=slug,
-            image_url=result.get("image_url"),
+            image_url=request_image_url or result.get("image_url"),
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),
@@ -596,6 +666,8 @@ async def check_product(
             recommendation_status=result.get("recommendation_status"),
             pending=pending,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
     
@@ -633,7 +705,16 @@ async def check_with_ingredients(
         
         user_id = current_user.get('id') if current_user else None
         product_id = existing_product['id'] if existing_product else None
-        
+
+        # Пользовательское фото (если приложено при ручном добавлении).
+        request_image_url = (getattr(check_request, "image_url", None) or "").strip()
+        if user_id and slug and request_image_url:
+            try:
+                from .database import save_user_product_image
+                save_user_product_image(user_id, slug, request_image_url)
+            except Exception as exc:
+                print(f"[IMAGE] save failed: {exc!r}")
+
         # Отправляем в модерацию
         if check_request.ingredients and result.get("score") is not None:
             save_pending_product(
@@ -664,7 +745,7 @@ async def check_with_ingredients(
             caution_ingredients=result.get("caution_ingredients", []),
             cached=False,
             slug=slug,
-            image_url=result.get("image_url"),
+            image_url=request_image_url or result.get("image_url"),
             active_ingredients=result.get("active_ingredients"),
             how_to_use=result.get("how_to_use"),
             expectations=result.get("expectations"),

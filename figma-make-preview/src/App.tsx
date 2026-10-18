@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
-import { api, setToken, getToken, type ReportResult, type Review } from "./api"
+import { api, ApiError, setToken, getToken, type ReportResult, type Review } from "./api"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import {
@@ -1136,6 +1136,11 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
   const [url, setUrl] = useState("")
   const [photoAdded, setPhotoAdded] = useState(false)
   const [inciPhotoAdded, setInciPhotoAdded] = useState(false)
+  // Фото продукта при ручном добавлении (необязательное).
+  const [manualImage, setManualImage] = useState("")
+  const [manualImageBusy, setManualImageBusy] = useState(false)
+  const [manualImageError, setManualImageError] = useState("")
+  const manualImageRef = useRef<HTMLInputElement>(null)
   const [result, setResult] = useState<Product | null>(null)
   const [slug, setSlug] = useState<string | undefined>(undefined)
   const [imageUrl, setImageUrl] = useState("")
@@ -1200,33 +1205,50 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
         // нет (не распознался) — проверяем по названию (бэкенд возьмёт INCI из БД).
         let checkRes
         if (inci.trim()) {
-          checkRes = await api.checkWithIngredients({ product_name: name.trim(), brand: brand.trim(), skin_type: skinType, profile, ingredients: inci })
+          checkRes = await api.checkWithIngredients({ product_name: name.trim(), brand: brand.trim(), skin_type: skinType, profile, ingredients: inci, image_url: manualImage || undefined })
         } else {
-          checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile })
+          checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile, image_url: manualImage || undefined })
         }
-        setResult(buildResult(brand.trim(), name.trim(), "", "", inci.trim(), checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
+        setResult(buildResult(brand.trim(), name.trim(), manualImage || "", checkRes.slug || "", inci.trim(), checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
       }
       setPhase("ready")
-      // Обновляем товар в общем списке items, чтобы балл отображался сразу без перезагрузки
-      if (checkRes && typeof checkRes.score === "number") {
-        setItems(prev => prev.map(p => p.name.toLowerCase() === name.trim().toLowerCase() ? {
-          ...p,
-          match: {
-            score: checkRes.score,
-            verdict: checkRes.verdict,
-            recommendation_status: checkRes.recommendation_status,
-            analysis_id: checkRes.analysis_id
-          }
-        } : p))
-      }
     } catch {
-      // fallback: без фейкового счёта — пользователь проверит вручную в карточке
-      setResult(buildResult(brand.trim() || "COSRX", name.trim() || "Advanced Snail 96 Mucin Power Essence", imageUrl, slug, inci.trim(), undefined))
+      // Ошибка запроса: сохраняем введённые данные и фото, но НЕ придумываем score.
+      // Пользователь может повторить проверку в карточке продукта.
+      setResult(buildResult(
+        brand.trim() || "COSRX",
+        name.trim() || "Advanced Snail 96 Mucin Power Essence",
+        manualImage || imageUrl,
+        slug,
+        inci.trim(),
+        undefined,
+      ))
       setPhase("ready")
     }
   }
 
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const uploadManualImage = async (file: File) => {
+    setManualImageError("")
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
+      setManualImageError("Поддерживаются JPEG, PNG или WebP.")
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setManualImageError("Файл больше 8 МБ.")
+      return
+    }
+    setManualImageBusy(true)
+    try {
+      const res = await api.uploadProductImage(file)
+      setManualImage(res.url)
+    } catch (e) {
+      setManualImageError(e instanceof Error ? e.message : "Не удалось загрузить фото.")
+    } finally {
+      setManualImageBusy(false)
+    }
+  }
   const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)
@@ -1312,7 +1334,31 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
             <label className="scan-form__area"><span>Ссылка на продукт *</span><input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></label>
           )}
           {method === "manual" && (
-            <label className="scan-form__area"><span>Состав (INCI) *</span><textarea value={inci} onChange={(e) => setInci(e.target.value)} placeholder="Вставьте полный состав…" rows={5} /></label>
+            <>
+              <label className="scan-form__area"><span>Состав (INCI) *</span><textarea value={inci} onChange={(e) => setInci(e.target.value)} placeholder="Вставьте полный состав…" rows={5} /></label>
+              <div className="manual-photo">
+                <span className="manual-photo__label">Фото продукта (необязательно)</span>
+                {manualImage ? (
+                  <div className="manual-photo__preview">
+                    <img src={manualImage} alt="Фото продукта" />
+                    <div className="manual-photo__actions">
+                      <button type="button" className="chip" onClick={() => manualImageRef.current?.click()} disabled={manualImageBusy}>Заменить</button>
+                      <button type="button" className="chip" onClick={() => { setManualImage(""); setManualImageError("") }} disabled={manualImageBusy}>Удалить</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" className="manual-photo__add" onClick={() => manualImageRef.current?.click()} disabled={manualImageBusy}>
+                    {manualImageBusy ? "Загружаем…" : "Прикрепить фото"}
+                  </button>
+                )}
+                {manualImageError && <p className="manual-photo__error" role="alert">{manualImageError}</p>}
+                <input ref={manualImageRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void uploadManualImage(file)
+                  e.target.value = ""
+                }} />
+              </div>
+            </>
           )}
 
           <Button icon="sparkle" onClick={run} disabled={!canRun} className="w-full">Проверить</Button>
@@ -1672,6 +1718,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const [analysisId, setAnalysisId] = useState<number | undefined>(product.match?.analysis_id)
   const [reportData, setReportData] = useState<ReportResult | null>(null)
   const [showAnalysisExplainer, setShowAnalysisExplainer] = useState(false)
+  const [reportError, setReportError] = useState("")
   const [reviews, setReviews] = useState<Review[]>([])
   const [rating, setRating] = useState(0)
   const [review, setReview] = useState("")
@@ -1962,24 +2009,47 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const showReport = async () => {
     if (!user) { onAuth(); return }
     if (user.plan === "free") { onPricing(); return }
-    if (!product.slug) return
+    // Недостаточно состава — это отдельное состояние, а не «нет анализа».
+    if (recommendationStatus === "Недостаточно данных" || (score == null && product.match == null)) {
+      setReportError("Недостаточно данных о составе: отчёт недоступен. Добавьте полный состав и проверьте снова.")
+      return
+    }
+    // Отчёт можно получить по analysis_id даже если у продукта нет slug
+    // (вручную добавленный продукт, которого ещё нет в каталоге).
+    let aid = analysisId ?? product.match?.analysis_id
+    if (aid == null && product.slug) {
+      try {
+        const d = await api.product(product.slug)
+        const a = (d.analysis || {}) as { id?: number }
+        aid = typeof a.id === "number" ? a.id : undefined
+      } catch { aid = undefined }
+    }
+    if (aid == null && !product.slug) {
+      setReportError("Для этого продукта ещё нет сохранённого анализа. Запустите проверку состава.")
+      return
+    }
+    setReportError("")
     setPhase("generating")
     try {
-      let aid = analysisId ?? product.match?.analysis_id
-      if (aid == null) {
-        try {
-          const d = await api.product(product.slug)
-          const a = (d.analysis || {}) as { id?: number }
-          aid = typeof a.id === "number" ? a.id : undefined
-        } catch { aid = undefined }
-      }
-      const res = await api.analysisReport(product.slug, aid)
+      const res = await api.analysisReport(product.slug || "", aid)
       setReportData(res)
       if (typeof res.score === "number") setScore(res.score)
       setAnalysisId(aid)
       setPhase("report")
       onReported(product.id, aid)
-    } catch {
+    } catch (e) {
+      // Разные причины — разные сообщения. 401/403 — сессия, 409 — нет анализа,
+      // остальное (включая 502) — временный сбой генерации.
+      const status = e instanceof ApiError ? e.status : 0
+      const detail = e instanceof Error && e.message ? e.message : ""
+      if (status === 401 || status === 403) {
+        setReportError("Сессия истекла. Войдите снова, чтобы открыть отчёт.")
+        onAuth()
+      } else if (status === 409) {
+        setReportError(detail || "Анализ ещё не выполнен — сначала проверьте совместимость.")
+      } else {
+        setReportError("Не удалось сформировать отчёт. Попробуйте ещё раз через минуту.")
+      }
       setPhase("match")
     }
   }
@@ -2052,10 +2122,11 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               
 
               {phase === "match" && <div className="drawer__cta">
+                {reportError && <p className="drawer__report-error" role="alert">{reportError}</p>}
                 {!user ? (
                   <Button icon="lock" className="w-full" onClick={handleShowReport}>Посмотреть отчёт — войдите</Button>
                 ) : (
-                  <Button icon="file" className="w-full" onClick={handleShowReport}>Посмотреть отчёт</Button>
+                  <Button icon="file" className="w-full" onClick={handleShowReport}>{reportError ? "Повторить" : "Посмотреть отчёт"}</Button>
                 )}
               </div>}
 
@@ -2282,8 +2353,15 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
         const plan: Plan = res.user.plan === "pro" || res.user.plan === "plus" ? res.user.plan : "free"
         onSuccess({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: res.user.balance || 0 })
       } else {
-        await api.register(email.trim(), pass, name.trim())
-        setSent(true)
+        const res = await api.register(email.trim(), pass, name.trim())
+        if (res.access_token) {
+          setToken(res.access_token)
+          const displayName = (res.user && res.user.name) || name.trim() || email.trim().split("@")[0]
+          const plan: Plan = res.user && (res.user.plan === "pro" || res.user.plan === "plus") ? res.user.plan : "free"
+          onSuccess({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: (res.user && res.user.balance) || 0 })
+        } else {
+          setSent(true)
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка")
@@ -2296,7 +2374,7 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
     return (
       <div className="modal-backdrop" onClick={onClose}>
         <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-          <button type="button" className="modal__close" onClick={closeWithAnimation} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+          <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
           <div className="auth-modal">
             <p className="eyebrow">айдерми</p>
             <h2>Проверьте почту</h2>
@@ -2327,6 +2405,10 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
           <a href="/api/auth/google" className="google-btn">
             <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15A11 11 0 0 0 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>
             Войти через Google
+          </a>
+          <a href="/api/auth/yandex" className="google-btn google-btn--yandex">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FC3F1D" d="M13.32 21h3.02V3h-4.6c-3.1 0-4.9 1.85-4.9 4.6 0 2.2 1 3.6 2.9 4.7L6 21h2.9l3.3-8.1 1.1.7V21zm-.05-9.9-1.2-.8c-1.2-.8-1.9-1.7-1.9-3 0-1.6 1-2.6 2.7-2.6h.4v6.4z"/></svg>
+            Войти через Яндекс
           </a>
           <button type="button" className="auth-modal__switch" onClick={() => onSwitch(mode === "login" ? "register" : "login")}>
             {mode === "login" ? "Нет аккаунта? Зарегистрируйтесь" : "Уже есть аккаунт? Войдите"}
@@ -3016,6 +3098,20 @@ export default function App() {
   // Восстановление сессии по сохранённому токену (в т.ч. Google OAuth ?token=).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
+    const authError = params.get("auth_error")
+    if (authError) {
+      const msg = authError === "yandex_email_taken"
+        ? "Аккаунт с таким email уже существует. Войдите по паролю, чтобы затем связать Яндекс."
+        : authError === "yandex_cancelled"
+          ? "Вход через Яндекс отменён."
+          : authError === "yandex_not_configured"
+            ? "Вход через Яндекс пока не настроен."
+            : "Не удалось войти через Яндекс. Попробуйте ещё раз."
+      setToast(msg)
+      params.delete("auth_error")
+      const rest = params.toString()
+      window.history.replaceState(null, "", window.location.pathname + (rest ? "?" + rest : ""))
+    }
     const urlToken = params.get("token")
     if (urlToken) {
       setToken(urlToken)
@@ -3030,8 +3126,14 @@ export default function App() {
         const displayName = u.name || u.email?.split("@")[0] || "Пользователь"
         const plan: Plan = u.plan === "pro" || u.plan === "plus" ? u.plan : "free"
         setUser({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: u.balance || 0 })
+        // Скользящая сессия: продлеваем токен, пока пользователь активен.
+        api.refresh().then((r) => setToken(r.access_token)).catch(() => {})
       })
-      .catch(() => setToken(null))
+      .catch((err) => {
+        // Токен стираем ТОЛЬКО если сервер явно сказал, что сессия недействительна.
+        // Сетевой сбой / временный 5xx не должен выкидывать пользователя.
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) setToken(null)
+      })
     api.getProfile()
       .then((r) => {
         const p = (r.profile || {}) as { skinType?: string; age?: string; concerns?: string[]; allergies?: string[]; structuredProfile?: unknown }

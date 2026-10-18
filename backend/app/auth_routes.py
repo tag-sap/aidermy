@@ -13,6 +13,7 @@ import re
 from .database import get_connection, AIDERMY_DB, PRODUCTS_DB, clear_user_check_history
 from .auth import (
     get_user_by_email,
+    get_user_by_id,
     create_user,
     verify_password,
     create_access_token,
@@ -22,6 +23,10 @@ from .auth import (
     create_user_with_verification,
     verify_user,
     resend_verification,
+    get_oauth_account,
+    link_oauth_account,
+    create_user_external,
+    ensure_oauth_accounts_table,
 )
 from .services import generate_slug
 from .profile_structuring import structure_profile_with_ai, serialize_structured, deserialize_structured
@@ -37,6 +42,80 @@ oauth.register(
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={'scope': 'openid email profile'}
 )
+
+# Яндекс ID: OAuth 2.0 (не OIDC) — authorize/token по официальной документации,
+# данные пользователя отдельным запросом к login.yandex.ru/info.
+# state защищает от CSRF и проверяется authlib автоматически.
+YANDEX_AUTHORIZE_URL = "https://oauth.yandex.com/authorize"
+YANDEX_TOKEN_URL = "https://oauth.yandex.com/token"
+YANDEX_USERINFO_URL = "https://login.yandex.ru/info"
+
+oauth.register(
+    name='yandex',
+    client_id=os.getenv('YANDEX_CLIENT_ID'),
+    client_secret=os.getenv('YANDEX_CLIENT_SECRET'),
+    authorize_url=YANDEX_AUTHORIZE_URL,
+    access_token_url=YANDEX_TOKEN_URL,
+    client_kwargs={'scope': 'login:email login:info login:avatar'},
+)
+
+
+def _email_delivery_configured() -> bool:
+    """Настроена ли реальная отправка писем (SMTP)."""
+    return bool(os.getenv("EMAIL_USER") and os.getenv("EMAIL_PASSWORD"))
+
+
+def _require_email_verification() -> bool:
+    """Требуется ли подтверждение email для входа.
+
+    Явный флаг REQUIRE_EMAIL_VERIFICATION имеет приоритет. Если он не задан,
+    подтверждение требуется только когда реально настроена отправка писем —
+    иначе регистрация была бы тупиком без возможности активировать аккаунт.
+    """
+    explicit = os.getenv("REQUIRE_EMAIL_VERIFICATION")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    return _email_delivery_configured()
+
+
+# Простейший in-memory rate limit (защита от перебора/спама регистраций).
+import time as _time
+
+_RATE_BUCKETS: dict = {}
+
+
+def _rate_allow(key: str, limit: int, window_seconds: int) -> bool:
+    now = _time.time()
+    bucket = _RATE_BUCKETS.setdefault(key, [])
+    bucket[:] = [t for t in bucket if now - t < window_seconds]
+    if len(bucket) >= limit:
+        return False
+    bucket.append(now)
+    return True
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for") or ""
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _user_payload(user: dict) -> "UserResponse":
+    return UserResponse(
+        id=user["id"],
+        email=user["email"],
+        name=user.get("name") or "",
+        skin_type=user.get("skin_type"),
+        age=user.get("age"),
+        concerns=user.get("concerns", "").split(",") if user.get("concerns") else [],
+        allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
+        custom_text=user.get("custom_text"),
+        avatar_url=user.get("avatar_url"),
+        created_at=str(user.get("created_at") or ""),
+        balance=user.get("balance") or 0,
+        plan=user.get("plan") or "free",
+    )
 
 # === МОДЕЛИ ===
 class UserRegister(BaseModel):
@@ -117,18 +196,140 @@ async def google_callback(request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# === YANDEX ID ===
+def _yandex_configured() -> bool:
+    return bool(os.getenv("YANDEX_CLIENT_ID") and os.getenv("YANDEX_CLIENT_SECRET"))
+
+
+@router.get("/yandex")
+async def yandex_login(request: Request):
+    app_url = os.getenv("PUBLIC_APP_URL", "http://localhost:3000").rstrip("/")
+    if not _yandex_configured():
+        # Кнопка — обычная ссылка, поэтому возвращаем пользователя в приложение
+        # с понятным сообщением вместо JSON-ошибки 503.
+        return RedirectResponse(url=f"{app_url}?auth_error=yandex_not_configured")
+    redirect_uri = os.getenv("YANDEX_REDIRECT_URI") or (
+        f"{app_url}/api/auth/yandex/callback"
+    )
+    return await oauth.yandex.authorize_redirect(request, redirect_uri)
+
+
+@router.get("/yandex/callback")
+async def yandex_callback(request: Request):
+    """Обработка возврата из Яндекс ID.
+
+    state проверяет authlib (CSRF). Пользователь сопоставляется ТОЛЬКО через
+    явный реестр oauth_accounts; автоматическое объединение по совпавшему email
+    запрещено — такой email мог быть не подтверждён.
+    """
+    app_url = os.getenv("PUBLIC_APP_URL", "http://localhost:3000").rstrip("/")
+    if not _yandex_configured():
+        return RedirectResponse(url=f"{app_url}?auth_error=yandex_not_configured")
+    if request.query_params.get("error"):
+        return RedirectResponse(url=f"{app_url}?auth_error=yandex_cancelled")
+
+    try:
+        token = await oauth.yandex.authorize_access_token(request)
+    except Exception as exc:
+        print(f"[YANDEX] token exchange failed: {exc!r}")
+        return RedirectResponse(url=f"{app_url}?auth_error=yandex_failed")
+
+    access_token_yandex = (token or {}).get("access_token")
+    if not access_token_yandex:
+        return RedirectResponse(url=f"{app_url}?auth_error=yandex_failed")
+
+    info = {}
+    try:
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                YANDEX_USERINFO_URL,
+                params={"format": "json"},
+                headers={"Authorization": f"OAuth {access_token_yandex}"},
+                timeout=15,
+            )
+        if resp.status_code == 200:
+            info = resp.json() or {}
+        else:
+            print(f"[YANDEX] userinfo status={resp.status_code}")
+    except Exception as exc:
+        print(f"[YANDEX] userinfo failed: {exc!r}")
+
+    yandex_id = str(info.get("id") or "").strip()
+    if not yandex_id:
+        return RedirectResponse(url=f"{app_url}?auth_error=yandex_no_id")
+
+    email = (info.get("default_email") or "").strip().lower()
+    name = (info.get("display_name") or info.get("real_name") or info.get("first_name") or "").strip()
+
+    account = get_oauth_account("yandex", yandex_id)
+    user = get_user_by_id(account["user_id"]) if account else None
+
+    if not user:
+        if email:
+            existing = get_user_by_email(email)
+            if existing:
+                # Не объединяем автоматически: email провайдера не подтверждён нами.
+                return RedirectResponse(url=f"{app_url}?auth_error=yandex_email_taken")
+        create_email = email or f"yandex-{yandex_id}@users.aidermy.local"
+        try:
+            user_id = create_user_external(
+                create_email, name or f"Yandex {yandex_id}", email_verified=False
+            )
+        except Exception as exc:
+            print(f"[YANDEX] create user failed: {exc!r}")
+            return RedirectResponse(url=f"{app_url}?auth_error=yandex_failed")
+        link_oauth_account("yandex", yandex_id, user_id, email)
+        user = get_user_by_id(user_id)
+    else:
+        link_oauth_account("yandex", yandex_id, user["id"], email)
+
+    if not user:
+        return RedirectResponse(url=f"{app_url}?auth_error=yandex_failed")
+
+    access_token = create_access_token(data={"sub": str(user["id"])})
+    return RedirectResponse(url=f"{app_url}?token={access_token}")
+
+
 # === РЕГИСТРАЦИЯ ===
 @router.post("/register")
-async def register(user_data: UserRegister):
-    existing = get_user_by_email(user_data.email)
+async def register(user_data: UserRegister, request: Request):
+    """Создание аккаунта.
+
+    Если отправка писем не настроена (или REQUIRE_EMAIL_VERIFICATION выключен),
+    аккаунт создаётся сразу активным и пользователь получает сессию.
+    Факт подтверждения email при этом НЕ подменяется: is_verified/email_verified_at
+    остаются пустыми — просто вход не требует подтверждения.
+    """
+    email = (user_data.email or "").lower().strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Укажите email")
+    if len(user_data.password or "") < 8:
+        raise HTTPException(status_code=400, detail="Пароль должен быть не короче 8 символов")
+    if not _rate_allow(f"register:{_client_ip(request)}", 5, 600):
+        raise HTTPException(status_code=429, detail="Слишком много попыток регистрации. Попробуйте позже.")
+
+    existing = get_user_by_email(email)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Пользователь с таким email уже существует"
         )
-    
+
+    if not _require_email_verification():
+        user_id = create_user(email=email, password=user_data.password, name=user_data.name or "")
+        user = get_user_by_id(user_id) or {}
+        access_token = create_access_token(data={"sub": str(user_id)})
+        return {
+            "verification_required": False,
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": _user_payload(user).model_dump() if user else None,
+        }
+
     user_id, verification_token = create_user_with_verification(
-        email=user_data.email,
+        email=email,
         password=user_data.password,
         name=user_data.name
     )
@@ -141,7 +342,7 @@ async def register(user_data: UserRegister):
             port=int(os.getenv('EMAIL_PORT', 587))
         )
         
-        link = f"http://138.124.231.42/api/auth/verify?token={verification_token}"
+        link = f"{os.getenv('PUBLIC_APP_URL', 'http://138.124.231.42').rstrip('/')}/api/auth/verify?token={verification_token}"
         
         yag.send(
             to=user_data.email,
@@ -159,8 +360,9 @@ async def register(user_data: UserRegister):
         raise HTTPException(status_code=500, detail="Ошибка отправки письма. Попробуйте позже.")
     
     return {
+        "verification_required": True,
         "message": "Письмо с подтверждением отправлено на ваш email. Перейдите по ссылке, чтобы активировать аккаунт.",
-        "email": user_data.email
+        "email": email,
     }
 
 # === ВЕРИФИКАЦИЯ ===
@@ -183,46 +385,52 @@ async def resend_verification_email(email: EmailStr):
 
 # === ЛОГИН ===
 @router.post("/login", response_model=TokenResponse)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = get_user_by_email(form_data.username)
-    if not user:
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+    email = (form_data.username or "").lower().strip()
+    if not _rate_allow(f"login:{_client_ip(request)}:{email}", 10, 300):
+        raise HTTPException(status_code=429, detail="Слишком много попыток входа. Попробуйте позже.")
+
+    user = get_user_by_email(email)
+    # Одинаковый ответ для «нет пользователя» и «неверный пароль» —
+    # чтобы не раскрывать существование аккаунта.
+    if not user or not user.get("password_hash") or user.get("password_hash") == "oauth_user":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль"
         )
-    
-    if not user.get("is_verified", 0):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Email не подтверждён. Проверьте почту."
-        )
-    
+
     if not verify_password(form_data.password, user["password_hash"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль"
         )
-    
+
+    # Подтверждение email требуется только если оно включено и реально настроено.
+    if _require_email_verification() and not (user.get("is_verified") or user.get("email_verified_at")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email не подтверждён. Проверьте почту."
+        )
+
     access_token = create_access_token(data={"sub": str(user["id"])})
-    
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserResponse(
-            id=user["id"],
-            email=user["email"],
-            name=user["name"] or "",
-            skin_type=user.get("skin_type"),
-            age=user.get("age"),
-            concerns=user.get("concerns", "").split(",") if user.get("concerns") else [],
-            allergies=user.get("allergies", "").split(",") if user.get("allergies") else [],
-            custom_text=user.get("custom_text"),
-            avatar_url=user.get("avatar_url"),
-            created_at=user["created_at"],
-            balance=user.get("balance") or 0,
-            plan=user.get("plan") or "free",
-        )
+        "user": _user_payload(user),
     }
+
+
+@router.post("/refresh")
+async def refresh_session(current_user: dict = Depends(get_current_user)):
+    """Скользящая сессия: продлевает access token для действующего пользователя.
+
+    Продление возможно только при валидном текущем токене; истёкший токен
+    не продлевается. Отдельного долгоживущего refresh-токена в хранилище нет —
+    это осознанно, чтобы не ослаблять безопасность.
+    """
+    access_token = create_access_token(data={"sub": str(current_user["id"])})
+    return {"access_token": access_token, "token_type": "bearer", "user": _user_payload(current_user)}
 
 # === ТЕКУЩИЙ ПОЛЬЗОВАТЕЛЬ ===
 @router.get("/me", response_model=UserResponse)

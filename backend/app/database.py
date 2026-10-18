@@ -1792,3 +1792,96 @@ def set_user_plan(user_id: int, plan: str) -> dict:
     bonus = PLAN_MONTHLY_POINTS.get(plan, 20)
     change_balance(user_id, bonus, "plan_bonus", f"Ежемесячные баллы тарифа {plan}")
     return get_balance(user_id)
+
+
+# === ПОЛЬЗОВАТЕЛЬСКИЕ ИЗОБРАЖЕНИЯ ПРОДУКТОВ ===
+# Фото, загруженное пользователем при ручном добавлении. Хранится в S3,
+# а здесь — только привязка (user_id, product_key) → URL. Ключ — slug продукта:
+# если продукт позже появится в каталоге, изображение остаётся привязанным
+# к ЭТОМУ пользователю и не «переезжает» к чужому продукту/чужому аккаунту.
+def ensure_user_product_images_table() -> None:
+    if os.getenv("SUPABASE_DATABASE_URL"):
+        from .postgres_connection import get_postgres_connection
+
+        with get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS public.user_product_images (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        product_key TEXT NOT NULL,
+                        image_url TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        UNIQUE (user_id, product_key)
+                    )
+                    """
+                )
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_user_product_images_user "
+                    "ON public.user_product_images (user_id)"
+                )
+            conn.commit()
+        return
+
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_product_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            product_key TEXT NOT NULL,
+            image_url TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (user_id, product_key)
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def save_user_product_image(user_id: int, product_key: str, image_url: str) -> None:
+    key = (product_key or "").strip()
+    url = (image_url or "").strip()
+    if not user_id or not key or not url:
+        return
+    ensure_user_product_images_table()
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    existing = cursor.execute(
+        "SELECT id FROM user_product_images WHERE user_id = ? AND product_key = ?",
+        (user_id, key),
+    ).fetchone()
+    if existing:
+        cursor.execute(
+            "UPDATE user_product_images SET image_url = ? WHERE id = ?",
+            (url, existing["id"]),
+        )
+    else:
+        cursor.execute(
+            "INSERT INTO user_product_images (user_id, product_key, image_url) VALUES (?, ?, ?)",
+            (user_id, key, url),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_user_product_images(user_id: int) -> dict:
+    """Все пользовательские изображения: {product_key: image_url}."""
+    if not user_id:
+        return {}
+    ensure_user_product_images_table()
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    rows = cursor.execute(
+        "SELECT product_key, image_url FROM user_product_images WHERE user_id = ?",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return {r["product_key"]: r["image_url"] for r in rows if r.get("product_key")}
+
+
+def get_user_product_image(user_id: int, product_key: str) -> str:
+    return get_user_product_images(user_id).get((product_key or "").strip(), "")

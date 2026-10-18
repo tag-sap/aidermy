@@ -17,6 +17,11 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
 DEEPSEEK_MODEL_FALLBACKS = ["deepseek-chat", "deepseek-v4-flash", "deepseek-flash"]
 
+# Reasoning-модели сначала тратят бюджет на reasoning_tokens, и при малом
+# max_tokens возвращают пустой/обрезанный content (finish_reason=length).
+# Для генерации текста отчёта им нужен запас токенов сверх reasoning.
+_REASONING_MODELS = {"deepseek-v4-flash", "deepseek-flash"}
+
 # Лимиты на вспомогательные AI-шаги при проверке продукта. Детерминированный скор
 # считается ДО них и возвращается всегда; AI-обогащение/отчёт — best effort и не
 # должен блокировать ответ дольше этих таймаутов (иначе nginx рвёт соединение).
@@ -788,8 +793,13 @@ async def generate_report_once(product_name: str, analysis: dict, profile: dict,
                 response = await client.post(
                     DEEPSEEK_API_URL,
                     headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": model_name, "messages": messages, "temperature": 0.2, "max_tokens": 800},
-                    timeout=40,
+                    json={
+                        "model": model_name,
+                        "messages": messages,
+                        "temperature": 0.2,
+                        "max_tokens": 3000 if model_name in _REASONING_MODELS else 800,
+                    },
+                    timeout=60,
                 )
             if response.status_code != 200:
                 continue
@@ -1357,7 +1367,7 @@ async def generate_ai_review(product_name: str, skin_type: str, profile: dict, i
 # --- Report grounding (Phase 18): actual INCI is the only source of truth for ingredients. ---
 _RU_INGREDIENT_NAMES = {
     "отдушка": "fragrance",
-    "ниацинамид": "niacinamid",
+    "ниацинамид": "niacinamide",
     "гиалуронов": "hyaluronic acid",
     "гиалуронат": "sodium hyaluronate",
     "алоэ": "aloe barbadensis",
@@ -1471,6 +1481,21 @@ def _has_forbidden_effect(text: str) -> bool:
     return any(w in low for w in _FORBIDDEN_EFFECT_WORDS)
 
 
+def _ingredient_is_allowed(canon: str, allowed: set) -> bool:
+    """Ингредиент из текста действительно есть в продукте.
+
+    Точное совпадение или word-boundary вариант («ceramide» ⊂ «ceramide np»).
+    Подстрочный матч без границы слова НЕ используется: «water» не должен
+    разрешать «watermelon».
+    """
+    if canon in allowed:
+        return True
+    for a in allowed:
+        if a.startswith(canon + " ") or canon.startswith(a + " "):
+            return True
+    return False
+
+
 def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, deterministic: dict | None = None):
     if not text:
         print("[REPORT GROUNDING] reject: empty text", flush=True)
@@ -1488,7 +1513,7 @@ def _ground_report_text(text: str, allowed: set, has_negative_factors: bool, det
                 return None
 
     for ru, canon in _RU_INGREDIENT_NAMES.items():
-        if ru in low and canon not in allowed:
+        if ru in low and not _ingredient_is_allowed(canon, allowed):
             print(
                 f"[REPORT GROUNDING] reject: ingredient={ru!r} canon={canon!r} "
                 f"not_allowed={sorted(allowed)}",

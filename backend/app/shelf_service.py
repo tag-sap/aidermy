@@ -1298,6 +1298,13 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
     except Exception:
         user_history = []
 
+    # Пользовательские фото (ручное добавление) — только для ЭТОГО пользователя.
+    try:
+        from .database import get_user_product_images
+        user_images = get_user_product_images(user["id"])
+    except Exception:
+        user_images = {}
+
     enriched: List[Dict[str, Any]] = []
     for s in shelf_items:
         p = get_product_by_id(s["product_id"])
@@ -1328,7 +1335,7 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             "added_at": s.get("added_at") or "",
             "name": (p.get("name") or "").replace("\n", " "),
             "brand": p.get("brand") or "",
-            "image_url": p.get("image_url") or "",
+            "image_url": user_images.get(p.get("slug") or "") or p.get("image_url") or "",
             "slug": p.get("slug") or "",
             "ingredients": p.get("ingredients") or "",
             "score": score,

@@ -107,6 +107,14 @@ async def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme
         return None
 
 # === РАБОТА С ПОЛЬЗОВАТЕЛЯМИ ===
+def get_user_by_id(user_id: int):
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    row = cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def get_user_by_email(email: str):
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
@@ -245,3 +253,123 @@ def update_user_profile(user_id: int, data: dict):
     cursor.execute(query, values)
     conn.commit()
     conn.close()
+
+
+# === ВНЕШНИЕ ИДЕНТИЧНОСТИ (OAuth-провайдеры) ===
+# Единый реестр связей «внешний аккаунт → наш user_id». Нужен, чтобы повторный
+# вход через провайдера находил ТОТ ЖЕ аккаунт и чтобы не объединять аккаунты
+# только по совпадению непроверенного email.
+def ensure_oauth_accounts_table() -> None:
+    """Идемпотентно создаёт реестр внешних идентичностей.
+
+    DDL выполняется НАПРЯМУЮ в Postgres: pg_adapter намеренно пропускает
+    CREATE/ALTER/DROP (схема production ведётся отдельно от SQLite-кода).
+    """
+    if os.getenv("SUPABASE_DATABASE_URL"):
+        from .postgres_connection import get_postgres_connection
+
+        with get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS public.oauth_accounts (
+                        id BIGSERIAL PRIMARY KEY,
+                        provider TEXT NOT NULL,
+                        provider_user_id TEXT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        email TEXT,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        UNIQUE (provider, provider_user_id)
+                    )
+                    """
+                )
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user "
+                    "ON public.oauth_accounts (user_id)"
+                )
+            conn.commit()
+        return
+
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS oauth_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            provider_user_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            email TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (provider, provider_user_id)
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_oauth_account(provider: str, provider_user_id: str):
+    ensure_oauth_accounts_table()
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    row = cursor.execute(
+        "SELECT * FROM oauth_accounts WHERE provider = ? AND provider_user_id = ?",
+        (str(provider), str(provider_user_id)),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def link_oauth_account(provider: str, provider_user_id: str, user_id: int, email: str = "") -> None:
+    ensure_oauth_accounts_table()
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    existing = cursor.execute(
+        "SELECT id FROM oauth_accounts WHERE provider = ? AND provider_user_id = ?",
+        (str(provider), str(provider_user_id)),
+    ).fetchone()
+    if existing:
+        cursor.execute(
+            "UPDATE oauth_accounts SET user_id = ?, email = ? WHERE id = ?",
+            (user_id, (email or "").lower().strip(), existing["id"]),
+        )
+    else:
+        cursor.execute(
+            "INSERT INTO oauth_accounts (provider, provider_user_id, user_id, email) VALUES (?, ?, ?, ?)",
+            (str(provider), str(provider_user_id), user_id, (email or "").lower().strip()),
+        )
+    conn.commit()
+    conn.close()
+
+
+def create_user_external(email: str, name: str = "", email_verified: bool = False) -> int:
+    """Создаёт пользователя для внешнего провайдера.
+
+    Пароль не задаётся (вход только через провайдера). `is_verified` и
+    `email_verified_at` отражают ТОЛЬКО фактическое подтверждение email у нас:
+    адрес от провайдера не считается подтверждённым автоматически.
+    """
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO users (email, password_hash, name, is_verified, email_verified_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (
+                email.lower().strip(),
+                "oauth_user",
+                (name or "").strip(),
+                1 if email_verified else 0,
+                bool(email_verified),
+            ),
+        )
+        conn.commit()
+        user_id = cursor.lastrowid
+        conn.close()
+        return user_id
+    except Exception:
+        conn.close()
+        raise

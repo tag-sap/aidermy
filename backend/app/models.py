@@ -25,6 +25,8 @@ class CheckRequest(BaseModel):
     product_name: str = Field(..., description="Название косметического продукта")
     skin_type: str = Field(..., description="Тип кожи пользователя")
     profile: Profile = Field(..., description="Анкета пользователя")
+    # Пользовательское фото (URL из /api/uploads/product-image), необязательное.
+    image_url: Optional[str] = None
 
 # НОВЫЕ МОДЕЛИ ДЛЯ ОТВЕТА
 class ActiveIngredient(BaseModel):
@@ -70,6 +72,9 @@ class CheckWithIngredientsRequest(BaseModel):
     skin_type: str
     profile: Profile
     ingredients: str
+    brand: Optional[str] = None
+    # Пользовательское фото (URL из /api/uploads/product-image), необязательное.
+    image_url: Optional[str] = None
 
 
 class ImportUrlRequest(BaseModel):
