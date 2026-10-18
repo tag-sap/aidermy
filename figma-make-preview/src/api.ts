@@ -1,0 +1,416 @@
+// api.ts — клиент к реальному backend (FastAPI).
+// BASE = "/api" — nginx проксирует /api/ на 127.0.0.1:8000, поэтому работает
+// и на /ver2/ (сейчас), и с корня (после миграции).
+
+const BASE = "/api"
+
+export const TOKEN_KEY = "aidermy_token"
+
+export type ApiUser = {
+  id: number
+  email: string
+  name: string
+  skin_type?: string | null
+  age?: string | null
+  concerns?: string[]
+  allergies?: string[]
+  avatar_url?: string | null
+  balance?: number
+  plan?: string
+}
+
+export type ApiProduct = {
+  id: number
+  name: string
+  slug: string
+  image_url: string
+  ingredients?: string
+  category?: string
+  subcategory?: string
+  taxonomy_category?: string
+  brand?: string
+  rating?: number | null
+  rating_count?: number
+  score?: number | null
+  analysis?: unknown
+}
+
+export type CheckResult = {
+  score: number
+  verdict: string
+  summary: string
+  pending?: boolean
+  safe_ingredients: string[]
+  caution_ingredients: string[]
+  slug?: string
+  image_url?: string
+  analysis_id?: number
+  report?: string
+  how_to_use?: { application?: string; time?: string; note?: string }
+  expectations?: { when?: string; normal?: string; danger?: string }
+  phase1_status?: string
+  recommendation_status?: string
+  phase1_violations?: { axis: string; load: number; threshold: number | null; violated: boolean }[]
+}
+
+export type ReportFragment = { text: string; sentiment: "positive" | "negative" }
+
+export type ReportResult = {
+  score: number | null
+  verdict?: string | null
+  phase1_status?: string | null
+  recommendation_status?: string | null
+  report_ready?: boolean
+  review?: ReportFragment[]
+  active_ingredients?: unknown
+  what_good?: ReportFragment[]
+  what_bad?: ReportFragment[]
+  how_to_use?: { application?: string; time?: string; note?: string } | null
+  expectations?: { when?: string; normal?: string; danger?: string } | null
+  inci?: string[]
+  category?: string
+}
+
+export type Review = {
+  id: number
+  product_id: number
+  user_id?: number | null
+  author_name?: string
+  rating: number
+  text?: string
+  is_anonymous?: boolean
+  created_at?: string
+}
+
+export type ShelfItem = {
+  id: number
+  shelf_id: number
+  product_id: number
+  cabinet: string
+  category: string
+  added_at?: string
+  name: string
+  brand?: string
+  image_url?: string
+  slug?: string
+  ingredients?: string
+  score?: number | null
+  analysis_id?: number | null
+  phase1_status?: string | null
+  recommendation_status?: string | null
+  verdict?: string | null
+  has_report?: boolean
+  needs_recheck?: boolean
+}
+
+export type ShelfCategory = { key: string; title: string; items: ShelfItem[]; compatibility?: number | null }
+export type ShelfCabinet = {
+  key: string
+  title: string
+  has_scoring: boolean
+  compatibility?: number | null
+  categories: ShelfCategory[]
+}
+
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = { ...(options.headers as Record<string, string> | undefined) }
+  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null
+  if (token) headers["Authorization"] = `Bearer ${token}`
+  if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json"
+
+  let res: Response
+  try {
+    res = await fetch(BASE + path, { ...options, headers })
+  } catch {
+    throw new ApiError("Нет соединения с сервером", 0)
+  }
+
+  if (!res.ok) {
+    let detail = `Ошибка ${res.status}`
+    try {
+      const data = await res.json()
+      detail = (data as { detail?: string; message?: string }).detail || (data as { message?: string }).message || detail
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(detail, res.status)
+  }
+
+  if (res.status === 204) return undefined as T
+  return (await res.json()) as T
+}
+
+export const api = {
+  // ===== auth =====
+  async register(email: string, password: string, name: string) {
+    return request<{ message: string; email: string }>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, name }),
+    })
+  },
+  async login(email: string, password: string) {
+    const body = new URLSearchParams({ username: email, password })
+    return request<{ access_token: string; token_type: string; user: ApiUser }>("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    })
+  },
+  async me() {
+    return request<ApiUser>("/auth/me")
+  },
+  async saveProfile(profile: Record<string, unknown>) {
+    return request<{ status: string }>("/auth/profile", {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    })
+  },
+  async getProfile() {
+    return request<{ profile?: Record<string, unknown>; structured?: Record<string, unknown> }>("/auth/profile/me")
+  },
+
+  // ===== баланс / подписка =====
+  async balance() {
+    return request<{ balance: number; plan: string; monthly_points: number }>("/balance")
+  },
+  async topUp(amount: number) {
+    return request<{ balance: number; plan: string; monthly_points: number }>("/balance/topup", {
+      method: "POST",
+      body: JSON.stringify({ amount }),
+    })
+  },
+  async subscription(plan: string) {
+    return request<{ balance: number; plan: string; monthly_points: number }>("/subscription", {
+      method: "POST",
+      body: JSON.stringify({ plan }),
+    })
+  },
+
+  // ===== каталог / продукты =====
+  async catalog(params: Record<string, string | number> = {}) {
+    const qs = new URLSearchParams(params as Record<string, string>).toString()
+    return request<{ products: ApiProduct[]; total: number; limit: number; offset: number }>(`/catalog${qs ? "?" + qs : ""}`)
+  },
+  async products(q = "") {
+    return request<{ products: ApiProduct[] }>(`/products?q=${encodeURIComponent(q)}`)
+  },
+  async product(slug: string) {
+    return request<{ product: ApiProduct; score: number | null; analysis: unknown; on_shelf: unknown; community: unknown }>(`/products/${slug}`)
+  },
+
+  // ===== полка =====
+  async shelf() {
+    return request<{ cabinets: ShelfCabinet[] }>("/shelf")
+  },
+  async addToShelf(slug: string, category: string, cabinet: string) {
+    return request<{ status: string; duplicate?: boolean; item?: { id?: number; product_id?: number } }>("/shelf", {
+      method: "POST",
+      body: JSON.stringify({ slug, category, cabinet }),
+    })
+  },
+  async removeFromShelf(shelfId: number) {
+    return request<{ status: string; deleted?: number }>(`/shelf/${shelfId}`, { method: "DELETE" })
+  },
+  async clearShelf(cabinet: string, category = "") {
+    return request<{ status: string; deleted?: number }>("/shelf/clear", {
+      method: "POST",
+      body: JSON.stringify({ cabinet, category }),
+    })
+  },
+  async resetShelf() {
+    return request<{ status: string; deleted?: number }>("/shelf/reset", { method: "POST", body: "{}" })
+  },
+  async removalFeedback(slug: string, reason: string) {
+    return request("/shelf/removal-feedback", { method: "POST", body: JSON.stringify({ slug, reason }) })
+  },
+  async deleteBatch(ids: number[]) {
+    return request<{ status: string; deleted?: number }>("/shelf/delete-batch", { method: "POST", body: JSON.stringify({ ids }) })
+  },
+  async recheck(productId: number) {
+    return request<{ score: number; analysis: unknown }>(`/shelf/recheck/${productId}`, { method: "POST" })
+  },
+  async updateShelfCategory(shelfId: number, category: string) {
+    return request(`/shelf/${shelfId}`, { method: "PATCH", body: JSON.stringify({ category }) })
+  },
+  async shelfRecommend(cabinet: string, category: string) {
+    return request<{ cabinet: string; category: string; recommendations: ApiProduct[] }>("/shelf/recommend", { method: "POST", body: JSON.stringify({ cabinet, category }) })
+  },
+  async history() {
+    return request<unknown[]>("/auth/history")
+  },
+
+  // ===== скан по ссылке =====
+  async importUrl(url: string) {
+    return request<{ success: boolean; product: { name?: string; brand?: string; image_url?: string; category?: string; ingredients_raw?: string; slug?: string; id?: number } }>("/products/import-url", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    })
+  },
+
+  // ===== сканирование / проверка =====
+  async identify(payload: Record<string, unknown>) {
+    return request("/product/identify", { method: "POST", body: JSON.stringify(payload) })
+  },
+  async compositionRecognize(payload: Record<string, unknown>) {
+    return request("/composition/recognize", { method: "POST", body: JSON.stringify(payload) })
+  },
+  async check(payload: Record<string, unknown>) {
+    return request<CheckResult>("/check", { method: "POST", body: JSON.stringify(payload) })
+  },
+  async checkWithIngredients(payload: Record<string, unknown>) {
+    return request<CheckResult>("/check-with-ingredients", { method: "POST", body: JSON.stringify(payload) })
+  },
+  async analysisReport(slug: string, analysisId?: number) {
+    return request<ReportResult>("/analysis/report", {
+      method: "POST",
+      body: JSON.stringify({ slug, analysis_id: analysisId ?? null }),
+    })
+  },
+
+  // ===== отзывы =====
+  async reviews(slug: string) {
+    return request<{ reviews: Review[] }>(`/community/reviews?slug=${encodeURIComponent(slug)}`)
+  },
+  async addReview(slug: string, rating: number, text: string, anonymous: boolean) {
+    return request("/community/reviews", {
+      method: "POST",
+      body: JSON.stringify({ slug, rating, text, visibility: anonymous ? "ANONYMOUS" : "PUBLIC" }),
+    })
+  },
+}
+
+export function getToken(): string | null {
+  return typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null
+}
+export function setToken(token: string | null) {
+  if (typeof window === "undefined") return
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}
+
+// ===== СБОРКИ УХОДА (care sets) =====
+
+export type CareSetSummary = {
+  id: number
+  name: string
+  source: string
+  template_id?: number | null
+  item_count: number
+  created_at?: string
+  updated_at?: string
+}
+
+export type CareSetItem = {
+  item_id: number
+  id: number
+  slug: string
+  name: string
+  brand: string
+  image_url: string
+  category: string
+  score: number | null
+}
+
+export type CareSetCompatibility = {
+  score: number | null
+  coverage?: { scored: number; total: number }
+  scores?: { slug: string; name: string; score: number }[]
+  conflicts?: { label: string; products: string[] }[]
+  note?: string
+}
+
+export type CareSetDetail = {
+  id: number
+  name: string
+  source: string
+  template_id?: number | null
+  items: CareSetItem[]
+  profile_compatibility: CareSetCompatibility
+  products_compatibility: CareSetCompatibility
+}
+
+export type CareSetTemplate = { id: number; slug: string; title: string; description: string }
+
+export type CareSetTemplateStep = {
+  id: number
+  category: string
+  subcategory: string
+  position: number
+  is_optional: boolean
+  candidates_count: number
+  config: string
+}
+
+export type CareSetTemplateDetail = {
+  id: number
+  slug: string
+  title: string
+  description: string
+  steps: CareSetTemplateStep[]
+}
+
+export type CareSetCandidate = {
+  id: number
+  slug: string
+  name: string
+  brand: string
+  image_url: string
+  category: string
+  score: number | null
+}
+
+export const careSetsApi = {
+  async list() {
+    return request<{ sets: CareSetSummary[] }>("/care-sets")
+  },
+  async create(name: string, source = "manual", items: { slug: string }[] = []) {
+    return request<{ id: number; added: number }>("/care-sets", {
+      method: "POST",
+      body: JSON.stringify({ name, source, items }),
+    })
+  },
+  async detail(id: number) {
+    return request<CareSetDetail>(`/care-sets/${id}`)
+  },
+  async rename(id: number, name: string) {
+    return request<{ status: string }>(`/care-sets/${id}`, { method: "PATCH", body: JSON.stringify({ name }) })
+  },
+  async remove(id: number) {
+    return request<{ status: string }>(`/care-sets/${id}`, { method: "DELETE" })
+  },
+  async addItem(id: number, slug: string) {
+    return request<{ status: string; duplicate?: boolean }>(`/care-sets/${id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ slug }),
+    })
+  },
+  async removeItem(id: number, itemId: number) {
+    return request<{ status: string }>(`/care-sets/${id}/items/${itemId}`, { method: "DELETE" })
+  },
+  async reorder(id: number, orderedItemIds: number[]) {
+    return request<{ status: string }>(`/care-sets/${id}/items/reorder`, {
+      method: "PATCH",
+      body: JSON.stringify({ ordered_item_ids: orderedItemIds }),
+    })
+  },
+  async templates() {
+    return request<{ templates: CareSetTemplate[] }>("/care-set-templates")
+  },
+  async template(slug: string) {
+    return request<CareSetTemplateDetail>(`/care-set-templates/${slug}`)
+  },
+  async candidates(slug: string, stepIndex: number, excludeSlugs: string[] = []) {
+    return request<{ step: number; category: string; is_optional: boolean; candidates: CareSetCandidate[] }>(
+      `/care-set-templates/${slug}/candidates`,
+      { method: "POST", body: JSON.stringify({ step_index: stepIndex, exclude_slugs: excludeSlugs }) },
+    )
+  },
+}
