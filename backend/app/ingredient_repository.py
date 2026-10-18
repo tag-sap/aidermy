@@ -341,15 +341,27 @@ class IngredientRepository:
             n = len(lst)
             return lst[n // 2] if n else 0.0
 
-        knowledge: Dict[str, Dict[str, Dict[str, float]]] = {}
+        # Для (ingredient, property) с несколькими направлениями выбираем направление
+        # с НАИВЫСШЕЙ медианной confidence (детерминированный tiebreak).
+        best: Dict[Any, Dict[str, Any]] = {}
         for (ingredient, property_name, direction), vals in acc.items():
             strengths = sorted(v[0] for v in vals)
             confidences = sorted(v[1] for v in vals)
-            knowledge.setdefault(ingredient, {})[property_name] = {
+            claim = {
                 'direction': direction,
                 'strength': _median(strengths),
                 'confidence': _median(confidences),
             }
+            key = (ingredient, property_name)
+            prev = best.get(key)
+            if prev is None or claim['confidence'] > prev['confidence'] or (
+                claim['confidence'] == prev['confidence'] and claim['strength'] > prev['strength']
+            ):
+                best[key] = claim
+
+        knowledge: Dict[str, Dict[str, Dict[str, float]]] = {}
+        for (ingredient, property_name), claim in best.items():
+            knowledge.setdefault(ingredient, {})[property_name] = claim
         return knowledge
 
     def get_goal_evidence_map(

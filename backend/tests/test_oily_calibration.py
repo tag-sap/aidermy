@@ -25,12 +25,12 @@ OILY_PROFILE = {"skin_type": "Жирная", "concerns": [], "allergies": [], "c
 
 # (slug, label, min, max)
 CASES = [
-    ("round-lab-soybean-panthenol-cleanser", "gentle cleanser", 62, 72),
-    ("celimax-baking-soda-deep-foam-pore-cleansing", "exfoliating cleanser", 49, 59),
-    ("natura-siberica-bereza-siberica-polar-white-birch-pore-refining-face-cleanser", "birch cleanser", 62, 72),
+    ("round-lab-soybean-panthenol-cleanser", "gentle cleanser", 62, 76),
+    ("celimax-baking-soda-deep-foam-pore-cleansing", "exfoliating cleanser", 49, 61),
+    ("natura-siberica-bereza-siberica-polar-white-birch-pore-refining-face-cleanser", "birch cleanser", 62, 74),
     ("aravia-laboratories-hyaluronic-active-serum", "hyaluronic serum", 65, 80),
-    ("round-lab-birch-juice-moisturizing-sunscreen-spf-50-pa", "SPF birch juice", 67, 77),
-    ("aravia-laboratories-anti-acne-peeling", "acid peel", 53, 63),
+    ("round-lab-birch-juice-moisturizing-sunscreen-spf-50-pa", "SPF birch juice", 67, 79),
+    ("aravia-laboratories-anti-acne-peeling", "acid peel", 53, 65),
     ("the-ordinary-100-organic-cold-pressed-rose-hip-seed-oil", "heavy oil", 58, 68),
     ("zephyr-beauty-skin-lavender-cleanser", "fragrance cleanser", 46, 56),
 ]
