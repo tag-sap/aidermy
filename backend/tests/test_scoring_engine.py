@@ -109,5 +109,20 @@ class ScoringEngineTests(unittest.TestCase):
         self.assertEqual(first['dimensions'], second['dimensions'])
 
 
+
+    def test_benefit_axis_stacked_positives_diminish(self):
+        """Benefit-axes (hydration/barrier) cap positive stacking via 1/rank^decay."""
+        from app.scoring_engine import score_product_against_profile_canonical, BENEFIT_DECAY
+        self.assertGreater(BENEFIT_DECAY, 1.0)
+        knowledge = {
+            "a": {"hydration": {"direction": "positive", "strength": 1.0, "confidence": 1.0}},
+            "b": {"hydration": {"direction": "positive", "strength": 1.0, "confidence": 1.0}},
+        }
+        weights = {ax: 1 / 6 for ax in ("hydration", "barrier", "irritation", "sensitization", "sebum", "pigmentation")}
+        profile = {"skin_type": "dry", "concerns": [], "allergies": [], "custom_text": ""}
+        result = score_product_against_profile_canonical(["a", "b"], knowledge, profile, weights)
+        hydration = result["dimensions"].get("hydration", 0.0)
+        self.assertLess(hydration, 1.0)
+        self.assertGreater(hydration, 0.8)
 if __name__ == '__main__':
     unittest.main()
