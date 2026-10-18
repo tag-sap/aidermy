@@ -118,6 +118,20 @@ class EvaluatePhase1Tests(unittest.TestCase):
             ph = evaluate_phase1(r, _profile(), ["glycerin", "fragrance"])
         self.assertEqual(ph["status"], "blocked")
 
+    def test_load_equal_threshold_blocks(self):
+        # «достигает или пересекает порог»: load == threshold -> блокировка (>=).
+        r = _result(negative_factors=[
+            {"ingredient": "x", "property": "irritation", "weighted_value": 0.4}
+        ])
+        with patch(
+            "app.scoring_engine._profile_negative_multiplier",
+            return_value=1.6,
+        ):
+            ph = evaluate_phase1(r, _profile(), ["x"])
+        self.assertEqual(ph["status"], "blocked")
+        self.assertEqual(ph["branches"]["irritation"]["threshold"], 0.4)
+        self.assertTrue(ph["branches"]["irritation"]["violated"])
+
     def test_hard_flag_blocks(self):
         r = _result(hard_flags=[
             {"type": "allergy", "ingredient": "niacinamide", "severity": "high", "message": "x"}
@@ -208,6 +222,87 @@ class PersistenceTests(unittest.TestCase):
         from app.database import _analysis_to_dict
         d = _analysis_to_dict(self._row({"score_engine_version": "1.2.0"}))
         self.assertIsNone(d.get("phase1_version"))
+
+
+class BlockedFormulaTests(unittest.TestCase):
+    """Формула корректировки заблокированной ячейки: axis_value - threshold/2."""
+
+    WEIGHTS = {"hydration": 0.30, "barrier": 0.15, "irritation": 0.30,
+               "sensitization": 0.04, "sebum": 0.15, "pigmentation": 0.04}
+
+    def _sp(self):
+        from app.profile_resolver import normalize_scoring_profile, resolve_personal_profile
+        profile = {"skin_type": "Нормальная", "concerns": [], "allergies": [], "intolerances": []}
+        sp = normalize_scoring_profile(profile)
+        sp["structured"]["axis_multipliers"] = resolve_personal_profile(sp.get("structured") or {})["axis_multipliers"]
+        return sp
+
+    def _gate(self, negative_dimensions, violated_axes, thresholds):
+        branches = {}
+        for ax in self.WEIGHTS:
+            branches[ax] = {
+                "axis": ax,
+                "load": max(0.0, -negative_dimensions.get(ax, 0.0)),
+                "blocking": ax in violated_axes,
+                "threshold": thresholds.get(ax),
+                "violated": ax in violated_axes,
+                "factor_count": 0,
+            }
+        return lambda preliminary: {
+            "status": "blocked",
+            "branches": branches,
+            "violations": [branches[ax] for ax in violated_axes],
+            "hard_violations": [],
+            "negative_dimensions": negative_dimensions,
+            "version": "test",
+        }
+
+    def _score(self, negative_dimensions, violated_axes, thresholds, knowledge):
+        from app.scoring_engine import score_product_against_profile_canonical
+        return score_product_against_profile_canonical(
+            ingredients=["glycerin"],
+            canonical_knowledge=knowledge,
+            user_profile=self._sp(),
+            canonical_weights=self.WEIGHTS,
+            pre_score_check=self._gate(negative_dimensions, violated_axes, thresholds),
+        )
+
+    def test_blocked_value_axis_value_minus_threshold_half(self):
+        # axis_value = 0.45, threshold = 0.47 -> 0.45 - 0.235 = 0.215
+        knowledge = {"glycerin": {"hydration": {"direction": "positive", "strength": 0.9, "confidence": 0.95}}}
+        result = self._score({"irritation": -0.45}, ["irritation"], {"irritation": 0.47}, knowledge)
+        self.assertEqual(result["phase1_status"], "blocked")
+        self.assertAlmostEqual(result["dimensions"]["irritation"], -(0.45 - 0.47 / 2), places=4)
+
+    def test_blocked_branch_ignores_phase2_positives(self):
+        knowledge = {"glycerin": {"hydration": {"direction": "positive", "strength": 0.9, "confidence": 0.95}}}
+        result = self._score({"irritation": -0.45}, ["irritation"], {"irritation": 0.47}, knowledge)
+        # Положительные эффекты фазы 2 не применяются: hydration остаётся нулевой.
+        self.assertEqual(result["dimensions"]["hydration"], 0.0)
+        self.assertTrue(result["positive_factors"])  # факты собраны, но в балл не входят
+
+    def test_global_block_uses_negative_load_for_all_cells(self):
+        # Пересечение одной оси -> статус blocked, все ячейки на негативной нагрузке.
+        knowledge = {"glycerin": {"hydration": {"direction": "positive", "strength": 0.9, "confidence": 0.95}}}
+        result = self._score({"irritation": -0.6, "sebum": -0.2}, ["irritation"], {"irritation": 0.47}, knowledge)
+        self.assertEqual(result["phase1_status"], "blocked")
+        # не-нарушенная ось sebum сохраняет свою негативную нагрузку
+        self.assertAlmostEqual(result["dimensions"]["sebum"], -0.2, places=4)
+        # нарушенная ось скорректирована
+        self.assertAlmostEqual(result["dimensions"]["irritation"], -(0.6 - 0.47 / 2), places=4)
+
+    def test_non_tracked_axis_does_not_block(self):
+        # Ось с multiplier <= 1 (не блокирующая) не запускает блокировку сама по себе.
+        from app.phase1 import evaluate_phase1
+        r = {
+            "negative_factors": [{"ingredient": "x", "property": "sebum", "weighted_value": 0.5}],
+            "interaction_breakdown": [], "hard_flags": [], "unknown_factors": [],
+            "positive_factors": [], "dimensions": {},
+        }
+        with patch("app.scoring_engine._profile_negative_multiplier", return_value=1.0):
+            ph = evaluate_phase1(r, _profile(), ["x"])
+        self.assertEqual(ph["status"], "passed")
+        self.assertFalse(ph["branches"]["sebum"]["blocking"])
 
 
 if __name__ == "__main__":
@@ -459,6 +554,87 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
         self.assertIsNone(neutral_branch["threshold"])
         self.assertTrue(sensitive_branch["blocking"])
         self.assertIsNotNone(sensitive_branch["threshold"])
+
+
+class BlockedFormulaTests(unittest.TestCase):
+    """Формула корректировки заблокированной ячейки: axis_value - threshold/2."""
+
+    WEIGHTS = {"hydration": 0.30, "barrier": 0.15, "irritation": 0.30,
+               "sensitization": 0.04, "sebum": 0.15, "pigmentation": 0.04}
+
+    def _sp(self):
+        from app.profile_resolver import normalize_scoring_profile, resolve_personal_profile
+        profile = {"skin_type": "Нормальная", "concerns": [], "allergies": [], "intolerances": []}
+        sp = normalize_scoring_profile(profile)
+        sp["structured"]["axis_multipliers"] = resolve_personal_profile(sp.get("structured") or {})["axis_multipliers"]
+        return sp
+
+    def _gate(self, negative_dimensions, violated_axes, thresholds):
+        branches = {}
+        for ax in self.WEIGHTS:
+            branches[ax] = {
+                "axis": ax,
+                "load": max(0.0, -negative_dimensions.get(ax, 0.0)),
+                "blocking": ax in violated_axes,
+                "threshold": thresholds.get(ax),
+                "violated": ax in violated_axes,
+                "factor_count": 0,
+            }
+        return lambda preliminary: {
+            "status": "blocked",
+            "branches": branches,
+            "violations": [branches[ax] for ax in violated_axes],
+            "hard_violations": [],
+            "negative_dimensions": negative_dimensions,
+            "version": "test",
+        }
+
+    def _score(self, negative_dimensions, violated_axes, thresholds, knowledge):
+        from app.scoring_engine import score_product_against_profile_canonical
+        return score_product_against_profile_canonical(
+            ingredients=["glycerin"],
+            canonical_knowledge=knowledge,
+            user_profile=self._sp(),
+            canonical_weights=self.WEIGHTS,
+            pre_score_check=self._gate(negative_dimensions, violated_axes, thresholds),
+        )
+
+    def test_blocked_value_axis_value_minus_threshold_half(self):
+        # axis_value = 0.45, threshold = 0.47 -> 0.45 - 0.235 = 0.215
+        knowledge = {"glycerin": {"hydration": {"direction": "positive", "strength": 0.9, "confidence": 0.95}}}
+        result = self._score({"irritation": -0.45}, ["irritation"], {"irritation": 0.47}, knowledge)
+        self.assertEqual(result["phase1_status"], "blocked")
+        self.assertAlmostEqual(result["dimensions"]["irritation"], -(0.45 - 0.47 / 2), places=4)
+
+    def test_blocked_branch_ignores_phase2_positives(self):
+        knowledge = {"glycerin": {"hydration": {"direction": "positive", "strength": 0.9, "confidence": 0.95}}}
+        result = self._score({"irritation": -0.45}, ["irritation"], {"irritation": 0.47}, knowledge)
+        # Положительные эффекты фазы 2 не применяются: hydration остаётся нулевой.
+        self.assertEqual(result["dimensions"]["hydration"], 0.0)
+        self.assertTrue(result["positive_factors"])  # факты собраны, но в балл не входят
+
+    def test_global_block_uses_negative_load_for_all_cells(self):
+        # Пересечение одной оси -> статус blocked, все ячейки на негативной нагрузке.
+        knowledge = {"glycerin": {"hydration": {"direction": "positive", "strength": 0.9, "confidence": 0.95}}}
+        result = self._score({"irritation": -0.6, "sebum": -0.2}, ["irritation"], {"irritation": 0.47}, knowledge)
+        self.assertEqual(result["phase1_status"], "blocked")
+        # не-нарушенная ось sebum сохраняет свою негативную нагрузку
+        self.assertAlmostEqual(result["dimensions"]["sebum"], -0.2, places=4)
+        # нарушенная ось скорректирована
+        self.assertAlmostEqual(result["dimensions"]["irritation"], -(0.6 - 0.47 / 2), places=4)
+
+    def test_non_tracked_axis_does_not_block(self):
+        # Ось с multiplier <= 1 (не блокирующая) не запускает блокировку сама по себе.
+        from app.phase1 import evaluate_phase1
+        r = {
+            "negative_factors": [{"ingredient": "x", "property": "sebum", "weighted_value": 0.5}],
+            "interaction_breakdown": [], "hard_flags": [], "unknown_factors": [],
+            "positive_factors": [], "dimensions": {},
+        }
+        with patch("app.scoring_engine._profile_negative_multiplier", return_value=1.0):
+            ph = evaluate_phase1(r, _profile(), ["x"])
+        self.assertEqual(ph["status"], "passed")
+        self.assertFalse(ph["branches"]["sebum"]["blocking"])
 
 
 if __name__ == "__main__":

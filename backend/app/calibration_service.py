@@ -239,19 +239,19 @@ def load_products(limit: int = 500, categories: Optional[List[str]] = None,
     import random
     from .postgres_connection import get_postgres_connection
 
-    allowed = ["Уход для лица"]
-    if not allowed or limit <= 0:
+    if limit <= 0:
         return []
 
     sql = """
-        SELECT id, name, brand, ingredients, taxonomy_category, subcategory
+        SELECT id, name, brand, ingredients, taxonomy_category, subcategory, catalog_category
         FROM public.products
         WHERE is_canonical = 1
           AND ingredients IS NOT NULL
           AND btrim(ingredients) <> ''
-          AND taxonomy_category = %s
+          AND catalog_category IS NOT NULL
+          AND btrim(catalog_category) <> ''
     """
-    params = list(allowed)
+    params = []
 
     if categories:
         sql += " AND subcategory IN (" + ", ".join(["%s"] * len(categories)) + ")"

@@ -133,22 +133,30 @@ def _profile_negative_multiplier(axis: str, profile: Dict[str, Any]) -> float:
 
     context = profile.get("structured") if isinstance(profile.get("structured"), dict) else profile
     risk_items: Dict[str, Tuple[Dict[str, Any], float]] = {}
+
+    def _set_risk(sid, node, factor):
+        # Одна уязвимость учитывается один раз, но силой берётся НАИБОЛЬШИЙ фактор
+        # (если один и тот же ответ повторяется с разной тяжестью).
+        prev = risk_items.get(sid)
+        if prev is None or factor > prev[1]:
+            risk_items[sid] = (node, factor)
+
     for key in ("concerns", "imperfections", "states", "selected"):
         for item in context.get(key) or []:
             sid = _canonical_matrix_id(_element_id(item))
             node = PROFILE_MATRIX.get(sid) if sid else None
             if node and node.get("mode") == "score":
-                risk_items[sid] = (node, _severity_factor(item) if isinstance(item, dict) else 1.0)
+                _set_risk(sid, node, _severity_factor(item) if isinstance(item, dict) else 1.0)
     for item in context.get("therapy") or []:
         sid = _canonical_matrix_id(_element_id(item))
         node = PROFILE_MATRIX.get(sid) if sid else None
         if node and node.get("mode") == "score":
-            risk_items[sid] = (node, _therapy_factor(item) if isinstance(item, dict) else 0.0)
+            _set_risk(sid, node, _therapy_factor(item) if isinstance(item, dict) else 0.0)
     for item in context.get("procedures") or []:
         sid = _canonical_matrix_id(_element_id(item))
         node = PROFILE_MATRIX.get(sid) if sid else None
         if node and node.get("mode") == "score":
-            risk_items[sid] = (node, _procedure_factor(item) if isinstance(item, dict) else 0.0)
+            _set_risk(sid, node, _procedure_factor(item) if isinstance(item, dict) else 0.0)
 
     load = sum(float(node.get("axes", {}).get(axis, 0.0)) * factor
                for node, factor in risk_items.values())

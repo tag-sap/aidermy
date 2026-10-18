@@ -145,7 +145,7 @@ def evaluate_phase1(
         blocking = multiplier > 1.0
         threshold = round(2.0 - multiplier, 4) if blocking else None
         violated = bool(
-            blocking and threshold is not None and load > threshold
+            blocking and threshold is not None and load >= threshold
         )
 
         branches[axis] = {
