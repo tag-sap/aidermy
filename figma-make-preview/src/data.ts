@@ -67,7 +67,6 @@ export const FACE_TAXONOMY = [
   { key: "exfoliation", title: "Эксфолиация", subcategories: ["Кислотные средства", "Энзимные пудры", "Пилинги", "Скрабы"] },
   { key: "sun", title: "Защита от солнца", subcategories: ["SPF 30", "SPF 50", "Для лица", "Для чувствительной кожи", "Тонированные SPF"] },
   { key: "eyes", title: "Уход за областью вокруг глаз", subcategories: ["Кремы", "Сыворотки", "Патчи"] },
-  { key: "lips", title: "Уход за губами", subcategories: ["Бальзамы", "Маски", "Скрабы", "SPF для губ"] },
 ]
 
 const IMG = (n: string) => `https://images.unsplash.com/${n}?auto=format&fit=crop&w=520&q=85`

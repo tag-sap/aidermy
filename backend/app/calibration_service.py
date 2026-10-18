@@ -250,6 +250,7 @@ def load_products(limit: int = 500, categories: Optional[List[str]] = None,
           AND btrim(ingredients) <> ''
           AND catalog_category IS NOT NULL
           AND btrim(catalog_category) <> ''
+          AND catalog_category <> 'Уход за губами'
     """
     params = []
 
@@ -583,6 +584,8 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
             "profile": pr,
             "score": int(res.get("score") or 0),
             "verdict": res.get("verdict") or "",
+            "phase1_status": res.get("phase1_status") or "",
+            "recommendation_status": res.get("recommendation_status") or "",
             "trace": {
                 "dimensions": res.get("dimensions") or {},
                 "priorities": res.get("priorities") or {},

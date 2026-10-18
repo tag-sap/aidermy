@@ -34,14 +34,18 @@ def _build_catalog_query(
 ) -> tuple[str, list[Any], str, list[Any]]:
     """Строит параметризованные запросы каталога и общего количества."""
 
+    from .face_taxonomy import main_face_category_titles
+
+    _face_titles = main_face_category_titles()
+    _face_ph = ", ".join(["%s"] * len(_face_titles))
     where = [
         "is_canonical = 1",
-        "catalog_category IS NOT NULL",
+        f"catalog_category IN ({_face_ph})",
         "btrim(catalog_category) <> ''",
         "catalog_subcategory IS NOT NULL",
         "btrim(catalog_subcategory) <> ''",
     ]
-    params: list[Any] = []
+    params: list[Any] = list(_face_titles)
 
     if category:
         where.append("taxonomy_category = %s")

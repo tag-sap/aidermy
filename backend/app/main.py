@@ -940,7 +940,7 @@ async def get_catalog_letters():
                         SELECT DISTINCT
                             lower(substring(({POSTGRES_TITLE_SQL}) from 1 for 1)) AS letter
                         FROM public.products
-                        WHERE is_canonical = 1 AND name IS NOT NULL AND name <> '' AND catalog_category IS NOT NULL AND btrim(catalog_category) <> ''
+                        WHERE is_canonical = 1 AND name IS NOT NULL AND name <> '' AND catalog_category IS NOT NULL AND btrim(catalog_category) <> '' AND catalog_category <> 'Уход за губами'
                     ) AS distinct_letters
                     ORDER BY letter COLLATE "C"
                 """)
@@ -975,7 +975,7 @@ CATEGORY_KEYWORDS = [
 @app.get("/api/categories")
 async def get_categories():
     """Каноническая таксономия ухода за лицом (10 категорий) + бренды."""
-    from .face_taxonomy import FACE_TAXONOMY
+    from .face_taxonomy import MAIN_FACE_TAXONOMY
     from .postgres_connection import get_postgres_connection
 
     with get_postgres_connection() as conn:
@@ -1002,7 +1002,7 @@ async def get_categories():
             "subcategories": list(c["subcategories"]),
             "count": counts.get(c["title"], 0),
         }
-        for c in FACE_TAXONOMY
+        for c in MAIN_FACE_TAXONOMY
     ]
     return {"taxonomy": taxonomy, "categories": [], "brands": brands}
 CATALOG_SECTIONS = [
@@ -1025,7 +1025,7 @@ async def get_catalog_sections():
         base = """
             SELECT name, slug, image_url, category, brand, ingredients
             FROM public.products
-            WHERE is_canonical = 1 AND catalog_category IS NOT NULL AND btrim(catalog_category) <> ''
+            WHERE is_canonical = 1 AND catalog_category IS NOT NULL AND btrim(catalog_category) <> '' AND catalog_category <> 'Уход за губами'
               AND image_url IS NOT NULL
               AND image_url <> ''
         """

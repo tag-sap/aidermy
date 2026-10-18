@@ -47,9 +47,22 @@ FACE_TAXONOMY: List[Dict[str, object]] = [
 ]
 
 
+# Категории, исключённые из основной продуктовой области Aidermy
+# (остаются в БД и таксономии для будущих исследований, но не участвуют
+# в каталоге, полке, автоподборе, рекомендациях и калибровке).
+EXCLUDED_FACE_CATEGORIES = ("Уход за губами",)
+
+MAIN_FACE_TAXONOMY = [c for c in FACE_TAXONOMY if c["title"] not in EXCLUDED_FACE_CATEGORIES]
+
+
 def face_category_titles() -> List[str]:
     """Заголовки 10 канонических категорий (для SQL-фильтра допустимости)."""
     return [str(c["title"]) for c in FACE_TAXONOMY]
+
+
+def main_face_category_titles() -> List[str]:
+    """Заголовки 9 основных категорий (без ухода за губами)."""
+    return [str(c["title"]) for c in MAIN_FACE_TAXONOMY]
 
 
 def face_category_title_to_key() -> Dict[str, str]:

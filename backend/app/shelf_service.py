@@ -1337,13 +1337,13 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             "verdict": (analysis or {}).get("verdict") or "",
         })
 
-    from .face_taxonomy import FACE_TAXONOMY
+    from .face_taxonomy import MAIN_FACE_TAXONOMY
 
     cabinets: List[Dict[str, Any]] = []
     cab_items = [it for it in enriched if it["cabinet"] == "face"]
     categories: List[Dict[str, Any]] = []
     seen_cats: set = set()
-    for tax in FACE_TAXONOMY:
+    for tax in MAIN_FACE_TAXONOMY:
         title = str(tax["title"])
         cat_items = [it for it in cab_items if it["category"] == title]
         if not cat_items:
