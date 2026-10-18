@@ -28,6 +28,8 @@ export type ApiProduct = {
   category?: string
   subcategory?: string
   taxonomy_category?: string
+  catalog_category?: string
+  catalog_subcategory?: string
   brand?: string
   rating?: number | null
   rating_count?: number
@@ -88,6 +90,7 @@ export type ShelfItem = {
   product_id: number
   cabinet: string
   category: string
+  subcategory?: string
   added_at?: string
   name: string
   brand?: string

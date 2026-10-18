@@ -33,6 +33,7 @@ export type Product = {
   name: string
   cabinet: CabinetKey
   category: string
+  subcategory?: string
   image: string
   tags: string[]
   state?: ProductState
@@ -54,6 +55,20 @@ export const CABINETS: Cabinet[] = [
 ]
 
 export const CABINET_TITLES: Record<string, string> = Object.fromEntries(CABINETS.map((c) => [c.key, c.title]))
+
+// Единая каноническая таксономия ухода за лицом (10 категорий + подкатегории).
+export const FACE_TAXONOMY = [
+  { key: "cleansing", title: "Очищение", subcategories: ["Гели и пенки", "Молочко", "Бальзамы и масла", "Мицеллярная вода", "Энзимные средства"] },
+  { key: "toning", title: "Тонизация", subcategories: ["Тонеры", "Лосьоны", "Эссенции"] },
+  { key: "serums", title: "Сыворотки и концентраты", subcategories: ["Увлажняющие", "От акне и воспалений", "Осветляющие", "Антивозрастные", "Для восстановления барьера"] },
+  { key: "moisturizing", title: "Увлажнение", subcategories: ["Кремы", "Гели", "Флюиды", "Эмульсии"] },
+  { key: "barrier", title: "Восстановление кожного барьера", subcategories: ["Кремы с церамидами", "Восстанавливающие бальзамы", "Средства для чувствительной кожи"] },
+  { key: "masks", title: "Маски", subcategories: ["Увлажняющие", "Очищающие", "Успокаивающие", "Питательные", "Ночные"] },
+  { key: "exfoliation", title: "Эксфолиация", subcategories: ["Кислотные средства", "Энзимные пудры", "Пилинги", "Скрабы"] },
+  { key: "sun", title: "Защита от солнца", subcategories: ["SPF 30", "SPF 50", "Для лица", "Для чувствительной кожи", "Тонированные SPF"] },
+  { key: "eyes", title: "Уход за областью вокруг глаз", subcategories: ["Кремы", "Сыворотки", "Патчи"] },
+  { key: "lips", title: "Уход за губами", subcategories: ["Бальзамы", "Маски", "Скрабы", "SPF для губ"] },
+]
 
 const IMG = (n: string) => `https://images.unsplash.com/${n}?auto=format&fit=crop&w=520&q=85`
 

@@ -940,7 +940,7 @@ async def get_catalog_letters():
                         SELECT DISTINCT
                             lower(substring(({POSTGRES_TITLE_SQL}) from 1 for 1)) AS letter
                         FROM public.products
-                        WHERE is_canonical = 1 AND name IS NOT NULL AND name <> ''
+                        WHERE is_canonical = 1 AND name IS NOT NULL AND name <> '' AND catalog_category IS NOT NULL AND btrim(catalog_category) <> ''
                     ) AS distinct_letters
                     ORDER BY letter COLLATE "C"
                 """)
@@ -974,42 +974,37 @@ CATEGORY_KEYWORDS = [
 
 @app.get("/api/categories")
 async def get_categories():
-    """Список категорий/подкатегорий (таксономия) и брендов для фильтров"""
-    conn = get_connection(PRODUCTS_DB)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT DISTINCT brand FROM products WHERE is_canonical = 1 AND brand IS NOT NULL AND brand != '' ORDER BY brand")
-    brands = {row[0] for row in cursor.fetchall() if row[0]}
-    
-    # Извлекаем бренды из названий (часть до переноса строки), чтобы не терять бренды
-    cursor.execute("SELECT name FROM products WHERE is_canonical = 1 AND (brand IS NULL OR brand = '')")
-    category_lower = [kw.lower() for kw in CATEGORY_KEYWORDS]
-    for (name,) in cursor.fetchall():
-        if not name:
-            continue
-        first_part = name.split("\n")[0].strip()
-        if not first_part or len(first_part) < 2 or len(first_part) > 40:
-            continue
-        if any(kw in first_part.lower() for kw in category_lower):
-            continue
-        brands.add(first_part)
-    
-    conn.close()
+    """Каноническая таксономия ухода за лицом (10 категорий) + бренды."""
+    from .face_taxonomy import FACE_TAXONOMY
+    from .postgres_connection import get_postgres_connection
 
-    # Таксономия категорий/подкатегорий для каталога.
-    try:
-        from .catalog_taxonomy import catalog_taxonomy_payload
-        taxonomy = catalog_taxonomy_payload()
-    except Exception:
-        taxonomy = []
+    with get_postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SET TRANSACTION READ ONLY")
+            cursor.execute(
+                "SELECT catalog_category, COUNT(*) AS c FROM products "
+                "WHERE is_canonical = 1 AND catalog_category IS NOT NULL AND btrim(catalog_category) <> '' "
+                "GROUP BY catalog_category"
+            )
+            counts = {row["catalog_category"]: row["c"] for row in cursor.fetchall()}
+            cursor.execute(
+                "SELECT DISTINCT brand FROM products "
+                "WHERE is_canonical = 1 AND catalog_category IS NOT NULL "
+                "AND brand IS NOT NULL AND btrim(brand) <> '' ORDER BY brand"
+            )
+            brands = [row["brand"] for row in cursor.fetchall()]
+        conn.rollback()
 
-    return {
-        "taxonomy": taxonomy,
-        "categories": list(CATEGORY_KEYWORDS),
-        "brands": sorted(brands),
-    }
-
-
+    taxonomy = [
+        {
+            "key": c["key"],
+            "title": c["title"],
+            "subcategories": list(c["subcategories"]),
+            "count": counts.get(c["title"], 0),
+        }
+        for c in FACE_TAXONOMY
+    ]
+    return {"taxonomy": taxonomy, "categories": [], "brands": brands}
 CATALOG_SECTIONS = [
     {"key": "popular", "title": "Популярное", "type": "popular"},
     {"key": "skincare", "title": "Уход за кожей", "type": "categories", "categories": ["Очищение", "Тонер", "Сыворотка", "Крем"]},
@@ -1030,7 +1025,7 @@ async def get_catalog_sections():
         base = """
             SELECT name, slug, image_url, category, brand, ingredients
             FROM public.products
-            WHERE is_canonical = 1
+            WHERE is_canonical = 1 AND catalog_category IS NOT NULL AND btrim(catalog_category) <> ''
               AND image_url IS NOT NULL
               AND image_url <> ''
         """

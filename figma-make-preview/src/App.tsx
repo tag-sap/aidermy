@@ -6,7 +6,7 @@ import { api, setToken, getToken, type ReportResult, type Review } from "./api"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import {
-  products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
+  products, skinProfile, shelfReport, CABINETS, FACE_TAXONOMY, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
   ACID_OPTIONS, PROCEDURE_OPTIONS, PROCEDURE_PERIODS, INTOLERANCE_OPTIONS, GOALS_OPTIONS,
   type Page, type Product, type ProductState, type Verdict, type Plan, type CabinetKey,
@@ -241,7 +241,7 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
         <div className="pcard__body">
           <p className="pcard__brand">{product.brand}</p>
           <ProductName name={product.name} />
-          <p className="pcard__cat">{product.category}</p>
+          <p className="pcard__cat">{product.subcategory ? `${product.category} · ${product.subcategory}` : product.category}</p>
         </div>
       </button>
       <div className="pcard__foot">
@@ -1036,10 +1036,11 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear, onDel
 function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
   items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; query: string; onQuery: (v: string) => void
 }) {
-  const [cabinet, setCabinet] = useState<"all" | CabinetKey>("all")
   const [cat, setCat] = useState<string>("Все")
+  const [subcat, setSubcat] = useState<string>("Все")
   const [search, setSearch] = useState(query)
   const [results, setResults] = useState<Product[] | null>(null)
+  const [fetched, setFetched] = useState<Product[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => { setSearch(query) }, [query])
@@ -1057,25 +1058,33 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
     return () => window.clearTimeout(t)
   }, [search])
   useEffect(() => {
+    if (cat === "Все") { setFetched(null); return }
+    let cancelled = false
+    api.catalog({ catalog_category: cat, limit: 1000, sort: "popular" })
+      .then((res) => { if (!cancelled) setFetched((res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт")) })
+      .catch(() => { if (!cancelled) setFetched([]) })
+    return () => { cancelled = true }
+  }, [cat])
+  useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 400)
     window.addEventListener("scroll", onScroll, { passive: true })
     onScroll()
     return () => window.removeEventListener("scroll", onScroll)
   }, [])
-  const activeCab = CABINETS.find((c) => c.key === cabinet) ?? null
-  const cats = activeCab ? ["Все", ...activeCab.categories] : ["Все"]
+  const activeTax = FACE_TAXONOMY.find((c) => c.title === cat) ?? null
+  const subcats = activeTax ? ["Все", ...activeTax.subcategories] : ["Все"]
   const list = useMemo(() => {
-    const base = (results ?? items).filter((p) => p.cabinet === "face" || p.cabinet === "makeup")
+    const base = fetched ?? results ?? items
     const needle = search.trim().toLowerCase()
     return base.filter((p) => {
-      if (cabinet !== "all" && p.cabinet !== cabinet) return false
       if (cat !== "Все" && p.category !== cat) return false
+      if (subcat !== "Все" && p.subcategory !== subcat) return false
       if (!needle || results != null) return true
-      return [p.name, p.brand, p.category, ...p.tags].join(" ").toLowerCase().includes(needle)
+      return [p.name, p.brand, p.category, p.subcategory, ...p.tags].join(" ").toLowerCase().includes(needle)
     })
-  }, [items, results, search, cabinet, cat])
+  }, [fetched, items, results, search, cat, subcat])
 
-  useEffect(() => { setCat("Все") }, [cabinet])
+  useEffect(() => { setSubcat("Все") }, [cat])
 
   return (
     <div className="page">
@@ -1086,16 +1095,18 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
         {search && <button type="button" onClick={() => setSearch("")} className="search__clear" aria-label="Очистить"><Icon name="close" size={15} /></button>}
       </div>
       <div className="tabs">
-        <button type="button" className={`tab ${cabinet === "all" ? "tab--active" : ""}`} onClick={() => setCabinet("all")}>Все</button>
-        {CABINETS.filter((c) => c.key === "face" || c.key === "makeup").map((c) => (
-          <button key={c.key} type="button" className={`tab ${cabinet === c.key ? "tab--active" : ""}`} onClick={() => setCabinet(c.key)}>{c.short}</button>
+        <button type="button" className={`tab ${cat === "Все" ? "tab--active" : ""}`} onClick={() => setCat("Все")}>Все</button>
+        {FACE_TAXONOMY.map((c) => (
+          <button key={c.key} type="button" className={`tab ${cat === c.title ? "tab--active" : ""}`} onClick={() => setCat(c.title)}>{c.title}</button>
         ))}
       </div>
-      <div className="tabs tabs--cats">
-        {cats.map((c) => (
-          <button key={c} type="button" className={`tab ${cat === c ? "tab--active" : ""}`} onClick={() => setCat(c)}>{c}</button>
-        ))}
-      </div>
+      {activeTax && (
+        <div className="tabs tabs--cats">
+          {subcats.map((sc) => (
+            <button key={sc} type="button" className={`tab ${subcat === sc ? "tab--active" : ""}`} onClick={() => setSubcat(sc)}>{sc}</button>
+          ))}
+        </div>
+      )}
       <div className="product-grid">
         {list.map((p) => (
           <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} />
@@ -1108,6 +1119,7 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
     </div>
   )
 }
+
 type ScanMethod = "photo" | "inci" | "link" | "manual"
 
 function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => void; initialMethod?: ScanMethod }) {
@@ -1992,7 +2004,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             <div className="drawer__hero-meta">
               <button type="button" className="drawer__brand-link" onClick={() => onGoToCatalog(product.brand)}>{product.brand}</button>
               <h2>{product.name}</h2>
-              <button type="button" className="drawer__cat drawer__cat--link" onClick={() => onGoToCatalog(product.category)}>{product.category}</button>
+              <button type="button" className="drawer__cat drawer__cat--link" onClick={() => onGoToCatalog(product.category)}>{product.subcategory ? `${product.category} · ${product.subcategory}` : product.category}</button>
             </div>
           </div>
 

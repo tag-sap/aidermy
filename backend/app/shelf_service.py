@@ -1300,7 +1300,9 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
         p = get_product_by_id(s["product_id"])
         if not p:
             continue
-        cabinet, category = resolve_shelf_cabinet(s.get("category"), s.get("cabinet"), p.get("name") or "", p.get("subcategory") or "")
+        cabinet = "face"
+        category = p.get("catalog_category") or ""
+        subcategory = p.get("catalog_subcategory") or ""
         score = None
         has_report = False
         needs_recheck = False
@@ -1319,6 +1321,7 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             "product_id": s["product_id"],
             "cabinet": cabinet,
             "category": category,
+            "subcategory": subcategory,
             "added_at": s.get("added_at") or "",
             "name": (p.get("name") or "").replace("\n", " "),
             "brand": p.get("brand") or "",
@@ -1334,39 +1337,42 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             "verdict": (analysis or {}).get("verdict") or "",
         })
 
-    cabinets: List[Dict[str, Any]] = []
-    for cab in CABINETS:
-        cab_items = [it for it in enriched if it["cabinet"] == cab["key"]]
-        categories: List[Dict[str, Any]] = []
-        for cat in cab["categories"]:
-            cat_items = [it for it in cab_items if it["category"] == cat]
-            categories.append({
-                "key": cat,
-                "title": cat,
-                "items": cat_items,
-                "compatibility": _aggregate_scores(cat_items) if cab["compatibility"] else None,
-            })
-        other_items = [it for it in cab_items if it["category"] == "Другое"]
-        if other_items:
-            categories.append({
-                "key": "Другое",
-                "title": "Другое",
-                "items": other_items,
-                "compatibility": _aggregate_scores(other_items) if cab["compatibility"] else None,
-            })
+    from .face_taxonomy import FACE_TAXONOMY
 
-        compatibility = None
-        compatibility_details = None
-        if cab["compatibility"]:
-            compatibility = compute_cabinet_compatibility(user, cab_items)
-            compatibility_details = compute_cabinet_compatibility_details(user, cab_items)
-        cabinets.append({
-            "key": cab["key"],
-            "title": cab["title"],
-            "has_scoring": bool(cab["compatibility"]),
-            "compatibility": compatibility,
-            "compatibility_details": compatibility_details,
-            "categories": categories,
+    cabinets: List[Dict[str, Any]] = []
+    cab_items = [it for it in enriched if it["cabinet"] == "face"]
+    categories: List[Dict[str, Any]] = []
+    seen_cats: set = set()
+    for tax in FACE_TAXONOMY:
+        title = str(tax["title"])
+        cat_items = [it for it in cab_items if it["category"] == title]
+        if not cat_items:
+            continue
+        seen_cats.add(title)
+        categories.append({
+            "key": title,
+            "title": title,
+            "items": cat_items,
+            "compatibility": _aggregate_scores(cat_items),
         })
+    other_items = [it for it in cab_items if it["category"] not in seen_cats]
+    if other_items:
+        categories.append({
+            "key": "Другое",
+            "title": "Другое",
+            "items": other_items,
+            "compatibility": _aggregate_scores(other_items),
+        })
+
+    compatibility = compute_cabinet_compatibility(user, cab_items)
+    compatibility_details = compute_cabinet_compatibility_details(user, cab_items)
+    cabinets.append({
+        "key": "face",
+        "title": "Уход для лица",
+        "has_scoring": True,
+        "compatibility": compatibility,
+        "compatibility_details": compatibility_details,
+        "categories": categories,
+    })
 
     return cabinets

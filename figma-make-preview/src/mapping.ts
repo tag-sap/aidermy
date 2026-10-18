@@ -85,13 +85,15 @@ function toMatch(a: {
 
 export function mapApiProduct(api: ApiProduct): Product {
   const { brand, name } = splitProductName(api.name || "", api.brand)
-  const category = api.taxonomy_category || api.category || ""
+  const category = api.catalog_category || api.category || ""
+  const subcategory = api.catalog_subcategory || ""
   return {
     id: api.id,
     brand,
     name: name || "Продукт",
-    cabinet: inferCabinet(category, name),
+    cabinet: "face",
     category,
+    subcategory,
     image: api.image_url || placeholderImage(api.id),
     tags: category ? [category] : [],
     slug: api.slug,
@@ -125,6 +127,7 @@ export function mapShelfItem(item: ShelfItem): Product {
     name: name || item.name || "Продукт",
     cabinet: (item.cabinet as CabinetKey) || inferCabinet(item.category, name),
     category: item.category || "",
+    subcategory: item.subcategory || "",
     image: item.image_url || placeholderImage(item.product_id),
     tags: item.category ? [item.category] : [],
     state: "using",
