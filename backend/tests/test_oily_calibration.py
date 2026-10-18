@@ -4,7 +4,7 @@
 1) веса осей жирной кожи (sebum не доминирует, irritation/hydration — топ);
 2) score-диапазоны реальных продуктов (sanity-диапазоны вокруг фактических значений
    после signed-нормализации score = clamp(50 + 50*weighted_avg(tanh(raw/S)), 0, 100)
-   и diminishing-returns по однотипным claims: hydration/barrier — сильнейший claim,
+   и diminishing-returns по однотипным claims: hydration/barrier — 1/rank^1.5,
    остальные оси — 1/rank).
 
 Диапазоны отражают СЕМАНТИКУ (мягкие очищающие > агрессивных), а не точные значения.
@@ -28,7 +28,7 @@ CASES = [
     ("round-lab-soybean-panthenol-cleanser", "gentle cleanser", 62, 72),
     ("celimax-baking-soda-deep-foam-pore-cleansing", "exfoliating cleanser", 49, 59),
     ("natura-siberica-bereza-siberica-polar-white-birch-pore-refining-face-cleanser", "birch cleanser", 62, 72),
-    ("aravia-laboratories-hyaluronic-active-serum", "hyaluronic serum", 65, 75),
+    ("aravia-laboratories-hyaluronic-active-serum", "hyaluronic serum", 65, 80),
     ("round-lab-birch-juice-moisturizing-sunscreen-spf-50-pa", "SPF birch juice", 67, 77),
     ("aravia-laboratories-anti-acne-peeling", "acid peel", 53, 63),
     ("the-ordinary-100-organic-cold-pressed-rose-hip-seed-oil", "heavy oil", 58, 68),

@@ -317,27 +317,39 @@ class IngredientRepository:
             SELECT i.normalized_name, c.property_name, c.direction, c.strength, c.confidence
             FROM ingredients_catalog i
             LEFT JOIN ingredient_claims c ON c.ingredient_id = i.id
-            ORDER BY c.confidence DESC, c.strength DESC, c.id DESC
             '''
         ).fetchall()
         conn.close()
 
-        knowledge: Dict[str, Dict[str, Dict[str, float]]] = {}
+        # Детерминированная медианная агрегация совместимых свидетельств.
+        # Группируем по (ingredient, property, direction); для strength и confidence
+        # берём медиану (робастно к выбросам и не зависит от порядка строк).
+        acc: Dict[Any, List[Tuple[float, float]]] = {}
         for row in rows:
             if not row['normalized_name']:
                 continue
             ingredient = row['normalized_name'].lower()
             property_name = row['property_name']
             direction = row['direction']
-            if not property_name:
+            if not property_name or not direction:
                 continue
-            knowledge.setdefault(ingredient, {})
-            if direction and property_name:
-                knowledge[ingredient].setdefault(property_name, {
-                    'direction': direction,
-                    'strength': float(row['strength'] or 0),
-                    'confidence': float(row['confidence'] or 0),
-                })
+            acc.setdefault((ingredient, property_name, direction), []).append(
+                (float(row['strength'] or 0), float(row['confidence'] or 0))
+            )
+
+        def _median(lst: List[float]) -> float:
+            n = len(lst)
+            return lst[n // 2] if n else 0.0
+
+        knowledge: Dict[str, Dict[str, Dict[str, float]]] = {}
+        for (ingredient, property_name, direction), vals in acc.items():
+            strengths = sorted(v[0] for v in vals)
+            confidences = sorted(v[1] for v in vals)
+            knowledge.setdefault(ingredient, {})[property_name] = {
+                'direction': direction,
+                'strength': _median(strengths),
+                'confidence': _median(confidences),
+            }
         return knowledge
 
     def get_goal_evidence_map(

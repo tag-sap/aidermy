@@ -119,6 +119,11 @@ def _profile_axis_multiplier(axis: str, profile: Dict[str, Any]) -> float:
 PROFILE_CONFLICT_SCALE = 1.5
 PROFILE_CONFLICT_DECAY = 2.0
 
+# Benefit-оси (hydration/barrier): убывающая отдача 1/rank^decay для положительных
+# вкладов. inf = только сильнейший (top-1, текущее поведение); 1.0 = 1/rank (как harm-оси).
+import math as _math
+BENEFIT_DECAY = 1.5
+
 
 def _profile_negative_multiplier(axis: str, profile: Dict[str, Any]) -> float:
     """Saturating risk modifier from matching concerns, active therapy, and procedures."""
@@ -395,7 +400,13 @@ def score_product_against_profile_canonical(
             negative_values = sorted(axis_negative[axis], reverse=True)
 
             if axis in {"hydration", "barrier"}:
-                dimensions[axis] += positive_values[0] if positive_values else 0.0
+                if BENEFIT_DECAY is None or _math.isinf(BENEFIT_DECAY):
+                    dimensions[axis] += positive_values[0] if positive_values else 0.0
+                else:
+                    dimensions[axis] += sum(
+                        value / (rank ** BENEFIT_DECAY)
+                        for rank, value in enumerate(positive_values, start=1)
+                    )
             else:
                 dimensions[axis] += sum(
                     value / rank

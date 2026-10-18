@@ -79,12 +79,12 @@ def canonicalize_knowledge_map(knowledge: Dict[str, Any]) -> Dict[str, Dict[str,
             axis, direction = canonicalize_effect(prop, val.get("direction"))
             if axis is None:
                 continue
-            canon[axis] = {
+            canon.setdefault(axis, {
                 "direction": direction,
                 "strength": val.get("strength"),
                 "confidence": val.get("confidence"),
                 "_legacy_property": prop,
-            }
+            })
         if canon:
             out[ingredient] = canon
     return out
