@@ -317,6 +317,7 @@ class IngredientRepository:
             SELECT i.normalized_name, c.property_name, c.direction, c.strength, c.confidence
             FROM ingredients_catalog i
             LEFT JOIN ingredient_claims c ON c.ingredient_id = i.id
+            ORDER BY c.confidence DESC, c.strength DESC, c.id DESC
             '''
         ).fetchall()
         conn.close()
@@ -332,11 +333,11 @@ class IngredientRepository:
                 continue
             knowledge.setdefault(ingredient, {})
             if direction and property_name:
-                knowledge[ingredient][property_name] = {
+                knowledge[ingredient].setdefault(property_name, {
                     'direction': direction,
                     'strength': float(row['strength'] or 0),
                     'confidence': float(row['confidence'] or 0),
-                }
+                })
         return knowledge
 
     def get_goal_evidence_map(
