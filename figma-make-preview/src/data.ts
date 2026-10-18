@@ -1,17 +1,18 @@
 // айдерми V3 — данные и типы (mock, для визуального preview).
 // Реальная логика (scoring, Match, Report) живёт в backend V1 и сюда НЕ подключена.
 
-export type Page = "home" | "shelf" | "scan" | "catalog" | "report" | "profile"
+export type Page = "home" | "shelf" | "scan" | "catalog" | "report" | "profile" | "sets"
 export type ProductState = "using" | "want" | "finished"
-export type Verdict = "Подходит" | "Допустимо" | "Не подходит"
+export type Verdict = "Не подходит" | "Скорее не подходит" | "Нейтральный результат" | "Подходит" | "Отлично подходит" | "Допустимо" | "Не рекомендовано"
 export type Plan = "free" | "plus" | "pro"
 export type CabinetKey = "face" | "hair" | "body" | "makeup" | "fragrance"
 
 // Match — отдельное состояние проверки (совместимость продукта с профилем).
 // Это НЕ данные продукта, а сохранённый/полученный результат Score Engine.
 export type Match = {
-  score: number
+  score: number | null
   verdict?: string
+  recommendation_status?: string
   summary?: string
   safe_ingredients?: string[]
   caution_ingredients?: string[]
@@ -20,6 +21,8 @@ export type Match = {
   expectations?: string
   report?: string
   analysis_id?: number
+  has_report?: boolean
+  phase1_status?: string
   what_good?: string
   inci?: string[]
 }

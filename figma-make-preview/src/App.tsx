@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
-import { api, setToken, getToken, type ReportResult } from "./api"
+import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
+import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
+import { api, setToken, getToken, type ReportResult, type Review } from "./api"
+import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import {
   products, skinProfile, shelfReport, CABINETS, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
@@ -59,11 +62,12 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 }
 
 function toneOf(score: number | null, verdict: Verdict | null): "good" | "warn" | "bad" | "neutral" {
-  if (verdict === "Подходит") return "good"
-  if (verdict === "Допустимо") return "warn"
-  if (verdict === "Не подходит") return "bad"
+  if (verdict === "Отлично подходит" || verdict === "Подходит") return "good"
+  if (verdict === "Скорее не подходит" || verdict === "Допустимо") return "warn"
+  if (verdict === "Не подходит" || verdict === "Не рекомендовано") return "bad"
+  if (verdict === "Нейтральный результат") return "neutral"
   if (score == null) return "neutral"
-  return score >= 80 ? "good" : score >= 60 ? "warn" : "bad"
+  return score < 20 ? "bad" : score < 40 ? "warn" : score < 60 ? "neutral" : "good"
 }
 function ParticleCanvas({ tint = "rgba(214,242,100," }: { tint?: string }) {
   const ref = useRef<HTMLCanvasElement>(null)
@@ -140,9 +144,21 @@ function VerdictPill({ verdict, score }: { verdict: Verdict | null; score: numbe
   return <span className={`pill pill--${toneOf(score, verdict)}`}>{verdict}</span>
 }
 
-function ScoreBadge({ score }: { score: number | null }) {
-  if (score == null) return null
-  return <span className={`score-badge score-badge--${toneOf(score, null)}`}>{score}%</span>
+function ScoreBadge({ score, verdict, recommendationStatus }: {
+  score: number | null;
+  verdict?: string | null;
+  recommendationStatus?: string | null;
+}) {
+  const value = score ?? null
+  const status = verdict || recommendationStatus
+  if (value == null) {
+    return status ? <span className="score-text">{status}</span> : null
+  }
+  return (
+    <span className="score-badge">
+      {Math.round(value)}%{status ? ` · ${status}` : ""}
+    </span>
+  )
 }
 
 function Avatar({ size = 34, initials = skinProfile.initials }: { size?: number; initials?: string }) {
@@ -150,19 +166,52 @@ function Avatar({ size = 34, initials = skinProfile.initials }: { size?: number;
 }
 
 function ScoreRing({ score, label = "совместимость" }: { score: number; label?: string }) {
-  const size = 148, stroke = 8, r = (size - stroke) / 2, c = 2 * Math.PI * r
-  const [progress, setProgress] = useState(0)
-  useEffect(() => { const id = requestAnimationFrame(() => setProgress(score)); return () => cancelAnimationFrame(id) }, [score])
+  const tone = toneOf(score, null)
+  const [displayScore, setDisplayScore] = useState(0)
+
+  useEffect(() => {
+    const target = Math.round(score)
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setDisplayScore(target)
+      return
+    }
+
+    let frame = 0
+    let startTime: number | null = null
+    const duration = 1700
+
+    setDisplayScore(0)
+
+    const tick = (now: number) => {
+      if (startTime === null) startTime = now
+      const progress = Math.min((now - startTime) / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 4)
+      setDisplayScore(Math.round(target * eased))
+
+      if (progress < 1) {
+        frame = window.requestAnimationFrame(tick)
+      }
+    }
+
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
+  }, [score])
+
   return (
-    <div className="score-ring" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="score-ring__svg">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" className="score-ring__track" strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" className={`score-ring__val score-ring__val--${toneOf(score, null)}`} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c - (progress / 100) * c} style={{ transition: "stroke-dashoffset 1.1s cubic-bezier(.16,1,.3,1)" }} />
-      </svg>
-      <div className="score-ring__center"><strong>{progress}%</strong><span>{label}</span></div>
+    <div
+      className={`compat-gauge compat-gauge--${tone}`}
+      role="img"
+      aria-label={`${label}: ${Math.round(score)} процентов`}
+    >
+      <span className="compat-gauge__value">
+        {displayScore}<span className="compat-gauge__percent">%</span>
+      </span>
+      <span className="compat-gauge__label">{label}</span>
     </div>
   )
 }
+
 function ProductName({ name }: { name: string }) {
   return (
     <div className="pcard__name-wrap">
@@ -186,7 +235,7 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
       <button type="button" className="pcard__main" onClick={onSelect ? onSelect : onOpen} aria-label={product.name}>
         <div className="pcard__img">
           <img src={product.image} alt="" loading="lazy" />
-          {product.match && <ScoreBadge score={product.match.score} />}
+          {product.match && <ScoreBadge score={product.match.score} verdict={product.match.verdict} recommendationStatus={product.match.recommendation_status} />}
           {product.state && <span className={`pcard__state pcard__state--${product.state}`} />}
         </div>
         <div className="pcard__body">
@@ -402,109 +451,369 @@ function AutoPickCarousel({
   onAdd,
 }: {
   items: Product[]
-  onOpen: (p: Product) => void
-  onAdd: (p: Product) => void
+  onOpen: (p: Product, card?: HTMLElement) => void
+  onAdd: (p: Product) => Promise<boolean> | boolean
 }) {
-  const [index, setIndex] = useState(0)
+  const [order, setOrder] = useState<number[]>(() =>
+    items.map((_, index) => index)
+  )
+
   const [dragX, setDragX] = useState(0)
+  const [dragY, setDragY] = useState(0)
   const [dragging, setDragging] = useState(false)
+  const [swiping, setSwiping] = useState(false)
+  const [returning, setReturning] = useState(false)
+  const [swipeDirection, setSwipeDirection] = useState<1 | -1>(1)
+
   const startX = useRef(0)
+  const startY = useRef(0)
+  const lastX = useRef(0)
+  const lastTime = useRef(0)
+  const velocityX = useRef(0)
+
   const movedRef = useRef(false)
-  const lastDx = useRef(0)
+  const pointerIdRef = useRef<number | null>(null)
+
+  // ID конкретной карточки, которая сейчас улетает.
+  // Это важно: после paginate её position меняется с 0 на 3.
+  const swipingItemRef = useRef<number | null>(null)
+  const addingItemRef = useRef<number | null>(null)
+
   const total = items.length
 
-  if (total === 0) return null
+  useEffect(() => {
+    setOrder((current) => {
+      const valid = current.filter(
+        (index) => index >= 0 && index < items.length
+      )
 
-  const go = (dir: 1 | -1) => {
-    setIndex((i) => (i + dir + total) % total)
+      const missing = items
+        .map((_, index) => index)
+        .filter((index) => !valid.includes(index))
+
+      return [...valid, ...missing]
+    })
+  }, [items])
+
+  if (total === 0 || order.length === 0) {
+    return (
+      <div className="autopick-carousel">
+        <p>Вы просмотрели все товары в этой подборке.</p>
+      </div>
+    )
   }
 
-  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const visibleCount = Math.min(order.length, 4)
+  const visibleOrder = order.slice(0, visibleCount)
+  const currentIndex = order[0] ?? 0
+
+  const removeSwipedCard = (item: number, direction: 1 | -1) => {
+    if (swiping) return
+
+    swipingItemRef.current = item
+    setSwipeDirection(direction)
+    setSwiping(true)
+    setReturning(false)
+    setDragging(false)
+
+    window.setTimeout(() => {
+      setOrder((current) => current.filter((index) => index !== item))
+      setDragX(0)
+      setDragY(0)
+      setReturning(false)
+      setSwiping(false)
+      swipingItemRef.current = null
+      movedRef.current = false
+    }, 320)
+  }
+
+  const finishSwipe = (direction: 1 | -1) => {
+    const item = order[0]
+    if (item == null || swiping || addingItemRef.current !== null) return
+
+    const product = items[item]
+    if (!product) return
+
+    if (direction === -1) {
+      removeSwipedCard(item, direction)
+      return
+    }
+
+    addingItemRef.current = item
+    setDragging(false)
+
+    void Promise.resolve()
+      .then(() => onAdd(product))
+      .then((success) => {
+        if (success) removeSwipedCard(item, direction)
+      })
+      .catch(() => {
+        // При ошибке оставляем карточку в колоде.
+      })
+      .finally(() => {
+        addingItemRef.current = null
+      })
+  }
+
+  const handlePointerDown = (
+    e: ReactPointerEvent<HTMLDivElement>
+  ) => {
+    if (swiping) return
     if (e.pointerType === "mouse" && e.button !== 0) return
+
+    pointerIdRef.current = e.pointerId
+
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {}
+
     setDragging(true)
-    movedRef.current = false
-    startX.current = e.clientX
-    lastDx.current = 0
     setDragX(0)
+    setDragY(0)
+
+    movedRef.current = false
+
+    startX.current = e.clientX
+    startY.current = e.clientY
+
+    lastX.current = e.clientX
+    lastTime.current = performance.now()
+
+    velocityX.current = 0
   }
 
-  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragging) return
+  const handlePointerMove = (
+    e: ReactPointerEvent<HTMLDivElement>
+  ) => {
+    if (!dragging || swiping) return
+
+    const now = performance.now()
 
     const dx = e.clientX - startX.current
+    const dy = e.clientY - startY.current
 
-    if (Math.abs(dx) > 8) {
+    const dt = Math.max(now - lastTime.current, 1)
+
+    // Та же velocity-механика, что в референсе.
+    velocityX.current =
+      (e.clientX - lastX.current) / dt * 60
+
+    lastX.current = e.clientX
+    lastTime.current = now
+
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
       movedRef.current = true
     }
 
-    lastDx.current = dx
-    setDragX(dx)
+    // Точный elastic из референса.
+    const elastic = 0.7
+
+    setDragX(dx * elastic)
+    setDragY(dy * elastic * 0.4)
   }
 
-  const handlePointerUp = () => {
-    if (!dragging) return
+  const handlePointerUp = (
+    e?: ReactPointerEvent<HTMLDivElement>
+  ) => {
+    if (!dragging || swiping) return
 
+    if (
+      e &&
+      pointerIdRef.current === e.pointerId
+    ) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      } catch {}
+    }
+
+    pointerIdRef.current = null
     setDragging(false)
 
-    const dx = lastDx.current
-    setDragX(0)
+    const rawDx =
+      lastX.current - startX.current
 
-    if (movedRef.current && Math.abs(dx) > SWIPE_THRESHOLD) {
-      go(dx < 0 ? 1 : -1)
+    const distance = Math.abs(rawDx)
+    const velocity = Math.abs(velocityX.current)
+
+    // Аналог swipePower из референса:
+    // abs(offset) * velocity.
+    //
+    // Оставляем также distance threshold,
+    // чтобы медленный нормальный свайп работал.
+    const shouldSwipe =
+      movedRef.current &&
+      order.length > 0 &&
+      (
+        distance > 90 ||
+        distance * velocity > 10000
+      )
+
+    if (shouldSwipe) {
+      finishSwipe(rawDx > 0 ? 1 : -1)
+      return
     }
-  }
 
-  const visible = Math.min(total, 4)
-  const order = Array.from({ length: visible }, (_, k) => (index + k) % total)
+    setDragX(0)
+    setDragY(0)
+
+    window.setTimeout(() => {
+      movedRef.current = false
+    }, 80)
+  }
 
   return (
     <div
-      className={`autopick-carousel ${dragging ? "autopick-carousel--dragging" : ""}`}
+      className={`autopick-carousel ${
+        dragging
+          ? "autopick-carousel--dragging"
+          : ""
+      } ${
+        swiping
+          ? "autopick-carousel--swiping"
+          : ""
+      }`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      {order.map((itemIdx, k) => {
-        const p = items[itemIdx]
-        const isFront = k === 0
+      {visibleOrder.map((itemIdx, position) => {
+        const product = items[itemIdx]
+
+        if (!product) return null
+
+        const isFront = position === 0
+
+        // После paginate карточка уже position=3.
+        // Поэтому определяем её по itemIdx.
+        const isSwipingCard =
+          swiping &&
+          swipingItemRef.current === itemIdx
+
         const style: CSSProperties = {}
 
-        if (isFront && dragging && dragX !== 0) {
-          style.transform = `translateX(${dragX}px) rotate(${dragX * 0.025}deg)`
+        // ======================================================
+        // DRAG
+        // ======================================================
+        if (isFront && dragging) {
+          style.transition = "none"
+
+          style.transform = `
+            scale(1)
+            translateX(${dragX}px)
+            translateY(${dragY}px)
+            rotate(${dragX * 0.04}deg)
+          `
+        }
+
+        // ======================================================
+        // ФАЗА 1 + ФАЗА 2
+        //
+        // Конкретная карточка летит и остаётся в точке
+        // ±500px даже после того, как стала position=3.
+        // ======================================================
+        if (isSwipingCard && !returning) {
+          style.transition =
+            "transform .3s cubic-bezier(.4, 0, 1, 1)"
+
+          style.transform = `
+            scale(.9)
+            translateX(${swipeDirection * 500}px)
+            translateY(40px)
+            rotate(${swipeDirection * 20}deg)
+          `
+
+          style.zIndex = 4
+        }
+
+        // ======================================================
+        // ФАЗА 3
+        //
+        // Не задаём transform вообще.
+        //
+        // CSS:
+        // data-stack="3"
+        //
+        // плавно переводит карточку:
+        //
+        // ±500px → 110px
+        // 40px   → 16px
+        // ±20deg → 7deg
+        // scale .9 → .8
+        // ======================================================
+        if (isSwipingCard && returning) {
+          style.transition =
+            "transform .42s cubic-bezier(.16, 1, .3, 1)"
         }
 
         return (
           <article
-            key={`${p.id}-${itemIdx}`}
+            key={product.id}
             className="autopick-carousel__card"
-            data-stack={k}
+            data-stack={position}
             style={style}
-            onClick={() => {
-              if (!movedRef.current) onOpen(p)
+            onClick={(event) => {
+              if (
+                !movedRef.current &&
+                !swiping
+              ) {
+                onOpen(product, event.currentTarget as HTMLElement)
+              }
             }}
           >
             <div className="autopick-carousel__image">
-              <img src={p.image} alt="" loading="lazy" draggable={false} />
-              {p.match && <ScoreBadge score={p.match.score} />}
+              <div
+                className="autopick-carousel__swipe-tint autopick-carousel__swipe-tint--skip"
+                style={{ opacity: isFront && dragging && dragX < 0 ? Math.min(0.32, Math.abs(dragX) / 280) : 0 }}
+                aria-hidden="true"
+              />
+              <div
+                className="autopick-carousel__swipe-tint autopick-carousel__swipe-tint--add"
+                style={{ opacity: isFront && dragging && dragX > 0 ? Math.min(0.32, dragX / 280) : 0 }}
+                aria-hidden="true"
+              />
+              <div
+                className="autopick-carousel__swipe-hint autopick-carousel__swipe-hint--skip"
+                style={{ opacity: isFront && dragging && dragX < 0 ? Math.min(1, Math.abs(dragX) / 90) : 0 }}
+                aria-hidden="true"
+              >
+                ← Пропускаем
+              </div>
+              <div
+                className="autopick-carousel__swipe-hint autopick-carousel__swipe-hint--add"
+                style={{ opacity: isFront && dragging && dragX > 0 ? Math.min(1, dragX / 90) : 0 }}
+                aria-hidden="true"
+              >
+                Добавляем →
+              </div>
+              <img
+                src={product.image}
+                alt=""
+                loading="lazy"
+                draggable={false}
+              />
+
+              {product.match && (
+                <ScoreBadge
+                  score={product.match.score}
+                  verdict={product.match.verdict}
+                  recommendationStatus={product.match.recommendation_status}
+                />
+              )}
             </div>
 
             <div className="autopick-carousel__body">
-              <p className="autopick-carousel__brand">{p.brand}</p>
-              <h3>{p.name}</h3>
-              <p className="autopick-carousel__category">{p.category}</p>
+              <p className="autopick-carousel__brand">
+                {product.brand}
+              </p>
 
-              <button
-                type="button"
-                className="autopick-carousel__add"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onAdd(p)
-                }}
-              >
-                <Icon name="plus" size={17} />
-                Добавить на полку
-              </button>
+              <h3>{product.name}</h3>
+
+              <p className="autopick-carousel__category">
+                {product.category}
+              </p>
+
+              
             </div>
           </article>
         )
@@ -512,7 +821,7 @@ function AutoPickCarousel({
 
       {total > 1 && (
         <div className="autopick-carousel__counter">
-          {index + 1} / {total}
+          {total - order.length + 1} / {total}
         </div>
       )}
     </div>
@@ -586,7 +895,7 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
             <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
               <img src={p.image} alt="" loading="lazy" />
               <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-              {p.match && <ScoreBadge score={p.match.score} />}
+              {p.match && <ScoreBadge score={p.match.score} verdict={p.match.verdict} recommendationStatus={p.match.recommendation_status} />}
             </button>
           ))}
         </div>
@@ -679,7 +988,7 @@ function ShelfPage({ items, checkingIds, onOpen, onAdd, onRemove, onClear, onDel
         </div>} />
 
       <div className="cabinet-tabs">
-        {CABINETS.map((c) => {
+        {CABINETS.filter((c) => c.key === "face" || c.key === "makeup").map((c) => {
           const count = items.filter((p) => p.state && p.cabinet === c.key).length
           return (
             <button key={c.key} type="button" className={`cabinet-tab ${active === c.key ? "cabinet-tab--active" : ""}`} onClick={() => setActive(c.key)}>
@@ -756,7 +1065,7 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
   const activeCab = CABINETS.find((c) => c.key === cabinet) ?? null
   const cats = activeCab ? ["Все", ...activeCab.categories] : ["Все"]
   const list = useMemo(() => {
-    const base = results ?? items
+    const base = (results ?? items).filter((p) => p.cabinet === "face" || p.cabinet === "makeup")
     const needle = search.trim().toLowerCase()
     return base.filter((p) => {
       if (cabinet !== "all" && p.cabinet !== cabinet) return false
@@ -778,7 +1087,7 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
       </div>
       <div className="tabs">
         <button type="button" className={`tab ${cabinet === "all" ? "tab--active" : ""}`} onClick={() => setCabinet("all")}>Все</button>
-        {CABINETS.map((c) => (
+        {CABINETS.filter((c) => c.key === "face" || c.key === "makeup").map((c) => (
           <button key={c.key} type="button" className={`tab ${cabinet === c.key ? "tab--active" : ""}`} onClick={() => setCabinet(c.key)}>{c.short}</button>
         ))}
       </div>
@@ -826,9 +1135,12 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
   const needManualFields = method === "inci" || method === "manual"
   const canRun = busy ? false : method === "photo" ? photoAdded : method === "inci" ? brand.trim().length > 0 && name.trim().length > 0 && inciPhotoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
 
-  const buildResult = (b: string, n: string, image: string, productSlug: string | undefined, inci: string, res: { score?: number | null; verdict?: string; analysis_id?: number } | undefined, productId?: number): Product => {
+  const buildResult = (b: string, n: string, image: string, productSlug: string | undefined, inci: string, res: { score?: number | null; verdict?: string; analysis_id?: number; recommendation_status?: string; } | undefined, productId?: number): Product => {
     const score = res?.score ?? null
-    const verdict = mapVerdict(score, res?.verdict)
+    const recStatus = res?.recommendation_status
+    const negOnly = res && typeof res.negative_only_score === "number" ? res.negative_only_score : null
+    const verdict = recStatus === "Не рекомендовано" ? ("Не рекомендовано" as Verdict) : mapVerdict(score, res?.verdict)
+    const displayScore = recStatus === "Не рекомендовано" && negOnly != null ? negOnly : score
     const aid = res && typeof res.analysis_id === "number" ? res.analysis_id : undefined
     return {
       id: productId ?? 900 + Math.floor(Math.random() * 90),
@@ -841,7 +1153,7 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
       state: "want",
       slug: productSlug,
       ingredients: inci || undefined,
-      match: score != null ? { score, verdict: verdict ?? undefined, analysis_id: aid } : undefined,
+      match: score != null ? { score, verdict: verdict ?? undefined, analysis_id: aid, recommendation_status: recStatus } : undefined,
     }
   }
 
@@ -879,6 +1191,18 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
         setResult(buildResult(brand.trim(), name.trim(), "", "", inci.trim(), checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
       }
       setPhase("ready")
+      // Обновляем товар в общем списке items, чтобы балл отображался сразу без перезагрузки
+      if (checkRes && typeof checkRes.score === "number") {
+        setItems(prev => prev.map(p => p.name.toLowerCase() === name.trim().toLowerCase() ? {
+          ...p,
+          match: {
+            score: checkRes.score,
+            verdict: checkRes.verdict,
+            recommendation_status: checkRes.recommendation_status,
+            analysis_id: checkRes.analysis_id
+          }
+        } : p))
+      }
     } catch {
       // fallback: без фейкового счёта — пользователь проверит вручную в карточке
       setResult(buildResult(brand.trim() || "COSRX", name.trim() || "Advanced Snail 96 Mucin Power Essence", imageUrl, slug, inci.trim(), undefined))
@@ -1070,7 +1394,7 @@ function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
             <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
               <img src={p.image} alt="" loading="lazy" />
               <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-              {p.match && <ScoreBadge score={p.match.score} />}
+              {p.match && <ScoreBadge score={p.match.score} verdict={p.match.verdict} recommendationStatus={p.match.recommendation_status} />}
             </button>
           ))}
         </div>
@@ -1315,20 +1639,177 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
     </div>
   )
 }
-function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit }: {
+function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onCheckFinished, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit, morphOrigin }: {
   product: Product; user: User | null; onAuth: () => void; onPricing: () => void; onClose: () => void;
-  onChecking: (id: number) => void; onChecked: (id: number, score: number, verdict: Verdict, analysisId?: number) => void; onReported: (id: number, analysisId?: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void;
-  onAddToShelf: (p: Product) => void; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void
+  onChecking: (id: number) => void; onChecked: (id: number, score: number | null, verdict: Verdict | null, recommendationStatus?: string, analysisId?: number) => void; onCheckFinished: (id: number) => void; onReported: (id: number, analysisId?: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void;
+  onAddToShelf: (p: Product) => void; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void; morphOrigin?: HTMLElement | null
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
     product.match ? "match" : "idle"
   )
   const [score, setScore] = useState<number | null>(product.match?.score ?? null)
   const [verdict, setVerdict] = useState<Verdict | null>((product.match?.verdict as Verdict) ?? null)
+  const [recommendationStatus, setRecommendationStatus] = useState<string | undefined>(product.match?.recommendation_status)
   const [closing, setClosing] = useState(false)
+  const [previewFading, setPreviewFading] = useState(false)
   const [adding, setAdding] = useState(false)
   const [analysisId, setAnalysisId] = useState<number | undefined>(product.match?.analysis_id)
   const [reportData, setReportData] = useState<ReportResult | null>(null)
+  const [showAnalysisExplainer, setShowAnalysisExplainer] = useState(false)
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [rating, setRating] = useState(0)
+  const [review, setReview] = useState("")
+  const [anonymous, setAnonymous] = useState(false)
+  const [reviewSent, setReviewSent] = useState(false)
+  const [reviewLoading, setReviewLoading] = useState(false)
+  const [reviewError, setReviewError] = useState("")
+  const drawerScrollRef = useRef<HTMLDivElement>(null)
+  const morphDrawerRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    const source = morphOrigin
+    const drawer = morphDrawerRef.current as HTMLElement | null
+    if (!source || !source.isConnected || !drawer) return
+    const from = source.getBoundingClientRect()
+    const to = drawer.getBoundingClientRect()
+    if (!from.width || !from.height || !to.width || !to.height) return
+
+    const oldVisibility = drawer.style.visibility
+    const oldAnimation = drawer.style.animation
+    drawer.style.visibility = "hidden"
+    drawer.style.animation = "none"
+
+    const clone = source.cloneNode(true) as HTMLElement
+    Object.assign(clone.style, {
+      position: "fixed", left: `${from.left}px`, top: `${from.top}px`,
+      width: `${from.width}px`, height: `${from.height}px`, margin: "0",
+      boxSizing: "border-box", overflow: "hidden", pointerEvents: "none",
+      zIndex: "2147483647", transform: "none",
+      background: getComputedStyle(source).backgroundColor,
+      boxShadow: getComputedStyle(source).boxShadow
+    })
+    document.body.appendChild(clone)
+
+    // Плавно убираем только содержимое карточки, не её оболочку.
+    Array.from(clone.children).forEach((node) => {
+      if (
+        node instanceof HTMLElement &&
+        !node.matches(".autopick-carousel__swipe-tint, .autopick-carousel__swipe-hint")
+      ) {
+        node.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: 140, delay: 260, easing: "ease-out", fill: "forwards"
+        })
+      }
+    })
+
+    let finished = false
+    const restore = () => {
+      if (finished) return
+      finished = true
+      clone.remove()
+      drawer.style.visibility = oldVisibility
+      drawer.style.animation = oldAnimation
+
+      // Проявляем внутренние элементы после завершения морфинга.
+      Array.from(drawer.children).forEach((node) => {
+        if (node instanceof HTMLElement) {
+          node.animate([{ opacity: 0 }, { opacity: 1 }], {
+            duration: 160, easing: "ease-out"
+          })
+        }
+      })
+    }
+    const animation = clone.animate([
+      { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`,
+        height: `${from.height}px`, borderRadius: getComputedStyle(source).borderRadius },
+      { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`,
+        height: `${to.height}px`, borderRadius: getComputedStyle(drawer).borderRadius }
+    ], { duration: 420, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" })
+    animation.onfinish = restore
+    animation.oncancel = restore
+    return () => { animation.cancel(); restore() }
+  }, [morphOrigin])
+
+  useEffect(() => {
+    if (showAnalysisExplainer) {
+      drawerScrollRef.current?.scrollTo({ top: 0, behavior: "auto" })
+    }
+  }, [showAnalysisExplainer])
+
+
+  useEffect(() => {
+    let cancelled = false
+    setReviews([])
+    setReviewError("")
+    setReviewSent(false)
+
+    if (!product.slug) return
+
+    api.reviews(product.slug)
+      .then((result) => {
+        if (!cancelled) {
+          setReviews(Array.isArray(result.reviews) ? result.reviews : [])
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setReviewError("Не удалось загрузить отзывы.")
+      })
+
+    return () => { cancelled = true }
+  }, [product.slug])
+
+  useEffect(() => {
+    if (!product.match?.has_report || !product.slug) return
+
+    let cancelled = false
+    setPhase("generating")
+
+    api.analysisReport(product.slug, product.match.analysis_id)
+      .then((res) => {
+        if (cancelled) return
+        setReportData(res)
+        if (typeof res.score === "number") setScore(res.score)
+        if (res.verdict) setVerdict(res.verdict as Verdict)
+        if (res.recommendation_status) {
+          setRecommendationStatus(res.recommendation_status)
+        }
+        setAnalysisId(product.match?.analysis_id)
+        setPhase("report")
+      })
+      .catch(() => {
+        if (!cancelled) setPhase("match")
+      })
+
+    return () => { cancelled = true }
+  }, [product.id, product.slug, product.match?.has_report, product.match?.analysis_id])
+
+  const submitReview = async () => {
+    const text = review.trim()
+    if (rating < 1 || rating > 5 || !text) {
+      setReviewError("Поставьте оценку и напишите отзыв.")
+      return
+    }
+    if (!user) {
+      onAuth()
+      return
+    }
+
+    setReviewLoading(true)
+    setReviewError("")
+    setReviewSent(false)
+    try {
+      await api.addReview(product.slug, rating, text, anonymous)
+      const result = await api.reviews(product.slug)
+      setReviews(Array.isArray(result.reviews) ? result.reviews : [])
+      setReview("")
+      setRating(0)
+      setReviewSent(true)
+    } catch {
+      setReviewError("Не удалось отправить отзыв. Проверьте авторизацию и попробуйте ещё раз.")
+    } finally {
+      setReviewLoading(false)
+    }
+  }
 
   const addToShelf = async () => {
     setAdding(true)
@@ -1336,7 +1817,83 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
     setAdding(false)
   }
 
-  const close = () => { setClosing(true); window.setTimeout(onClose, 200) }
+  const close = () => {
+    if (closing) return
+    setClosing(true)
+
+    const source = morphOrigin
+    const drawer = morphDrawerRef.current
+    if (source?.isConnected && drawer) {
+      const from = drawer.getBoundingClientRect()
+      const to = source.getBoundingClientRect()
+      if (from.width && from.height && to.width && to.height) {
+        const clone = drawer.cloneNode(true) as HTMLElement
+        Object.assign(clone.style, {
+          position: "fixed", left: `${from.left}px`, top: `${from.top}px`,
+          width: `${from.width}px`, height: `${from.height}px`, margin: "0",
+          boxSizing: "border-box", overflow: "hidden", pointerEvents: "none",
+          zIndex: "2147483647", transform: "none", visibility: "visible",
+          animation: "none"
+        })
+        clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"))
+        document.body.appendChild(clone)
+
+        // Содержимое drawer растворяется отдельно от движущейся оболочки.
+        Array.from(clone.children).forEach((node) => {
+          if (node instanceof HTMLElement) {
+            node.animate([{ opacity: 1 }, { opacity: 0 }], {
+              duration: 140, delay: 260, easing: "ease-out", fill: "forwards"
+            })
+          }
+        })
+
+        const oldVisibility = drawer.style.visibility
+        const oldAnimation = drawer.style.animation
+        drawer.style.visibility = "hidden"
+        drawer.style.animation = "none"
+        if (source instanceof HTMLElement) source.style.visibility = "hidden"
+
+        const animation = clone.animate([
+          { left: `${from.left}px`, top: `${from.top}px`,
+            width: `${from.width}px`, height: `${from.height}px`,
+            borderRadius: "0px" },
+          { left: `${to.left}px`, top: `${to.top}px`,
+            width: `${to.width}px`, height: `${to.height}px`,
+            borderRadius: getComputedStyle(source).borderRadius }
+        ], { duration: 420, easing: "cubic-bezier(.16,1,.3,1)", fill: "forwards" })
+
+        let finished = false
+        const finish = () => {
+          if (finished) return
+          finished = true
+          clone.remove()
+          drawer.style.visibility = oldVisibility
+          drawer.style.animation = oldAnimation
+          if (source instanceof HTMLElement) {
+            source.style.visibility = ""
+
+            // Возвращаем содержимое исходной карточки мягким появлением.
+            Array.from(source.children).forEach((node) => {
+              if (
+                node instanceof HTMLElement &&
+                !node.matches(".autopick-carousel__swipe-tint, .autopick-carousel__swipe-hint")
+              ) {
+                node.animate([{ opacity: 0 }, { opacity: 1 }], {
+                  duration: 160, easing: "ease-out"
+                })
+              }
+            })
+          }
+        }
+        animation.onfinish = finish
+        animation.oncancel = finish
+        window.setTimeout(onClose, 420)
+        return
+      }
+    }
+
+    window.setTimeout(onClose, 320)
+  }
 
   const check = async () => {
     setPhase("checking")
@@ -1354,19 +1911,35 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
           res = await api.check({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile() })
         }
       }
-      if (typeof res.score !== "number") {
-        // API не вернул score — проверка неуспешна, процент не показываем.
+      console.log("CHECK RES:", res);
+      const recStatus = res.recommendation_status
+      const rawScore = typeof res.score === "number" ? res.score : null
+      const aid = typeof res.analysis_id === "number" ? res.analysis_id : undefined
+
+      let finalVerdict: Verdict | null
+      let finalScore: number | null
+      if (recStatus === "Не рекомендовано") {
+        finalVerdict = "Не рекомендовано"
+        finalScore = rawScore
+      } else if (recStatus === "Недостаточно данных") {
+        finalVerdict = null
+        finalScore = null
+      } else if (rawScore != null) {
+        finalVerdict = mapVerdict(rawScore, res.verdict) ?? "Нейтральный результат"
+        finalScore = rawScore
+      } else {
+        // Неожиданный ответ без score и известного статуса — не выдумываем результат.
         setPhase("idle")
         return
       }
-      const s = res.score
-      const v: Verdict = res.verdict === "Подходит" ? "Подходит" : res.verdict === "Не подходит" ? "Не подходит" : "Допустимо"
-      const aid = typeof res.analysis_id === "number" ? res.analysis_id : undefined
-      setScore(s); setVerdict(v); setAnalysisId(aid); setReportData(null); setPhase("match")
-      onChecked(product.id, s, v, aid)
+
+      setScore(finalScore); setVerdict(finalVerdict); setRecommendationStatus(recStatus); setAnalysisId(aid); setReportData(null); setPhase("match")
+      onChecked(product.id, finalScore, finalVerdict, recStatus, aid)
     } catch {
-      // Ошибка проверки — не выдумываем fake/random процент.
+      // Ошибка проверки — не выдумываем результат, но завершаем состояние загрузки.
       setPhase("idle")
+    } finally {
+      onCheckFinished(product.id)
     }
   }
 
@@ -1395,14 +1968,27 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
     }
   }
 
+  const handleShowReport = () => {
+    if (!user || user.plan === "free" || !product.slug) {
+      void showReport()
+      return
+    }
+    if (previewFading) return
+    setPreviewFading(true)
+    window.setTimeout(() => {
+      void showReport()
+    }, 180)
+  }
+
   return (
     <>
       <div className={`drawer-backdrop ${closing ? "drawer-backdrop--closing" : ""}`} onClick={close} />
-      <aside className={`drawer ${closing ? "drawer--closing" : ""}`} role="dialog" aria-modal="true">
+      <aside ref={morphDrawerRef} className={`drawer ${closing ? "drawer--closing" : ""}`} role="dialog" aria-modal="true">
         <button type="button" className="drawer__close" onClick={close} aria-label="Закрыть"><Icon name="close" size={18} /></button>
-        <div className="drawer__scroll">
+        <div className="drawer__scroll" ref={drawerScrollRef}>
           <div className="drawer__hero">
             <img src={product.image} alt="" />
+
             <div className="drawer__hero-meta">
               <button type="button" className="drawer__brand-link" onClick={() => onGoToCatalog(product.brand)}>{product.brand}</button>
               <h2>{product.name}</h2>
@@ -1413,8 +1999,6 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
 
           {phase === "idle" && (
             <div className="drawer__body">
-              <p className="drawer__note">Состав (INCI)</p>
-              <p className="inci">{product.ingredients || "Состав не распознан"}</p>
               <div className="drawer__cta"><Button icon="sparkle" className="w-full" onClick={check}>{product.needs_recheck ? "Перепроверить" : "Проверить совместимость"}</Button></div>
             </div>
           )}
@@ -1427,25 +2011,42 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
           )}
 
-          {phase === "match" && (
-            <div className="drawer__body">
+          {!showAnalysisExplainer && (phase === "match" || phase === "generating" || phase === "report") && (
+            <div className={`drawer__body${previewFading && phase === "generating" ? " drawer__body--preview-fading" : ""}`}>
               <div className="drawer__score">
-                {score != null && <ScoreRing score={score} label="совместимость" />}
-                <div><VerdictPill verdict={verdict} score={score} /><p className="drawer__score-note">Детерминированная проверка состава относительно вашего профиля.</p></div>
-              </div>
-              <p className="drawer__note">Состав (INCI)</p>
-              <p className="inci">{product.ingredients || "Состав не распознан"}</p>
-              <div className="drawer__cta">
-                {!user ? (
-                  <Button icon="lock" className="w-full" onClick={showReport}>Посмотреть отчёт — войдите</Button>
+                {recommendationStatus === "Недостаточно данных" ? (
+                  <p className="drawer__score-note">Недостаточно данных для достоверной оценки совместимости.</p>
                 ) : (
-                  <Button icon="file" className="w-full" onClick={showReport}>Посмотреть отчёт</Button>
+                  <>
+                    {(score != null || verdict != null || recommendationStatus === "Не рекомендовано") && (
+                      <div className="compat-result-identity">
+                        {score != null ? (
+                          <ScoreRing score={score} label={recommendationStatus === "Не рекомендовано" ? "негативная оценка" : "совместимость"} />
+                        ) : (
+                          <span className="drawer__score-note">
+                            {verdict || recommendationStatus || "Проверка завершена"}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div><p className="drawer__score-note"><button type="button" className="drawer__explain-link" onClick={() => setShowAnalysisExplainer(true)}>Как мы оцениваем совместимость?</button></p></div>
+                  </>
                 )}
               </div>
+              
+
+              {phase === "match" && <div className="drawer__cta">
+                {!user ? (
+                  <Button icon="lock" className="w-full" onClick={handleShowReport}>Посмотреть отчёт — войдите</Button>
+                ) : (
+                  <Button icon="file" className="w-full" onClick={handleShowReport}>Посмотреть отчёт</Button>
+                )}
+              </div>}
+
             </div>
           )}
 
-          {phase === "generating" && (
+          {!showAnalysisExplainer && phase === "generating" && (
             <div className="drawer__body drawer__body--center">
               <span className="spin spin--lg" />
               <h3>Генерируем AI-отчёт…</h3>
@@ -1453,42 +2054,184 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
           )}
 
-          {phase === "report" && (() => {
+          {!showAnalysisExplainer && phase === "report" && (() => {
             const sc = reportData?.score ?? score ?? 0
+            const resultTone = toneOf(
+              sc,
+              recommendationStatus === "Не рекомендовано"
+                ? "Не рекомендовано"
+                : ((reportData?.verdict as Verdict | null) ?? verdict)
+            )
             const frag = (f: { text: string; sentiment: string }, i: number) => (
-              <span key={i} className={`frag frag--${f.sentiment === "negative" ? "negative" : "positive"}`}>{f.text} </span>
+              <span key={i}>{f.text}</span>
             )
             const goodEl = (reportData?.what_good && reportData.what_good.length > 0) ? (
-              <section><h4>Что хорошо в составе</h4><p className="drawer__report-summary">{reportData.what_good.map(frag)}</p></section>
+              <section className="report-card report-card--good"><h4>Что хорошо в составе</h4><p className="drawer__report-summary">{reportData.what_good.map(frag)}</p></section>
             ) : null
             const badEl = (reportData?.what_bad && reportData.what_bad.length > 0) ? (
-              <section><h4>Что плохого в составе</h4><p className="drawer__report-summary">{reportData.what_bad.map(frag)}</p></section>
+              <section className="report-card report-card--bad"><h4>Что плохого в составе</h4><p className="drawer__report-summary">{reportData.what_bad.map(frag)}</p></section>
             ) : null
             const first = sc < 60 ? badEl : goodEl
             const second = sc < 60 ? goodEl : badEl
             return (
-            <div className="drawer__body">
+            <div className="drawer__body drawer__body--report">
+              <section className={`report-card report-card--result report-card--${resultTone}`}>
               <div className="drawer__report-head"><p className="eyebrow">Результат</p></div>
+ 
+              
               {reportData?.review && reportData.review.length > 0 && <p className="drawer__report-summary">{reportData.review.map(frag)}</p>}
+              </section>
               {first}
               {second}
               {reportData?.how_to_use && (
-                <section><h4>Как применять</h4>
+                <section className="report-card"><h4>Как применять</h4>
                   <p className="drawer__report-summary">{reportData.how_to_use.application || reportData.how_to_use.time || ""}</p>
                 </section>
               )}
               {reportData?.expectations?.normal && (
-                <section><h4>Чего ожидать</h4>
+                <section className="report-card"><h4>Чего ожидать</h4>
                   <p className="drawer__report-summary">{reportData.expectations.normal}</p>
                 </section>
               )}
-              <section><h4>Состав (INCI)</h4><p className="inci">{(reportData?.inci && reportData.inci.length ? reportData.inci.join(", ") : null) || product.ingredients || "Состав не распознан"}</p></section>
+              
             </div>
             )
           })()}
 
+{!showAnalysisExplainer && (
+              <section className="report-card drawer__inci">
+                <h4>Состав (INCI)</h4>
+                <p className="inci">{product.ingredients || "Состав не распознан"}</p>
+              </section>
+              )}
+
+              {!showAnalysisExplainer && product.slug && (
+                <section className="drawer__review">
+                  <h3>Отзывы о продукте</h3>
+
+                  {reviews.length > 0 ? (
+                    <>
+                      <div className="drawer__review-summary">
+                        <strong>
+                          {(reviews.reduce((sum, item) => sum + item.rating, 0) / reviews.length).toFixed(1)}
+                        </strong>
+                        <span className="stars" aria-label="Средняя оценка">
+                          {"★".repeat(Math.round(reviews.reduce((sum, item) => sum + item.rating, 0) / reviews.length))}
+                          {"☆".repeat(5 - Math.round(reviews.reduce((sum, item) => sum + item.rating, 0) / reviews.length))}
+                        </span>
+                        <span>{reviews.length} {reviews.length === 1 ? "отзыв" : reviews.length < 5 ? "отзыва" : "отзывов"}</span>
+                      </div>
+
+                      <div className="drawer__review-list">
+                        {reviews.map((item) => (
+                          <article className="drawer__review-item" key={item.id}>
+                            <div className="drawer__review-meta">
+                              <strong>{item.is_anonymous ? "Анонимный пользователь" : (item.author_name || "Пользователь")}</strong>
+                              {item.created_at && (
+                                <time>
+                                  {Number.isNaN(Date.parse(item.created_at)) ? "" : new Date(item.created_at).toLocaleDateString("ru-RU")}
+                                </time>
+                              )}
+                            </div>
+                            <div className="stars" aria-label={`Оценка: ${item.rating} из 5`}>
+                              <span className="star star--on">{"★".repeat(Math.max(0, Math.min(5, item.rating)))}</span>
+                              <span className="star">{"☆".repeat(5 - Math.max(0, Math.min(5, item.rating)))}</span>
+                            </div>
+                            {item.text && <p className="drawer__review-text">{item.text}</p>}
+                          </article>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="drawer__review-empty">Пока нет отзывов. Поделитесь первым впечатлением.</p>
+                  )}
+
+                  <div className="drawer__review-form">
+                    <h4>Оставить отзыв</h4>
+                    <span className="drawer__review-hint">Ваша оценка</span>
+                    <div className="stars" role="group" aria-label="Ваша оценка от 1 до 5">
+                      {[1, 2, 3, 4, 5].map((value) => (
+                        <button
+                          type="button"
+                          className={`star ${value <= rating ? "star--on" : ""}`}
+                          key={value}
+                          aria-label={`${value} из 5`}
+                          aria-pressed={rating === value}
+                          onClick={() => setRating(value)}
+                        >
+                          {value <= rating ? "★" : "☆"}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      className="review-input"
+                      value={review}
+                      onChange={(event) => setReview(event.target.value)}
+                      placeholder="Поделитесь впечатлением о продукте…"
+                      rows={4}
+                      maxLength={3000}
+                    />
+                    <label className="review-anon">
+                      <input
+                        type="checkbox"
+                        checked={anonymous}
+                        onChange={(event) => setAnonymous(event.target.checked)}
+                      />
+                      Опубликовать анонимно
+                    </label>
+
+                    {reviewError && <p className="drawer__review-error" role="status">{reviewError}</p>}
+                    {reviewSent && <p className="drawer__review-success" role="status">Спасибо! Отзыв отправлен.</p>}
+
+                    <button
+                      type="button"
+                      className="button button--primary"
+                      disabled={reviewLoading || rating === 0 || !review.trim()}
+                      onClick={submitReview}
+                    >
+                      {reviewLoading ? "Отправляем…" : user ? "Опубликовать отзыв" : "Войти и оставить отзыв"}
+                    </button>
+                  </div>
+                </section>
+              )}
+
+                  {showAnalysisExplainer && (
+            <div className="drawer__body drawer__analysis-explainer">
+              <button type="button" className="drawer__back-link"
+                onClick={() => setShowAnalysisExplainer(false)}>
+                <span aria-hidden="true">←</span> Назад к результату
+              </button>
+              <p className="eyebrow">ПРОЗРАЧНЫЙ ПОДХОД</p>
+              <h3>Как мы оцениваем совместимость?</h3>
+              <p className="drawer__explain-intro">
+                Мы сопоставляем состав косметического средства с вашим профилем,
+                чтобы объяснить, насколько продукт может вам подойти.
+              </p>
+              <div className="drawer__analysis-step">
+                <span>01</span><div><h4>Разбираем состав</h4>
+                <p>Анализируем ингредиенты и доступные данные об их свойствах.</p></div>
+              </div>
+              <div className="drawer__analysis-step">
+                <span>02</span><div><h4>Учитываем ваш профиль</h4>
+                <p>Сопоставляем состав с указанными особенностями кожи и целями ухода.</p></div>
+              </div>
+              <div className="drawer__analysis-step">
+                <span>03</span><div><h4>Оцениваем совместимость</h4>
+                <p>Score Engine объединяет учитываемые факторы в итоговую оценку.</p></div>
+              </div>
+              <div className="drawer__analysis-step">
+                <span>04</span><div><h4>Объясняем результат</h4>
+                <p>В отчёте показываем факторы, повышающие или снижающие оценку.</p></div>
+              </div>
+              <p className="drawer__explain-disclaimer">
+                Это оценка совместимости состава с вашим профилем, а не медицинская
+                диагностика. Индивидуальная реакция кожи может отличаться.
+              </p>
+            </div>
+          )}
         </div>
-        <div className="drawer__footer">
+        
+<div className={showAnalysisExplainer ? "drawer__footer drawer__footer--hidden" : "drawer__footer"}>
           {product.shelf_id ? (
             <Button variant="ghost" onClick={() => onRemove(product)}>Убрать с полки</Button>
           ) : (
@@ -1537,7 +2280,7 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
     return (
       <div className="modal-backdrop" onClick={onClose}>
         <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-          <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+          <button type="button" className="modal__close" onClick={closeWithAnimation} aria-label="Закрыть"><Icon name="close" size={18} /></button>
           <div className="auth-modal">
             <p className="eyebrow">айдерми</p>
             <h2>Проверьте почту</h2>
@@ -1690,7 +2433,23 @@ function PointsModal({ user, onClose, onTopUp }: { user: User | null; onClose: (
   )
 }
 
-function ShelfAddModal({ items, onClose, onAdd, onScan, onOpen }: { items: Product[]; onClose: () => void; onAdd: (p: Product) => void; onScan: (m: ScanMethod) => void; onOpen: (p: Product) => void }) {
+function ShelfAddModal({
+  items,
+  onClose,
+  onAdd,
+  onScan,
+  onOpen,
+  onPickReady,
+  onGoToCatalog,
+}: {
+  items: Product[]
+  onClose: () => void
+  onAdd: (p: Product) => void
+  onScan: (m: ScanMethod) => void
+  onOpen: (p: Product) => void
+  onPickReady: (products: Product[]) => void
+  onGoToCatalog: () => void
+}) {
   const [mode, setMode] = useState<"menu" | "catalog" | "auto">("menu")
   const [q, setQ] = useState("")
   const [recCat, setRecCat] = useState("")
@@ -1698,77 +2457,374 @@ function ShelfAddModal({ items, onClose, onAdd, onScan, onOpen }: { items: Produ
   const [recsLoading, setRecsLoading] = useState(false)
   const [catResults, setCatResults] = useState<Product[] | null>(null)
   const [catLoading, setCatLoading] = useState(false)
+
+  const dragStartY = useRef<number | null>(null)
+  const dragCurrentY = useRef<number | null>(null)
+  const [dragY, setDragY] = useState(0)
+  const [isClosing, setIsClosing] = useState(false)
+
+  const [viewTransition, setViewTransition] = useState<"idle" | "out" | "in">("idle")
+  const [sheetHeight, setSheetHeight] = useState<number | null>(null)
+
+  const sheetRef = useRef<HTMLDivElement | null>(null)
+  const transitionTimer = useRef<number | null>(null)
+
+
   useEffect(() => {
-    if (mode !== "auto" || !recCat || !getToken()) { setRecs([]); return }
+    if (mode !== "auto" || !recCat || !getToken()) {
+      setRecs([])
+      return
+    }
+
     setRecsLoading(true)
-    api.shelfRecommend("face", recCat).then((r) => {
-      setRecs((r.recommendations || []).map((x) => mapRecommendation(x as Parameters<typeof mapRecommendation>[0], recCat)))
-    }).catch(() => setRecs([])).finally(() => setRecsLoading(false))
+
+    api.shelfRecommend("face", recCat)
+      .then((r) => {
+        setRecs(
+          (r.recommendations || [])
+            .map((x) => mapRecommendation(x as Parameters<typeof mapRecommendation>[0], recCat))
+        )
+      })
+      .catch(() => setRecs([]))
+      .finally(() => setRecsLoading(false))
   }, [mode, recCat])
+
   useEffect(() => {
-    if (mode !== "catalog") { setCatResults(null); setCatLoading(false); return }
+    if (mode !== "catalog") {
+      setCatResults(null)
+      setCatLoading(false)
+      return
+    }
+
     const n = q.trim()
-    if (!n) { setCatResults(null); setCatLoading(false); return }
+
+    if (!n) {
+      setCatResults(null)
+      setCatLoading(false)
+      return
+    }
+
     setCatLoading(true)
+
     const t = window.setTimeout(async () => {
       try {
         const res = await api.catalog({ search: n, limit: 30 })
-        setCatResults((res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт"))
-      } catch { setCatResults([]) }
+        setCatResults(
+          (res.products || [])
+            .map(mapApiProduct)
+            .filter((p) => p.name && p.name !== "Продукт")
+        )
+      } catch {
+        setCatResults([])
+      }
+
       setCatLoading(false)
     }, 250)
+
     return () => window.clearTimeout(t)
   }, [mode, q])
+
+
+
   const list = mode === "auto"
     ? recs.slice(0, 8)
     : catResults != null
       ? catResults.slice(0, 12)
       : items.filter((p) => !p.state).slice(0, 12)
-  const title = mode === "catalog" ? "Из каталога" : mode === "auto" ? "Автоподбор" : "Добавить средство"
+
+  const getSheetHeight = () => {
+    const el = sheetRef.current
+    if (!el) return null
+
+    const content = el.querySelector(".add-modal") as HTMLElement | null
+    if (!content) return null
+
+    const maxHeight =
+      window.innerWidth <= 700
+        ? window.innerHeight * 0.92
+        : Math.min(820, window.innerHeight - 64)
+
+    const naturalHeight = content.scrollHeight
+
+    return Math.min(Math.ceil(naturalHeight), maxHeight)
+  }
+
+  const switchMode = (next: "menu" | "catalog" | "auto") => {
+    if (mode === next || viewTransition !== "idle") return
+
+    if (transitionTimer.current != null) {
+      window.clearTimeout(transitionTimer.current)
+    }
+
+    const el = sheetRef.current
+    if (!el) return
+
+    const content = el.querySelector(".add-modal") as HTMLElement | null
+    if (!content) return
+
+    const maxHeight =
+      window.innerWidth <= 700
+        ? window.innerHeight * 0.92
+        : Math.min(820, window.innerHeight - 64)
+
+    const oldHeight = Math.min(
+      Math.ceil(el.getBoundingClientRect().height),
+      maxHeight
+    )
+
+    // Фиксируем текущий размер непосредственно в DOM.
+    el.style.height = `${oldHeight}px`
+    el.style.transition =
+      "height .72s cubic-bezier(.22,1,.36,1), transform .65s cubic-bezier(.22,1,.36,1)"
+
+    setViewTransition("out")
+
+    transitionTimer.current = window.setTimeout(() => {
+      setMode(next)
+
+      requestAnimationFrame(() => {
+        const newEl = sheetRef.current
+        if (!newEl) return
+
+        const newContent = newEl.querySelector(".add-modal") as HTMLElement | null
+        if (!newContent) return
+
+        // Временно убираем ограничение, чтобы получить реальную высоту контента.
+        const previousMaxHeight = newEl.style.maxHeight
+        newEl.style.maxHeight = "none"
+
+        const newHeight = Math.min(
+          Math.ceil(newContent.scrollHeight),
+          maxHeight
+        )
+
+        newEl.style.maxHeight = previousMaxHeight
+
+        // Принудительно фиксируем старое состояние layout.
+        newEl.style.height = `${oldHeight}px`
+        void newEl.offsetHeight
+
+        // Теперь браузер гарантированно видит:
+        // oldHeight -> newHeight.
+        newEl.style.height = `${newHeight}px`
+
+        setViewTransition("in")
+
+        transitionTimer.current = window.setTimeout(() => {
+          if (sheetRef.current) {
+            sheetRef.current.style.height = ""
+            sheetRef.current.style.transition = ""
+          }
+
+          setViewTransition("idle")
+          transitionTimer.current = null
+        }, 760)
+      })
+    }, 190)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (transitionTimer.current != null) {
+        window.clearTimeout(transitionTimer.current)
+      }
+    }
+  }, [])
+
+  const closeWithAnimation = () => {
+    if (isClosing) return
+
+    setIsClosing(true)
+    setDragY(window.innerHeight)
+
+    window.setTimeout(() => {
+      onClose()
+    }, 650)
+  }
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    dragStartY.current = e.touches[0].clientY
+    dragCurrentY.current = e.touches[0].clientY
+  }
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (dragStartY.current == null) return
+
+    const currentY = e.touches[0].clientY
+    dragCurrentY.current = currentY
+
+    const delta = currentY - dragStartY.current
+
+    if (delta > 0) {
+      setDragY(Math.min(delta, window.innerHeight))
+    }
+  }
+
+  const handleTouchEnd = () => {
+    if (dragStartY.current == null || dragCurrentY.current == null) return
+
+    const delta = dragCurrentY.current - dragStartY.current
+
+    dragStartY.current = null
+    dragCurrentY.current = null
+
+    if (delta > 100) {
+      closeWithAnimation()
+      return
+    }
+
+    setDragY(0)
+  }
+
+
+  const title =
+    mode === "catalog"
+      ? "Из каталога"
+      : mode === "auto"
+        ? "Автоподбор"
+        : "Добавить средство"
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+    <div
+      className={`modal-backdrop modal-backdrop--shelf-add${isClosing ? " is-closing" : ""}`}
+      onClick={closeWithAnimation}
+    >
+      <div className="shelf-add-sheet-enter">
+        <div
+        ref={sheetRef}
+          className={`modal modal--shelf-add modal--shelf-${mode} modal--shelf-transition-${viewTransition}`}
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            transform: `translate3d(0, ${dragY}px, 0)`,
+            transition: dragStartY.current
+              ? "none"
+              : "transform .65s cubic-bezier(.22,1,.36,1)",
+          }}
+        >
+          <button type="button" className="modal__close" onClick={closeWithAnimation} aria-label="Закрыть">
+          <Icon name="close" size={18} />
+        </button>
+
         <div className="add-modal">
+          <div
+            className="add-modal__handle"
+            aria-hidden="true"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          />
           <p className="eyebrow">Моя полка</p>
           <h2>{title}</h2>
+
           {mode === "menu" && (
             <>
-              <button type="button" className="add-menu__auto" onClick={() => setMode("auto")}>
-                <span className="add-menu__auto-icon"><Icon name="sparkle" size={22} /></span>
-                <span><strong>Автоподбор продукта</strong><small>Подберём средства под вашу кожу и полку</small></span>
+              <button type="button" className="add-menu__auto" onClick={() => switchMode("auto")}>
+                <span className="add-menu__auto-icon">
+                  <Icon name="sparkle" size={22} />
+                </span>
+                <span>
+                  <strong>Автоподбор продукта</strong>
+                  <small>Подберём средства под вашу кожу и полку</small>
+                </span>
                 <Icon name="chevron" size={18} />
               </button>
+
               <div className="add-menu__grid">
-                <button type="button" className="add-menu__opt" onClick={() => setMode("catalog")}><Icon name="box" size={18} /><span>Из каталога</span></button>
-                <button type="button" className="add-menu__opt" onClick={() => onScan("photo")}><Icon name="camera" size={18} /><span>По фото упаковки</span></button>
-                <button type="button" className="add-menu__opt" onClick={() => onScan("inci")}><Icon name="drop" size={18} /><span>По фото состава</span></button>
-                <button type="button" className="add-menu__opt" onClick={() => onScan("manual")}><Icon name="pencil" size={18} /><span>Ручной ввод</span></button>
+                <button
+                  type="button"
+                  className="add-menu__opt"
+                  onClick={onGoToCatalog}
+                >
+                  <Icon name="box" size={18} />
+                  <span>Из каталога</span>
+                </button>
+                <button type="button" className="add-menu__opt" onClick={() => onScan("photo")}>
+                  <Icon name="camera" size={18} />
+                  <span>По фото упаковки</span>
+                </button>
+                <button type="button" className="add-menu__opt" onClick={() => onScan("inci")}>
+                  <Icon name="drop" size={18} />
+                  <span>По фото состава</span>
+                </button>
+                <button type="button" className="add-menu__opt" onClick={() => onScan("manual")}>
+                  <Icon name="pencil" size={18} />
+                  <span>Ручной ввод</span>
+                </button>
               </div>
             </>
           )}
+
           {(mode === "catalog" || mode === "auto") && (
             <>
-              <button type="button" className="add-modal__back" onClick={() => setMode("menu")}><Icon name="back" size={15} /> Назад</button>
-              {mode === "catalog" && <div className="search"><Icon name="search" size={16} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Название, бренд или актив…" /></div>}
-              {mode === "auto" && (
-                <div className="tabs tabs--cats">
-                  {(CABINETS.find((c) => c.key === "face")?.categories || []).slice(0, 10).map((c) => (
-                    <button key={c} type="button" className={`tab ${recCat === c ? "tab--active" : ""}`} onClick={() => setRecCat(c)}>{c}</button>
-                  ))}
+              <button type="button" className="add-modal__back" onClick={() => switchMode("menu")}>
+                <Icon name="back" size={15} />
+                Назад
+              </button>
+
+              {mode === "catalog" && (
+                <div className="search">
+                  <Icon name="search" size={16} />
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Название, бренд или актив…"
+                  />
                 </div>
               )}
-              {mode === "auto" ? (
-                recsLoading ? (
-                  <div className="autopick-carousel__loading">
-                    <span className="spin" /> Подбираем средства…
+
+              {mode === "auto" && (
+                <>
+                  <p className="autopick-select-label">
+                    Что хотите подобрать?
+                  </p>
+
+                  <div className="autopick-category-grid">
+                    {(CABINETS.find((c) => c.key === "face")?.categories || [])
+                      .slice(0, 8)
+                      .map((c, i) => (
+                        <button
+                          key={c}
+                          type="button"
+                          className={`autopick-category ${recCat === c ? "autopick-category--active" : ""}`}
+                          onClick={() => setRecCat(c)}
+                        >
+                          <span className="autopick-category__number">
+                            {String(i + 1).padStart(2, "0")}
+                          </span>
+                          <span className="autopick-category__name">{c}</span>
+                          <Icon name="chevron" size={15} />
+                        </button>
+                      ))}
                   </div>
-                ) : list.length ? (
-                  <AutoPickCarousel items={list} onOpen={onOpen} onAdd={onAdd} />
-                ) : (
-                  <p className="empty">Выберите категорию для подбора.</p>
-                )
-              ) : (
+
+                  <button
+                    type="button"
+                    className="autopick-pick-button"
+                    disabled={!recCat || recsLoading}
+                    onClick={() => {
+                      if (!recsLoading && list.length) {
+                        onPickReady(list)
+                      }
+                    }}
+                  >
+                    {recsLoading ? (
+                      <>
+                        <span className="spin" />
+                        Подбираем…
+                      </>
+                    ) : (
+                      <>
+                        Подобрать
+                        <Icon name="arrow" size={16} />
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+
+              {mode === "catalog" && (
                 <div className="add-modal__list">
                   {catLoading ? (
                     <p className="empty">Ищем…</p>
@@ -1776,17 +2832,90 @@ function ShelfAddModal({ items, onClose, onAdd, onScan, onOpen }: { items: Produ
                     <div key={p.id} className="rec">
                       <button type="button" className="rec__main" onClick={() => onOpen(p)}>
                         <img src={p.image} alt="" loading="lazy" />
-                        <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
+                        <span>
+                          <strong>{p.name}</strong>
+                          <small>{p.brand} · {p.category}</small>
+                        </span>
                       </button>
-                      <button type="button" className="add-modal__add" onClick={() => onAdd(p)} aria-label="Добавить"><Icon name="plus" size={16} /></button>
+
+                      <button
+                        type="button"
+                        className="add-modal__add"
+                        onClick={() => onAdd(p)}
+                        aria-label="Добавить"
+                      >
+                        <Icon name="plus" size={16} />
+                      </button>
                     </div>
                   ))}
-                  {!catLoading && list.length === 0 && <p className="empty">Ничего не нашлось.</p>}
+
+                  {!catLoading && list.length === 0 && (
+                    <p className="empty">Ничего не нашлось.</p>
+                  )}
                 </div>
               )}
             </>
           )}
         </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AutoPickResultsOverlay({
+  items,
+  onClose,
+  onAdd,
+  onOpen,
+}: {
+  items: Product[]
+  onClose: () => void
+  onAdd: (p: Product) => void
+  onOpen: (p: Product, card?: HTMLElement) => void
+}) {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setVisible(true))
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
+
+  return (
+    <div
+      className={`autopick-results ${visible ? "autopick-results--visible" : ""}`}
+      onClick={onClose}
+    >
+      <div
+        className="autopick-results__backdrop"
+        aria-hidden="true"
+      />
+
+      <div className="autopick-results__mask" />
+
+      <div className="autopick-results__content" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="autopick-results__close"
+          onClick={onClose}
+          aria-label="Закрыть подбор"
+        >
+          <Icon name="close" size={19} />
+        </button>
+
+        <div className="autopick-results__heading">
+          <h2>Подобрали для вас</h2>
+          <div className="autopick-results__swipe" aria-label="Свайпайте карточки">
+            <span className="autopick-results__swipe-label autopick-results__swipe-label--skip">← Пропускаем</span>
+            <span className="autopick-results__swipe-label autopick-results__swipe-label--add">Добавляем →</span>
+          </div>
+        </div>
+
+        <AutoPickCarousel
+          items={items}
+          onOpen={onOpen}
+          onAdd={onAdd}
+        />
       </div>
     </div>
   )
@@ -1829,11 +2958,13 @@ export default function App() {
   const [clearCabinet, setClearCabinet] = useState<CabinetKey | null>(null)
   const [page, setPage] = useState<Page>("home")
   const [open, setOpen] = useState<Product | null>(null)
+  const [morphOrigin, setMorphOrigin] = useState<HTMLElement | null>(null)
   const [checkingIds, setCheckingIds] = useState<Set<number>>(new Set())
   const [user, setUser] = useState<User | null>(null)
   const [authModal, setAuthModal] = useState<null | "login" | "register">(null)
   const [pricingOpen, setPricingOpen] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [autoPickResults, setAutoPickResults] = useState<Product[] | null>(null)
   const [pointsOpen, setPointsOpen] = useState(false)
   const [scanMethod, setScanMethod] = useState<ScanMethod | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1914,7 +3045,15 @@ export default function App() {
 
   // Блокируем прокрутку фона, когда открыт drawer или модалка.
   useEffect(() => {
-    const locked = open != null || authModal != null || pricingOpen || addModalOpen || pointsOpen || removeProduct != null || clearCabinet != null
+    const locked =
+    open != null ||
+    authModal != null ||
+    pricingOpen ||
+    addModalOpen ||
+    autoPickResults != null ||
+    pointsOpen ||
+    removeProduct != null ||
+    clearCabinet != null
     if (locked) {
       const prevBody = document.body.style.overflow
       const prevHtml = document.documentElement.style.overflow
@@ -1922,10 +3061,12 @@ export default function App() {
       document.documentElement.style.overflow = "hidden"
       return () => { document.body.style.overflow = prevBody; document.documentElement.style.overflow = prevHtml }
     }
-  }, [open, authModal, pricingOpen, addModalOpen, pointsOpen, removeProduct, clearCabinet])
+  }, [open, authModal, pricingOpen, addModalOpen, autoPickResults, pointsOpen, removeProduct, clearCabinet])
 
   const navigate = (p: Page) => {
+    if (p === "sets") { setPage("home"); window.scrollTo({ top: 0 }); return }
     if (p === "shelf" && !user) { setAuthModal("login"); return }
+    if (p === "sets" && !user) { setAuthModal("login"); return }
     if (p === "report") { setToast("Раздел «Отчёт» скоро появится"); return }
     if (p === "scan") setScanMethod(null)
     setPage(p)
@@ -1933,18 +3074,19 @@ export default function App() {
   }
 
   const onChecking = (id: number) => setCheckingIds((prev) => new Set(prev).add(id))
-  const onChecked = (id: number, score: number, verdict: Verdict, analysisId?: number) => {
-    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: { score, verdict, analysis_id: analysisId } } : p)))
-    setOpen((o) => (o && o.id === id ? { ...o, match: { score, verdict, analysis_id: analysisId } } : o))
+  const onChecked = (id: number, score: number | null, verdict: Verdict | null, recommendationStatus?: string, analysisId?: number) => {
+    setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: { ...(p.match ?? {}), score, verdict: verdict ?? p.match?.verdict, recommendation_status: recommendationStatus ?? p.match?.recommendation_status, analysis_id: analysisId ?? p.match?.analysis_id } } : p)))
+    setOpen((o) => (o && o.id === id ? { ...o, match: { ...(o.match ?? {}), score, verdict: verdict ?? o.match?.verdict, recommendation_status: recommendationStatus ?? o.match?.recommendation_status, analysis_id: analysisId ?? o.match?.analysis_id } } : o))
     setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
   }
+  const onCheckFinished = (id: number) => setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
   const onReported = (id: number, analysisId?: number) => {
     setItems((cur) => cur.map((p) => (p.id === id ? { ...p, match: p.match ? { ...p.match, analysis_id: analysisId ?? p.match.analysis_id } : undefined } : p)))
     setOpen((o) => (o && o.id === id ? { ...o, match: o.match ? { ...o.match, analysis_id: analysisId ?? o.match.analysis_id } : undefined } : o))
   }
 
   const handleLogin = (u: User) => { setUser(u); setAuthModal(null) }
-  const handleLogout = () => { setToken(null); setUser(null); if (page === "shelf" || page === "report") setPage("home") }
+  const handleLogout = () => { setToken(null); setUser(null); if (page === "shelf" || page === "report" || page === "sets") setPage("home") }
   const handleSelectPlan = async (p: Plan) => {
     if (getToken()) {
       try { const r = await api.subscription(p); setUser((u) => (u ? { ...u, plan: p, points: r.balance } : u)) } catch { setUser((u) => (u ? { ...u, plan: p } : u)) }
@@ -1952,7 +3094,7 @@ export default function App() {
       setUser((u) => (u ? { ...u, plan: p } : u))
     }
   }
-  const handleAddToShelf = async (p: Product) => {
+  const handleAddToShelf = async (p: Product): Promise<boolean> => {
     const id = p.id
     let shelfId: number | undefined
     let error: string | null = null
@@ -1973,12 +3115,13 @@ export default function App() {
         error = e instanceof Error ? e.message : "Не удалось добавить продукт."
       }
     }
-    if (error) { setToast(error); return }
+    if (error) { setToast(error); return false }
     setItems((cur) => cur.map((x) => (x.id === id ? { ...x, state: "using", shelf_id: shelfId ?? x.shelf_id } : x)))
     setOpen((o) => (o && o.id === id ? { ...o, state: "using", shelf_id: shelfId ?? o.shelf_id } : o))
     setAddModalOpen(false)
     setToast("Добавлено на полку ✓")
     loadShelf()
+    return true
   }
   const handleRemoveFromShelf = async () => {
     const p = removeProduct
@@ -2040,6 +3183,7 @@ export default function App() {
           <div key={page} className="page-anim">
             {page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} shelfItems={shelfItems} />}
             {page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
+            {page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
             {page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} />}
@@ -2047,11 +3191,42 @@ export default function App() {
         </main>
       </div>
       <BottomNav page={page} onNavigate={navigate} />
-      {open && <ProductDrawer key={open.id} product={open} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
+      {open && <ProductDrawer key={open.id} product={open} morphOrigin={morphOrigin} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onCheckFinished={onCheckFinished} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
       {pointsOpen && <PointsModal user={user} onClose={() => setPointsOpen(false)} onTopUp={handleTopUp} />}
-      {addModalOpen && <ShelfAddModal items={items} onClose={() => setAddModalOpen(false)} onAdd={handleAddToShelf} onScan={handleScanFromAdd} onOpen={(p) => { setAddModalOpen(false); setOpen(p) }} />}
+      {addModalOpen && (
+        <ShelfAddModal
+          items={items}
+          onClose={() => setAddModalOpen(false)}
+          onAdd={handleAddToShelf}
+          onScan={handleScanFromAdd}
+          onOpen={(p) => {
+            setAddModalOpen(false)
+            setOpen(p)
+          }}
+          onPickReady={(products) => {
+            setAddModalOpen(false)
+            setAutoPickResults(products)
+          }}
+          onGoToCatalog={() => {
+            setAddModalOpen(false)
+            navigate("catalog")
+          }}
+        />
+      )}
+
+      {autoPickResults && (
+        <AutoPickResultsOverlay
+          items={autoPickResults}
+          onClose={() => setAutoPickResults(null)}
+          onAdd={handleAddToShelf}
+          onOpen={(p, card) => {
+            setMorphOrigin(card ?? null)
+            setOpen(p)
+          }}
+        />
+      )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {removeProduct && (
         <div className="modal-backdrop" onClick={() => setRemoveProduct(null)}>

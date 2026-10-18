@@ -23,13 +23,27 @@ export function splitProductName(raw: string, brand?: string): { brand: string; 
 }
 
 export function mapVerdict(score: number | null, backendVerdict?: string): Verdict | null {
-  if (backendVerdict === "Подходит") return "Подходит"
-  if (backendVerdict === "С осторожностью" || backendVerdict === "Нейтрально") return "Допустимо"
-  if (backendVerdict === "Не подходит") return "Не подходит"
-  if (score == null) return null
-  if (score >= 80) return "Подходит"
-  if (score >= 60) return "Допустимо"
-  return "Не подходит"
+  // Новая шкала Score Engine: score определяет диапазон.
+  if (score != null) {
+    if (score < 20) return "Не подходит"
+    if (score < 40) return "Скорее не подходит"
+    if (score < 60) return "Нейтральный результат"
+    if (score < 80) return "Подходит"
+    return "Отлично подходит"
+  }
+
+  // Если score отсутствует, сохраняем точный новый вердикт API.
+  if (backendVerdict === "Не подходит" ||
+      backendVerdict === "Скорее не подходит" ||
+      backendVerdict === "Нейтральный результат" ||
+      backendVerdict === "Подходит" ||
+      backendVerdict === "Отлично подходит") return backendVerdict
+
+  if (backendVerdict === "С осторожностью" ||
+      backendVerdict === "Нейтрально" ||
+      backendVerdict === "Допустимо") return "Допустимо"
+
+  return null
 }
 
 // Собирает отдельный объект Match из сохранённого analysis API.
@@ -42,16 +56,30 @@ function toMatch(a: {
   safe_ingredients?: string[]
   caution_ingredients?: string[]
   report?: string | null
+  phase1_status?: string | null
+  recommendation_status?: string | null
 } | null | undefined): Match | undefined {
-  if (!a || typeof a.score !== "number") return undefined
+  if (!a) return undefined
+  const hasReport = Boolean(a.report?.trim())
+  if (
+    typeof a.score !== "number" &&
+    typeof a.id !== "number" &&
+    !hasReport &&
+    !a.phase1_status &&
+    !a.recommendation_status
+  ) return undefined
+
   return {
-    score: a.score,
+    score: typeof a.score === "number" ? a.score : null,
     verdict: a.verdict || undefined,
     summary: a.summary || undefined,
     safe_ingredients: a.safe_ingredients || undefined,
     caution_ingredients: a.caution_ingredients || undefined,
-    report: a.report || undefined,
+    report: hasReport ? a.report! : undefined,
+    has_report: hasReport,
     analysis_id: typeof a.id === "number" ? a.id : undefined,
+    phase1_status: a.phase1_status || undefined,
+    recommendation_status: a.recommendation_status || undefined,
   }
 }
 
@@ -75,7 +103,22 @@ export function mapApiProduct(api: ApiProduct): Product {
 export function mapShelfItem(item: ShelfItem): Product {
   const { brand, name } = splitProductName(item.name || "", item.brand)
   const score = item.score ?? null
-  const match = score != null ? { score, verdict: mapVerdict(score) || undefined, report: item.has_report ? " " : undefined } : undefined
+  const hasReport = item.has_report === true
+  const match = (
+    score != null ||
+    hasReport ||
+    item.analysis_id != null ||
+    Boolean(item.phase1_status) ||
+    Boolean(item.recommendation_status)
+  ) ? {
+    score,
+    verdict: item.verdict || mapVerdict(score) || undefined,
+    report: undefined,
+    has_report: hasReport,
+    analysis_id: item.analysis_id ?? undefined,
+    phase1_status: item.phase1_status || undefined,
+    recommendation_status: item.recommendation_status || undefined,
+  } : undefined
   return {
     id: item.product_id,
     brand,

@@ -48,12 +48,19 @@ export type CheckResult = {
   report?: string
   how_to_use?: { application?: string; time?: string; note?: string }
   expectations?: { when?: string; normal?: string; danger?: string }
+  phase1_status?: string
+  recommendation_status?: string
+  phase1_violations?: { axis: string; load: number; threshold: number | null; violated: boolean }[]
 }
 
 export type ReportFragment = { text: string; sentiment: "positive" | "negative" }
 
 export type ReportResult = {
-  score: number
+  score: number | null
+  verdict?: string | null
+  phase1_status?: string | null
+  recommendation_status?: string | null
+  report_ready?: boolean
   review?: ReportFragment[]
   active_ingredients?: unknown
   what_good?: ReportFragment[]
@@ -88,6 +95,10 @@ export type ShelfItem = {
   slug?: string
   ingredients?: string
   score?: number | null
+  analysis_id?: number | null
+  phase1_status?: string | null
+  recommendation_status?: string | null
+  verdict?: string | null
   has_report?: boolean
   needs_recheck?: boolean
 }
@@ -283,4 +294,123 @@ export function setToken(token: string | null) {
   if (typeof window === "undefined") return
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)
+}
+
+// ===== СБОРКИ УХОДА (care sets) =====
+
+export type CareSetSummary = {
+  id: number
+  name: string
+  source: string
+  template_id?: number | null
+  item_count: number
+  created_at?: string
+  updated_at?: string
+}
+
+export type CareSetItem = {
+  item_id: number
+  id: number
+  slug: string
+  name: string
+  brand: string
+  image_url: string
+  category: string
+  score: number | null
+}
+
+export type CareSetCompatibility = {
+  score: number | null
+  coverage?: { scored: number; total: number }
+  scores?: { slug: string; name: string; score: number }[]
+  conflicts?: { label: string; products: string[] }[]
+  note?: string
+}
+
+export type CareSetDetail = {
+  id: number
+  name: string
+  source: string
+  template_id?: number | null
+  items: CareSetItem[]
+  profile_compatibility: CareSetCompatibility
+  products_compatibility: CareSetCompatibility
+}
+
+export type CareSetTemplate = { id: number; slug: string; title: string; description: string }
+
+export type CareSetTemplateStep = {
+  id: number
+  category: string
+  subcategory: string
+  position: number
+  is_optional: boolean
+  candidates_count: number
+  config: string
+}
+
+export type CareSetTemplateDetail = {
+  id: number
+  slug: string
+  title: string
+  description: string
+  steps: CareSetTemplateStep[]
+}
+
+export type CareSetCandidate = {
+  id: number
+  slug: string
+  name: string
+  brand: string
+  image_url: string
+  category: string
+  score: number | null
+}
+
+export const careSetsApi = {
+  async list() {
+    return request<{ sets: CareSetSummary[] }>("/care-sets")
+  },
+  async create(name: string, source = "manual", items: { slug: string }[] = []) {
+    return request<{ id: number; added: number }>("/care-sets", {
+      method: "POST",
+      body: JSON.stringify({ name, source, items }),
+    })
+  },
+  async detail(id: number) {
+    return request<CareSetDetail>(`/care-sets/${id}`)
+  },
+  async rename(id: number, name: string) {
+    return request<{ status: string }>(`/care-sets/${id}`, { method: "PATCH", body: JSON.stringify({ name }) })
+  },
+  async remove(id: number) {
+    return request<{ status: string }>(`/care-sets/${id}`, { method: "DELETE" })
+  },
+  async addItem(id: number, slug: string) {
+    return request<{ status: string; duplicate?: boolean }>(`/care-sets/${id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ slug }),
+    })
+  },
+  async removeItem(id: number, itemId: number) {
+    return request<{ status: string }>(`/care-sets/${id}/items/${itemId}`, { method: "DELETE" })
+  },
+  async reorder(id: number, orderedItemIds: number[]) {
+    return request<{ status: string }>(`/care-sets/${id}/items/reorder`, {
+      method: "PATCH",
+      body: JSON.stringify({ ordered_item_ids: orderedItemIds }),
+    })
+  },
+  async templates() {
+    return request<{ templates: CareSetTemplate[] }>("/care-set-templates")
+  },
+  async template(slug: string) {
+    return request<CareSetTemplateDetail>(`/care-set-templates/${slug}`)
+  },
+  async candidates(slug: string, stepIndex: number, excludeSlugs: string[] = []) {
+    return request<{ step: number; category: string; is_optional: boolean; candidates: CareSetCandidate[] }>(
+      `/care-set-templates/${slug}/candidates`,
+      { method: "POST", body: JSON.stringify({ step_index: stepIndex, exclude_slugs: excludeSlugs }) },
+    )
+  },
 }
