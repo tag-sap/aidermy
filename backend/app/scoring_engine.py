@@ -122,7 +122,7 @@ PROFILE_CONFLICT_DECAY = 2.0
 # Benefit-оси (hydration/barrier): убывающая отдача 1/rank^decay для положительных
 # вкладов. inf = только сильнейший (top-1, текущее поведение); 1.0 = 1/rank (как harm-оси).
 import math as _math
-BENEFIT_DECAY = 1.5
+BENEFIT_DECAY = 2.5
 
 
 def _profile_negative_multiplier(axis: str, profile: Dict[str, Any]) -> float:
