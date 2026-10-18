@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -32,7 +33,26 @@ def _bump_version(version: str) -> str:
         return version + ".1"
 
 
+_ensured_config_tables = False
+
+# production-config читается на КАЖДЫЙ продукт в recommend: saturation_scale —
+# глобальный параметр (не пользовательский), меняется только через админку.
+# Кэш на короткий TTL убирает повторные SELECT/DDL, явная инвалидация — при apply/rollback.
+_CONFIG_CACHE_TTL = 5.0
+_config_cache: Optional[Dict[str, Any]] = None
+_config_cache_at = 0.0
+
+
+def _invalidate_config_cache() -> None:
+    global _config_cache, _config_cache_at
+    _config_cache = None
+    _config_cache_at = 0.0
+
+
 def ensure_config_tables() -> None:
+    global _ensured_config_tables
+    if _ensured_config_tables:
+        return
     conn = get_connection(AIDERMY_DB)
     cur = conn.cursor()
     cur.execute("""
@@ -58,6 +78,7 @@ def ensure_config_tables() -> None:
         )
     """)
     conn.commit()
+    _ensured_config_tables = True
     conn.close()
 
 
@@ -79,23 +100,31 @@ def _seed() -> None:
 
 
 def get_production_config() -> Dict[str, Any]:
+    global _config_cache, _config_cache_at
+    now = time.monotonic()
+    if _config_cache is not None and (now - _config_cache_at) < _CONFIG_CACHE_TTL:
+        return _config_cache
     _seed()
     conn = get_connection(AIDERMY_DB)
     row = conn.execute("SELECT * FROM scoring_config_versions ORDER BY id DESC LIMIT 1").fetchone()
     conn.close()
     if row is None:
-        return {"version": BASE_VERSION, "saturation_scale": DEFAULT_SATURATION_SCALE,
-                "config": {"saturation_scale": DEFAULT_SATURATION_SCALE}}
-    cfg = json.loads(row["config"]) if row["config"] else {"saturation_scale": DEFAULT_SATURATION_SCALE}
-    return {
-        "version": row["version"],
-        "saturation_scale": cfg.get("saturation_scale", DEFAULT_SATURATION_SCALE),
-        "config": cfg,
-        "note": row["note"],
-        "applied_by": row["applied_by"],
-        "applied_at": row["applied_at"],
-        "event": row["event"],
-    }
+        result = {"version": BASE_VERSION, "saturation_scale": DEFAULT_SATURATION_SCALE,
+                  "config": {"saturation_scale": DEFAULT_SATURATION_SCALE}}
+    else:
+        cfg = json.loads(row["config"]) if row["config"] else {"saturation_scale": DEFAULT_SATURATION_SCALE}
+        result = {
+            "version": row["version"],
+            "saturation_scale": cfg.get("saturation_scale", DEFAULT_SATURATION_SCALE),
+            "config": cfg,
+            "note": row["note"],
+            "applied_by": row["applied_by"],
+            "applied_at": row["applied_at"],
+            "event": row["event"],
+        }
+    _config_cache = result
+    _config_cache_at = now
+    return result
 
 
 def get_production_saturation_scale() -> float:
@@ -159,6 +188,7 @@ def apply_production_config(config: Dict[str, Any], note: str, applied_by: str) 
     )
     conn.commit()
     conn.close()
+    _invalidate_config_cache()
     return get_production_config()
 
 
@@ -187,5 +217,6 @@ def rollback_production_config(note: str, applied_by: str) -> Dict[str, Any]:
     )
     conn.commit()
     conn.close()
+    _invalidate_config_cache()
     return get_production_config()
 

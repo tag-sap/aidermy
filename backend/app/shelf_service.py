@@ -968,6 +968,7 @@ async def recommend_products(
     cabinet: str,
     category: str,
     exclude_slugs: Optional[set] = None,
+    catalog_category: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Возвращает до 3 рекомендаций для конкретной полки шкафа.
 
@@ -998,7 +999,9 @@ async def recommend_products(
     # Candidate discovery: vector retrieval (Clamped Dot) либо legacy SQL-фильтр.
     from . import vector_retrieval
     if vector_retrieval.VECTOR_RETRIEVAL_ENABLED:
-        candidates = vector_retrieval.retrieve_candidates(profile, cabinet, category, exclude_slugs)
+        candidates = vector_retrieval.retrieve_candidates(
+            profile, cabinet, category, exclude_slugs, catalog_category=catalog_category
+        )
     else:
         candidates = _query_candidates(cabinet, category)
     METRICS.set_gauge("ingredient_count", len(candidates))

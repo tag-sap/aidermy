@@ -14,6 +14,33 @@ from .vector_index import VECTOR_INDEX, load_vector_index
 VECTOR_RETRIEVAL_ENABLED = os.getenv("VECTOR_RETRIEVAL_ENABLED", "0") == "1"
 VECTOR_TOP_K = int(os.getenv("VECTOR_TOP_K", "20"))
 
+# Минимум продуктов курируемой категории витрины, при котором имеет смысл
+# сужать candidate pool. Если их меньше — оставляем внутреннюю категорию.
+CATALOG_POOL_MIN = 3
+
+
+def _catalog_slugs(catalog_category: str) -> set:
+    """Slug'и продуктов с точной курируемой категорией витрины (Postgres).
+
+    Внутренняя таксономия (classify_product) шире витринной: например,
+    «Увлажнение» и «Восстановление кожного барьера» попадают в «Увлажнение и
+    питание»/«Кремы», из-за чего солнцезащита и обычные кремы смешивались с
+    увлажнением. Витринная категория в public.products.catalog_category —
+    точный источник для ограничения candidate pool.
+    """
+    from .postgres_connection import get_postgres_connection
+
+    with get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT slug FROM products "
+                "WHERE catalog_category = %s AND is_canonical = 1 AND slug IS NOT NULL",
+                (catalog_category,),
+            )
+            slugs = {row["slug"] for row in cur.fetchall() if row.get("slug")}
+        conn.rollback()
+    return slugs
+
 
 def retrieve_candidates(
     profile: Dict[str, Any],
@@ -21,6 +48,7 @@ def retrieve_candidates(
     category: str,
     exclude_slugs: set,
     top_k: Optional[int] = None,
+    catalog_category: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Возвращает TOP K кандидатов (PM + PPM) по Clamped Dot, после hard filters.
 
@@ -56,6 +84,23 @@ def retrieve_candidates(
             continue
         products_map[p["id"]] = p
         allowed_ids.append(p["id"])
+
+    # Курируемая категория витрины сужает пул ДО vector ranking: релевантные
+    # продукты должны попадать в TOP K, а не просто существовать в индексе.
+    # Возврат к внутренней категории — если курируемых продуктов слишком мало
+    # (или витринная категория не задана). Скоринг и ранжирование не меняются.
+    if catalog_category:
+        try:
+            wanted = _catalog_slugs(catalog_category)
+            if wanted:
+                narrowed = [
+                    pid for pid in allowed_ids
+                    if (products_map.get(pid) or {}).get("slug") in wanted
+                ]
+                if len(narrowed) >= CATALOG_POOL_MIN:
+                    allowed_ids = narrowed
+        except Exception as exc:  # витрина недоступна — работаем как раньше
+            print(f"[RETRIEVAL] catalog_category filter failed: {exc!r}")
 
     def predicate(pid: int) -> bool:
         p = products_map.get(pid)
