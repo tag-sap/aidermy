@@ -3137,3 +3137,103 @@ select:focus-visible,
   .guest-cta { margin-left: 16px; margin-right: 16px; border-radius: 18px; }
   .guest-cta__actions { gap: 12px; }
 }
+
+
+/* ===== Гостевой сценарий: анкета → выбор средства → результат ===== */
+.guest-flow {
+  width: 100%;
+  max-width: 940px;
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 44px) clamp(16px, 5vw, 40px) 64px;
+}
+.guest-flow__head { display: grid; gap: 6px; }
+.guest-flow .guest-link { justify-self: start; }
+.guest-flow__title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(26px, 4vw, 38px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+}
+.guest-flow__lead { color: var(--ink-soft); font-size: 14px; line-height: 1.6; max-width: 640px; }
+.guest-flow__error { margin: 0; color: #8f1d14; font-size: 13px; line-height: 1.5; }
+.guest-flow__busy { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--ink-soft); font-size: 13.5px; }
+
+.guest-select { display: grid; gap: 14px; }
+.guest-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+}
+.guest-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  color: var(--ink);
+}
+.guest-select__list { display: grid; gap: 8px; }
+.guest-select__item {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  text-align: left;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.guest-select__item:hover:not(:disabled) { border-color: var(--border-strong); transform: translateY(-1px); }
+.guest-select__item:disabled { opacity: .55; }
+.guest-select__item img { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; background: var(--surface-2); }
+.guest-select__item span { display: grid; gap: 2px; min-width: 0; }
+.guest-select__item strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guest-select__item small { color: var(--ink-soft); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guest-select__scan { display: grid; gap: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
+
+.guest-result__summary { display: grid; gap: 18px; }
+.guest-result__score { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.guest-result__verdict { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+.guest-result__text { margin-top: 6px; color: var(--ink-soft); font-size: 13.5px; line-height: 1.6; }
+.guest-result__ings { display: grid; gap: 14px; }
+.guest-result__report-actions { display: grid; gap: 8px; justify-items: start; }
+.guest-report { display: grid; gap: 10px; padding: 16px; border-radius: 14px; background: var(--surface-2); }
+.guest-report__frag { margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--ink-2); }
+
+.guest-save {
+  display: grid;
+  gap: 12px;
+  padding: clamp(22px, 4vw, 32px);
+  border-radius: 18px;
+  background: var(--guest-green-soft);
+  border: 1px solid rgba(46, 91, 69, 0.12);
+}
+.guest-save h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(22px, 3vw, 30px);
+  letter-spacing: -0.02em;
+}
+.guest-save p { color: #41544a; font-size: 13.5px; line-height: 1.6; max-width: 560px; }
+.guest-save__actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.guest-save__restart { justify-self: start; }
+
+.guest-scan { display: grid; gap: 12px; padding: 20px clamp(16px, 5vw, 40px) 40px; max-width: 940px; margin: 0 auto; }
+.guest-scan > .guest-link { justify-self: start; }
+
+@media (max-width: 560px) {
+  .guest-flow { padding: 20px 16px 48px; }
+  .guest-result__score { gap: 14px; }
+  .guest-save__actions .btn { width: 100%; justify-content: center; }
+}

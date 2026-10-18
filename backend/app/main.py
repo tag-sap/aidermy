@@ -592,6 +592,7 @@ async def check_product(
     request: CheckRequest, 
     current_user: dict = Depends(get_current_user_optional)  # <-- ТЕПЕРЬ РАБОТАЕТ
 ):
+    guest_session = None
     try:
         from .database import get_connection, PRODUCTS_DB
         
@@ -615,6 +616,11 @@ async def check_product(
         
         user_id = current_user.get('id') if current_user else None
         product_id = existing_product['id'] if existing_product else None
+
+        # Без авторизации проверка доступна только внутри гостевого сеанса
+        # (одна проверка на сеанс, ограничение проверяется на сервере).
+        if not user_id:
+            guest_session = _guest_gate(getattr(request, "guest_token", None) or "")
 
         # Пользовательское фото (если приложено при ручном добавлении).
         request_image_url = (getattr(request, "image_url", None) or "").strip()
@@ -645,6 +651,15 @@ async def check_product(
                 profile_snapshot=request.profile.dict(),
             )
             analysis_id = saved.get("id") if saved else None
+        elif guest_session is not None:
+            _store_guest_check_result(
+                guest_session,
+                result=result,
+                product_name=request.product_name,
+                profile=request.profile.dict(),
+                slug=slug or "",
+                product_id=product_id,
+            )
 
         pending = bool(result.get("pending"))
         return CheckResponse(
@@ -667,8 +682,10 @@ async def check_product(
             pending=pending,
         )
     except HTTPException:
+        _refund_guest_check(guest_session)
         raise
     except Exception as e:
+        _refund_guest_check(guest_session)
         raise HTTPException(status_code=500, detail=f"AI error: {str(e)}")
     
 @app.post("/api/check-with-ingredients", response_model=CheckResponse)
@@ -677,6 +694,7 @@ async def check_with_ingredients(
     check_request: CheckWithIngredientsRequest,
     current_user: dict = Depends(get_current_user_optional)  # <-- ТЕПЕРЬ РАБОТАЕТ
 ):
+    guest_session = None
     try:
         from .services import generate_slug, check_product_with_ingredients
         from .auth_routes import save_pending_product
@@ -705,6 +723,11 @@ async def check_with_ingredients(
         
         user_id = current_user.get('id') if current_user else None
         product_id = existing_product['id'] if existing_product else None
+
+        # Без авторизации проверка доступна только внутри гостевого сеанса
+        # (одна проверка на сеанс, ограничение проверяется на сервере).
+        if not user_id:
+            guest_session = _guest_gate(getattr(check_request, "guest_token", None) or "")
 
         # Пользовательское фото (если приложено при ручном добавлении).
         request_image_url = (getattr(check_request, "image_url", None) or "").strip()
@@ -735,6 +758,16 @@ async def check_with_ingredients(
                 profile_snapshot=check_request.profile.dict(),
             )
             analysis_id = saved.get("id") if saved else None
+        elif guest_session is not None:
+            _store_guest_check_result(
+                guest_session,
+                result=result,
+                product_name=check_request.product_name,
+                profile=check_request.profile.dict(),
+                slug=slug or "",
+                product_id=product_id,
+                ingredients_raw=check_request.ingredients or "",
+            )
         
         pending = bool(result.get("pending"))
         return CheckResponse(
@@ -757,7 +790,11 @@ async def check_with_ingredients(
             pending=pending,
         )
         
+    except HTTPException:
+        _refund_guest_check(guest_session)
+        raise
     except Exception as e:
+        _refund_guest_check(guest_session)
         print(f"❌ Ошибка: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка проверки: {str(e)}")
 
@@ -1219,6 +1256,70 @@ def _profile_from_user(user: dict) -> dict:
         result["structured"] = structured
         result["age"] = result.get("age") or structured.get("age") or ""
     return result
+
+
+def _guest_gate(guest_token: str) -> dict:
+    """Расходует единственную гостевую проверку (запрос без авторизации).
+
+    Ограничение проверяется на сервере: гостевой токен обязателен, живёт
+    ограниченное время и допускает ровно одну проверку.
+    """
+    from .guest_service import GuestSessionError, consume_guest_check
+
+    try:
+        return consume_guest_check(guest_token or "")
+    except GuestSessionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+def _refund_guest_check(session: dict | None) -> None:
+    if not session:
+        return
+    try:
+        from .guest_service import refund_guest_check
+
+        refund_guest_check(session["id"])
+    except Exception:
+        pass
+
+
+def _store_guest_check_result(
+    session: dict,
+    *,
+    result: dict,
+    product_name: str,
+    profile: dict,
+    slug: str,
+    product_id: int | None,
+    ingredients_raw: str = "",
+) -> None:
+    """Сохраняет настоящий результат проверки в гостевой сеанс (отчёт и перенос)."""
+    from .guest_service import store_guest_result
+
+    deterministic = result.get("deterministic") or {}
+    normalized = deterministic.get("normalized_ingredients") or []
+    ingredients = (ingredients_raw or "").strip() or ", ".join(normalized)
+    store_guest_result(
+        session["id"],
+        {
+            "score": result.get("score"),
+            "verdict": result.get("verdict") or "",
+            "summary": result.get("summary") or "",
+            "safe_ingredients": result.get("safe_ingredients") or [],
+            "caution_ingredients": result.get("caution_ingredients") or [],
+            "active_ingredients": result.get("active_ingredients"),
+            "how_to_use": result.get("how_to_use"),
+            "expectations": result.get("expectations"),
+            "deterministic": deterministic,
+            "phase1_status": result.get("phase1_status"),
+            "recommendation_status": result.get("recommendation_status"),
+            "product_name": product_name or "",
+            "ingredients": ingredients,
+            "profile": profile or {},
+            "slug": slug or "",
+            "product_id": product_id,
+        },
+    )
 
 
 def _save_system_analysis(user: dict, product_id: int | None, slug: str, result: dict, profile_snapshot: dict | None = None) -> dict | None:
@@ -1867,6 +1968,200 @@ async def generate_analysis_report(request: ShelfAnalyzeRequest, current_user: d
     """Слой 2 — «Получить описание»: генерирует и сохраняет подробное описание
     к актуальному User Analysis. Score/verdict не пересчитываются."""
     return await review_shelf_product(request, current_user)
+
+
+class GuestSessionRequest(BaseModel):
+    profile: dict = {}
+
+
+class GuestTokenRequest(BaseModel):
+    guest_token: str = ""
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for") or ""
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+@app.post("/api/guest/session")
+async def create_guest_session_endpoint(payload: GuestSessionRequest, request: Request):
+    """Создаёт гостевой сеанс после заполнения анкеты (одна проверка на сеанс)."""
+    from .guest_service import GuestSessionError, create_guest_session, rate_limit_sessions
+
+    if not rate_limit_sessions(_client_ip(request)):
+        raise HTTPException(
+            status_code=429,
+            detail="Слишком много гостевых сеансов. Попробуйте позже или войдите в аккаунт.",
+        )
+    try:
+        return create_guest_session(payload.profile or {})
+    except GuestSessionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@app.post("/api/guest/report")
+async def guest_report_endpoint(payload: GuestTokenRequest):
+    """Полный отчёт по единственной гостевой проверке.
+
+    Используется тот же генератор, что и у авторизованного пользователя;
+    score/verdict берутся из уже посчитанного результата и не пересчитываются.
+    """
+    from .database import get_product_by_slug
+    from .guest_service import (
+        GuestSessionError,
+        get_cached_guest_report,
+        get_guest_result,
+        save_guest_report,
+    )
+    from .services import generate_full_report
+
+    try:
+        cached = get_cached_guest_report(payload.guest_token)
+        if cached:
+            return cached
+        result = get_guest_result(payload.guest_token)
+    except GuestSessionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    score = result.get("score")
+    if score is None:
+        raise HTTPException(status_code=409, detail="Недостаточно данных для отчёта")
+
+    deterministic = result.get("deterministic") or {}
+    profile = result.get("profile") or {}
+    skin_type = profile.get("skin_type") or "Нормальная"
+    product_type = ""
+    try:
+        from .catalog_taxonomy import classify_product
+
+        product = get_product_by_slug(result.get("slug") or "")
+        if product:
+            product_type = classify_product(product).get("canonical_category") or ""
+    except Exception:
+        product_type = ""
+
+    try:
+        full = await generate_full_report(
+            result.get("product_name") or "",
+            result.get("ingredients") or "",
+            profile,
+            skin_type,
+            product_type,
+            saved_analysis={
+                "deterministic": deterministic,
+                "score": score,
+                "verdict": result.get("verdict") or "",
+            },
+        )
+    except Exception as exc:
+        print(f"[GUEST REPORT] failed: {exc!r}")
+        raise HTTPException(status_code=502, detail="Не удалось сформировать отчёт") from exc
+
+    review_fragments = full.get("review") or []
+    response = {
+        "score": score,
+        "verdict": result.get("verdict") or "",
+        "explanation": _fragments_to_text(review_fragments) or result.get("summary") or "",
+        "review": review_fragments,
+        "expectations": full.get("expectations"),
+        "phase1_status": result.get("phase1_status"),
+        "recommendation_status": result.get("recommendation_status"),
+        "report_ready": True,
+    }
+    try:
+        save_guest_report(payload.guest_token, response)
+    except Exception as exc:
+        print(f"[GUEST REPORT] cache failed: {exc!r}")
+    return response
+
+
+@app.post("/api/guest/claim")
+async def guest_claim_endpoint(
+    payload: GuestTokenRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Сохраняет единственный гостевой результат в аккаунт пользователя.
+
+    Идемпотентно: повторный вызов не создаёт второй анализ. Привязать результат
+    к другому аккаунту нельзя — захват атомарный.
+    """
+    import json as _json
+
+    from .database import save_analysis_details, upsert_analysis
+    from .guest_service import (
+        GuestSessionError,
+        claim_guest_result,
+        finalize_guest_claim,
+        get_cached_guest_report,
+        release_guest_claim,
+    )
+    from .report_version import REPORT_GENERATOR_VERSION
+
+    try:
+        claim = claim_guest_result(payload.guest_token, current_user["id"])
+    except GuestSessionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    if claim.get("already_claimed"):
+        return {
+            "status": "ok",
+            "analysis_id": claim.get("analysis_id"),
+            "already_claimed": True,
+        }
+
+    data = claim.get("payload") or {}
+    try:
+        saved = upsert_analysis(
+            user_id=current_user["id"],
+            product_id=data.get("product_id"),
+            slug=data.get("slug") or "",
+            score=data.get("score"),
+            verdict=data.get("verdict") or "",
+            summary=data.get("summary") or "",
+            safe_ingredients=data.get("safe_ingredients") or [],
+            caution_ingredients=data.get("caution_ingredients") or [],
+            active_ingredients=data.get("active_ingredients"),
+            how_to_use=data.get("how_to_use"),
+            expectations=data.get("expectations"),
+            profile_snapshot=_json.dumps(data.get("profile") or {}, ensure_ascii=False),
+            deterministic_json=_json.dumps(data.get("deterministic") or {}, ensure_ascii=False),
+        )
+    except Exception as exc:
+        release_guest_claim(claim["session_id"])
+        print(f"[GUEST CLAIM] save failed: {exc!r}")
+        raise HTTPException(status_code=500, detail="Не удалось сохранить результат") from exc
+
+    analysis_id = saved.get("id") if isinstance(saved, dict) else None
+
+    # Сохранённый результат должен быть виден в кабинете: добавляем товар на полку
+    # (идемпотентно), чтобы оценка отображалась в разделе «Моя полка».
+    if data.get("product_id"):
+        try:
+            from .database import add_product_to_shelf
+
+            add_product_to_shelf(current_user["id"], int(data["product_id"]))
+        except Exception as exc:
+            print(f"[GUEST CLAIM] shelf add failed: {exc!r}")
+
+    # Если гость успел открыть отчет — переносим и его, без повторной генерации.
+    try:
+        report = get_cached_guest_report(payload.guest_token)
+        if report and analysis_id:
+            save_analysis_details(
+                current_user["id"],
+                data.get("product_id"),
+                data.get("slug") or "",
+                report=_json.dumps(report.get("review") or [], ensure_ascii=False),
+                expectations=report.get("expectations"),
+                report_generator_version=REPORT_GENERATOR_VERSION,
+            )
+    except Exception as exc:
+        print(f"[GUEST CLAIM] report transfer failed: {exc!r}")
+
+    finalize_guest_claim(claim["session_id"], analysis_id)
+    return {"status": "ok", "analysis_id": analysis_id, "already_claimed": False}
 
 
 @app.patch("/api/shelf/{shelf_id}")

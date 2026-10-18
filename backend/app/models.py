@@ -27,6 +27,8 @@ class CheckRequest(BaseModel):
     profile: Profile = Field(..., description="Анкета пользователя")
     # Пользовательское фото (URL из /api/uploads/product-image), необязательное.
     image_url: Optional[str] = None
+    # Гостевой контекст: обязателен для запроса без авторизации (одна проверка).
+    guest_token: Optional[str] = None
 
 # НОВЫЕ МОДЕЛИ ДЛЯ ОТВЕТА
 class ActiveIngredient(BaseModel):
@@ -75,6 +77,8 @@ class CheckWithIngredientsRequest(BaseModel):
     brand: Optional[str] = None
     # Пользовательское фото (URL из /api/uploads/product-image), необязательное.
     image_url: Optional[str] = None
+    # Гостевой контекст: обязателен для запроса без авторизации (одна проверка).
+    guest_token: Optional[str] = None
 
 
 class ImportUrlRequest(BaseModel):

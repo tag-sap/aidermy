@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
-import { api, ApiError, setToken, getToken, type ReportResult, type Review } from "./api"
+import { api, ApiError, setToken, getToken, type ApiProduct, type ReportResult, type Review } from "./api"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import {
@@ -903,18 +903,18 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
     </div>
   )
 }
-function GuestHomePage({ onAuth }: { onAuth: () => void }) {
+function GuestHomePage({ onAuth, onStart }: { onAuth: () => void; onStart: () => void }) {
   // Гостевая главная: только презентация продукта. Никаких персональных блоков,
   // статистики полки или имитации анализа — все действия ведут к входу/регистрации.
   const steps = [
     {
       n: "01",
       title: "Выберите средство",
-      text: "Найдите продукт в каталоге или отсканируйте упаковку — Aidermy распознаёт состав с этикетки.",
+      text: "Найдите продукт в каталоге или отсканируйте упаковку — айдерми распознаёт состав с этикетки.",
     },
     {
       n: "02",
-      title: "Aidermy разбирает состав",
+      title: "айдерми разбирает состав",
       text: "Ингредиенты сопоставляются с вашим профилем кожи: типом, чувствительностью и целями ухода.",
     },
     {
@@ -934,7 +934,7 @@ function GuestHomePage({ onAuth }: { onAuth: () => void }) {
         <span className="guest-header__brand">айдерми</span>
         <div className="guest-header__actions">
           <button type="button" className="guest-link" onClick={onAuth}>Войти</button>
-          <Button small onClick={onAuth}>Начать</Button>
+          <Button small onClick={onStart}>Начать</Button>
         </div>
       </header>
 
@@ -943,14 +943,14 @@ function GuestHomePage({ onAuth }: { onAuth: () => void }) {
         <div className="guest-hero__inner">
           <p className="eyebrow">Проверка совместимости косметики</p>
           <h1 className="guest-hero__title">
-            Aidermy анализирует ингредиенты и честно показывает, насколько средство совместимо с вашей кожей.
+            айдерми анализирует ингредиенты и честно показывает, насколько средство совместимо с вашей кожей.
           </h1>
           <p className="guest-hero__lead">Без рекламы и догадок — только состав.</p>
           <div className="guest-hero__actions">
-            <Button icon="sparkle" onClick={onAuth}>Проверить средство</Button>
+            <Button icon="sparkle" onClick={onStart}>Заполнить профиль кожи и проверить средство</Button>
             <Button variant="secondary" onClick={onAuth}>Войти или зарегистрироваться</Button>
           </div>
-          <p className="guest-hero__note">Для проверки средства и сохранения результата нужен аккаунт. Это бесплатно.</p>
+          <p className="guest-hero__note">Одна проверка без регистрации. Сохранить результат можно после входа.</p>
         </div>
       </section>
 
@@ -968,10 +968,7 @@ function GuestHomePage({ onAuth }: { onAuth: () => void }) {
       </section>
 
       <section className="guest-block">
-        <SectionHead eyebrow="Интерфейс" title="Как выглядит Aidermy" />
-        <p className="guest-block__lead">
-          Ниже — подготовленные места для скриншотов: распознавание состава, оценка совместимости и подробный разбор.
-        </p>
+        <SectionHead eyebrow="Скриншоты" title="Как выглядит айдерми" />
         <div className="phone-row">
           {shots.map((shot) => (
             <figure className="phone-mock" key={shot.key}>
@@ -995,9 +992,225 @@ function GuestHomePage({ onAuth }: { onAuth: () => void }) {
           Добавьте продукт, посмотрите оценку совместимости и разберитесь, какие ингредиенты работают на вашу кожу.
         </p>
         <div className="guest-cta__actions">
-          <Button icon="sparkle" onClick={onAuth}>Начать</Button>
+          <Button icon="sparkle" onClick={onStart}>Заполнить профиль кожи и проверить средство</Button>
           <button type="button" className="guest-link" onClick={onAuth}>У меня уже есть аккаунт</button>
         </div>
+      </section>
+    </div>
+  )
+}
+
+function GuestQuizScreen({ onDone, onBack }: {
+  onDone: (p: { skinType: string; age?: string; concerns?: string[]; allergies?: string[]; structured?: Record<string, unknown> }) => void
+  onBack: () => void
+}) {
+  return (
+    <div className="page guest-flow">
+      <div className="guest-flow__head">
+        <button type="button" className="guest-link" onClick={onBack}>← На главную</button>
+        <p className="eyebrow">Гостевая проверка · шаг 1 из 3</p>
+        <h1 className="guest-flow__title">Профиль кожи</h1>
+        <p className="guest-flow__lead">Ответьте на вопросы — по профилю айдерми рассчитает совместимость выбранного средства.</p>
+      </div>
+      <Questionnaire onDone={onDone} />
+    </div>
+  )
+}
+
+function GuestSelectScreen({ onPick, onScan, busy, error }: {
+  onPick: (p: ApiProduct) => void
+  onScan: () => void
+  busy: boolean
+  error: string
+}) {
+  const [q, setQ] = useState("")
+  const [results, setResults] = useState<ApiProduct[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState("")
+
+  useEffect(() => {
+    const query = q.trim()
+    if (query.length < 2) { setResults([]); setSearching(false); return }
+    let alive = true
+    const t = window.setTimeout(async () => {
+      setSearching(true)
+      try {
+        const res = await api.catalog({ search: query, limit: 8 })
+        if (!alive) return
+        setResults(((res.products || []) as ApiProduct[]).filter((p) => p.name && p.name !== "Продукт"))
+        setSearchError("")
+      } catch {
+        if (!alive) return
+        setResults([])
+        setSearchError("Не удалось выполнить поиск. Попробуйте ещё раз.")
+      } finally {
+        if (alive) setSearching(false)
+      }
+    }, 300)
+    return () => { alive = false; window.clearTimeout(t) }
+  }, [q])
+
+  return (
+    <div className="page guest-flow">
+      <div className="guest-flow__head">
+        <p className="eyebrow">Гостевая проверка · шаг 2 из 3</p>
+        <h1 className="guest-flow__title">Выберите одно средство</h1>
+        <p className="guest-flow__lead">
+          Без регистрации доступна одна проверка одного средства. Найдите продукт в каталоге или отсканируйте упаковку.
+        </p>
+      </div>
+
+      <section className="panel guest-select">
+        <label className="guest-search">
+          <Icon name="search" size={17} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Название или бренд" />
+          {q && <button type="button" onClick={() => setQ("")} aria-label="Очистить"><Icon name="close" size={15} /></button>}
+        </label>
+
+        {searching && <p className="panel__note">Ищем…</p>}
+        {searchError && <p className="guest-flow__error" role="alert">{searchError}</p>}
+        {!searching && q.trim().length >= 2 && results.length === 0 && !searchError && (
+          <p className="panel__note">Ничего не нашлось. Попробуйте другое название или отсканируйте упаковку.</p>
+        )}
+
+        <div className="guest-select__list">
+          {results.map((item) => (
+            <button
+              key={`${item.id}-${item.slug}`}
+              type="button"
+              className="guest-select__item"
+              onClick={() => onPick(item)}
+              disabled={busy}
+            >
+              <img src={mapApiProduct(item).image} alt="" />
+              <span>
+                <strong>{item.name}</strong>
+                <small>{[item.brand, item.catalog_category].filter(Boolean).join(" · ")}</small>
+              </span>
+              <Icon name="arrow" size={15} />
+            </button>
+          ))}
+        </div>
+
+        <div className="guest-select__scan">
+          <Button variant="secondary" icon="camera" onClick={onScan} disabled={busy}>Сканировать упаковку</Button>
+          <span className="panel__note">Можно сфотографировать упаковку или ввести состав вручную.</span>
+        </div>
+
+        {busy && <p className="guest-flow__busy"><span className="spin" /> Считаем совместимость…</p>}
+        {error && <p className="guest-flow__error" role="alert">{error}</p>}
+      </section>
+    </div>
+  )
+}
+
+function GuestResultScreen({ product, guestToken, onSignup, onLogin, onRestart }: {
+  product: Product
+  guestToken: string
+  onSignup: () => void
+  onLogin: () => void
+  onRestart: () => void
+}) {
+  const [report, setReport] = useState<ReportResult | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState("")
+
+  const score = product.match?.score ?? null
+  const recStatus = product.match?.recommendation_status
+
+  const openReport = async () => {
+    if (report) { setReport(null); return }
+    setReportLoading(true)
+    setReportError("")
+    try {
+      setReport(await api.guestReport(guestToken))
+    } catch (e) {
+      const status = e instanceof ApiError ? e.status : 0
+      setReportError(
+        status === 401 || status === 410
+          ? "Гостевой сеанс завершён. Начните проверку заново."
+          : status === 409
+            ? "Для этого средства недостаточно данных для отчёта."
+            : "Не удалось сформировать отчёт. Попробуйте ещё раз.",
+      )
+    } finally {
+      setReportLoading(false)
+    }
+  }
+
+  return (
+    <div className="page guest-flow guest-result">
+      <div className="guest-flow__head">
+        <p className="eyebrow">Гостевая проверка · шаг 3 из 3</p>
+        <h1 className="guest-flow__title">Результат проверки</h1>
+        <p className="guest-flow__lead">{[product.brand, product.name].filter(Boolean).join(" · ")}</p>
+      </div>
+
+      <section className="panel guest-result__summary">
+        {score != null ? (
+          <div className="guest-result__score">
+            <ScoreRing score={score} label={recStatus === "Не рекомендовано" ? "негативная оценка" : "совместимость"} />
+            <div>
+              <p className="guest-result__verdict">{product.match?.verdict || recStatus || "Проверка завершена"}</p>
+              {product.match?.summary && <p className="guest-result__text">{product.match.summary}</p>}
+              {recStatus && <p className="panel__note">{recStatus}</p>}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <h3 className="panel__h3">Недостаточно данных</h3>
+            <p className="panel__note">
+              {product.match?.verdict || "Не удалось корректно оценить совместимость: для этого средства не хватает достоверного состава."}
+            </p>
+          </div>
+        )}
+
+        {(product.match?.safe_ingredients?.length || product.match?.caution_ingredients?.length) ? (
+          <div className="guest-result__ings">
+            {product.match?.safe_ingredients?.length ? (
+              <div>
+                <p className="eyebrow">Безопасные ингредиенты</p>
+                <div className="chips">{product.match.safe_ingredients.slice(0, 8).map((i) => <span key={i} className="chip">{i}</span>)}</div>
+              </div>
+            ) : null}
+            {product.match?.caution_ingredients?.length ? (
+              <div>
+                <p className="eyebrow">Требуют внимания</p>
+                <div className="chips">{product.match.caution_ingredients.slice(0, 8).map((i) => <span key={i} className="chip">{i}</span>)}</div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {score != null && (
+          <div className="guest-result__report-actions">
+            <Button icon="file" onClick={openReport} disabled={reportLoading}>
+              {reportLoading ? "Готовим отчёт…" : report ? "Скрыть отчёт" : "Открыть полный отчёт"}
+            </Button>
+            {reportError && <p className="guest-flow__error" role="alert">{reportError}</p>}
+          </div>
+        )}
+
+        {report && (
+          <div className="guest-report" aria-live="polite">
+            <h3 className="panel__h3">Подробный отчёт</h3>
+            {report.review?.length
+              ? report.review.map((f, i) => <p key={i} className="guest-report__frag">{f.text}</p>)
+              : null}
+            {report.expectations?.normal && <p className="guest-report__frag">{report.expectations.normal}</p>}
+          </div>
+        )}
+      </section>
+
+      <section className="guest-save">
+        <h2>Зарегистрироваться и сохранить результат</h2>
+        <p>Аккаунт сохранит эту проверку и откроет полку, историю и повторные проверки без ограничений.</p>
+        <div className="guest-save__actions">
+          <Button icon="user" onClick={onSignup}>Зарегистрироваться и сохранить результат</Button>
+          <button type="button" className="guest-link" onClick={onLogin}>Уже есть аккаунт? Войти</button>
+        </div>
+        <p className="panel__note">Результат не сохраняется автоматически и исчезнет после перезагрузки страницы.</p>
+        <button type="button" className="guest-link guest-save__restart" onClick={onRestart}>Начать заново</button>
       </section>
     </div>
   )
@@ -1226,7 +1439,7 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
 
 type ScanMethod = "photo" | "inci" | "link" | "manual"
 
-function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => void; initialMethod?: ScanMethod }) {
+function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: Product) => void; initialMethod?: ScanMethod; guestToken?: string }) {
   const [method, setMethod] = useState<ScanMethod>(initialMethod ?? "photo")
   const [phase, setPhase] = useState<"input" | "recognizing" | "ready">("input")
   const [picked, setPicked] = useState(false)
@@ -1292,22 +1505,22 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
         setBrand(b); setName(n); setInci(prod.ingredients_raw || "")
         let checkRes
         if (prod.ingredients_raw) {
-          checkRes = await api.checkWithIngredients({ product_name: n, skin_type: skinType, profile, ingredients: prod.ingredients_raw })
+          checkRes = await api.checkWithIngredients({ product_name: n, skin_type: skinType, profile, ingredients: prod.ingredients_raw, guest_token: guestToken })
         } else {
-          checkRes = await api.check({ product_name: n, skin_type: skinType, profile })
+          checkRes = await api.check({ product_name: n, skin_type: skinType, profile, guest_token: guestToken })
         }
         setResult(buildResult(b, n, prod.image_url || "", prod.slug, prod.ingredients_raw || "", checkRes as { score?: number | null; verdict?: string; analysis_id?: number }, typeof prod.id === "number" ? prod.id : undefined))
       } else if (method === "photo") {
-        const checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile })
+        const checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile, guest_token: guestToken })
         setResult(buildResult(brand.trim(), name.trim(), imageUrl || checkRes.image_url || "", slug || checkRes.slug, "", checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
       } else {
         // inci / manual — анализируем распознанный/введённый состав; если состава
         // нет (не распознался) — проверяем по названию (бэкенд возьмёт INCI из БД).
         let checkRes
         if (inci.trim()) {
-          checkRes = await api.checkWithIngredients({ product_name: name.trim(), brand: brand.trim(), skin_type: skinType, profile, ingredients: inci, image_url: manualImage || undefined })
+          checkRes = await api.checkWithIngredients({ product_name: name.trim(), brand: brand.trim(), skin_type: skinType, profile, ingredients: inci, image_url: manualImage || undefined, guest_token: guestToken })
         } else {
-          checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile, image_url: manualImage || undefined })
+          checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile, image_url: manualImage || undefined, guest_token: guestToken })
         }
         setResult(buildResult(brand.trim(), name.trim(), manualImage || "", checkRes.slug || "", inci.trim(), checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
       }
@@ -3180,6 +3393,13 @@ export default function App() {
   const [morphOrigin, setMorphOrigin] = useState<HTMLElement | null>(null)
   const [checkingIds, setCheckingIds] = useState<Set<number>>(new Set())
   const [user, setUser] = useState<User | null>(null)
+  // Гостевой сценарий: прогресс живёт ТОЛЬКО в памяти React и не пишется в
+  // localStorage/sessionStorage — после перезагрузки гость начинает заново.
+  const [guestStage, setGuestStage] = useState<"home" | "quiz" | "select" | "scan" | "result">("home")
+  const [guestToken, setGuestToken] = useState("")
+  const [guestProduct, setGuestProduct] = useState<Product | null>(null)
+  const [guestBusy, setGuestBusy] = useState(false)
+  const [guestError, setGuestError] = useState("")
   const [authModal, setAuthModal] = useState<null | "login" | "register">(null)
   const [pricingOpen, setPricingOpen] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
@@ -3357,7 +3577,114 @@ export default function App() {
     setOpen((o) => (o && o.id === id ? applyAnalysis(o) : o))
   }
 
-  const handleLogin = (u: User) => { setUser(u); setAuthModal(null); void loadShelf() }
+  const resetGuestFlow = () => {
+    setGuestStage("home")
+    setGuestToken("")
+    setGuestProduct(null)
+    setGuestBusy(false)
+    setGuestError("")
+  }
+
+  const startGuestFlow = () => {
+    resetGuestFlow()
+    setGuestStage("quiz")
+    window.scrollTo({ top: 0 })
+  }
+
+  const handleGuestQuizDone = async (p: { skinType: string; age?: string; concerns?: string[]; allergies?: string[]; structured?: Record<string, unknown> }) => {
+    const skinTypeLabel = SKIN_TYPE_OPTIONS.find((o) => o.id === p.skinType)?.label ?? p.skinType
+    // Профиль остаётся в памяти модуля (не в браузерном хранилище).
+    setUserProfile({
+      skinType: skinTypeLabel,
+      age: p.age ?? "",
+      concerns: p.concerns ?? [],
+      allergies: p.allergies ?? [],
+      structured: p.structured ?? null,
+    })
+    setGuestBusy(true)
+    setGuestError("")
+    try {
+      const profile = { ...buildProfile(), skin_type: skinTypeLabel }
+      const res = await api.guestSession(profile as Record<string, unknown>)
+      setGuestToken(res.guest_token)
+      setGuestStage("select")
+      window.scrollTo({ top: 0 })
+    } catch (e) {
+      setGuestError(e instanceof Error ? e.message : "Не удалось начать гостевую проверку.")
+    } finally {
+      setGuestBusy(false)
+    }
+  }
+
+  const handleGuestPick = async (item: ApiProduct) => {
+    if (guestBusy || !guestToken) return
+    setGuestBusy(true)
+    setGuestError("")
+    try {
+      const profile = buildProfile()
+      const skinType = getUserProfile().skinType
+      const base = {
+        product_name: item.name || "",
+        brand: item.brand || "",
+        skin_type: skinType,
+        profile,
+        guest_token: guestToken,
+      }
+      const ingredients = (item.ingredients || "").trim()
+      const res = ingredients
+        ? await api.checkWithIngredients({ ...base, ingredients })
+        : await api.check(base)
+      if (res.pending) {
+        setGuestError("Исследование состава ещё не завершено. Попробуйте это средство позже.")
+        return
+      }
+      const product: Product = {
+        ...mapApiProduct(item),
+        match: {
+          score: typeof res.score === "number" ? res.score : null,
+          verdict: mapVerdict(typeof res.score === "number" ? res.score : null, res.verdict) ?? undefined,
+          recommendation_status: res.recommendation_status,
+          summary: res.summary,
+          safe_ingredients: res.safe_ingredients,
+          caution_ingredients: res.caution_ingredients,
+          analysis_id: res.analysis_id,
+          phase1_status: res.phase1_status,
+        },
+      }
+      setGuestProduct(product)
+      setGuestStage("result")
+      window.scrollTo({ top: 0 })
+    } catch (e) {
+      const status = e instanceof ApiError ? e.status : 0
+      setGuestError(
+        status === 409
+          ? "Гостевая проверка уже использована. Зарегистрируйтесь, чтобы проверять средства без ограничений."
+          : status === 401 || status === 410
+            ? "Гостевой сеанс завершён. Начните проверку заново."
+            : "Не удалось выполнить проверку. Попробуйте ещё раз.",
+      )
+    } finally {
+      setGuestBusy(false)
+    }
+  }
+
+  const handleLogin = (u: User) => {
+    setUser(u)
+    setAuthModal(null)
+    void loadShelf()
+    // Гость только что прошёл проверку — сохраняем её результат в аккаунт.
+    if (guestToken && guestProduct) {
+      const token = guestToken
+      void api.guestClaim(token)
+        .then((r) => {
+          setToast(r.already_claimed ? "Результат уже сохранён в аккаунте" : "Результат сохранён в аккаунте")
+          return loadShelf()
+        })
+        .then(() => { setPage("shelf"); window.scrollTo({ top: 0 }) })
+        .catch(() => setToast("Не удалось сохранить гостевой результат"))
+        .finally(() => resetGuestFlow())
+    }
+  }
   const handleLogout = () => {
     setToken(null)
     setUser(null)
@@ -3468,10 +3795,40 @@ export default function App() {
         {user && <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} onPoints={() => setPointsOpen(true)} />}
         {user && <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />}
         <main className="main-content">
-          <div key={user ? page : "guest-home"} className="page-anim">
-            {page === "home" && (user
-              ? <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} shelfItems={shelfItems} />
-              : <GuestHomePage onAuth={() => setAuthModal("login")} />)}
+          <div key={user ? page : `guest-${guestStage}`} className="page-anim">
+            {user && page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} shelfItems={shelfItems} />}
+            {!user && guestStage === "home" && (
+              <GuestHomePage onAuth={() => setAuthModal("login")} onStart={startGuestFlow} />
+            )}
+            {!user && guestStage === "quiz" && (
+              <GuestQuizScreen onDone={handleGuestQuizDone} onBack={resetGuestFlow} />
+            )}
+            {!user && guestStage === "select" && (
+              <GuestSelectScreen
+                onPick={handleGuestPick}
+                onScan={() => setGuestStage("scan")}
+                busy={guestBusy}
+                error={guestError}
+              />
+            )}
+            {!user && guestStage === "scan" && (
+              <div className="guest-scan">
+                <button type="button" className="guest-link" onClick={() => setGuestStage("select")}>← К выбору средства</button>
+                <ScanPage
+                  guestToken={guestToken}
+                  onContinue={(p) => { setGuestProduct(p); setGuestStage("result"); window.scrollTo({ top: 0 }) }}
+                />
+              </div>
+            )}
+            {!user && guestStage === "result" && guestProduct && (
+              <GuestResultScreen
+                product={guestProduct}
+                guestToken={guestToken}
+                onSignup={() => setAuthModal("register")}
+                onLogin={() => setAuthModal("login")}
+                onRestart={resetGuestFlow}
+              />
+            )}
             {user && page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
