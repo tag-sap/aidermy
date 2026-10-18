@@ -2917,3 +2917,23 @@ h1 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em
     font-size: clamp(58px, 14.4vw, 103px);
   }
 }
+
+/* ===== Доступность: видимый фокус (клавиатура/скринридер) ===== */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.search input:focus-visible,
+.scan-form input:focus-visible,
+.scan-form textarea:focus-visible,
+.field input:focus-visible,
+.review-input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
