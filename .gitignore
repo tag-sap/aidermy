@@ -23,3 +23,7 @@ backups/
 # Calibration export (сгенерированный датасет — не код, версионируется отдельно)
 calibration/
 .env.*
+*.bak
+*.backup
+*.bak-*
+*.db.*
