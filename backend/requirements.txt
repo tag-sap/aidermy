@@ -14,4 +14,4 @@ authlib
 yagmail
 scrapling[fetchers]>=0.4.15,<0.5
 # PostgreSQL/Supabase connection
-psycopg[binary]==3.3.6
+psycopg[binary,pool]==3.3.6

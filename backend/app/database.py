@@ -97,12 +97,8 @@ def _analysis_uses_postgres() -> bool:
 
 
 def get_analysis_connection():
-    """Connect to canonical Analysis storage; SQLite remains the safe default."""
-    if not _analysis_uses_postgres():
-        return get_connection(AIDERMY_DB)
-    from .postgres_connection import get_postgres_connection
-
-    return _AnalysisConnection(get_postgres_connection())
+    """Canonical Analysis storage (Postgres when configured, else SQLite)."""
+    return get_connection(AIDERMY_DB)
 
 def init_db():
     if os.getenv("SUPABASE_DATABASE_URL"):

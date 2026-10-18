@@ -7,8 +7,12 @@ run against Postgres without rewriting every caller.
 """
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime
+
+from psycopg_pool import ConnectionPool
+from psycopg.rows import dict_row
 
 
 class _DictRow(dict):
@@ -179,11 +183,26 @@ class _PgConnection:
         return self._connection.rollback()
 
     def close(self):
-        return self._connection.close()
+        try:
+            self._connection.rollback()
+        except Exception:
+            pass
+        _get_pool().putconn(self._connection)
+
+
+_pool = None
+
+
+def _get_pool():
+    global _pool
+    if _pool is None:
+        url = os.getenv("SUPABASE_DATABASE_URL")
+        if not url:
+            raise RuntimeError("SUPABASE_DATABASE_URL не настроен")
+        _pool = ConnectionPool(url, min_size=1, max_size=10, open=True, timeout=30, kwargs={"row_factory": dict_row})
+    return _pool
 
 
 def connect():
-    """Return a Postgres connection adapter using the configured DSN."""
-    from .postgres_connection import get_postgres_connection
-
-    return _PgConnection(get_postgres_connection())
+    """Return a Postgres connection adapter from the shared pool."""
+    return _PgConnection(_get_pool().getconn())
