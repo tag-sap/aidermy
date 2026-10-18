@@ -118,8 +118,8 @@ class EvaluatePhase1Tests(unittest.TestCase):
             ph = evaluate_phase1(r, _profile(), ["glycerin", "fragrance"])
         self.assertEqual(ph["status"], "blocked")
 
-    def test_load_equal_threshold_blocks(self):
-        # «достигает или пересекает порог»: load == threshold -> блокировка (>=).
+    def test_load_equal_threshold_is_significant_not_critical(self):
+        # Level B: load == threshold -> выраженная нагрузка (exceeded), но НЕ критично.
         r = _result(negative_factors=[
             {"ingredient": "x", "property": "irritation", "weighted_value": 0.4}
         ])
@@ -128,8 +128,50 @@ class EvaluatePhase1Tests(unittest.TestCase):
             return_value=1.6,
         ):
             ph = evaluate_phase1(r, _profile(), ["x"])
-        self.assertEqual(ph["status"], "blocked")
+        self.assertEqual(ph["status"], "passed")
         self.assertEqual(ph["branches"]["irritation"]["threshold"], 0.4)
+        self.assertTrue(ph["branches"]["irritation"]["exceeded"])
+        self.assertFalse(ph["branches"]["irritation"]["violated"])
+
+    def test_multi_axis_combination_blocks(self):
+        # Level C: две оси, каждая превышает порог (но ниже 2x) -> критичное сочетание.
+        r = _result(negative_factors=[
+            {"ingredient": "fragrance", "property": "irritation", "weighted_value": 0.5},
+            {"ingredient": "preservative", "property": "sensitization", "weighted_value": 0.5},
+        ])
+        with patch(
+            "app.scoring_engine._profile_negative_multiplier",
+            side_effect=lambda axis, profile: 1.5 if axis in ("irritation", "sensitization") else 1.0,
+        ):
+            ph = evaluate_phase1(r, _profile(), ["fragrance", "preservative"])
+        self.assertEqual(ph["status"], "blocked")
+        self.assertTrue(ph["branches"]["irritation"]["violated"])
+        self.assertTrue(ph["branches"]["sensitization"]["violated"])
+
+    def test_single_ordinary_negative_does_not_block(self):
+        # Level A/B: один обычный негативный фактор (ниже 2x порога) не блокирует.
+        r = _result(negative_factors=[
+            {"ingredient": "phenoxyethanol", "property": "sensitization", "weighted_value": 0.3}
+        ])
+        with patch(
+            "app.scoring_engine._profile_negative_multiplier",
+            return_value=1.5,
+        ):
+            ph = evaluate_phase1(r, _profile(), ["phenoxyethanol"])
+        self.assertEqual(ph["status"], "passed")
+        self.assertFalse(ph["branches"]["sensitization"]["violated"])
+
+    def test_load_twice_threshold_blocks(self):
+        # Level C: load >= 2*threshold -> критичная блокировка.
+        r = _result(negative_factors=[
+            {"ingredient": "x", "property": "irritation", "weighted_value": 0.8}
+        ])
+        with patch(
+            "app.scoring_engine._profile_negative_multiplier",
+            return_value=1.6,
+        ):
+            ph = evaluate_phase1(r, _profile(), ["x"])
+        self.assertEqual(ph["status"], "blocked")
         self.assertTrue(ph["branches"]["irritation"]["violated"])
 
     def test_hard_flag_blocks(self):

@@ -23,6 +23,11 @@ PHASE1_VERSION = "2.0.0"
 TRACKED_BRANCHES: Tuple[str, ...] = tuple(AXES)
 BLOCKING_BRANCHES: Tuple[str, ...] = tuple(AXES)
 PHASE1_LAMBDA = 1.0
+# Уровень C (критичность): ось считается критичной, когда негативная нагрузка
+# существенно превышает динамический порог. Нагрузка ниже этого множителя
+# остаётся «выраженной» (Level B): снижает оценку и формирует предупреждение,
+# но НЕ блокирует продукт автоматически.
+PHASE1_CRITICAL_FACTOR = 2.0
 
 
 def _detect_intolerance(user_profile: Dict[str, Any], ingredients: List[str]) -> Optional[str]:
@@ -144,8 +149,15 @@ def evaluate_phase1(
         # Ось участвует в допуске только при коэффициенте строго больше 1.
         blocking = multiplier > 1.0
         threshold = round(2.0 - multiplier, 4) if blocking else None
-        violated = bool(
+        # Level B: выраженная негативная нагрузка (превышает порог).
+        exceeded = bool(
             blocking and threshold is not None and load >= threshold
+        )
+        # Level C: критично только при существенном превышении порога.
+        # Обычный негативный claim (даже сильный) не блокирует продукт сам по себе.
+        violated = bool(
+            exceeded and threshold is not None
+            and load >= threshold * PHASE1_CRITICAL_FACTOR
         )
 
         branches[axis] = {
@@ -155,8 +167,20 @@ def evaluate_phase1(
             "blocking": blocking,
             "threshold": threshold,
             "violated": violated,
+            "exceeded": exceeded,
+            "critical": violated,
             "factor_count": len(neg_weights.get(axis, [])),
         }
+    # Level C (multi-axis): совокупность факторов на нескольких осях считается
+    # критичным сочетанием, даже если каждая ось по отдельности ниже 2x порога.
+    num_exceeded = sum(1 for b in branches.values() if b.get("exceeded"))
+    if num_exceeded >= 2:
+        for b in branches.values():
+            if b.get("exceeded") and not b.get("violated"):
+                b["violated"] = True
+                b["critical"] = True
+                b["multi_axis"] = True
+
     violations = [b for b in branches.values() if b.get("violated")]
     hard_violations = [
         {
