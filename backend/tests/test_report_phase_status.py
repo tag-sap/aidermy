@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.services import _build_report_input, _report_input_text
 
 
-def _analysis(phase1_status, score=None, neg_only=None):
+def _analysis(phase1_status, score=None):
     return {
         "score": score,
         "verdict": "Не рекомендовано" if phase1_status == "blocked" else "Подходит",
@@ -24,7 +24,6 @@ def _analysis(phase1_status, score=None, neg_only=None):
             else "Недостаточно данных" if phase1_status == "insufficient_data"
             else "Рекомендовано"
         ),
-        "negative_only_score": neg_only,
         "dimensions": {},
         "priorities": {},
         "positive_factors": [],
@@ -36,13 +35,13 @@ def _analysis(phase1_status, score=None, neg_only=None):
 
 class ReportPhaseStatusBuildInputTests(unittest.TestCase):
     def test_build_input_keeps_phase1_status(self):
-        inp = _build_report_input(_analysis("blocked", neg_only=21))
+        inp = _build_report_input(_analysis("blocked", score=21))
         self.assertEqual(inp["phase1_status"], "blocked")
-        self.assertEqual(inp["negative_only_score"], 21)
+        self.assertEqual(inp["score"], 21)
 
-    def test_build_input_score_none_for_blocked(self):
-        inp = _build_report_input(_analysis("blocked"))
-        self.assertIsNone(inp["score"])
+    def test_build_input_preserves_canonical_score_for_blocked(self):
+        inp = _build_report_input(_analysis("blocked", score=21))
+        self.assertEqual(inp["score"], 21)
 
     def test_build_input_keeps_recommendation_status(self):
         inp = _build_report_input(_analysis("insufficient_data"))
@@ -51,7 +50,7 @@ class ReportPhaseStatusBuildInputTests(unittest.TestCase):
 
 class ReportPhaseStatusTextTests(unittest.TestCase):
     def test_text_blocked_no_zero_score(self):
-        text = _report_input_text(_build_report_input(_analysis("blocked", neg_only=21)))
+        text = _report_input_text(_build_report_input(_analysis("blocked", score=21)))
         self.assertIn("ЗАБЛОКИРОВАНО", text)
         self.assertIn("21%", text)
         self.assertNotIn("0%", text)
@@ -67,14 +66,14 @@ class ReportPhaseStatusTextTests(unittest.TestCase):
         self.assertIn("72%", text)
 
     def test_text_blocked_instructs_no_positive_compensation(self):
-        text = _report_input_text(_build_report_input(_analysis("blocked", neg_only=21)))
-        self.assertIn("НЕ утверждай пригодность", text)
+        text = _report_input_text(_build_report_input(_analysis("blocked", score=21)))
+        self.assertIn("не используй их для смягчения или оспаривания результата первой фазы", text)
 
 
 class ReportPhaseStatusContextTests(unittest.TestCase):
     def test_context_includes_phase_status_in_deterministic_input(self):
         from app.report_prompt import build_report_context
-        analysis = _analysis("blocked", neg_only=21)
+        analysis = _analysis("blocked", score=21)
         ctx = build_report_context("Test", analysis, {}, "Скрабы и пилинги")
         self.assertIn("category_knowledge", ctx)
         self.assertIn("ЗАБЛОКИРОВАНО", ctx["deterministic_input"])

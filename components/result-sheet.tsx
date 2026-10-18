@@ -135,8 +135,8 @@ export function ResultSheet({
   useEffect(() => {
     setReportText(result?.report ?? null)
     setReportExpectations(result?.expectations ?? null)
-    setReportExpanded(false)
-  }, [result?.analysis_id, result?.slug])
+    setReportExpanded(Boolean(result?.report?.trim()))
+  }, [result?.analysis_id, result?.slug, result?.report])
 
   useEffect(() => {
     if (isOpen) {

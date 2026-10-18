@@ -8,7 +8,8 @@ import re
 import unicodedata
 from typing import List
 from dotenv import load_dotenv
-from .database import get_ingredients, get_connection, PRODUCTS_DB
+from .database import get_ingredients
+from .postgres_connection import get_postgres_connection
 
 load_dotenv()
 
@@ -385,17 +386,24 @@ def is_valid_ai_result(result: dict | None) -> bool:
 
 async def check_product_with_ai(product_name: str, skin_type: str, profile: dict) -> dict:
     def _lookup_image(name: str) -> str | None:
-        conn = get_connection(PRODUCTS_DB)
-        cursor = conn.cursor()
         clean_query = ''.join(name.split())
-        cursor.execute('''
-            SELECT image_url FROM products
-            WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
-            LIMIT 1
-        ''', (f'%{clean_query}%',))
-        row = cursor.fetchone()
-        conn.close()
-        return row['image_url'] if row and row['image_url'] else None
+        with get_postgres_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT image_url
+                    FROM public.products
+                    WHERE REPLACE(
+                        REPLACE(REPLACE(name, CHR(10), ''), CHR(13), ''),
+                        ' ', ''
+                    ) LIKE %s
+                    LIMIT 1
+                    """,
+                    (f"%{clean_query}%",),
+                )
+                row = cursor.fetchone()
+            conn.rollback()
+        return row["image_url"] if row and row["image_url"] else None
 
     saved_ingredients = get_ingredients(product_name)
     if saved_ingredients:
@@ -410,19 +418,25 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         result['image_url'] = _lookup_image(product_name)
         return result
     
-    conn = get_connection(PRODUCTS_DB)
-    cursor = conn.cursor()
-    
     clean_query = ''.join(product_name.split())
-    
-    cursor.execute('''
-        SELECT id, name, ingredients, slug, image_url FROM products
-        WHERE REPLACE(REPLACE(REPLACE(name, '\n', ''), '\r', ''), ' ', '') LIKE ?
-        LIMIT 1
-    ''', (f'%{clean_query}%',))
-    row = cursor.fetchone()
-    conn.close()
-    
+
+    with get_postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, name, ingredients, slug, image_url
+                FROM public.products
+                WHERE REPLACE(
+                    REPLACE(REPLACE(name, CHR(10), ''), CHR(13), ''),
+                    ' ', ''
+                ) LIKE %s
+                LIMIT 1
+                """,
+                (f"%{clean_query}%",),
+            )
+            row = cursor.fetchone()
+        conn.rollback()
+
     if row and row['ingredients']:
         result = await check_product_with_ingredients(
             product_name,
@@ -519,8 +533,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
     # Отчёт и его поясняющие блоки создаются только отдельным запросом после
     # явного действия пользователя; этап проверки возвращает только Match.
     return {
-        # None сохраняется как None: при blocked/insufficient_data обычный score
-        # не рассчитывается и не превращается в 0.
+        # Сохраняем единый score Score Engine; None допустим при insufficient_data.
         'score': deterministic.get('score'),
         'verdict': deterministic.get('verdict') or 'Требует внимания',
         'summary': deterministic.get('summary') or '',
@@ -534,7 +547,6 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'goal_evidence': deterministic.get('goal_evidence') or [],
         'phase1_status': deterministic.get('phase1_status'),
         'recommendation_status': deterministic.get('recommendation_status'),
-        'negative_only_score': deterministic.get('negative_only_score'),
         'phase1_violations': (deterministic.get('phase1') or {}).get('violations') or [],
         'phase1_branches': (deterministic.get('phase1') or {}).get('branches') or {},
         'phase1_version': deterministic.get('phase1_version'),
@@ -627,7 +639,6 @@ def _build_report_input(analysis: dict) -> dict:
         "verdict": analysis.get("verdict") or "",
         "phase1_status": analysis.get("phase1_status") or (analysis.get("phase1") or {}).get("status"),
         "recommendation_status": analysis.get("recommendation_status"),
-        "negative_only_score": analysis.get("negative_only_score"),
         "positive": pos,
         "negative": neg,
         "weak": weak,
@@ -666,14 +677,12 @@ def _report_input_text(inp: dict) -> str:
     """
     phase1 = inp.get("phase1_status")
     rec = inp.get("recommendation_status")
-    neg_only = inp.get("negative_only_score")
 
     lines = []
     if phase1 == "blocked":
         lines.append("Результат первой фазы проверки: ЗАБЛОКИРОВАНО (присутствуют подтверждённые блокирующие факторы).")
-        if neg_only is not None:
-            lines.append(f"Негативный результат (по факторам ограничений): {neg_only}%")
-        lines.append("Обычный балл совместимости НЕ рассчитывается. НЕ утверждай пригодность и НЕ добавляй положительные бонусы второй фазы, противоречащие блокирующим факторам.")
+        lines.append(f"Итоговый балл по негативным факторам: {inp['score']}%")
+        lines.append("Положительные эффекты второй фазы не учитываются. Статус рекомендации имеет приоритет над числовым баллом.")
     elif phase1 == "insufficient_data":
         lines.append("Результат первой фазы проверки: НЕДОСТАТОЧНО ДАННЫХ.")
         lines.append("Обычный балл совместимости НЕ рассчитывается. НЕ выдумывай балл, вердикт или пригодность.")
@@ -2191,43 +2200,74 @@ async def generate_ai_report_sections(product_name: str, analysis: dict, profile
 
 
 def search_products(query: str) -> List[dict]:
-    from .database import get_connection, PRODUCTS_DB
     if not query or len(query.strip()) < 2:
         return []
-    
+
     q = query.strip().lower()
-    conn = get_connection(PRODUCTS_DB)
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT name, slug, image_url, ingredients FROM products WHERE is_canonical = 1 AND LOWER(name) = ? LIMIT 1",
-        (q,)
-    )
-    row = cursor.fetchone()
-    if row:
-        conn.close()
-        return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]}]
-    
-    words = q.split()
-    if len(words) == 1:
-        cursor.execute(
-            "SELECT name, slug, image_url, ingredients FROM products WHERE is_canonical = 1 AND LOWER(name) LIKE ? LIMIT 20",
-            (f"%{q}%",)
-        )
-    else:
-        conditions = ["is_canonical = 1"]
-        params = []
-        for word in words:
-            conditions.append("LOWER(name) LIKE ?")
-            params.append(f"%{word}%")
-        cursor.execute(
-            f"SELECT name, slug, image_url, ingredients FROM products WHERE {' AND '.join(conditions)} LIMIT 20",
-            params
-        )
-    
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"name": row[0], "slug": row[1], "image_url": row[2], "ingredients": row[3]} for row in rows]
+
+    with get_postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT name, slug, image_url, ingredients
+                FROM public.products
+                WHERE is_canonical = 1 AND LOWER(name) = %s
+                LIMIT 1
+                """,
+                (q,),
+            )
+            row = cursor.fetchone()
+
+            if row:
+                result = [{
+                    "name": row["name"],
+                    "slug": row["slug"],
+                    "image_url": row["image_url"],
+                    "ingredients": row["ingredients"],
+                }]
+                conn.rollback()
+                return result
+
+            words = q.split()
+            if len(words) == 1:
+                cursor.execute(
+                    """
+                    SELECT name, slug, image_url, ingredients
+                    FROM public.products
+                    WHERE is_canonical = 1 AND LOWER(name) LIKE %s
+                    LIMIT 20
+                    """,
+                    (f"%{q}%",),
+                )
+            else:
+                conditions = ["is_canonical = 1"]
+                params = []
+                for word in words:
+                    conditions.append("LOWER(name) LIKE %s")
+                    params.append(f"%{word}%")
+
+                cursor.execute(
+                    f"""
+                    SELECT name, slug, image_url, ingredients
+                    FROM public.products
+                    WHERE {" AND ".join(conditions)}
+                    LIMIT 20
+                    """,
+                    params,
+                )
+
+            rows = cursor.fetchall()
+        conn.rollback()
+
+    return [
+        {
+            "name": row["name"],
+            "slug": row["slug"],
+            "image_url": row["image_url"],
+            "ingredients": row["ingredients"],
+        }
+        for row in rows
+    ]
 
 def determine_skin_type_from_quiz(quiz_answers: dict) -> str:
     if not quiz_answers:

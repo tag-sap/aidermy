@@ -75,13 +75,12 @@ class ScoreNeutralPointTests(unittest.TestCase):
         b = _score(["glyc"], knowledge)
         self.assertEqual(int(a["score"]), int(b["score"]))
 
-    def test_hard_flags_cap_score(self):
-        # Аллергия на ингредиент -> hard flag -> score ограничен сверху HARD_FLAG_SCORE_CAP.
-        from app.scoring_config import HARD_FLAG_SCORE_CAP
+    def test_hard_flags_force_zero_score(self):
+        # Жёсткое ограничение не компенсируется положительными эффектами.
         knowledge = {"glyc": {"hydration": {"direction": "positive", "strength": 1.0, "confidence": 0.9}}}
         res = _score(["glyc"], knowledge, profile={"allergies": ["glyc"]})
         self.assertTrue(res["hard_flags"], "expected hard flag for allergy")
-        self.assertLessEqual(int(res["score"]), HARD_FLAG_SCORE_CAP)
+        self.assertEqual(res["score"], 0)
 
 
 if __name__ == "__main__":

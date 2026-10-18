@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .analysis_service import AnalysisService
 from .axes import canonicalize_weights
 from .database import AIDERMY_DB, PRODUCTS_DB, get_connection
+from .postgres_connection import get_postgres_connection
 from .decision_engine import priorities_for_profile
 from .profile_resolver import resolve_personal_profile
 from .ingredient_normalizer import normalize_ingredient_name
@@ -150,19 +151,26 @@ def _checked_slugs_and_ids() -> Tuple[set, set]:
 
 
 def load_canonical_products(only_checked: bool = False) -> List[Dict[str, Any]]:
-    """Все canonical продукты из products.db.
+    """Все canonical продукты из PostgreSQL public.products.
 
     При only_checked=True — только продукты, которые когда-либо проверял
     пользователь (по slug из check_history или product_id из analysis/shelf).
     """
-    conn = get_connection(PRODUCTS_DB)
-    conn.row_factory = sqlite3.Row
+    conn = get_postgres_connection()
     try:
-        rows = conn.execute(
-            "SELECT * FROM products WHERE is_canonical = 1"
-        ).fetchall()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT * FROM public.products
+            WHERE is_canonical = 1
+              AND taxonomy_category = %s
+            """,
+            ("Уход для лица",),
+        )
+        rows = cur.fetchall()
         products = [dict(r) for r in rows]
     finally:
+        conn.rollback()
         conn.close()
 
     if only_checked:
@@ -409,19 +417,39 @@ def score_one(
 ) -> Dict[str, Any]:
     """Полный breakdown анализа (product × profile) реальным scoring engine."""
     normalized = service.prepare_product_ingredients(product.get("ingredients") or "")
-    scoring_profile = _scoring_profile(profile)
+    from .profile_resolver import normalize_scoring_profile
+    from .phase1 import evaluate_phase1, recommendation_status
+
+    # Используем тот же путь нормализации профиля, что и основной анализ.
+    scoring_profile = normalize_scoring_profile(_scoring_profile(profile))
+    structured = scoring_profile.get("structured") or {}
+    resolved_profile = resolve_personal_profile(structured)
+    structured["axis_multipliers"] = resolved_profile["axis_multipliers"]
+    scoring_profile["structured"] = structured
 
     hard_filters = apply_hard_filters(scoring_profile, normalized)
-    weights = resolve_personal_profile(
-        scoring_profile.get("structured", scoring_profile)
-    )["weights"]
+    weights = resolved_profile["weights"]
+
+    def phase1_gate(preliminary_result):
+        return evaluate_phase1(
+            preliminary_result,
+            scoring_profile,
+            normalized,
+        )
+
     result = score_product_against_profile_canonical(
         ingredients=normalized,
         canonical_knowledge=knowledge,
         user_profile=scoring_profile,
         canonical_weights=weights,
         interactions=None,
+        pre_score_check=phase1_gate,
     )
+    if result.get("phase1"):
+        result["recommendation_status"] = recommendation_status(
+            result["phase1"],
+            result.get("score"),
+        )
 
     dimensions = result["dimensions"]
     positive = result["positive_factors"]
@@ -432,11 +460,15 @@ def score_one(
     matched = _matched_intolerances(scoring_profile, normalized)
 
     # Реконструкция raw/normalized из dimensions (движок округляет dimensions до 3 знаков).
+    # Диагностика сохраняет знак отрицательных осей.
+    # Финальный балл берём из Score Engine, не реконструируем другой формулой.
     weighted_total = sum(
-        _clamp(dimensions.get(axis, 0.0), 0.0, 1.0) * weight
+        float(dimensions.get(axis, 0.0) or 0.0) * weight
         for axis, weight in weights.items()
     )
-    normalized_score = _clamp(weighted_total / max(sum(weights.values()), 1e-9), 0.0, 1.0)
+    normalized_score = round(
+        weighted_total / max(sum(weights.values()), 1e-9), 6
+    )
 
     # Бонусы / штрафы (объяснение «почему именно такой score»).
     bonuses: List[Dict[str, Any]] = []
@@ -494,10 +526,13 @@ def score_one(
             "preferences": list(profile.get("preferences") or []),
         },
         "scoring": {
-            "final_score": int(result["score"]),
+            "final_score": int(result["score"]) if result.get("score") is not None else None,
             "raw_score": round(weighted_total, 6),
             "normalized_score": round(normalized_score, 6),
             "confidence": result["confidence"],
+            "phase1_status": result.get("phase1_status"),
+            "phase1_version": result.get("phase1_version"),
+            "recommendation_status": result.get("recommendation_status"),
             "excluded": bool(hard_filters),
             "parameter_scores": {axis: dimensions.get(axis, 0.0) for axis in AXES},
             "weights": {axis: weights.get(axis, 0.0) for axis in AXES},

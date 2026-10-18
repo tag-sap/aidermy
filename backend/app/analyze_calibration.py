@@ -382,9 +382,29 @@ def main() -> int:
     args = parser.parse_args()
 
     with open(args.dataset, encoding="utf-8") as f:
-        records = json.load(f)
+        all_records = json.load(f)
+
+    unavailable = [
+        r for r in all_records
+        if r.get("scoring", {}).get("final_score") is None
+    ]
+    records = [
+        r for r in all_records
+        if r.get("scoring", {}).get("final_score") is not None
+    ]
 
     report = build_report(records, args.dataset)
+    report["phase1_availability"] = {
+        "total_records": len(all_records),
+        "scored_records": len(records),
+        "unavailable_records": len(unavailable),
+        "unavailable_by_status": dict(
+            __import__("collections").Counter(
+                r.get("scoring", {}).get("phase1_status") or "unknown"
+                for r in unavailable
+            )
+        ),
+    }
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 

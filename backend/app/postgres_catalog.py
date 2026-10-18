@@ -20,6 +20,8 @@ def _build_catalog_query(
     *,
     category: Optional[str] = None,
     subcategory: Optional[str] = None,
+    catalog_category: Optional[str] = None,
+    catalog_subcategory: Optional[str] = None,
     brand: Optional[str] = None,
     cat: Optional[str] = None,
     search: Optional[str] = None,
@@ -32,7 +34,13 @@ def _build_catalog_query(
 ) -> tuple[str, list[Any], str, list[Any]]:
     """Строит параметризованные запросы каталога и общего количества."""
 
-    where = ["is_canonical = 1"]
+    where = [
+        "is_canonical = 1",
+        "catalog_category IS NOT NULL",
+        "btrim(catalog_category) <> ''",
+        "catalog_subcategory IS NOT NULL",
+        "btrim(catalog_subcategory) <> ''",
+    ]
     params: list[Any] = []
 
     if category:
@@ -42,6 +50,14 @@ def _build_catalog_query(
     if subcategory:
         where.append("subcategory = %s")
         params.append(subcategory)
+
+    if catalog_category:
+        where.append("catalog_category = %s")
+        params.append(catalog_category)
+
+    if catalog_subcategory:
+        where.append("catalog_subcategory = %s")
+        params.append(catalog_subcategory)
 
     if cat:
         where.append("category = %s")
@@ -93,7 +109,8 @@ def _build_catalog_query(
     select_sql = f"""
         SELECT
             id, name, slug, image_url, ingredients,
-            category, subcategory, taxonomy_category, brand
+            category, subcategory, taxonomy_category, brand,
+            catalog_category, catalog_subcategory
         FROM public.products
         WHERE {where_sql}
         ORDER BY {order_sql}
@@ -113,6 +130,8 @@ def get_catalog_page(
     *,
     category: Optional[str] = None,
     subcategory: Optional[str] = None,
+    catalog_category: Optional[str] = None,
+    catalog_subcategory: Optional[str] = None,
     brand: Optional[str] = None,
     cat: Optional[str] = None,
     search: Optional[str] = None,
@@ -131,6 +150,8 @@ def get_catalog_page(
     select_sql, select_params, count_sql, count_params = _build_catalog_query(
         category=category,
         subcategory=subcategory,
+        catalog_category=catalog_category,
+        catalog_subcategory=catalog_subcategory,
         brand=brand,
         cat=cat,
         search=search,

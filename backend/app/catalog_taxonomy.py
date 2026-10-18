@@ -270,6 +270,280 @@ def taxonomy_payload() -> List[Dict[str, Any]]:
     ]
 
 
+
+# ---------------------------------------------------------------------------
+# Отдельная витрина каталога. Не заменяет внутреннюю TAXONOMY для полки/PPM.
+# В public.products используются catalog_category/catalog_subcategory.
+# ---------------------------------------------------------------------------
+
+CATALOG_TAXONOMY: List[Dict[str, Any]] = [
+    {"key": "cleansing", "title": "Очищение", "subcategories": [
+        {"key": "gels_foams", "title": "Гели и пенки"},
+        {"key": "milk", "title": "Молочко"},
+        {"key": "balms_oils", "title": "Бальзамы и масла"},
+        {"key": "micellar", "title": "Мицеллярная вода"},
+        {"key": "enzyme_cleansers", "title": "Энзимные средства"},
+    ]},
+    {"key": "toning", "title": "Тонизация", "subcategories": [
+        {"key": "toners", "title": "Тонеры"},
+        {"key": "lotions", "title": "Лосьоны"},
+        {"key": "essences", "title": "Эссенции"},
+    ]},
+    {"key": "serums", "title": "Сыворотки и концентраты", "subcategories": [
+        {"key": "hydrating", "title": "Увлажняющие"},
+        {"key": "acne", "title": "От акне и воспалений"},
+        {"key": "brightening", "title": "Осветляющие"},
+        {"key": "antiaging", "title": "Антивозрастные"},
+        {"key": "barrier", "title": "Для восстановления барьера"},
+    ]},
+    {"key": "moisturizing", "title": "Увлажнение", "subcategories": [
+        {"key": "creams", "title": "Кремы"},
+        {"key": "gels", "title": "Гели"},
+        {"key": "fluids", "title": "Флюиды"},
+        {"key": "emulsions", "title": "Эмульсии"},
+    ]},
+    {"key": "barrier", "title": "Восстановление кожного барьера", "subcategories": [
+        {"key": "ceramides", "title": "Кремы с церамидами"},
+        {"key": "balms", "title": "Восстанавливающие бальзамы"},
+        {"key": "sensitive", "title": "Средства для чувствительной кожи"},
+    ]},
+    {"key": "masks", "title": "Маски", "subcategories": [
+        {"key": "hydrating", "title": "Увлажняющие"},
+        {"key": "cleansing", "title": "Очищающие"},
+        {"key": "soothing", "title": "Успокаивающие"},
+        {"key": "nourishing", "title": "Питательные"},
+        {"key": "overnight", "title": "Ночные"},
+    ]},
+    {"key": "exfoliation", "title": "Эксфолиация", "subcategories": [
+        {"key": "acids", "title": "Кислотные средства"},
+        {"key": "enzyme_powders", "title": "Энзимные пудры"},
+        {"key": "peels", "title": "Пилинги"},
+        {"key": "scrubs", "title": "Скрабы"},
+    ]},
+    {"key": "sun_protection", "title": "Защита от солнца", "subcategories": [
+        {"key": "spf30", "title": "SPF 30"},
+        {"key": "spf50", "title": "SPF 50"},
+        {"key": "face", "title": "Для лица"},
+        {"key": "sensitive", "title": "Для чувствительной кожи"},
+        {"key": "tinted", "title": "Тонированные SPF"},
+    ]},
+    {"key": "eye_care", "title": "Уход за областью вокруг глаз", "subcategories": [
+        {"key": "creams", "title": "Кремы"},
+        {"key": "serums", "title": "Сыворотки"},
+        {"key": "patches", "title": "Патчи"},
+    ]},
+    {"key": "lip_care", "title": "Уход за губами", "subcategories": [
+        {"key": "balms", "title": "Бальзамы"},
+        {"key": "masks", "title": "Маски"},
+        {"key": "scrubs", "title": "Скрабы"},
+        {"key": "spf", "title": "SPF для губ"},
+    ]},
+]
+
+def catalog_taxonomy_payload() -> List[Dict[str, Any]]:
+    return [
+        {
+            "key": group["key"],
+            "title": group["title"],
+            "subcategories": [
+                {"key": item["key"], "title": item["title"]}
+                for item in group["subcategories"]
+            ],
+        }
+        for group in CATALOG_TAXONOMY
+    ]
+
+
+def resolve_catalog_taxonomy(name: str, legacy_category: str = "") -> Tuple[str, str]:
+    """Категория витрины определяется назначением продукта, не отдельным ингредиентом."""
+    import re
+
+    n = re.sub(r"\s+", " ", (name or "").replace("\n", " ")).lower().strip()
+    if not n:
+        return "", ""
+
+    def has(*terms):
+        return any(term in n for term in terms)
+
+    # Явно не относящиеся к уходу за лицом категории.
+    makeup = (
+        "foundation", "тональн", "concealer", "консилер", "blush", "румян",
+        "lipgloss", "setting mist", "makeup setting",
+        "mascara", "тушь", "lipstick", "помад", "lip gloss", "блеск для губ",
+        "lip tint", "lip liner", "eyeliner", "подводка", "eyeshadow",
+        "тени для век", "brow pencil", "для бров", "nail polish", "лак для ногтей",
+        "highlighter", "хайлайтер", "contour stick", "bronzer", "бронзер",
+        "cushion foundation", "setting spray", "makeup primer", "праймер для макияжа",
+    )
+    hair = (
+        "shampoo", "шампун", "conditioner", "кондиционер для волос",
+        "hair ", "hair-", "для волос", "маска для волос", "scalp", "кожа головы",
+        "styling", "стайлинг", "hairspray", "лак для волос", "leave-in",
+        "curl refresher", "root boost", "волос",
+    )
+    body = (
+        "face and body", "body serum", "body booster", "body lotion",
+        "body moistur", "body cream", "body butter", "body oil",
+        "body wash", "body scrub", "body mist", "body spray", "для тела",
+        "крем для рук", "hand cream", "для рук", "для ног", "foot cream",
+        "shower gel", "гель для душа", "дезодорант", "deodorant",
+        "eau de parfum", "eau de toilette", "туалетная вода", "hair removal",
+        "after sun balm", "after-sun body",
+    )
+
+    # SPF для губ имеет приоритет над общими правилами SPF и декоративной косметики.
+    if has("lip spf", "spf lip", "spf для губ", "lip balm spf", "lip tint spf",
+           "lip sunscreen", "lip sun protection"):
+        return "Уход за губами", "SPF для губ"
+
+    # Солнцезащита — отдельное назначение. Один продукт получает ровно одну подкатегорию.
+    is_sunscreen = has(
+        "sunscreen", "sun screen", "sun stick", "sun cream", "sun fluid",
+        "sun serum", "sun protection", "sun care", "sunblock", "spf", "pa++++", "pa+++",
+        "солнцезащит", "защита от солнца", "lsf 50", "lsf 30",
+    )
+    if is_sunscreen:
+        if has(*body) and not has("face", "facial", "для лица", "eye", "around eyes"):
+            return "", ""
+        if has("tinted", "tone-up", "tone up", "toneup", "тональный spf", "тонирующий spf"):
+            return "Защита от солнца", "Тонированные SPF"
+        if re.search(r"\b(spf|lsf)\s*[-:]?\s*50\b|\bspf50\b|\bspf\s*50\+", n):
+            return "Защита от солнца", "SPF 50"
+        if re.search(r"\b(spf|lsf)\s*[-:]?\s*30\b|\bspf30\b", n):
+            return "Защита от солнца", "SPF 30"
+        return "Защита от солнца", "Для лица"
+
+    # Исключаем декоративную косметику, волосы и тело до общих слов cream/lotion/gel.
+    if has(*makeup) or has(*hair) or has(*body):
+        return "", ""
+
+    # Уход за губами.
+    if has("lip balm", "lip butter", "lip mask", "lip scrub", "lip care", "lip treatment",
+           "для губ", "бальзам для губ", "маска для губ", "скраб для губ"):
+        if has("scrub", "скраб"):
+            return "Уход за губами", "Скрабы"
+        if has("mask", "маск"):
+            return "Уход за губами", "Маски"
+        return "Уход за губами", "Бальзамы"
+
+    # Зона вокруг глаз. Акне-патчи сюда не попадают.
+    if not has("acne patch", "pimple patch", "blemish patch", "spot patch",
+               "патч от акне", "патч от прыщ"):
+        if has("under eye", "eye cream", "eye serum", "eye gel", "eye contour",
+               "eye patch", "eye mask", "around eyes", "для кожи вокруг глаз",
+               "патчи под глаза", "крем для век", "сыворотка для век"):
+            if has("patch", "патч"):
+                return "Уход за областью вокруг глаз", "Патчи"
+            if has("serum", "сыворот"):
+                return "Уход за областью вокруг глаз", "Сыворотки"
+            return "Уход за областью вокруг глаз", "Кремы"
+
+    # Энзимные пудры относятся к эксфолиации, но энзимные очищающие средства — к очищению.
+    if has("enzyme powder", "enzymatic powder", "энзимная пудра",
+           "энзимный порошок", "enzyme peeling powder", "rice polish"):
+        return "Эксфолиация", "Энзимные пудры"
+
+    # Явное очищение — раньше общих слов gel, lotion и mask.
+    if has("micellar", "мицелляр"):
+        return "Очищение", "Мицеллярная вода"
+    if has("cleansing balm", "cleansing oil", "cleansing butter",
+           "cleansing sherbet", "cleansing oil balm", "масло для очищения",
+           "бальзам для очищения"):
+        return "Очищение", "Бальзамы и масла"
+    if has("cleansing milk", "cleansing lotion", "cleansing milk gel",
+           "молочко для очищения", "молочко для снятия"):
+        return "Очищение", "Молочко"
+    if has("enzyme cleanser", "enzymatic cleanser", "enzyme cleansing",
+           "энзимное очищение", "энзимная пенка", "энзимный гель"):
+        return "Очищение", "Энзимные средства"
+    if has("cleanser", "cleansing", "face wash", "foam cleanser", "cleansing foam",
+           "facial wash", "пенка для умывания", "гель для умывания",
+           "умывалк", "демакияж", "makeup remover", "micellar gel"):
+        return "Очищение", "Гели и пенки"
+
+    # Явно эксфолиирующие маски относятся к эксфолиации.
+    if has("exfoliating mask", "exfoliating masque", "маска-эксфолиант"):
+        return "Эксфолиация", "Пилинги"
+
+    # Маски. Обычное упоминание acid само по себе не меняет категорию.
+    if has("lip mask", "eye mask"):
+        pass
+    elif has("mask", "masque", "маска"):
+        if has("sleeping", "overnight", "night mask", "ночная"):
+            return "Маски", "Ночные"
+        if has("purifying", "cleansing clay", "clay mask", "pore clean",
+               "очищающ"):
+            return "Маски", "Очищающие"
+        if has("soothing", "calming", "успокаива"):
+            return "Маски", "Успокаивающие"
+        if has("nourishing", "питатель"):
+            return "Маски", "Питательные"
+        return "Маски", "Увлажняющие"
+
+    # Сыворотки классифицируем до правил кислотности: наличие acid/AHA/BHA не равно пилингу.
+    if has("serum", "сыворот", "ampoule", "ампул", "concentrate",
+           "концентрат", "booster", "бустер"):
+        if has("acne", "blemish", "pimple", "anti-blemish", "акне", "воспален"):
+            sub = "От акне и воспалений"
+        elif has("brightening", "whitening", "dark spot", "pigment",
+                 "осветл", "пигмент"):
+            sub = "Осветляющие"
+        elif has("anti-age", "antiaging", "anti-aging", "wrinkle", "ретинол",
+                 "retinol", "firming", "лифтинг", "морщин", "peptide", "пептид"):
+            sub = "Антивозрастные"
+        elif has("barrier", "ceramide", "церамид", "cica", "madecassoside",
+                 "barrier repair", "восстановлен"):
+            sub = "Для восстановления барьера"
+        else:
+            sub = "Увлажняющие"
+        return "Сыворотки и концентраты", sub
+
+    # Эксфолиация только по явному назначению или форме продукта.
+    if has("scrub", "скраб"):
+        return "Эксфолиация", "Скрабы"
+    if has("peel", "peeling", "пилинг", "gommage", "эксфоли",
+           "exfoliating pad", "peeling pad", "peeling gel"):
+        return "Эксфолиация", "Пилинги"
+    if has("aha bha", "aha/bha", "acid peel", "exfoliating acid",
+           "кислотный пилинг", "кислотный эксфолиант") and not has("toner", "tonic", "tonik", "тонер", "тоник", "tonique"):
+        return "Эксфолиация", "Кислотные средства"
+
+    # Барьерный уход — сначала специфичные кремы с церамидами.
+    if has("ceramide", "церамид") and has("cream", "creme", "crème", "крем", "moisturizer"):
+        return "Восстановление кожного барьера", "Кремы с церамидами"
+    if has("sensitive skin", "чувствительной кожи", "for sensitive skin"):
+        if has("cream", "крем", "balm", "бальзам", "moisturizer"):
+            return "Восстановление кожного барьера", "Средства для чувствительной кожи"
+    if has("barrier repair", "barrier cream", "repair balm", "cica balm",
+           "восстанавливающий бальзам", "восстановление кожного барьера"):
+        return "Восстановление кожного барьера", "Восстанавливающие бальзамы"
+
+    # Тонизация. Лосьон классифицируем как тонизирующий только по назначению для лица,
+    # а не по одному слову lotion.
+    if has("toner", "tonic", "tonik", "тоник", "тонер", "tonique",
+           "toning lotion", "face mist", "facial mist", "skin mist"):
+        return "Тонизация", "Тонеры"
+    if False:
+        pass
+    if has("essence", "эссенц"):
+        return "Тонизация", "Эссенции"
+    if has("lotion", "лосьон") and has("face", "facial", "skin", "лиц", "toning"):
+        return "Тонизация", "Лосьоны"
+
+    # Увлажнение: только если не выявлено более конкретное назначение.
+    if has("emulsion", "эмульси"):
+        return "Увлажнение", "Эмульсии"
+    if has("fluid", "флюид") and not has("highlighter", "highlighting fluid"):
+        return "Увлажнение", "Флюиды"
+    if has("gel cream", "cream gel", "moisturizing gel", "hydrating gel",
+           "гель-крем", "крем-гель", "увлажняющий гель"):
+        return "Увлажнение", "Гели"
+    if has("cream", "крем", "creme", "crème", "moisturizer", "moisturiser",
+           "moisturiser", "увлажняющ"):
+        return "Увлажнение", "Кремы"
+
+    return "", ""
+
 def resolve_taxonomy_for_product(product: Dict[str, Any]) -> Dict[str, Any]:
     """Резолвит продукт и возвращает его с полями category/subcategory."""
     name = product.get("name") or ""

@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
-from .database import get_connection
+from .postgres_connection import get_postgres_connection
 
 # ---------------------------------------------------------------------------
 # Первичный production prompt (v1) — текущий prompt, вынесенный из services.py
@@ -93,30 +93,22 @@ def _now() -> str:
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 
+
 def ensure_report_prompt_tables() -> None:
-    conn = get_connection()
-    try:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS report_prompt_versions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                version INTEGER NOT NULL UNIQUE,
-                name TEXT NOT NULL,
-                system_prompt TEXT NOT NULL DEFAULT '',
-                user_prompt_template TEXT NOT NULL,
-                description TEXT,
-                is_production INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT,
-                created_by TEXT
+    """Проверяет наличие таблицы промптов в Supabase."""
+    with get_postgres_connection() as conn:
+        row = conn.execute("""
+            SELECT to_regclass('public.report_prompt_versions') AS table_name
+        """).fetchone()
+        if not row or not row["table_name"]:
+            raise RuntimeError(
+                "В Supabase отсутствует public.report_prompt_versions"
             )
-            """
-        )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _row_to_dict(row) -> Dict[str, Any]:
+    if row is None:
+        return {}
     d = dict(row)
     return {
         "id": d.get("id"),
@@ -132,84 +124,85 @@ def _row_to_dict(row) -> Dict[str, Any]:
 
 
 def seed_report_prompt() -> Optional[Dict[str, Any]]:
-    """Создаёт v1 из первичного prompt, если таблица пуста. Возвращает v1."""
+    """Создаёт v1 только если таблица Supabase действительно пуста."""
     ensure_report_prompt_tables()
-    conn = get_connection()
-    try:
-        n = conn.execute("SELECT COUNT(*) FROM report_prompt_versions").fetchone()[0]
-        if n > 0:
-            return None
-        conn.execute(
-            "INSERT INTO report_prompt_versions "
-            "(version, name, system_prompt, user_prompt_template, description, is_production, created_at, created_by) "
-            "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
-            (
-                1,
+    with get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "LOCK TABLE public.report_prompt_versions IN EXCLUSIVE MODE"
+            )
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM public.report_prompt_versions"
+            )
+            if cur.fetchone()["n"] > 0:
+                return None
+
+            cur.execute("""
+                INSERT INTO public.report_prompt_versions
+                    (id, version, name, system_prompt, user_prompt_template,
+                     description, is_production, created_at, created_by)
+                VALUES (
+                    (SELECT COALESCE(MAX(id), 0) + 1
+                     FROM public.report_prompt_versions),
+                    1, %s, %s, %s, %s, 1, %s, %s
+                )
+                RETURNING *
+            """, (
                 "Report Prompt v1",
                 REPORT_PROMPT_V1_SYSTEM,
                 REPORT_PROMPT_V1_USER_TEMPLATE,
                 "Первичный production prompt (перенесён из services.generate_report_once)",
                 _now(),
                 "system",
-            ),
-        )
+            ))
+            row = cur.fetchone()
         conn.commit()
-        row = conn.execute("SELECT * FROM report_prompt_versions WHERE version = 1").fetchone()
         return _row_to_dict(row) if row else None
-    finally:
-        conn.close()
 
 
 def list_report_prompts() -> List[Dict[str, Any]]:
     ensure_report_prompt_tables()
     seed_report_prompt()
-    conn = get_connection()
-    try:
-        rows = conn.execute(
-            "SELECT * FROM report_prompt_versions ORDER BY version DESC"
-        ).fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
+    with get_postgres_connection() as conn:
+        rows = conn.execute("""
+            SELECT * FROM public.report_prompt_versions
+            ORDER BY version DESC
+        """).fetchall()
+        return [_row_to_dict(row) for row in rows]
 
 
 def get_report_prompt_by_id(prompt_id: int) -> Optional[Dict[str, Any]]:
     ensure_report_prompt_tables()
-    conn = get_connection()
-    try:
-        row = conn.execute(
-            "SELECT * FROM report_prompt_versions WHERE id = ?", (prompt_id,)
-        ).fetchone()
+    with get_postgres_connection() as conn:
+        row = conn.execute("""
+            SELECT * FROM public.report_prompt_versions WHERE id = %s
+        """, (prompt_id,)).fetchone()
         return _row_to_dict(row) if row else None
-    finally:
-        conn.close()
 
 
 def get_report_prompt_by_version(version: int) -> Optional[Dict[str, Any]]:
     ensure_report_prompt_tables()
-    conn = get_connection()
-    try:
-        row = conn.execute(
-            "SELECT * FROM report_prompt_versions WHERE version = ?", (version,)
-        ).fetchone()
+    with get_postgres_connection() as conn:
+        row = conn.execute("""
+            SELECT * FROM public.report_prompt_versions WHERE version = %s
+        """, (version,)).fetchone()
         return _row_to_dict(row) if row else None
-    finally:
-        conn.close()
 
 
 def get_production_report_prompt() -> Dict[str, Any]:
-    """Возвращает production prompt (создавая v1 при первом обращении)."""
+    """Возвращает активную production-версию из Supabase."""
     ensure_report_prompt_tables()
     seed_report_prompt()
-    conn = get_connection()
-    try:
-        row = conn.execute(
-            "SELECT * FROM report_prompt_versions WHERE is_production = 1 ORDER BY version DESC LIMIT 1"
-        ).fetchone()
+    with get_postgres_connection() as conn:
+        row = conn.execute("""
+            SELECT * FROM public.report_prompt_versions
+            WHERE is_production = 1
+            ORDER BY version DESC
+            LIMIT 1
+        """).fetchone()
         if row:
             return _row_to_dict(row)
-    finally:
-        conn.close()
+
     v1 = get_report_prompt_by_version(1)
     return v1 or {}
 
@@ -221,20 +214,32 @@ def create_report_prompt(
     description: str = "",
     created_by: str = "",
 ) -> Dict[str, Any]:
-    """Создаёт НОВУЮ версию (immutable). Версия = max(version)+1."""
+    """Создаёт новую immutable-версию в Supabase."""
     ensure_report_prompt_tables()
     seed_report_prompt()
-    conn = get_connection()
-    try:
-        max_v = conn.execute(
-            "SELECT COALESCE(MAX(version), 0) FROM report_prompt_versions"
-        ).fetchone()[0]
-        new_version = int(max_v) + 1
-        conn.execute(
-            "INSERT INTO report_prompt_versions "
-            "(version, name, system_prompt, user_prompt_template, description, is_production, created_at, created_by) "
-            "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-            (
+
+    with get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "LOCK TABLE public.report_prompt_versions IN EXCLUSIVE MODE"
+            )
+            cur.execute("""
+                SELECT COALESCE(MAX(version), 0) AS max_version,
+                       COALESCE(MAX(id), 0) AS max_id
+                FROM public.report_prompt_versions
+            """)
+            current = cur.fetchone()
+            new_version = int(current["max_version"]) + 1
+            new_id = int(current["max_id"]) + 1
+
+            cur.execute("""
+                INSERT INTO public.report_prompt_versions
+                    (id, version, name, system_prompt, user_prompt_template,
+                     description, is_production, created_at, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, 0, %s, %s)
+                RETURNING *
+            """, (
+                new_id,
                 new_version,
                 (name or "").strip() or f"Report Prompt v{new_version}",
                 system_prompt or "",
@@ -242,38 +247,42 @@ def create_report_prompt(
                 description or None,
                 _now(),
                 created_by or "",
-            ),
-        )
+            ))
+            row = cur.fetchone()
         conn.commit()
-        row = conn.execute(
-            "SELECT * FROM report_prompt_versions WHERE version = ?", (new_version,)
-        ).fetchone()
         return _row_to_dict(row) if row else {}
-    finally:
-        conn.close()
 
 
 def publish_report_prompt(prompt_id: int) -> Optional[Dict[str, Any]]:
-    """Делает версию production (ровно одна). Старые версии НЕ удаляются."""
+    """Атомарно переключает production-флаг на выбранную версию."""
     ensure_report_prompt_tables()
-    conn = get_connection()
-    try:
-        row = conn.execute(
-            "SELECT * FROM report_prompt_versions WHERE id = ?", (prompt_id,)
-        ).fetchone()
-        if not row:
-            return None
-        conn.execute("UPDATE report_prompt_versions SET is_production = 0")
-        conn.execute(
-            "UPDATE report_prompt_versions SET is_production = 1 WHERE id = ?", (prompt_id,)
-        )
+
+    with get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "LOCK TABLE public.report_prompt_versions IN EXCLUSIVE MODE"
+            )
+            cur.execute("""
+                SELECT * FROM public.report_prompt_versions WHERE id = %s
+            """, (prompt_id,))
+            if not cur.fetchone():
+                return None
+
+            cur.execute("""
+                UPDATE public.report_prompt_versions SET is_production = 0
+                WHERE is_production <> 0
+            """)
+            cur.execute("""
+                UPDATE public.report_prompt_versions
+                SET is_production = 1
+                WHERE id = %s
+            """, (prompt_id,))
+            cur.execute("""
+                SELECT * FROM public.report_prompt_versions WHERE id = %s
+            """, (prompt_id,))
+            row = cur.fetchone()
         conn.commit()
-        row = conn.execute(
-            "SELECT * FROM report_prompt_versions WHERE id = ?", (prompt_id,)
-        ).fetchone()
         return _row_to_dict(row) if row else None
-    finally:
-        conn.close()
 
 
 def render_report_prompt(

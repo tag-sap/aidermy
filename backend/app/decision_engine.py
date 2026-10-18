@@ -219,7 +219,7 @@ class DecisionEngine:
                 else "Недостаточно данных для достоверной оценки совместимости."
             )
         else:
-            result["verdict"] = build_verdict(score)
+            result["verdict"] = (result.get("recommendation_status") or "Не рекомендовано") if result.get("phase1_status") == "blocked" else build_verdict(score)
             result["summary"] = build_summary(result, profile, skin_type, score)
 
         result["safe_ingredients"] = safe

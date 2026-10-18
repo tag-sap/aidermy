@@ -58,29 +58,37 @@ from .product_identification import (
     web_search_product,
 )
 
-init_db()
+# PostgreSQL mode: не создавать и не мигрировать локальные SQLite-базы
+# при импорте приложения. Старые SQLite-вызовы должны быть мигрированы отдельно.
+_USE_POSTGRES_STORAGE = (
+    os.getenv("ANALYSIS_STORAGE", "").strip().lower() in {"postgres", "postgresql", "supabase"}
+    and os.getenv("CATALOG_READ_FROM_POSTGRES", "").strip().lower() == "true"
+)
 
-# Бэкфилл таксономии каталога (category/subcategory) по названию + legacy-category.
-try:
-    from .database import backfill_catalog_taxonomy
-    backfill_catalog_taxonomy()
-except Exception as exc:
-    print(f"[INIT] catalog taxonomy backfill failed: {exc!r}")
+if not _USE_POSTGRES_STORAGE:
+    init_db()
 
-# Фаза 4 — инициализация Knowledge Graph (таблицы + seed) НА СТАРТЕ,
-# чтобы первый /recommend не нёс seed-нагрузку. Идемпотентно.
-try:
-    from .ingredient_repository import IngredientRepository
-    IngredientRepository().initialize_knowledge_graph()
-except Exception as exc:
-    print(f"[INIT] knowledge graph init failed: {exc!r}")
+    # Бэкфилл таксономии каталога (category/subcategory) по названию + legacy-category.
+    try:
+        from .database import backfill_catalog_taxonomy
+        backfill_catalog_taxonomy()
+    except Exception as exc:
+        print(f"[INIT] catalog taxonomy backfill failed: {exc!r}")
 
-# Миграция report prompt: добавляем {{category_knowledge}} (база знаний категорий).
-try:
-    from .report_prompt import ensure_category_knowledge_prompt
-    ensure_category_knowledge_prompt()
-except Exception as exc:
-    print(f"[INIT] category knowledge prompt migration failed: {exc!r}")
+    # Фаза 4 — инициализация Knowledge Graph (таблицы + seed) НА СТАРТЕ,
+    # чтобы первый /recommend не нёс seed-нагрузку. Идемпотентно.
+    try:
+        from .ingredient_repository import IngredientRepository
+        IngredientRepository().initialize_knowledge_graph()
+    except Exception as exc:
+        print(f"[INIT] knowledge graph init failed: {exc!r}")
+
+    # Миграция report prompt: добавляем {{category_knowledge}} (база знаний категорий).
+    try:
+        from .report_prompt import ensure_category_knowledge_prompt
+        ensure_category_knowledge_prompt()
+    except Exception as exc:
+        print(f"[INIT] category knowledge prompt migration failed: {exc!r}")
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
@@ -424,7 +432,7 @@ async def analyze_composition_endpoint(
 
         pending = bool(result.get("pending"))
         return {
-            "score": result.get("score") if result.get("phase1_status") == "passed" and (result.get("deterministic") or {}).get("normalized_ingredients") else None,
+            "score": result.get("score") if result.get("phase1_status") in {"passed", "blocked"} else None,
             "verdict": "Требуется время" if pending else (result.get("verdict") or "Неизвестный состав"),
             "summary": (
                 "Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже."
@@ -446,7 +454,6 @@ async def analyze_composition_endpoint(
             "report": None,
             "phase1_status": result.get("phase1_status"),
             "recommendation_status": result.get("recommendation_status"),
-            "negative_only_score": result.get("negative_only_score"),
             "pending": pending,
         }
     except Exception as exc:
@@ -571,7 +578,7 @@ async def check_product(
 
         pending = bool(result.get("pending"))
         return CheckResponse(
-            score=result.get("score") if not pending and result.get("phase1_status") == "passed" and (result.get("deterministic") or {}).get("normalized_ingredients") else None,
+            score=result.get("score") if not pending and result.get("phase1_status") in {"passed", "blocked"} else None,
             verdict="Требуется время" if pending else (result.get("verdict") or "Неизвестный состав"),
             summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else (result.get("summary") or "")),
             safe_ingredients=result.get("safe_ingredients", []),
@@ -587,7 +594,6 @@ async def check_product(
             analysis_id=analysis_id,
             phase1_status=result.get("phase1_status"),
             recommendation_status=result.get("recommendation_status"),
-            negative_only_score=result.get("negative_only_score"),
             pending=pending,
         )
     except Exception as e:
@@ -651,7 +657,7 @@ async def check_with_ingredients(
         
         pending = bool(result.get("pending"))
         return CheckResponse(
-            score=result.get("score") if not pending and result.get("phase1_status") == "passed" and (result.get("deterministic") or {}).get("normalized_ingredients") else None,
+            score=result.get("score") if not pending and result.get("phase1_status") in {"passed", "blocked"} else None,
             verdict="Требуется время" if pending else (result.get("verdict") or "Неизвестный состав"),
             summary=("Исследование ингредиентов ещё не завершено — это займёт больше времени, возвращайтесь позже." if pending else (result.get("summary") or "")),
             safe_ingredients=result.get("safe_ingredients", []),
@@ -667,7 +673,6 @@ async def check_with_ingredients(
             analysis_id=analysis_id,
             phase1_status=result.get("phase1_status"),
             recommendation_status=result.get("recommendation_status"),
-            negative_only_score=result.get("negative_only_score"),
             pending=pending,
         )
         
@@ -783,6 +788,8 @@ TITLE_SQL = "REPLACE(TRIM(SUBSTR(name, INSTR(name, CHAR(10)) + 1), CHAR(10) || '
 async def get_catalog(
     category: Optional[str] = None,
     subcategory: Optional[str] = None,
+    catalog_category: Optional[str] = None,
+    catalog_subcategory: Optional[str] = None,
     brand: Optional[str] = None,
     cat: Optional[str] = None,
     search: Optional[str] = None,
@@ -803,6 +810,8 @@ async def get_catalog(
         result = get_catalog_page(
             category=category,
             subcategory=subcategory,
+            catalog_category=catalog_category,
+            catalog_subcategory=catalog_subcategory,
             brand=brand,
             cat=cat,
             search=search,
@@ -989,8 +998,8 @@ async def get_categories():
 
     # Таксономия категорий/подкатегорий для каталога.
     try:
-        from .catalog_taxonomy import taxonomy_payload
-        taxonomy = taxonomy_payload()
+        from .catalog_taxonomy import catalog_taxonomy_payload
+        taxonomy = catalog_taxonomy_payload()
     except Exception:
         taxonomy = []
 
@@ -1014,48 +1023,68 @@ CATALOG_SECTIONS = [
 
 @app.get("/api/catalog/sections")
 async def get_catalog_sections():
-    """Секции каталога: горизонтальные подборки по категориям/темам."""
-    conn = get_connection(PRODUCTS_DB)
-    cursor = conn.cursor()
+    """Секции каталога из Supabase/PostgreSQL."""
+    from .postgres_connection import get_postgres_connection
 
-    def fetch(section):
-        base = "SELECT name, slug, image_url, category, brand, ingredients FROM products WHERE is_canonical = 1 AND image_url IS NOT NULL AND image_url != ''"
-        if section["type"] == "popular":
-            cursor.execute(base + " ORDER BY id DESC LIMIT 10")
-        elif section["type"] == "categories":
+    def fetch(conn, section):
+        base = """
+            SELECT name, slug, image_url, category, brand, ingredients
+            FROM public.products
+            WHERE is_canonical = 1
+              AND image_url IS NOT NULL
+              AND image_url <> ''
+        """
+        params = []
+
+        if section["type"] == "categories":
             cats = section["categories"]
-            ph = ",".join(["?"] * len(cats))
-            cursor.execute(base + f" AND category IN ({ph}) ORDER BY id DESC LIMIT 10", cats)
+            placeholders = ", ".join(["%s"] * len(cats))
+            sql = base + f" AND category IN ({placeholders}) ORDER BY id DESC LIMIT 10"
+            params.extend(cats)
+        elif section["type"] == "keywords":
+            conditions = []
+            for keyword in section["keywords"]:
+                conditions.append(
+                    "(LOWER(COALESCE(name, '')) LIKE %s "
+                    "OR LOWER(COALESCE(ingredients, '')) LIKE %s)"
+                )
+                params.extend([f"%{keyword.lower()}%", f"%{keyword.lower()}%"])
+            sql = base + " AND (" + " OR ".join(conditions) + ") ORDER BY id DESC LIMIT 10"
         else:
-            kws = section["keywords"]
-            conds = " OR ".join(["LOWER(name) LIKE ? OR LOWER(ingredients) LIKE ?"] * len(kws))
-            params = []
-            for kw in kws:
-                params.append(f"%{kw}%")
-                params.append(f"%{kw}%")
-            cursor.execute(base + f" AND ({conds}) ORDER BY id DESC LIMIT 10", params)
-        return [dict(row) for row in cursor.fetchall()]
+            sql = base + " ORDER BY id DESC LIMIT 10"
+
+        with conn.cursor() as cursor:
+            cursor.execute(sql, params)
+            return cursor.fetchall()
 
     sections = []
-    for section in CATALOG_SECTIONS:
-        products = fetch(section)
-        cleaned = []
-        for p in products:
-            parts = [x.strip() for x in (p.get("name") or "").split("\n") if x.strip()]
-            brand = parts[0] if len(parts) >= 2 else (p.get("brand") or "")
-            title = " ".join(parts[1:]) if len(parts) >= 2 else (parts[0] if parts else (p.get("name") or ""))
-            cleaned.append({
-                "name": title,
-                "brand": brand,
-                "slug": p.get("slug") or "",
-                "image_url": p.get("image_url") or "",
-                "category": p.get("category") or "",
+    with get_postgres_connection() as conn:
+        for section in CATALOG_SECTIONS:
+            products = fetch(conn, section)
+            cleaned = []
+
+            for product in products:
+                name = product.get("name") or ""
+                parts = [part.strip() for part in name.split("\n") if part.strip()]
+                brand = parts[0] if len(parts) >= 2 else (product.get("brand") or "")
+                title = " ".join(parts[1:]) if len(parts) >= 2 else (
+                    parts[0] if parts else name
+                )
+                cleaned.append({
+                    "name": title,
+                    "brand": brand,
+                    "slug": product.get("slug") or "",
+                    "image_url": product.get("image_url") or "",
+                    "category": product.get("category") or "",
+                })
+
+            sections.append({
+                "key": section["key"],
+                "title": section["title"],
+                "products": cleaned,
             })
-        sections.append({"key": section["key"], "title": section["title"], "products": cleaned})
 
-    conn.close()
     return {"sections": sections}
-
 
 # ============================================================
 # МОЯ ПОЛКА (SHELF)
@@ -1485,7 +1514,6 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
     if not result or result.get("score") is None:
         phase1_status = (result or {}).get("phase1_status")
         recommendation_status = (result or {}).get("recommendation_status")
-        negative_only_score = (result or {}).get("negative_only_score")
 
         if phase1_status == "blocked":
             status = "blocked"
@@ -1521,7 +1549,6 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
                 "summary": (result or {}).get("summary") or detail,
                 "phase1_status": phase1_status,
                 "recommendation_status": recommendation_status,
-                "negative_only_score": negative_only_score,
             }
         return {
             "status": status,
@@ -1532,7 +1559,6 @@ async def analyze_shelf_product(request: ShelfAnalyzeRequest, current_user: dict
             "detail": detail,
             "phase1_status": phase1_status,
             "recommendation_status": recommendation_status,
-            "negative_only_score": negative_only_score,
         }
 
     conn = get_connection(AIDERMY_DB)
@@ -1666,37 +1692,18 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
 
     # Phase 1 is a hard gate: saved legacy scores must never leak into
     # reports when the current analysis is blocked or lacks sufficient data.
-    if phase1_status in {"blocked", "insufficient_data"}:
+    if phase1_status == "insufficient_data":
         score = None
         deterministic = dict(deterministic) if isinstance(deterministic, dict) else {}
         deterministic["score"] = None
         analysis = analysis or {}
         analysis["score"] = None
         analysis["deterministic"] = deterministic
-        if phase1_status == "blocked":
-            analysis["verdict"] = (
-                analysis.get("recommendation_status") or "Не рекомендовано"
-            )
-        else:
-            analysis["verdict"] = (
-                analysis.get("recommendation_status") or "Недостаточно данных"
-            )
+        analysis["verdict"] = (
+            analysis.get("recommendation_status") or "Недостаточно данных"
+        )
 
-    negative_only_score = (analysis or {}).get("negative_only_score")
-    if negative_only_score is None:
-        negative_only_score = deterministic.get("negative_only_score")
-
-    valid_negative_score = (
-        isinstance(negative_only_score, (int, float))
-        and not isinstance(negative_only_score, bool)
-        and 0 <= negative_only_score <= 100
-    )
-    blocked_report_allowed = (
-        phase1_status == "blocked"
-        and valid_negative_score
-        and bool(deterministic)
-    )
-    if score is None and not blocked_report_allowed:
+    if score is None:
         raise HTTPException(status_code=409, detail="Анализ ещё не выполнен — сначала проверьте совместимость.")
     name = (
         (product.get("name") or "").replace("\n", " ").strip()
@@ -1728,7 +1735,6 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
             "expectations": analysis.get("expectations"),
             "phase1_status": phase1_status,
             "recommendation_status": (analysis or {}).get("recommendation_status"),
-            "negative_only_score": negative_only_score if phase1_status == "blocked" else None,
             "report_ready": True,
         }
 
@@ -1773,7 +1779,6 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         "expectations": full.get("expectations"),
         "phase1_status": phase1_status,
         "recommendation_status": (analysis or {}).get("recommendation_status"),
-        "negative_only_score": negative_only_score if phase1_status == "blocked" else None,
         "report_ready": True,
     }
 

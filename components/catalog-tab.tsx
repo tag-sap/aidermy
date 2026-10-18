@@ -29,8 +29,8 @@ function normalize(p: any): Product {
     brand: capitalizeFirst(parts.length > 1 ? parts[0] : (p.brand || '')),
     slug: p.slug || '',
     image_url: p.image_url || '',
-    category: p.subcategory || p.category || '',
-    subcategory: p.subcategory || '',
+    category: p.catalog_category || p.category || p.taxonomy_category || '',
+    subcategory: p.catalog_subcategory || p.subcategory || '',
     rating: typeof p.rating === 'number' ? p.rating : null,
     rating_count: p.rating_count || 0,
     score: typeof p.score === 'number' ? p.score : null,
@@ -87,8 +87,8 @@ export function CatalogTab({
 
   const buildParams = (offset: number) => {
     const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset), sort: 'alpha' })
-    if (activeCategory) params.append('category', activeCategory)
-    if (subcategory) params.append('subcategory', subcategory)
+    if (activeCategory) params.append('catalog_category', activeCategory)
+    if (subcategory) params.append('catalog_subcategory', subcategory)
     if (brand) params.append('brand', brand)
     if (cat) params.append('cat', cat)
     if (activeLetter) params.append('letter', activeLetter)

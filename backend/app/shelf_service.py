@@ -357,14 +357,8 @@ def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
         h.get("recommendation_status")
         or deterministic.get("recommendation_status")
     )
-    negative_only_score = (
-        h.get("negative_only_score")
-        if h.get("negative_only_score") is not None
-        else deterministic.get("negative_only_score")
-    )
-
     score = int(h.get("score")) if h.get("score") is not None else None
-    if phase1_status in {"blocked", "insufficient_data"}:
+    if phase1_status == "insufficient_data":
         score = None
 
     return {
@@ -391,7 +385,6 @@ def normalize_history_analysis(h: Dict[str, Any]) -> Dict[str, Any]:
             h.get("phase1_version") or deterministic.get("phase1_version")
         ),
         "recommendation_status": recommendation_status,
-        "negative_only_score": negative_only_score,
     }
 
 
@@ -544,7 +537,7 @@ def score_product(user: Dict[str, Any], product: Dict[str, Any]) -> Tuple[Option
             or deterministic.get("phase1_status")
             or phase1.get("status")
         )
-        if phase1_status in {"blocked", "insufficient_data"}:
+        if phase1_status == "insufficient_data":
             return None, analysis
 
     if score is not None:
@@ -1333,6 +1326,7 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             "slug": p.get("slug") or "",
             "ingredients": p.get("ingredients") or "",
             "score": score,
+            "analysis_id": (analysis or {}).get("id"),
             "has_report": has_report,
             "needs_recheck": needs_recheck,
             "phase1_status": (analysis or {}).get("phase1_status"),

@@ -80,3 +80,74 @@ ANALYSIS_USE_POSTGRES=false CATALOG_READ_FROM_POSTGRES=false ./venv/bin/python3 
 - The first migration attempt failed at that `OWNED BY` statement. Do not rerun the original SQL. The migration file was patched on branch `fix/identity-safe-analysis-migration-20261014` to no-op for identity-backed columns and to configure a sequence only for a legacy integer column without a default.
 - Not yet verified: persistence tests, production `ANALYSIS_STORAGE` flag, service restart, and a Supabase write/read/delete smoke test. The flag remains disabled pending those steps.
 - Next: merge the identity-safe migration/doc correction, pull it on production, inspect existing configuration without exposing secrets, then enable `ANALYSIS_STORAGE=postgres`, restart the service, and run a disposable exact-row persistence smoke test.
+
+## 2026-10-15 — Stale Match Phase 1 persistence
+
+- `backend/app/shelf_service.py`: stale recalculation now persists `blocked`/`insufficient_data` even when ordinary score is `None`.
+- Regression test in `backend/tests/test_score_engine_versioning.py`: targeted test passed (1 passed); `py_compile` and `git diff --check` passed.
+- Full test file still has a separate PostgreSQL `expires_at` type mismatch; not attributed to this patch.
+- This does not yet prove every API/PPM path respects phase order.
+- Next: trace API entry points and PPM/Product Vector flow, then plan a narrow production rollout.
+
+
+## 2026-10-15 — Сохранение решений Phase 1 при пересчёте Match
+
+- `backend/app/main.py`: при результате без обычного score статусы `blocked` и `insufficient_data` сохраняются через `_save_system_analysis`; API возвращает идентификатор анализа, если сохранение удалось.
+- `backend/app/shelf_service.py`: stale-пересчёт не отбрасывает детерминированное решение Phase 1 со статусом `blocked` или `insufficient_data` только из-за отсутствия обычного score.
+- `backend/tests/test_score_engine_versioning.py`: целевой регрессионный тест прошёл — 1 passed. `py_compile` и `git diff --check` прошли.
+- Коммит: `9984fdf` (`fix: persist phase-one blocked shelf analyses`), отправлен в `origin/main`.
+- Production: Gunicorn перезапущен; новый master PID `198128`, worker PID `198130`; `/openapi.json` вернул HTTP 200 после перезапуска.
+- Ограничение проверки: доступность OpenAPI не подтверждает сквозное поведение всех сценариев Phase 1 → Phase 2. Полный порядок фаз и остальные API-пути ещё требуют адресной проверки.
+- Следующий шаг: проверить оставшиеся пути повторной проверки и обработки результата, затем провести один сквозной сценарий заблокированной Phase 1 без запуска полного аудита.
+
+
+## 2026-10-15 — Текущее состояние: единый score / порядок двух фаз
+
+Эта запись актуализирует контракт реализации; более ранние упоминания `negative_only_score` ниже по истории являются устаревшим описанием предыдущего варианта.
+
+- `passed`: используется обычный канонический Score Engine с положительными и отрицательными факторами.
+- `blocked`: положительные эффекты не должны компенсировать блокировку Phase 1; для заблокированного результата используется согласованный канонический score, а статус рекомендации имеет приоритет в пользовательском представлении.
+- `insufficient_data`: score остаётся `None`; пригодность продукта не выдумывается.
+- `negative_only_score` и `compute_negative_only_score` не являются частью целевого контракта единого score. Перед публикацией нужно подтвердить, что связанные API, persistence, report и shelf-пути согласованы.
+- Покрытие знаний определяется данными по ингредиентам, а не простым отсутствием `positive_factors`. Добавлен тест `test_positive_factor_cannot_resolve_fully_unknown_ingredient_coverage`.
+- Проверка: целевые тесты `test_phase1.py`, `test_api_phase1.py`, `test_report_flow.py`, `test_report_phase_status.py`, `test_blocked_persistence.py` — **53 passed, 22 warnings**; `git diff --check` прошёл.
+- Коммит, push, production deploy и smoke test для этого набора изменений пока не подтверждены.
+- Следующий шаг: проверить точный diff и выбрать только относящиеся к патчу файлы для staging; сохранить остальные изменения и артефакты без удаления.
+
+## 2026-10-16 — Phase 1 / единый score: регрессия перед reload
+
+- Целевой набор: 68 passed, 12 warnings за 2.19s; `git diff --check` прошёл.
+- Предупреждения: `datetime.utcnow()` в `backend/app/database.py:1199` и `:1203`.
+- Удалён неиспользуемый импорт `HARD_FLAG_SCORE_CAP` из `backend/app/scoring_engine.py`; формула, веса и пороги этим изменением не менялись.
+- Резервная копия: `/var/backups/aidermy-phase-order-20261016-012950`.
+- До reload API `/openapi.json` отвечал HTTP 200; master PID `198128`, текущий worker PID `198546`.
+- Следующий шаг: подтвердить reload сменой worker и повторным HTTP smoke check. До этой проверки production-загрузка текущего кода не считается подтверждённой.
+
+- Reload 2026-10-16 подтверждён: master PID 198128, worker сменился с 198546 на 212835, `/openapi.json` вернул HTTP 200. Сквозной сценарий Phase 1 → Phase 2 на production отдельно не проверен.
+
+## 2026-10-16 — Результат регрессионной проверки двух фаз
+
+- После production reload повторно выполнено: `venv/bin/python -m pytest -q tests/test_decision_engine.py tests/test_score_neutral.py tests/test_phase1.py` из `backend/`.
+- Результат: **40 passed in 0.14s**.
+- Расширенный релевантный набор, выполненный ранее в этой сессии: **68 passed, 12 warnings**.
+- Gunicorn master `198128` поднял worker `212835`; локальный запрос к `/openapi.json` вернул HTTP 200.
+- Не утверждать, что сквозной пользовательский production-сценарий подтверждён: реальная оценка продукта через API после reload ещё не проверена.
+- Следующий шаг: проверить `git diff --check`, `git status --short` и diff только относящихся к задаче файлов; затем выбрать безопасный непишущий smoke test API.
+
+
+## 2026-10-16 — порядок двух фаз скоринга
+
+- Изменён `backend/app/scoring_engine.py`: агрегация осевых вкладов отложена до успешного результата Phase 1; при `blocked` используется отдельный набор отрицательных нагрузок; при `insufficient_data` числовая оценка не рассчитывается.
+- Добавлен регрессионный тест `test_phase1_runs_before_axis_aggregation` в `backend/tests/test_phase1.py`: проверяет, что callback Phase 1 получает ещё не агрегированные оси, а после `passed` итоговые оси рассчитываются.
+- Проверки: `venv/bin/python -m pytest -q tests/test_phase1.py tests/test_decision_engine.py tests/test_scoring_engine.py`; `git diff --check`. Результат фиксируется по фактическому выводу команды выше.
+- Production не перезапускался; деплой не подтверждён.
+- Следующий шаг: изучить итоговый diff только этих изменений, затем выполнить согласованный production rollout и health check. Существующие изменения и резервные файлы не удалять.
+
+## 2026-10-16 — production rollout порядка двух фаз
+
+- Регрессионный тест `test_phase1_runs_before_axis_aggregation` добавлен в `backend/tests/test_phase1.py`.
+- Проверки перед rollout: `venv/bin/python -m pytest -q tests/test_phase1.py tests/test_decision_engine.py tests/test_scoring_engine.py` — 37 passed; `git diff --check` прошёл.
+- Production: Gunicorn master PID 198128 получил HUP; новый worker PID 214149 запустился, прежний worker штатно завершился.
+- Health check после reload: `/api/health` вернул HTTP 200, `{"status":"ok","deepseek":"connected"}`.
+- Ограничение: health check подтверждает доступность API, но не заменяет сквозную проверку пользовательского анализа.
+- Следующий шаг: проверить реальный анализ продукта и подтвердить, что при блокировке Phase 1 положительные эффекты Phase 2 не компенсируют отрицательные факторы.

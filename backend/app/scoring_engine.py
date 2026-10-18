@@ -7,7 +7,6 @@ from .ingredient_normalizer import normalize_ingredient_name
 from .scoring_config import (
     CLAMP_MAX,
     CLAMP_MIN,
-    HARD_FLAG_SCORE_CAP,
     INTOLERANCE_PENALTY,
     POSITION_WEIGHT_DECAY,
     POSITION_WEIGHT_MAX,
@@ -271,27 +270,9 @@ def score_product_against_profile_canonical(
             else:
                 negative_factors.append(factor)
 
-    # Diminishing returns для однотипных ingredient claims.
-    # Сильнейший claim получает полный вес, последующие — 1/rank.
-    for axis in AXES:
-        positive_values = sorted(axis_positive[axis], reverse=True)
-        negative_values = sorted(axis_negative[axis], reverse=True)
-
-        if axis in {"hydration", "barrier"}:
-            dimensions[axis] += positive_values[0] if positive_values else 0.0
-        else:
-            dimensions[axis] += sum(
-                value / rank
-                for rank, value in enumerate(positive_values, start=1)
-            )
-
-        dimensions[axis] -= sum(
-            value / rank
-            for rank, value in enumerate(negative_values, start=1)
-        )
-
     from .profile_resolver import intolerance_ingredient_aliases
 
+    intolerance_penalty = 0.0
     for item in user_profile.get('intolerances') or []:
         aliases = intolerance_ingredient_aliases(item) or [str(item)]
         matched_ingredient = None
@@ -314,14 +295,14 @@ def score_product_against_profile_canonical(
                 'confidence': INTOLERANCE_PENALTY["confidence"],
                 'position_weight': INTOLERANCE_PENALTY["position_weight"],
             })
-            dimensions[penalty_axis] -= INTOLERANCE_PENALTY["dimension_delta"]
+            intolerance_penalty += INTOLERANCE_PENALTY["dimension_delta"]
 
     interaction_breakdown: List[Dict[str, Any]] = []
+    adjusted_agg: Dict[str, float] = {}
     if interactions:
         from . import interaction_scoring
         if interaction_scoring.INTERACTION_SCORING_ENABLED:
             _, interaction_breakdown = interaction_scoring.aggregate_interactions(interactions)
-            adjusted_agg: Dict[str, float] = {}
             for item in interaction_breakdown:
                 axis = item["axis"]
                 contribution = float(item["contribution"])
@@ -336,10 +317,9 @@ def score_product_against_profile_canonical(
                     contribution * axis_multiplier, 6
                 )
                 adjusted_agg[axis] = adjusted_agg.get(axis, 0.0) + item["weighted_contribution"]
-            for axis, contrib in adjusted_agg.items():
-                dimensions[axis] += contrib
 
     phase1_result = None
+    score_dimensions = dimensions
     if pre_score_check is not None:
         preliminary_result = {
             'dimensions': {axis: round(value, 3) for axis, value in dimensions.items()},
@@ -351,15 +331,84 @@ def score_product_against_profile_canonical(
             'interaction_scoring_version': _interaction_scoring_version(),
         }
         phase1_result = pre_score_check(preliminary_result)
-        if phase1_result.get('status') != 'passed':
+        phase1_status = phase1_result.get('status')
+
+        if phase1_status == 'insufficient_data':
             return {
                 **preliminary_result,
                 'score': None,
                 'confidence': 0.0,
                 'phase1': phase1_result,
-                'phase1_status': phase1_result.get('status'),
+                'phase1_status': phase1_status,
                 'phase1_version': phase1_result.get('version'),
             }
+
+        if phase1_status == 'blocked':
+            # В заблокированной ветке положительные эффекты не участвуют
+            # в числовом результате. Обычные веса осей сохраняются.
+            negative_dimensions = phase1_result.get('negative_dimensions') or {}
+            score_dimensions = {
+                axis: float(negative_dimensions.get(axis, 0.0))
+                for axis in canonical_weights
+            }
+
+            # Корректируем только оси, нарушившие профильный порог.
+            # Расчёт ведётся по величине отрицательной нагрузки.
+            for axis, branch in (phase1_result.get('branches') or {}).items():
+                if not branch.get('violated'):
+                    continue
+                threshold = branch.get('threshold')
+                if threshold is None or axis not in score_dimensions:
+                    continue
+
+                load = max(0.0, -score_dimensions[axis])
+                adjusted_load = max(0.0, load - float(threshold) / 2.0)
+                score_dimensions[axis] = -adjusted_load
+
+        elif phase1_status == 'passed':
+            # Для прошедшей Phase 1 формула Score Engine не меняется.
+            score_dimensions = dimensions
+        else:
+            return {
+                **preliminary_result,
+                'score': None,
+                'confidence': 0.0,
+                'phase1': phase1_result,
+                'phase1_status': phase1_status,
+                'phase1_version': phase1_result.get('version'),
+            }
+
+    if pre_score_check is None or (
+        phase1_result and phase1_result.get('status') == 'passed'
+    ):
+        # Phase 2: исходная агрегация Score Engine без изменения формулы.
+        for axis in AXES:
+            positive_values = sorted(axis_positive[axis], reverse=True)
+            negative_values = sorted(axis_negative[axis], reverse=True)
+
+            if axis in {"hydration", "barrier"}:
+                dimensions[axis] += positive_values[0] if positive_values else 0.0
+            else:
+                dimensions[axis] += sum(
+                    value / rank
+                    for rank, value in enumerate(positive_values, start=1)
+                )
+
+            dimensions[axis] -= sum(
+                value / rank
+                for rank, value in enumerate(negative_values, start=1)
+            )
+
+        if intolerance_penalty:
+            dimensions[INTOLERANCE_PENALTY["axis"]] -= intolerance_penalty
+
+        for axis, contribution in adjusted_agg.items():
+            dimensions[axis] += contribution
+
+        score_dimensions = dimensions
+    elif phase1_result and phase1_result.get('status') == 'blocked':
+        # В blocked-ветке Phase 2 не запускается: только отрицательная нагрузка.
+        dimensions = dict(score_dimensions)
 
     weighted_total = 0.0
     if saturation_scale is None:
@@ -368,7 +417,7 @@ def score_product_against_profile_canonical(
     for axis, weight in canonical_weights.items():
         # Плавное знакопеременное насыщение вместо жёсткого clamp(0..1):
         # отрицательные raw реально штрафуют, положительные насыщаются мягко.
-        contribution = math.tanh(dimensions.get(axis, 0.0) / saturation_scale)
+        contribution = math.tanh(score_dimensions.get(axis, 0.0) / saturation_scale)
         weighted_total += contribution * float(weight)
 
     # 50% = нейтральная совместимость с профилем (НЕ «50% ингредиентов хорошие»).
@@ -383,7 +432,8 @@ def score_product_against_profile_canonical(
     if unknown_factors and not positive_factors and not negative_factors and not hard_flags:
         final_score = max(final_score, UNKNOWN_SCORE_FLOOR)
     if hard_flags:
-        final_score = min(final_score, HARD_FLAG_SCORE_CAP)
+        # Жёсткое ограничение не компенсируется положительными эффектами.
+        final_score = 0
 
     ingredient_confidence: Dict[str, float] = {}
     for factor in positive_factors + negative_factors:

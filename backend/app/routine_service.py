@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .database import get_connection, PRODUCTS_DB
+from .postgres_connection import get_postgres_connection
 from .services import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_API_URL,
@@ -198,27 +198,28 @@ def _score_ingredients(ingredients: str, actives: List[str], allergy_keys: List[
 def _fetch_pool(categories: List[str]) -> Dict[str, List[Dict[str, Any]]]:
     if not categories:
         return {}
-    conn = get_connection(PRODUCTS_DB)
-    cursor = conn.cursor()
-    placeholders = ",".join(["?"] * len(categories))
-    cursor.execute(
-        f"""
-        SELECT id, name, slug, image_url, category, brand, ingredients
-        FROM products
-        WHERE is_canonical = 1
-          AND category IN ({placeholders})
-          AND ingredients IS NOT NULL
-          AND trim(ingredients) != ''
-        """,
-        categories,
-    )
-    rows = cursor.fetchall()
-    conn.close()
+
+    placeholders = ",".join(["%s"] * len(categories))
+    with get_postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT id, name, slug, image_url, category, brand, ingredients
+                FROM public.products
+                WHERE is_canonical = 1
+                  AND category IN ({placeholders})
+                  AND ingredients IS NOT NULL
+                  AND BTRIM(ingredients) != ''
+                """,
+                categories,
+            )
+            rows = cursor.fetchall()
+
     pool: Dict[str, List[Dict[str, Any]]] = {}
     for row in rows:
-        pool.setdefault(row["category"], []).append(dict(row))
+        product = dict(row)
+        pool.setdefault(product["category"], []).append(product)
     return pool
-
 
 def build_routine(query: str, profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     profile = profile or {}

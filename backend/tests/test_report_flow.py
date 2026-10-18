@@ -273,23 +273,22 @@ class ReportFlowTests(unittest.TestCase):
             "id": 1735,
             "product_id": None,
             "slug": "aravia-laboratories-anti-acne-peeling",
-            "score": None,
+            "score": 35,
             "verdict": "Не рекомендовано",
             "summary": "Первая фаза обнаружила блокирующие факторы.",
             "report": None,
             "score_engine_version": SCORE_ENGINE_VERSION,
             "phase1_status": "blocked",
             "recommendation_status": "Не рекомендовано",
-            "negative_only_score": 35,
             "deterministic": {
                 "phase1_status": "blocked",
-                "negative_only_score": 35,
+                "score": 35,
                 "product_name": "ARAVIA Anti-acne Peeling",
                 "normalized_ingredients": ["gluconolactone", "azelaic acid"],
             },
         }
         full_report = {
-            "score": None,
+            "score": 35,
             "verdict": "Не рекомендовано",
             "explanation": "Обнаружены блокирующие факторы.",
             "review": [
@@ -317,8 +316,8 @@ class ReportFlowTests(unittest.TestCase):
                 )
             )
 
-        self.assertIsNone(response["score"])
-        self.assertEqual(response["negative_only_score"], 35)
+        self.assertEqual(response["score"], 35)
+        self.assertNotIn("negative_only_score", response)
         self.assertEqual(response["phase1_status"], "blocked")
         self.assertTrue(response["report_ready"])
         self.assertEqual(response["review"], full_report["review"])
@@ -337,7 +336,6 @@ class ReportFlowTests(unittest.TestCase):
             "score_engine_version": SCORE_ENGINE_VERSION,
             "phase1_status": "insufficient_data",
             "recommendation_status": "Недостаточно данных",
-            "negative_only_score": None,
             "deterministic": {
                 "phase1_status": "insufficient_data",
                 "product_name": "Insufficient data product",
@@ -370,10 +368,9 @@ class ReportFlowTests(unittest.TestCase):
             "product_id": None,
             "slug": "blocked-scanned-product",
             "score": 78,
-            "verdict": "Подходит",
+            "verdict": "Не рекомендовано",
             "phase1_status": "blocked",
             "recommendation_status": "Не рекомендовано",
-            "negative_only_score": 21,
             "score_engine_version": SCORE_ENGINE_VERSION,
             "report_score_engine_version": SCORE_ENGINE_VERSION,
             "report_generator_version": "1.0.0",
@@ -391,7 +388,7 @@ class ReportFlowTests(unittest.TestCase):
             "expectations": None,
         }
         full_report = {
-            "score": None,
+            "score": 78,
             "verdict": "Не рекомендовано",
             "explanation": "Средство не рекомендовано.",
             "review": [{"text": "Средство не рекомендовано.", "sentiment": "negative"}],
@@ -416,11 +413,11 @@ class ReportFlowTests(unittest.TestCase):
 
         generate.assert_awaited_once()
         saved_analysis = generate.await_args.kwargs["saved_analysis"]
-        self.assertIsNone(saved_analysis["score"])
-        self.assertIsNone(saved_analysis["deterministic"]["score"])
-        self.assertIsNone(response["score"])
+        self.assertEqual(saved_analysis["score"], 78)
+        self.assertEqual(saved_analysis["deterministic"]["score"], 78)
+        self.assertEqual(response["score"], 78)
+        self.assertNotIn("negative_only_score", response)
         self.assertEqual(response["phase1_status"], "blocked")
-        self.assertEqual(response["negative_only_score"], 21)
         self.assertEqual(response["verdict"], "Не рекомендовано")
         self.assertNotIn("Старый отчёт", response["explanation"])
 

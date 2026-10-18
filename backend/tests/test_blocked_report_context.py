@@ -10,10 +10,9 @@ from app.report_prompt import build_report_context
 class BlockedReportContextTests(unittest.TestCase):
     def test_blocked_report_hides_goals_and_uses_only_negative_factors(self):
         analysis = {
-            "score": None,
+            "score": 33,
             "verdict": "Не рекомендовано",
             "phase1_status": "blocked",
-            "negative_only_score": 33,
             "dimensions": {},
             "priorities": {},
             "negative_factors": [

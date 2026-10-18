@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Персистентность заблокированного (phase1=blocked, score=NULL) результата."""
+"""Персистентность результата Phase 1 с единым каноническим score."""
 import os
 import sys
 import json
@@ -23,11 +23,10 @@ SLUG = "blocked-persist-test"
 
 def _deterministic(phase1_status="blocked"):
     return {
-        "score": None,
+        "score": 37 if phase1_status == "blocked" else None,
         "phase1": {"status": phase1_status},
         "phase1_status": phase1_status,
         "recommendation_status": "Не рекомендовано" if phase1_status == "blocked" else "Недостаточно данных",
-        "negative_only_score": None,
         "normalized_ingredients": ["fragrance"],
     }
 
@@ -55,19 +54,19 @@ class BlockedPersistenceTests(unittest.TestCase):
         conn.close()
         self.addCleanup(self._cleanup)
 
-    def test_blocked_saved_with_null_score(self):
+    def test_blocked_saved_with_canonical_score(self):
         self._seed_user()
         saved = upsert_analysis(
             user_id=USER_ID,
             product_id=PRODUCT_ID,
             slug=SLUG,
-            score=None,
+            score=37,
             verdict="Не рекомендовано",
             summary="первая фаза не пройдена",
             deterministic_json=json.dumps(_deterministic(), ensure_ascii=False),
         )
         self.assertIsNotNone(saved)
-        self.assertIsNone(saved["score"])
+        self.assertEqual(saved["score"], 37)
         self.assertEqual(saved["phase1_status"], "blocked")
 
     def test_insufficient_data_saved_with_null_score(self):
@@ -88,11 +87,11 @@ class BlockedPersistenceTests(unittest.TestCase):
         self._seed_user()
         upsert_analysis(
             user_id=USER_ID, product_id=PRODUCT_ID, slug=SLUG,
-            score=None, verdict="Не рекомендовано", summary="блок",
+            score=37, verdict="Не рекомендовано", summary="блок",
             deterministic_json=json.dumps(_deterministic(), ensure_ascii=False),
         )
         record = get_analysis_record(USER_ID, product_id=PRODUCT_ID)
-        self.assertIsNone(record["score"])
+        self.assertEqual(record["score"], 37)
         self.assertEqual(record["phase1_status"], "blocked")
         self.assertEqual(record["recommendation_status"], "Не рекомендовано")
 
@@ -100,25 +99,25 @@ class BlockedPersistenceTests(unittest.TestCase):
         self._seed_user()
         upsert_analysis(
             user_id=USER_ID, product_id=PRODUCT_ID, slug=SLUG,
-            score=None, verdict="Не рекомендовано", summary="блок",
+            score=37, verdict="Не рекомендовано", summary="блок",
             deterministic_json=json.dumps(_deterministic(), ensure_ascii=False),
         )
         cur = get_current_analysis(USER_ID, product_id=PRODUCT_ID)
         self.assertIsNotNone(cur)
-        self.assertIsNone(cur["score"])
+        self.assertEqual(cur["score"], 37)
         self.assertEqual(cur["phase1_status"], "blocked")
 
     def test_score_product_returns_blocked_analysis(self):
         self._seed_user()
         upsert_analysis(
             user_id=USER_ID, product_id=PRODUCT_ID, slug=SLUG,
-            score=None, verdict="Не рекомендовано", summary="блок",
+            score=37, verdict="Не рекомендовано", summary="блок",
             deterministic_json=json.dumps(_deterministic(), ensure_ascii=False),
         )
         user = {"id": USER_ID}
         product = {"id": PRODUCT_ID, "slug": SLUG, "name": "BlockedProd", "ingredients": "Fragrance"}
         score, analysis = score_product(user, product)
-        self.assertIsNone(score)
+        self.assertEqual(score, 37)
         self.assertIsNotNone(analysis)
         self.assertEqual(analysis.get("phase1_status"), "blocked")
 

@@ -33,27 +33,26 @@ class NormalizeAnalysisTests(unittest.TestCase):
 
 
 
-    def test_blocked_history_preserves_phase1_and_hides_normal_score(self):
+    def test_blocked_history_preserves_phase1_and_canonical_score(self):
         analysis = normalize_history_analysis({
             "verdict": "Не рекомендован",
             "summary": "Есть блокирующий фактор",
             "score": 82,
             "phase1_status": "blocked",
             "recommendation_status": "not_recommended",
-            "negative_only_score": 24,
         })
 
-        self.assertIsNone(analysis["score"])
+        self.assertEqual(analysis["score"], 82)
         self.assertEqual(analysis["phase1_status"], "blocked")
         self.assertEqual(analysis["recommendation_status"], "not_recommended")
-        self.assertEqual(analysis["negative_only_score"], 24)
+        self.assertNotIn("negative_only_score", analysis)
 
     def test_insufficient_data_history_does_not_expose_normal_score(self):
         analysis = normalize_history_analysis({
             "score": 70,
             "deterministic_json": (
                 '{"phase1":{"status":"insufficient_data"},'
-                '"phase1_version":"v1","negative_only_score":null}'
+                '"phase1_version":"v1"}'
             ),
         })
 
@@ -72,7 +71,7 @@ class NormalizeAnalysisTests(unittest.TestCase):
         self.assertEqual(analysis["phase1_status"], "passed")
 
 class ScoreProductPhase1GateTests(unittest.TestCase):
-    def test_blocked_saved_analysis_never_returns_normal_score_or_falls_back(self):
+    def test_blocked_saved_analysis_returns_canonical_score_without_fallback(self):
         blocked = {
             "score": 82,
             "phase1_status": "blocked",
@@ -91,7 +90,7 @@ class ScoreProductPhase1GateTests(unittest.TestCase):
                 {"id": "test-product", "slug": "test-product"},
             )
 
-        self.assertIsNone(score)
+        self.assertEqual(score, 82)
         self.assertIs(analysis, blocked)
         get_record.assert_not_called()
         find_history.assert_not_called()

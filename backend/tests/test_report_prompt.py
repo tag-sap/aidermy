@@ -318,18 +318,17 @@ class ReportGenerationReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["verdict"], "Хорошо подходит")
         self.assertTrue(result["explanation"])
 
-    async def test_blocked_report_preserves_missing_normal_score(self):
+    async def test_blocked_report_preserves_canonical_score(self):
         from app import services
 
         analysis = {
-            "score": None,
+            "score": 35,
             "verdict": "Не рекомендовано",
             "phase1_status": "blocked",
             "recommendation_status": "Не рекомендовано",
-            "negative_only_score": 35,
             "deterministic": {
                 "phase1_status": "blocked",
-                "negative_only_score": 35,
+                "score": 35,
                 "product_name": "ARAVIA Anti-acne Peeling",
                 "normalized_ingredients": ["gluconolactone", "azelaic acid"],
                 "negative_factors": [{"ingredient": "azelaic acid"}],
@@ -355,7 +354,7 @@ class ReportGenerationReliabilityTests(unittest.IsolatedAsyncioTestCase):
                 saved_analysis=analysis,
             )
 
-        self.assertIsNone(result["score"])
+        self.assertEqual(result["score"], 35)
         self.assertEqual(result["verdict"], "Не рекомендовано")
         self.assertIn("блокирующие факторы", result["explanation"].lower())
     async def test_saved_verdict_is_not_recalculated_by_fallback(self):

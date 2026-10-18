@@ -5,15 +5,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.phase1 import (
-    PHASE1_VERSION,
-    BLOCKING_BRANCHES,
-    calculate_dynamic_threshold,
-    compute_negative_loads,
-    evaluate_phase1,
-    compute_negative_only_score,
-    recommendation_status,
-)
+from app.phase1 import PHASE1_VERSION, BLOCKING_BRANCHES, calculate_dynamic_threshold, compute_negative_loads, evaluate_phase1, recommendation_status
 from app.scoring_config import INTOLERANCE_PENALTY
 
 
@@ -143,6 +135,18 @@ class EvaluatePhase1Tests(unittest.TestCase):
         ph = evaluate_phase1(r, _profile(), ["mystery"])
         self.assertEqual(ph["status"], "insufficient_data")
 
+    def test_positive_factor_cannot_resolve_fully_unknown_ingredient_coverage(self):
+        r = _result(
+            unknown_factors=[
+                {"ingredient": "mystery", "position": 1, "reason": "unknown_ingredient"}
+            ],
+            positive_factors=[
+                {"ingredient": "glycerin", "property": "hydration", "weighted_value": 0.5}
+            ],
+        )
+        ph = evaluate_phase1(r, _profile(), ["mystery"])
+        self.assertEqual(ph["status"], "insufficient_data")
+
     def test_unknown_mixed_with_known_not_insufficient(self):
         r = _result(
             unknown_factors=[{"ingredient": "mystery", "position": 1, "reason": "unknown_ingredient"}],
@@ -152,47 +156,6 @@ class EvaluatePhase1Tests(unittest.TestCase):
         self.assertEqual(ph["status"], "passed")
 
 
-class NegativeOnlyScoreTests(unittest.TestCase):
-    def _phase1_blocked(self):
-        r = _result(negative_factors=[
-            {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0}
-        ])
-        return evaluate_phase1(r, _profile(), ["fragrance"]), r
-
-    def test_negative_only_in_range(self):
-        ph, r = self._phase1_blocked()
-        s = compute_negative_only_score(ph, r, _profile(), ["fragrance"], CANONICAL_WEIGHTS)
-        self.assertIsNotNone(s)
-        self.assertTrue(0 <= s <= 100)
-
-    def test_negative_only_below_neutral(self):
-        ph, r = self._phase1_blocked()
-        s = compute_negative_only_score(ph, r, _profile(), ["fragrance"], CANONICAL_WEIGHTS)
-        self.assertLess(s, 50)
-
-    def test_negative_only_none_when_no_negative(self):
-        r = _result()
-        ph = evaluate_phase1(r, _profile(), ["glycerin"])
-        self.assertIsNone(compute_negative_only_score(ph, r, _profile(), ["glycerin"], CANONICAL_WEIGHTS))
-
-    def test_positive_does_not_affect_negative_only(self):
-        # Одинаковый негатив, но разные позитивы -> одинаковый negative_only_score.
-        r1 = _result(negative_factors=[
-            {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0}
-        ])
-        r2 = _result(
-            negative_factors=[
-                {"ingredient": "fragrance", "property": "irritation", "weighted_value": 1.0}
-            ],
-            positive_factors=[
-                {"ingredient": "glycerin", "property": "hydration", "weighted_value": 5.0}
-            ],
-        )
-        ph1 = evaluate_phase1(r1, _profile(), ["fragrance"])
-        ph2 = evaluate_phase1(r2, _profile(), ["fragrance", "glycerin"])
-        s1 = compute_negative_only_score(ph1, r1, _profile(), ["fragrance"], CANONICAL_WEIGHTS)
-        s2 = compute_negative_only_score(ph2, r2, _profile(), ["fragrance", "glycerin"], CANONICAL_WEIGHTS)
-        self.assertEqual(s1, s2)
 
 
 class RecommendationStatusTests(unittest.TestCase):
@@ -235,7 +198,6 @@ class PersistenceTests(unittest.TestCase):
             "phase1_version": "1.0.0",
             "phase1": {"status": "blocked", "violations": [{"axis": "irritation"}]},
             "recommendation_status": "Не рекомендовано",
-            "negative_only_score": 22,
         }
         d = _analysis_to_dict(self._row(det))
         self.assertEqual(d["phase1_version"], "1.0.0")
@@ -284,6 +246,43 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
         self.assertEqual(full["phase1_status"], "passed")
         self.assertEqual(full["recommendation_status"], "Рекомендовано")
 
+    def test_phase1_runs_before_axis_aggregation(self):
+        """Phase 1 получает факторы до агрегации осей Phase 2."""
+        from app.scoring_engine import score_product_against_profile_canonical
+        from app.profile_resolver import normalize_scoring_profile, resolve_personal_profile
+        from app.decision_engine import profile_weights
+
+        profile = {
+            "skin_type": "Нормальная",
+            "concerns": [],
+            "allergies": [],
+            "intolerances": [],
+        }
+        sp = normalize_scoring_profile(profile)
+        sp["structured"]["axis_multipliers"] = resolve_personal_profile(
+            sp.get("structured") or {}
+        )["axis_multipliers"]
+
+        observed = {}
+
+        def gate(preliminary):
+            observed["dimensions"] = dict(preliminary["dimensions"])
+            observed["positive_factors"] = list(preliminary["positive_factors"])
+            return {"status": "passed"}
+
+        result = score_product_against_profile_canonical(
+            ingredients=["glycerin", "panthenol"],
+            canonical_knowledge=self.KNOWLEDGE,
+            user_profile=sp,
+            canonical_weights=profile_weights(profile, "Нормальная"),
+            pre_score_check=gate,
+        )
+
+        self.assertTrue(observed["positive_factors"])
+        self.assertTrue(all(value == 0 for value in observed["dimensions"].values()))
+        self.assertEqual(result["phase1_status"], "passed")
+        self.assertTrue(any(value != 0 for value in result["dimensions"].values()))
+
     def test_phase1_gate_skips_phase2_final_score(self):
         """При blocked/insufficient_data финальная формула Phase 2 не вызывается."""
         from unittest.mock import patch
@@ -304,23 +303,38 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
         )["axis_multipliers"]
         weights = profile_weights(profile, "Нормальная")
 
-        for status in ("blocked", "insufficient_data"):
-            with self.subTest(status=status):
-                with patch.object(
-                    scoring_engine.math,
-                    "tanh",
-                    side_effect=AssertionError("Phase 2 final score must not run"),
-                ):
-                    result = score_product_against_profile_canonical(
-                        ingredients=["glycerin", "panthenol"],
-                        canonical_knowledge=self.KNOWLEDGE,
-                        user_profile=sp,
-                        canonical_weights=weights,
-                        pre_score_check=lambda _preliminary: {"status": status},
-                    )
+        # insufficient_data не должен выдавать фиктивный числовой результат.
+        with patch.object(
+            scoring_engine.math,
+            "tanh",
+            side_effect=AssertionError("No score for insufficient_data"),
+        ):
+            result = score_product_against_profile_canonical(
+                ingredients=["glycerin", "panthenol"],
+                canonical_knowledge=self.KNOWLEDGE,
+                user_profile=sp,
+                canonical_weights=weights,
+                pre_score_check=lambda _preliminary: {
+                    "status": "insufficient_data"
+                },
+            )
+        self.assertIsNone(result.get("score"))
+        self.assertEqual(result["phase1"]["status"], "insufficient_data")
 
-                self.assertIsNone(result.get("score"))
-                self.assertEqual(result["phase1"]["status"], status)
+        # blocked: числовой результат только по отрицательным эффектам.
+        result = score_product_against_profile_canonical(
+            ingredients=["glycerin", "panthenol"],
+            canonical_knowledge=self.KNOWLEDGE,
+            user_profile=sp,
+            canonical_weights=weights,
+            pre_score_check=lambda _preliminary: {
+                "status": "blocked",
+                "negative_dimensions": {},
+                "branches": {},
+            },
+        )
+        self.assertIsInstance(result.get("score"), int)
+        self.assertEqual(result["phase1"]["status"], "blocked")
 
 
     def test_real_phase1_gate_blocks_negative_load_despite_positive_factors(self):
@@ -372,7 +386,11 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
         self.assertEqual(result["phase1"]["status"], "blocked")
         self.assertEqual(result["phase1"]["branches"]["irritation"]["threshold"], 0.4)
         self.assertTrue(result["phase1"]["branches"]["irritation"]["violated"])
-        self.assertIsNone(result["score"])
+        self.assertIsInstance(result["score"], int)
+        self.assertLessEqual(
+            result["score"], 50,
+            "Положительные факторы не должны улучшать балл при blocked",
+        )
 
     def test_result_carries_phase1_fields(self):
         from app.decision_engine import DecisionEngine
@@ -382,7 +400,6 @@ class Phase2UnchangedIntegrationTests(unittest.TestCase):
         self.assertIn("phase1_status", full)
         self.assertIn("recommendation_status", full)
         self.assertIn("phase1_version", full)
-        self.assertIn("negative_only_score", full)
         self.assertEqual(full["phase1"]["version"], PHASE1_VERSION)
 
     def test_dynamic_threshold_uses_multiplier_formula(self):

@@ -290,8 +290,8 @@ export function ProductModal({
     onOpenReport(result)
   }
 
-  const hasAnalysis = typeof data?.score === 'number' && data?.analysis != null
-  const hasReport = typeof data?.analysis?.id === 'number'
+  const hasAnalysis = typeof data?.score === 'number'
+  const hasReport = typeof data?.analysis?.report === 'string' && data.analysis.report.trim().length > 0
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm animate-modal-backdrop" onClick={onClose}>

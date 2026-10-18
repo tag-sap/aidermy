@@ -98,3 +98,26 @@ def test_catalog_shelf_filter_uses_parameterized_conditions(monkeypatch):
     assert params == ["Крем", "%увлажнение%", 20, 0]
     assert count_params == ["Крем", "%увлажнение%"]
     assert "DROP TABLE" not in sql
+
+
+def test_catalog_query_requires_canonical_categories_and_filters_by_them():
+    sql, params, count_sql, count_params = _build_catalog_query(
+        catalog_category="Уход для лица",
+        catalog_subcategory="Сыворотки",
+        limit=20,
+        offset=0,
+    )
+
+    for condition in (
+        "catalog_category IS NOT NULL",
+        "btrim(catalog_category) <> ''",
+        "catalog_subcategory IS NOT NULL",
+        "btrim(catalog_subcategory) <> ''",
+        "catalog_category = %s",
+        "catalog_subcategory = %s",
+    ):
+        assert condition in sql
+        assert condition in count_sql
+
+    assert params == ["Уход для лица", "Сыворотки", 20, 0]
+    assert count_params == ["Уход для лица", "Сыворотки"]

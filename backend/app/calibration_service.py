@@ -235,35 +235,50 @@ def build_cases(products: List[Dict[str, Any]], profiles: List[Dict[str, Any]]) 
 
 def load_products(limit: int = 500, categories: Optional[List[str]] = None,
                   random_seed: Optional[int] = None) -> List[Dict[str, Any]]:
-    """Загружает canonical products (is_canonical=1, с INCI) из products.db."""
-    from .database import PRODUCTS_DB
-    conn = get_connection(PRODUCTS_DB)
-    cols = [r[1] for r in conn.execute("PRAGMA table_info(products)").fetchall()]
-    sql = "SELECT * FROM products WHERE is_canonical = 1 AND ingredients IS NOT NULL AND ingredients != ''"
-    params: List[Any] = []
+    """Загружает калибровочную выборку из PostgreSQL."""
+    import random
+    from .postgres_connection import get_postgres_connection
+
+    allowed = ["Уход для лица"]
+    if not allowed or limit <= 0:
+        return []
+
+    sql = """
+        SELECT id, name, brand, ingredients, taxonomy_category, subcategory
+        FROM public.products
+        WHERE is_canonical = 1
+          AND ingredients IS NOT NULL
+          AND btrim(ingredients) <> ''
+          AND taxonomy_category = %s
+    """
+    params = list(allowed)
+
     if categories:
-        sql += " AND subcategory IN (" + ",".join("?" * len(categories)) + ")"
-        params = list(categories)
-    sql += " ORDER BY id LIMIT ?"
+        sql += " AND subcategory IN (" + ", ".join(["%s"] * len(categories)) + ")"
+        params.extend(categories)
+
+    sql += " ORDER BY id LIMIT %s"
     params.append(limit)
-    rows = conn.execute(sql, params).fetchall()
-    conn.close()
-    products = []
-    for row in rows:
-        d = dict(zip(cols, row))
-        cat = d.get("subcategory") or d.get("taxonomy_category") or d.get("category") or ""
-        products.append({
-            "id": d.get("id"),
-            "name": (d.get("name") or "").replace("\n", " ").strip(),
-            "brand": d.get("brand") or "",
-            "category": cat,
-            "ingredients": d.get("ingredients") or "",
-        })
+
+    with get_postgres_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        conn.rollback()
+
+    products = [{
+        "id": row["id"],
+        "name": (row["name"] or "").replace("\n", " ").strip(),
+        "brand": row["brand"] or "",
+        "category": row["subcategory"] or row["taxonomy_category"] or "",
+        "ingredients": row["ingredients"] or "",
+    } for row in rows]
+
     if random_seed is not None:
-        import random as _r
-        _r.seed(random_seed)
-        _r.shuffle(products)
+        random.Random(random_seed).shuffle(products)
     return products
+
 def _estimate_batch_size(products: List[Dict[str, Any]], target_chars: int = 14000) -> int:
     sizes = [len(p.get("ingredients") or "") for p in products]
     if not sizes:
@@ -856,15 +871,19 @@ def backfill_calibration_cases(run_key: str) -> int:
 
 def _product_name(product_id: int) -> str:
     try:
-        from .database import PRODUCTS_DB
-        conn = get_connection(PRODUCTS_DB)
-        row = conn.execute("SELECT name FROM products WHERE id=?", (product_id,)).fetchone()
-        conn.close()
-        name = (row["name"] or "").replace("\n", " ").strip() if row else ""
+        from .postgres_connection import get_postgres_connection
+        with get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name FROM public.products WHERE id = %s",
+                    (product_id,),
+                )
+                row = cur.fetchone()
+            conn.rollback()
+        name = (row["name"] or "").replace(chr(10), " ").strip() if row else ""
         return name or f"#{product_id}"
     except Exception:
         return f"#{product_id}"
-
 
 def _top_problematic_cases(run_key: str, limit: int = 5) -> List[Dict[str, Any]]:
     """TOP-N кейсов с максимальным |drift| (только те, где есть reference)."""
@@ -974,16 +993,22 @@ def _axis_breakdown(trace: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def _product_category(product_id: int) -> str:
     try:
-        from .database import PRODUCTS_DB
-        conn = get_connection(PRODUCTS_DB)
-        row = conn.execute(
-            "SELECT subcategory, taxonomy_category, category FROM products WHERE id=?", (product_id,)
-        ).fetchone()
-        conn.close()
-        return (row["subcategory"] or row["taxonomy_category"] or row["category"] or "") if row else ""
+        from .postgres_connection import get_postgres_connection
+        with get_postgres_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT taxonomy_category, subcategory, category
+                       FROM public.products WHERE id = %s""",
+                    (product_id,),
+                )
+                row = cur.fetchone()
+            conn.rollback()
+        return (
+            (row["subcategory"] or row["taxonomy_category"] or row["category"] or "")
+            if row else ""
+        )
     except Exception:
         return ""
-
 
 def _profile_structured(profile_id: str) -> Dict[str, Any]:
     p = profile_by_id(profile_id)

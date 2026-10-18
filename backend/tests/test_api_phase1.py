@@ -21,7 +21,6 @@ class CheckProductIngredientsPhase1Tests(unittest.IsolatedAsyncioTestCase):
             "phase1_status": phase1_status,
             "phase1_version": "1.0.0",
             "recommendation_status": "Не рекомендовано" if phase1_status == "blocked" else "Рекомендовано",
-            "negative_only_score": 18 if phase1_status == "blocked" else None,
             "verdict": "Не рекомендовано" if phase1_status == "blocked" else "Подходит",
             "summary": "s",
             "safe_ingredients": [],
@@ -41,12 +40,12 @@ class CheckProductIngredientsPhase1Tests(unittest.IsolatedAsyncioTestCase):
             from app.services import check_product_with_ingredients
             return await check_product_with_ingredients("Test", "Нормальная", {}, "Fragrance")
 
-    async def test_blocked_preserves_none_score_and_status(self):
-        result = await self._run(self._deterministic(None, "blocked"))
-        self.assertIsNone(result["score"])
+    async def test_blocked_preserves_canonical_score_and_status(self):
+        result = await self._run(self._deterministic(18, "blocked"))
+        self.assertEqual(result["score"], 18)
         self.assertEqual(result["phase1_status"], "blocked")
         self.assertEqual(result["recommendation_status"], "Не рекомендовано")
-        self.assertEqual(result["negative_only_score"], 18)
+        self.assertNotIn("negative_only_score", result)
         self.assertEqual(result["phase1_violations"][0]["axis"], "irritation")
 
     async def test_insufficient_data_preserves_none_score(self):

@@ -169,14 +169,24 @@ def evaluate_phase1(
     ]
 
     valid = [i for i in ingredients if i and str(i).strip()]
+    unknown_ingredient_names = {
+        normalize_ingredient_name(str(item.get("ingredient") or ""))
+        for item in unknown_factors
+        if item.get("ingredient")
+    }
+    all_ingredients_unknown = bool(valid) and all(
+        normalize_ingredient_name(str(ingredient)) in unknown_ingredient_names
+        for ingredient in valid
+    )
+
     if not valid:
         status = "insufficient_data"
     elif hard_flags:
         status = "blocked"
     elif violations:
         status = "blocked"
-    elif unknown_factors and not positive_factors and not any(neg_weights.values()):
-        # Состав целиком неизвестен — не можем ни подтвердить риск, ни безопасность.
+    elif unknown_factors and all_ingredients_unknown and not any(neg_weights.values()):
+        # Недостаточность определяется покрытием знаний, а не наличием позитивных эффектов.
         status = "insufficient_data"
     else:
         status = "passed"
@@ -191,50 +201,6 @@ def evaluate_phase1(
     }
 
 
-def compute_negative_only_score(
-    phase1_result: Dict[str, Any],
-    scoring_result: Dict[str, Any],
-    user_profile: Dict[str, Any],
-    ingredients: List[str],
-    canonical_weights: Dict[str, float],
-) -> Optional[int]:
-    """Негативный результат (negative_only_score) при отказе в допуске.
-
-    Строится ТОЛЬКО из негативных вкладов; положительные факторы не участвуют.
-    Вес нарушенной ветви повышается: adjusted = base * (1 + lambda * violation),
-    затем все веса нормализуются до суммы 1. Итог ограничен 0..100.
-
-    Возвращает None, если негативный вклад отсутствует (нельзя достоверно рассчитать).
-    """
-    negative_dim, _ = compute_negative_loads(scoring_result, user_profile, ingredients)
-    branches = phase1_result.get("branches") or {}
-
-    # Только оси с фактическим негативным сигналом.
-    active = {axis: negative_dim[axis] for axis in AXES if negative_dim.get(axis, 0.0) < 0.0}
-    if not active:
-        return None
-
-    base_weights = {axis: float(canonical_weights.get(axis, 0.0)) for axis in active}
-    total = sum(base_weights.values())
-    if total <= 0:
-        base_weights = {axis: 1.0 for axis in active}
-        total = sum(base_weights.values())
-
-    adjusted: Dict[str, float] = {}
-    for axis in active:
-        w = base_weights[axis] / total
-        violated = bool((branches.get(axis) or {}).get("violated"))
-        adjusted[axis] = w * (1.0 + PHASE1_LAMBDA * (1.0 if violated else 0.0))
-
-    adj_total = sum(adjusted.values()) or 1.0
-
-    weighted = 0.0
-    for axis in active:
-        w = adjusted[axis] / adj_total
-        weighted += w * math.tanh(negative_dim[axis] / SATURATION_SCALE)
-
-    raw = 50.0 + 50.0 * weighted
-    return int(round(max(0.0, min(100.0, raw))))
 
 
 def recommendation_status(phase1_result: Dict[str, Any], score: Optional[int]) -> str:

@@ -146,7 +146,7 @@ class ScoreEngineVersioningTests(unittest.TestCase):
 
 
 
-    def test_stale_blocked_analysis_is_persisted_without_phase2_score(self):
+    def test_stale_blocked_analysis_persists_canonical_score_without_phase2_effects(self):
         stale = {
             "id": 12,
             "product_id": 20,
@@ -156,17 +156,16 @@ class ScoreEngineVersioningTests(unittest.TestCase):
             "deterministic": {"normalized_ingredients": ["fragrance"]},
         }
         blocked = {
-            "score": None,
-            "confidence": 0.0,
+            "score": 31,
+            "confidence": 0.7,
             "verdict": "Не рекомендовано",
             "summary": "Первая фаза не пройдена.",
             "normalized_ingredients": ["fragrance"],
             "phase1": {"status": "blocked"},
             "phase1_status": "blocked",
             "recommendation_status": "Не рекомендовано",
-            "negative_only_score": 31,
         }
-        saved = {**stale, "score": None, "deterministic": blocked}
+        saved = {**stale, "score": 31, "deterministic": blocked}
 
         with patch(
             "app.database.update_analysis_deterministic_result",
@@ -188,9 +187,9 @@ class ScoreEngineVersioningTests(unittest.TestCase):
 
         update.assert_called_once()
         persisted = update.call_args.args[2]
-        self.assertIsNone(persisted["score"])
+        self.assertEqual(persisted["score"], 31)
         self.assertEqual(persisted["phase1_status"], "blocked")
-        self.assertEqual(persisted["negative_only_score"], 31)
+        self.assertNotIn("negative_only_score", persisted)
         self.assertIs(result, saved)
 
 if __name__ == "__main__":
