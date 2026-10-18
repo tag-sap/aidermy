@@ -62,8 +62,9 @@ def full_metrics(results):
         key = f'{r["product"]["id"]}:{r["profile"]["id"]}'
         ref = ref_map.get(key)
         if ref is None: continue
-        m = _case_metrics(ref, r["score"])
-        d = m["delta_from_estimate"]
+        est = ref.get("estimate")
+        if est is None: continue
+        d = r["score"] - est
         deltas.append(d)
         seg_cat[r["product"].get("category") or "?"].append(d)
         seg_prof[r["profile"]["structured"].get("skin_type","?")].append(d)
