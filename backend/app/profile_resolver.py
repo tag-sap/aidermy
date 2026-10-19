@@ -501,6 +501,10 @@ def normalize_scoring_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
     )
     soft_intolerances, hard_intolerances = intolerance_to_ingredients(structured)
     restrictions.extend(hard_intolerances)
+    # Непереносимость конкретного ингредиента — это hard exclusion (тот же смысл,
+    # что и аллергия). Добавляем её в allergies, чтобы Score Engine формировал
+    # hard_flags: иначе продукт помечается excluded, но сохраняет высокий score.
+    allergies.extend(hard_intolerances)
     intolerances = _as_profile_values(result.get("intolerances")) + soft_intolerances
 
     result["allergies"] = _dedupe([str(x).strip() for x in allergies if str(x).strip()])

@@ -350,6 +350,8 @@ INTOLERANCE_INGREDIENT_SYNONYMS: Dict[str, List[str]] = {
         "tartaric acid", "azelaic acid", "ferulic acid", "gluconolactone",
         "lactobionic acid", "aha", "bha", "pha",
     ],
+    # ingredient-intolerance: конкретный ингредиент (hard restriction).
+    "niacinamide_intolerance": ["niacinamide", "nicotinamide", "vitamin b3"],
 }
 
 # ===========================================================================

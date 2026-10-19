@@ -6,6 +6,7 @@ class Profile(BaseModel):
     age: str = Field(..., description="Возрастная группа")
     concerns: List[str] = Field(default=[], description="Проблемы кожи")
     allergies: List[str] = Field(default=[], description="Аллергии")
+    intolerances: List[str] = Field(default=[], description="Непереносимости")
     custom_text: Optional[str] = Field(default="", description="Дополнительный комментарий")
     
     quiz_answers: Optional[Dict[str, str]] = Field(

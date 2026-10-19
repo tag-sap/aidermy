@@ -235,7 +235,6 @@ export const THERAPY_OPTIONS: QuizOption[] = [
   { id: "azelaic_acid_therapy", label: "Азелаиновая кислота" },
   { id: "benzoyl_peroxide", label: "Бензоилпероксид" },
   { id: "antibiotic", label: "Антибиотики" },
-  { id: "none", label: "Ничего не использую" },
 ]
 
 export const RETINOID_OPTIONS: QuizOption[] = [
@@ -263,7 +262,6 @@ export const PROCEDURE_OPTIONS: QuizOption[] = [
   { id: "recent_biorevitalization", label: "Биоревитализация" },
   { id: "recent_mesotherapy", label: "Мезотерапия" },
   { id: "recent_peeling", label: "Пилинг" },
-  { id: "none", label: "Ничего не было" },
 ]
 
 export const PROCEDURE_PERIODS: QuizOption[] = [
