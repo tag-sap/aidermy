@@ -939,9 +939,8 @@ function GuestHomePage({ onAuth, onStart }: { onAuth: () => void; onStart: () =>
       </header>
 
       <section className="guest-hero">
-        <ParticleCanvas tint="rgba(46, 91, 69," />
+        <ParticleCanvas tint="rgba(214, 242, 100," />
         <div className="guest-hero__inner">
-          <p className="eyebrow">Проверка совместимости косметики</p>
           <h1 className="guest-hero__title">
             айдерми анализирует ингредиенты и честно показывает, насколько средство совместимо с вашей кожей.
           </h1>
@@ -950,8 +949,7 @@ function GuestHomePage({ onAuth, onStart }: { onAuth: () => void; onStart: () =>
             <Button icon="sparkle" onClick={onStart}>Заполнить профиль кожи и проверить средство</Button>
             <Button variant="secondary" onClick={onAuth}>Войти или зарегистрироваться</Button>
           </div>
-          <p className="guest-hero__note">Одна проверка без регистрации. Сохранить результат можно после входа.</p>
-        </div>
+         </div>
       </section>
 
       <section className="guest-block">
@@ -1439,6 +1437,28 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
 
 type ScanMethod = "photo" | "inci" | "link" | "manual"
 
+function extractUrl(raw: string): string {
+  const text = (raw || "").trim()
+  if (!text) return ""
+  const http = text.match(/https?:\/\/[^\s<>"']+/i)
+  if (http) return http[0].replace(/[)\].,;:!]+$/, "")
+  const www = text.match(/www\.[^\s<>"']+/i)
+  if (www) return `https://${www[0].replace(/[)\].,;:!]+$/, "")}`
+  return text
+}
+
+function highlightInci(raw: string, caution: string[]): React.ReactNode {
+  if (!raw) return null
+  const bad = (caution || []).map((c) => c.toLowerCase().trim()).filter((c) => c.length >= 4)
+  if (!bad.length) return raw
+  return raw.split(/(,\s*)/).map((chunk, i) => {
+    const key = chunk.toLowerCase()
+    return bad.some((c) => key.includes(c))
+      ? <span key={i} className="inci__bad">{chunk}</span>
+      : chunk
+  })
+}
+
 function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: Product) => void; initialMethod?: ScanMethod; guestToken?: string }) {
   const [method, setMethod] = useState<ScanMethod>(initialMethod ?? "photo")
   const [phase, setPhase] = useState<"input" | "recognizing" | "ready">("input")
@@ -1498,7 +1518,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
     const profile = buildProfile()
     try {
       if (method === "link") {
-        const res = await api.importUrl(url.trim())
+        const res = await api.importUrl(extractUrl(url))
         const prod = res.product || {}
         const b = prod.brand || brand.trim()
         const n = prod.name || name.trim()
@@ -1644,7 +1664,22 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
             </div>
           )}
           {method === "link" && (
-            <label className="scan-form__area"><span>Ссылка на продукт *</span><input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></label>
+            <label className="scan-form__area">
+              <span>Ссылка на продукт *</span>
+              <input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onPaste={(e) => {
+                  const raw = e.clipboardData.getData("text")
+                  const found = extractUrl(raw)
+                  if (found && found !== raw.trim()) {
+                    e.preventDefault()
+                    setUrl(found)
+                  }
+                }}
+                placeholder="Вставьте ссылку — лишний текст уберём автоматически"
+              />
+            </label>
           )}
           {method === "manual" && (
             <>
@@ -2026,7 +2061,8 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const [verdict, setVerdict] = useState<Verdict | null>((product.match?.verdict as Verdict) ?? null)
   const [recommendationStatus, setRecommendationStatus] = useState<string | undefined>(product.match?.recommendation_status)
   const [closing, setClosing] = useState(false)
-  const [previewFading, setPreviewFading] = useState(false)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [cautionIngredients, setCautionIngredients] = useState<string[]>(product.match?.caution_ingredients ?? [])
   const [adding, setAdding] = useState(false)
   const [analysisId, setAnalysisId] = useState<number | undefined>(product.match?.analysis_id)
   const [reportData, setReportData] = useState<ReportResult | null>(null)
@@ -2134,32 +2170,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
     return () => { cancelled = true }
   }, [product.slug])
 
-  useEffect(() => {
-    if (!product.match?.has_report || !product.slug) return
-
-    let cancelled = false
-    setPhase("generating")
-
-    api.analysisReport(product.slug, product.match.analysis_id)
-      .then((res) => {
-        if (cancelled) return
-        setReportData(res)
-        if (typeof res.score === "number") setScore(res.score)
-        if (res.verdict) setVerdict(res.verdict as Verdict)
-        if (res.recommendation_status) {
-          setRecommendationStatus(res.recommendation_status)
-        }
-        setAnalysisId(product.match?.analysis_id)
-        setPhase("report")
-      })
-      .catch(() => {
-        if (!cancelled) setPhase("match")
-      })
-
-    return () => { cancelled = true }
-  }, [product.id, product.slug, product.match?.has_report, product.match?.analysis_id])
-
-  const submitReview = async () => {
+   const submitReview = async () => {
     const text = review.trim()
     if (rating < 1 || rating > 5 || !text) {
       setReviewError("Поставьте оценку и напишите отзыв.")
@@ -2291,6 +2302,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
       const recStatus = res.recommendation_status
       const rawScore = typeof res.score === "number" ? res.score : null
       const aid = typeof res.analysis_id === "number" ? res.analysis_id : undefined
+      if (Array.isArray(res.caution_ingredients)) setCautionIngredients(res.caution_ingredients)
 
       let finalVerdict: Verdict | null
       let finalScore: number | null
@@ -2322,6 +2334,8 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const showReport = async () => {
     if (!user) { onAuth(); return }
     if (user.plan === "free") { onPricing(); return }
+    // Повторное нажатие сворачивает уже раскрытый отчёт, карточка не меняется.
+    if (reportData) { setReportData(null); return }
     // Недостаточно состава — это отдельное состояние, а не «нет анализа».
     if (recommendationStatus === "Недостаточно данных" || (score == null && product.match == null)) {
       setReportError("Недостаточно данных о составе: отчёт недоступен. Добавьте полный состав и проверьте снова.")
@@ -2342,13 +2356,13 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
       return
     }
     setReportError("")
-    setPhase("generating")
+    // Карточка остаётся на месте: крутим загрузку в кнопке, отчёт раскрывается ниже.
+    setReportLoading(true)
     try {
       const res = await api.analysisReport(product.slug || "", aid)
       setReportData(res)
       if (typeof res.score === "number") setScore(res.score)
       setAnalysisId(aid)
-      setPhase("report")
       onReported(product.id, aid)
     } catch (e) {
       // Разные причины — разные сообщения. 401/403 — сессия, 409 — нет анализа,
@@ -2363,20 +2377,13 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
       } else {
         setReportError("Не удалось сформировать отчёт. Попробуйте ещё раз через минуту.")
       }
-      setPhase("match")
+    } finally {
+      setReportLoading(false)
     }
   }
 
   const handleShowReport = () => {
-    if (!user || user.plan === "free" || !product.slug) {
-      void showReport()
-      return
-    }
-    if (previewFading) return
-    setPreviewFading(true)
-    window.setTimeout(() => {
-      void showReport()
-    }, 180)
+    void showReport()
   }
 
   return (
@@ -2410,8 +2417,8 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
           )}
 
-          {!showAnalysisExplainer && (phase === "match" || phase === "generating" || phase === "report") && (
-            <div className={`drawer__body${previewFading && phase === "generating" ? " drawer__body--preview-fading" : ""}`}>
+          {!showAnalysisExplainer && phase === "match" && (
+            <div className="drawer__body">
               <div className="drawer__score">
                 {recommendationStatus === "Недостаточно данных" ? (
                   <p className="drawer__score-note">Недостаточно данных для достоверной оценки совместимости.</p>
@@ -2436,25 +2443,33 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
 
               {phase === "match" && <div className="drawer__cta">
                 {reportError && <p className="drawer__report-error" role="alert">{reportError}</p>}
-                {!user ? (
-                  <Button icon="lock" className="w-full" onClick={handleShowReport}>Посмотреть отчёт — войдите</Button>
-                ) : (
-                  <Button icon="file" className="w-full" onClick={handleShowReport}>{reportError ? "Повторить" : "Посмотреть отчёт"}</Button>
-                )}
+                <div className="drawer__report-row">
+                  {!user ? (
+                    <Button icon="lock" className="w-full" onClick={handleShowReport}>Посмотреть отчёт — войдите</Button>
+                  ) : (
+                    <Button
+                      icon={reportData ? "close" : "file"}
+                      className="w-full"
+                      onClick={handleShowReport}
+                      disabled={reportLoading}
+                    >
+                      {reportLoading
+                        ? <><span className="spin spin--sm" /> Загружаем отчёт…</>
+                        : reportData
+                          ? "Скрыть отчёт"
+                          : reportError ? "Повторить" : "Посмотреть отчёт"}
+                    </Button>
+                  )}
+                  <span className="report-cost" title="Стоимость AI-отчёта">
+                    <Icon name="credits" size={14} /><b>1</b>
+                  </span>
+                </div>
               </div>}
 
             </div>
           )}
 
-          {!showAnalysisExplainer && phase === "generating" && (
-            <div className="drawer__body drawer__body--center">
-              <span className="spin spin--lg" />
-              <h3>Генерируем AI-отчёт…</h3>
-              <p>Объясняем полученный результат на основе состава.</p>
-            </div>
-          )}
-
-          {!showAnalysisExplainer && phase === "report" && (() => {
+          {!showAnalysisExplainer && !!reportData && (() => {
             const sc = reportData?.score ?? score ?? 0
             const resultTone = toneOf(
               sc,
@@ -2501,7 +2516,11 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
 {!showAnalysisExplainer && (
               <section className="report-card drawer__inci">
                 <h4>Состав (INCI)</h4>
-                <p className="inci">{product.ingredients || "Состав не распознан"}</p>
+                <p className="inci">
+                  {product.ingredients
+                    ? highlightInci(product.ingredients, cautionIngredients)
+                    : "Состав не распознан"}
+                </p>
               </section>
               )}
 

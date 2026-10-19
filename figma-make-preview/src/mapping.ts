@@ -120,6 +120,7 @@ export function mapShelfItem(item: ShelfItem): Product {
     analysis_id: item.analysis_id ?? undefined,
     phase1_status: item.phase1_status || undefined,
     recommendation_status: item.recommendation_status || undefined,
+    caution_ingredients: item.caution_ingredients || undefined,
   } : undefined
   return {
     id: item.product_id,

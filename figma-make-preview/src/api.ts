@@ -104,6 +104,7 @@ export type ShelfItem = {
   verdict?: string | null
   has_report?: boolean
   needs_recheck?: boolean
+  caution_ingredients?: string[]
 }
 
 export type ShelfCategory = { key: string; title: string; items: ShelfItem[]; compatibility?: number | null }

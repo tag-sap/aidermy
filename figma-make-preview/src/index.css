@@ -317,15 +317,16 @@ h1 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em
 .search:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(22, 21, 15, 0.06); }
 
 /* iOS Safari зумит страницу при фокусе, если computed font-size поля < 16px.
-   Явно фиксируем порог на мобильных, чтобы никакие правили ниже его не снизили. */
-@media (max-width: 900px) {
-  input, select, textarea,
-  .search input,
-  .scan-form input, .scan-form textarea,
-  .field input,
-  .review-input {
-    font-size: 16px !important;
-  }
+   Порог 16px держим на ВСЕХ ширинах: планшеты и десктопные окна с touch тоже
+   масштабируют страницу. Никакое правило ниже не должно опускать его. */
+input, select, textarea,
+.search input,
+.scan-form input, .scan-form textarea,
+.field input,
+.review-input,
+.guest-search input {
+  font-size: 16px !important;
+  font-family: inherit;
 }
 
 .scan-methods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -3026,9 +3027,9 @@ select:focus-visible,
   margin: 0 auto;
   padding: clamp(56px, 9vw, 112px) clamp(20px, 5vw, 64px);
 }
-.guest-hero .eyebrow { color: #9fd3b0; }
+.guest-hero .eyebrow { color: var(--lime); }
 .guest-hero__title {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-weight: 400;
   font-size: clamp(28px, 4.4vw, 50px);
   line-height: 1.07;
@@ -3038,8 +3039,8 @@ select:focus-visible,
 }
 .guest-hero__lead { margin-top: 18px; font-size: clamp(15px, 1.6vw, 18px); color: #b9c2ba; }
 .guest-hero__actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
-.guest-hero .btn--primary { background: #9fd3b0; color: #11251b; }
-.guest-hero .btn--primary:hover { background: #b6dfc4; }
+.guest-hero .btn--primary { background: var(--lime); color: var(--ink); }
+.guest-hero .btn--primary:hover { background: var(--lime-strong); }
 .guest-hero .btn--secondary { background: transparent; border: 1px solid #3a423b; color: #f4f2ea; }
 .guest-hero .btn--secondary:hover { background: #1d211e; }
 .guest-hero__note { margin-top: 18px; font-size: 12.5px; color: #8e9a90; }
@@ -3104,7 +3105,8 @@ select:focus-visible,
   max-width: 1120px;
   margin: clamp(44px, 7vw, 84px) auto 0;
   padding: clamp(36px, 5vw, 56px) clamp(24px, 5vw, 56px);
-  background: var(--guest-green-soft);
+  background: var(--lime-soft);
+  border: 1px solid rgba(184, 220, 47, 0.28);
   border-radius: 22px;
 }
 .guest-cta h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(24px, 3vw, 34px); letter-spacing: -0.02em; }
@@ -3216,8 +3218,8 @@ select:focus-visible,
   gap: 12px;
   padding: clamp(22px, 4vw, 32px);
   border-radius: 18px;
-  background: var(--guest-green-soft);
-  border: 1px solid rgba(46, 91, 69, 0.12);
+  background: var(--lime-soft);
+  border: 1px solid rgba(184, 220, 47, 0.28);
 }
 .guest-save h2 {
   font-family: var(--font-display);
@@ -3225,7 +3227,7 @@ select:focus-visible,
   font-size: clamp(22px, 3vw, 30px);
   letter-spacing: -0.02em;
 }
-.guest-save p { color: #41544a; font-size: 13.5px; line-height: 1.6; max-width: 560px; }
+.guest-save p { color: var(--ink-2); font-size: 13.5px; line-height: 1.6; max-width: 560px; }
 .guest-save__actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .guest-save__restart { justify-self: start; }
 
@@ -3237,3 +3239,35 @@ select:focus-visible,
   .guest-result__score { gap: 14px; }
   .guest-save__actions .btn { width: 100%; justify-content: center; }
 }
+
+/* ===== Отчёт в карточке: раскрывается под результатом ===== */
+.drawer__report-row { display: flex; align-items: center; gap: 10px; }
+.drawer__report-row .btn { flex: 1; min-width: 0; }
+.report-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--lime-soft);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+.spin--sm { width: 14px; height: 14px; border-width: 2px; }
+
+.drawer__body--report,
+.drawer__report-inline {
+  animation: reportIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes reportIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer__body--report, .drawer__report-inline { animation: none; }
+}
+
+/* Ингредиенты из состава, требующие внимания */
+.inci__bad { color: var(--bad); font-weight: 650; }

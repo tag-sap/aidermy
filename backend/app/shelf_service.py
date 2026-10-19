@@ -1345,6 +1345,8 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             "phase1_status": (analysis or {}).get("phase1_status"),
             "recommendation_status": (analysis or {}).get("recommendation_status"),
             "verdict": (analysis or {}).get("verdict") or "",
+            # Для подсветки «плохих» ингредиентов прямо в составе.
+            "caution_ingredients": (analysis or {}).get("caution_ingredients") or [],
         })
 
     from .face_taxonomy import MAIN_FACE_TAXONOMY
