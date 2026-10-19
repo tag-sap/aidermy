@@ -39,6 +39,7 @@ class AnalysisService:
         interactions: List[Dict[str, Any]] | None = None,
         priorities_are_canonical: bool = False,
         saturation_scale: float | None = None,
+        position_config: Dict[str, Any] | None = None,
     ):
         from .axes import canonicalize_weights
 
@@ -75,6 +76,7 @@ class AnalysisService:
             # ровно так же, как для «прошедших» товаров. Phase 1 при этом
             # вычисляется ниже отдельно — только для диагностики.
             pre_score_check=phase1_gate if PHASE1_AFFECTS_SCORE else None,
+            position_config=position_config,
         )
 
         if PHASE1_AFFECTS_SCORE:

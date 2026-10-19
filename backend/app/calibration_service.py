@@ -535,6 +535,7 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
 
     override = config_override or {}
     saturation = float(override.get("saturation_scale", SATURATION_SCALE))
+    position_config = override.get("position_config")
     engine = DecisionEngine()
     try:
         from .ingredient_repository import IngredientRepository
@@ -572,12 +573,14 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
                 knowledge=knowledge,
                 interactions=interactions,
                 saturation_scale=saturation,
+                position_config=position_config,
             )
         except TypeError:
             res = engine.analyze(
                 p["name"], p.get("ingredients") or "", {"structured": structured},
                 skin_type=structured.get("skin_type") or "Нормальная",
                 knowledge=knowledge,
+                position_config=position_config,
             )
         results.append({
             "product": p,
@@ -595,6 +598,7 @@ def run_score_engine(cases: List[Dict[str, Any]], config_override: Optional[Dict
                 "interaction_breakdown": res.get("interaction_breakdown") or [],
                 "interaction_scoring_version": res.get("interaction_scoring_version"),
                 "saturation_scale": saturation,
+                "position_model": res.get("position_model"),
             },
         })
     return results

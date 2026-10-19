@@ -180,6 +180,7 @@ class DecisionEngine:
         knowledge: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
         interactions: Optional[List[Dict[str, Any]]] = None,
         saturation_scale: float | None = None,
+        position_config: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         profile = dict(profile or {})
         if not profile.get("skin_type") and skin_type:
@@ -196,6 +197,7 @@ class DecisionEngine:
             interactions=interactions,
             priorities_are_canonical=True,
             saturation_scale=saturation_scale,
+            position_config=position_config,
         )
         raw_score = result.get("score")
         score = int(raw_score) if raw_score is not None else None

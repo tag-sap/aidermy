@@ -21,11 +21,76 @@ def clamp(value: float, minimum: float = CLAMP_MIN, maximum: float = CLAMP_MAX) 
     return max(minimum, min(maximum, value))
 
 
-def calculate_position_weight(position: int, total: int) -> float:
+POSITION_MODES = ("legacy", "power", "two_phase", "none")
+POSITION_APPLY_TO = ("both", "negative")
+
+
+def normalize_position_config(config: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    """Валидирует конфиг позиционного слоя; None = текущее production-поведение.
+
+    Конфиг — часть идентичности расчёта: попадает в результат как position_model.
+    Неизвестные значения отбрасываются к безопасному дефолту.
+    """
+    if not config:
+        return None
+    mode = str(config.get("mode") or "legacy").strip().lower()
+    if mode not in POSITION_MODES:
+        mode = "legacy"
+    apply_to = str(config.get("apply_to") or "both").strip().lower()
+    if apply_to not in POSITION_APPLY_TO:
+        apply_to = "both"
+    normalized: Dict[str, Any] = {"mode": mode, "apply_to": apply_to}
+    if mode in {"power", "two_phase"}:
+        normalized["min_weight"] = clamp(float(config.get("min_weight", 0.2)), 0.0, 1.0)
+    if mode == "power":
+        normalized["exponent"] = max(float(config.get("exponent", 1.0)), 0.0)
+    if mode == "two_phase":
+        normalized["early_fraction"] = clamp(float(config.get("early_fraction", 0.3)), 0.0, 1.0)
+    return normalized
+
+
+def calculate_position_weight(
+    position: int,
+    total: int,
+    config: Dict[str, Any] | None = None,
+) -> float:
+    """Вес вклада ингредиента по его позиции в исходном INCI.
+
+    Без config — текущая production-формула (legacy):
+        clamp(POSITION_WEIGHT_MAX - (position / total) * POSITION_WEIGHT_DECAY)
+
+    config (экспериментальные режимы):
+        power      — плавный спад min_weight + (1-min_weight) * (1-rel)**exponent
+        two_phase  — 1.0 в ранней части (до early_fraction), затем линейный спад до min_weight
+        none       — позиция не влияет (w = 1.0), используется только для ablation
+
+    Позиция — косвенный сигнал: это НЕ концентрация и НЕ граница 1%.
+    """
     if total <= 1:
         return POSITION_WEIGHT_SINGLE
-    normalized = position / max(total, 1)
-    return clamp(POSITION_WEIGHT_MAX - normalized * POSITION_WEIGHT_DECAY)
+    if not config:
+        normalized = position / max(total, 1)
+        return clamp(POSITION_WEIGHT_MAX - normalized * POSITION_WEIGHT_DECAY)
+
+    mode = str(config.get("mode") or "legacy")
+    if mode == "none":
+        return 1.0
+    if mode == "legacy" or mode not in {"power", "two_phase"}:
+        normalized = position / max(total, 1)
+        return clamp(POSITION_WEIGHT_MAX - normalized * POSITION_WEIGHT_DECAY)
+
+    rel = (position - 1) / max(total - 1, 1)
+    min_weight = float(config.get("min_weight", 0.2))
+
+    if mode == "power":
+        exponent = float(config.get("exponent", 1.0))
+        return clamp(min_weight + (1.0 - min_weight) * ((1.0 - rel) ** exponent))
+
+    early_fraction = float(config.get("early_fraction", 0.3))
+    if rel <= early_fraction:
+        return 1.0
+    tail = (rel - early_fraction) / max(1.0 - early_fraction, 1e-9)
+    return clamp(max(min_weight, 1.0 - (1.0 - min_weight) * tail))
 
 
 def _ingredient_matches(item: str, ingredients: List[str]) -> bool:
@@ -189,6 +254,7 @@ def score_product_against_profile_canonical(
     interactions: List[Dict[str, Any]] | None = None,
     saturation_scale: float | None = None,
     pre_score_check: Callable[[Dict[str, Any]], Dict[str, Any]] | None = None,
+    position_config: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Канонический Scoring Vector на 6 осях (axes.AXES), benefit-oriented.
 
@@ -199,6 +265,8 @@ def score_product_against_profile_canonical(
     from .axes import AXES
     from .profile_resolver import normalize_scoring_profile, resolve_personal_profile
 
+    position_config = normalize_position_config(position_config)
+    position_model = position_config or {'mode': 'legacy', 'apply_to': 'both'}
     user_profile = normalize_scoring_profile(user_profile)
     structured_profile = user_profile.get("structured")
     if isinstance(structured_profile, dict):
@@ -218,6 +286,7 @@ def score_product_against_profile_canonical(
             'hard_flags': [],
             'interaction_breakdown': [],
             'interaction_scoring_version': _interaction_scoring_version(),
+            'position_model': position_model,
         }
         if pre_score_check is not None:
             phase1_result = pre_score_check(empty_result)
@@ -254,7 +323,9 @@ def score_product_against_profile_canonical(
             unknown_factors.append({'ingredient': ingredient, 'position': index, 'reason': 'unknown_ingredient'})
             continue
 
-        position_weight = calculate_position_weight(index, len(valid_ingredients))
+        position_weight = calculate_position_weight(
+            index, len(valid_ingredients), position_config
+        )
         for axis, claim in ingredient_claims.items():
             axis_direction = str(claim.get('direction', 'neutral')).lower()
             strength = float(claim.get('strength', 0.0) or 0.0)
@@ -262,7 +333,16 @@ def score_product_against_profile_canonical(
             sign = _canonical_direction_sign(axis, axis_direction)
             if sign == 0.0:
                 continue
-            weighted_value = strength * confidence * position_weight
+            # Позиционный слой ослабляет вклад, но НЕ классификацию: знак оси и
+            # профильные пороги остаются прежними. apply_to="negative" — ablation.
+            effective_weight = position_weight
+            if (
+                position_config
+                and position_config.get('apply_to') == 'negative'
+                and sign > 0
+            ):
+                effective_weight = 1.0
+            weighted_value = strength * confidence * effective_weight
 
             # Product negativity is independent of the user profile.
             # Profile risk selects relevant Phase 1 axes; it must not amplify
@@ -280,7 +360,7 @@ def score_product_against_profile_canonical(
                 'direction': 'positive' if sign > 0 else 'negative',
                 'strength': strength,
                 'confidence': confidence,
-                'position_weight': round(position_weight, 3),
+                'position_weight': round(effective_weight, 3),
                 'profile_multiplier': profile_multiplier,
                 'axis_multiplier': axis_multiplier,
                 'weighted_value': round(weighted_value, 6),
@@ -501,6 +581,7 @@ def score_product_against_profile_canonical(
         'hard_flags': hard_flags,
         'interaction_breakdown': interaction_breakdown,
         'interaction_scoring_version': _interaction_scoring_version(),
+        'position_model': position_model,
         'phase1': phase1_result,
         'phase1_status': phase1_result.get('status') if phase1_result else None,
         'phase1_version': phase1_result.get('version') if phase1_result else None,
@@ -514,6 +595,7 @@ def score_product_against_profile(
     priority_weights: Dict[str, float],
     interaction_knowledge: Dict[str, Dict[str, Any]] | None = None,
     interactions: List[Dict[str, Any]] | None = None,
+    position_config: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """LEGACY compatibility wrapper: legacy → canonical → scoring → legacy.
 
@@ -526,7 +608,8 @@ def score_product_against_profile(
     canonical_knowledge = canonicalize_knowledge_map(knowledge)
     canonical_weights = canonicalize_weights(priority_weights)
     result = score_product_against_profile_canonical(
-        ingredients, canonical_knowledge, user_profile, canonical_weights, interactions=interactions
+        ingredients, canonical_knowledge, user_profile, canonical_weights,
+        interactions=interactions, position_config=position_config,
     )
     result['dimensions'] = legacyize_dimensions(result['dimensions'])
     result['positive_factors'] = [_legacyize_factor(f) for f in result['positive_factors']]
