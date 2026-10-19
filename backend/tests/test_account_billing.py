@@ -39,6 +39,15 @@ class BillingGuardTests(unittest.IsolatedAsyncioTestCase):
         cur.execute("DELETE FROM users WHERE email LIKE ?", (EMAIL_PREFIX + "%",))
         conn.commit()
         conn.close()
+        # Тестовые согласия не должны оставаться без пользователя.
+        try:
+            conn = get_connection(AIDERMY_DB)
+            cur = conn.cursor()
+            cur.execute("DELETE FROM user_consents WHERE user_id NOT IN (SELECT id FROM users)")
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     async def test_catalog_reports_prices_not_defined(self):
         catalog = await billing_routes.billing_catalog()
