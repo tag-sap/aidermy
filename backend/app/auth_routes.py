@@ -131,6 +131,10 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     name: Optional[str] = ""
+    # Явное согласие с публичной офертой. По умолчанию false — клиент не может
+    # «случайно» согласиться, сервер записывает согласие только при true.
+    accept_offer: bool = False
+    offer_version: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -168,6 +172,18 @@ class TokenResponse(BaseModel):
     token_type: str
     user: UserResponse
 
+
+class ConsentRequest(BaseModel):
+    consent_type: str
+    context: str = ""
+    document_version: Optional[str] = None
+
+
+class DeleteAccountRequest(BaseModel):
+    # Явное подтверждение: без него удаление не запускается.
+    confirm: str = ""
+    password: Optional[str] = None
+
 class PendingProductRequest(BaseModel):
     product_name: str
     ingredients: str
@@ -204,6 +220,29 @@ async def google_callback(request: Request):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+def _record_registration_consent(user_id: int, client_version: Optional[str]) -> None:
+    """Фиксирует согласие с офертой при регистрации.
+
+    Если запись согласия не удалась, созданный аккаунт удаляется: нельзя
+    оставлять пользователя без доказательства принятия условий.
+    """
+    from .consents import record_consent
+
+    try:
+        record_consent(user_id, "offer", "registration", client_version)
+    except Exception as exc:
+        try:
+            from .account_deletion import delete_user_account
+
+            delete_user_account(user_id)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось сохранить согласие с офертой. Попробуйте ещё раз.",
+        ) from exc
+
 
 # === YANDEX ID ===
 def _yandex_configured() -> bool:
@@ -301,6 +340,69 @@ async def yandex_callback(request: Request):
     return RedirectResponse(url=oauth_success_redirect(app_url, access_token))
 
 
+# === СОГЛАСИЯ И УДАЛЕНИЕ АККАУНТА ===
+@router.get("/consents")
+async def list_consents(current_user: dict = Depends(get_current_user)):
+    from .consents import consent_history
+
+    return {"consents": consent_history(current_user["id"])}
+
+
+@router.post("/consents")
+async def accept_consent(payload: ConsentRequest, current_user: dict = Depends(get_current_user)):
+    """Записывает согласие пользователя. Версия проверяется на сервере."""
+    from .consents import ConsentError, record_consent
+
+    try:
+        row = record_consent(
+            current_user["id"],
+            payload.consent_type,
+            payload.context,
+            payload.document_version,
+        )
+    except ConsentError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    return {"status": "ok", "consent": row}
+
+
+@router.post("/account/delete")
+async def delete_account(
+    payload: DeleteAccountRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Удаляет аккаунт текущего пользователя и связанные данные.
+
+    user_id берётся только из токена — удалить чужой аккаунт нельзя.
+    """
+    from .account_deletion import delete_user_account
+
+    if (payload.confirm or "").strip().upper() != "УДАЛИТЬ":
+        raise HTTPException(
+            status_code=400,
+            detail="Подтвердите удаление: введите слово УДАЛИТЬ",
+        )
+
+    user = get_user_by_id(current_user["id"])
+    if not user:
+        raise HTTPException(status_code=404, detail="Аккаунт не найден")
+
+    password_hash = user.get("password_hash") or ""
+    if password_hash and password_hash != "oauth_user":
+        if not payload.password or not verify_password(payload.password, password_hash):
+            raise HTTPException(status_code=403, detail="Неверный пароль")
+
+    try:
+        result = delete_user_account(current_user["id"])
+    except Exception as exc:
+        print(f"[ACCOUNT] delete failed: {exc!r}")
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось удалить аккаунт. Напишите на aidermy@yandex.com.",
+        ) from exc
+
+    return {"status": "ok", "deleted": result.get("deleted", {})}
+
+
 # === РЕГИСТРАЦИЯ ===
 @router.post("/register")
 async def register(user_data: UserRegister, request: Request):
@@ -319,6 +421,12 @@ async def register(user_data: UserRegister, request: Request):
     if not _rate_allow(f"register:{_client_ip(request)}", 5, 600):
         raise HTTPException(status_code=429, detail="Слишком много попыток регистрации. Попробуйте позже.")
 
+    if not user_data.accept_offer:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Примите условия публичной оферты, чтобы создать аккаунт",
+        )
+
     existing = get_user_by_email(email)
     if existing:
         raise HTTPException(
@@ -328,6 +436,7 @@ async def register(user_data: UserRegister, request: Request):
 
     if not _require_email_verification():
         user_id = create_user(email=email, password=user_data.password, name=user_data.name or "")
+        _record_registration_consent(user_id, user_data.offer_version)
         user = get_user_by_id(user_id) or {}
         access_token = create_access_token(data={"sub": str(user_id)})
         return {
@@ -342,6 +451,7 @@ async def register(user_data: UserRegister, request: Request):
         password=user_data.password,
         name=user_data.name
     )
+    _record_registration_consent(user_id, user_data.offer_version)
     
     try:
         yag = yagmail.SMTP(

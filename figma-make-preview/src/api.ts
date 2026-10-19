@@ -191,7 +191,7 @@ async function request<T>(path: string, options: RequestInit = {}, _retried = fa
 
 export const api = {
   // ===== auth =====
-  async register(email: string, password: string, name: string) {
+  async register(email: string, password: string, name: string, acceptOffer = false) {
     return request<{
       verification_required?: boolean
       message?: string
@@ -201,7 +201,37 @@ export const api = {
       user?: ApiUser
     }>("/auth/register", {
       method: "POST",
-      body: JSON.stringify({ email, password, name }),
+      // Согласие с офертой передаётся явным флагом; сервер фиксирует его сам.
+      body: JSON.stringify({ email, password, name, accept_offer: acceptOffer }),
+    })
+  },
+  async recordConsent(consentType: string, context = "") {
+    return request<{ status: string }>("/auth/consents", {
+      method: "POST",
+      body: JSON.stringify({ consent_type: consentType, context }),
+    })
+  },
+  async deleteAccount(confirm: string, password?: string) {
+    return request<{ status: string; deleted: Record<string, number> }>("/auth/account/delete", {
+      method: "POST",
+      body: JSON.stringify({ confirm, password }),
+    })
+  },
+  async billingCatalog() {
+    return request<{
+      provider: string
+      currency: string
+      prices_defined: boolean
+      payments_configured: boolean
+      plans: { key: string; title: string; monthly_points: number; price: number | null; available: boolean }[]
+      packages: { id: string; title: string; checks?: number | null; price?: number | null }[]
+      note: string
+    }>("/billing/catalog")
+  },
+  async createOrder(payload: { plan: string; kind?: string }) {
+    return request<{ status: string }>("/billing/orders", {
+      method: "POST",
+      body: JSON.stringify({ kind: "subscription", ...payload }),
     })
   },
   async refresh() {

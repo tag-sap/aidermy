@@ -3,6 +3,7 @@ import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
 import { api, ApiError, setToken, getToken, type ApiProduct, type ReportResult, type Review } from "./api"
+import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import {
@@ -1989,8 +1990,8 @@ function Questionnaire({ onDone }: { onDone: (p: { skinType: string; age?: strin
     </div>
   )
 }
-function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
-  user: User | null; onAuth: () => void; onPricing: () => void; onLogout: () => void; onPoints: () => void
+function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: {
+  user: User | null; onAuth: () => void; onPricing: () => void; onLogout: () => void; onPoints: () => void; onDelete: () => void
 }) {
   const [quiz, setQuiz] = useState(false)
   const [skinType, setSkinType] = useState(getUserProfile().skinType)
@@ -2032,7 +2033,7 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints }: {
   return (
     <div className="page">
       <PageHeading eyebrow="Профиль" title="Профиль кожи" lead="На основе профиля рассчитывается совместимость каждого продукта."
-        action={<div className="page-head__actions"><Button icon="user" onClick={() => setQuiz(true)}>Перепройти опрос</Button><Button variant="ghost" icon="logout" onClick={onLogout}>Выйти</Button></div>} />
+        action={<div className="page-head__actions"><Button icon="user" onClick={() => setQuiz(true)}>Перепройти опрос</Button><Button variant="ghost" icon="logout" onClick={onLogout}>Выйти</Button><Button variant="ghost" onClick={onDelete}>Удалить аккаунт</Button></div>} />
       <div className="account-bar">
         <div><p className="eyebrow">Аккаунт</p><strong>{user.name}</strong><span>{user.points} баллов · тариф {plan?.title}</span></div>
         <div className="account-bar__actions">
@@ -2671,11 +2672,17 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
+  // Согласие с офертой: по умолчанию НЕ отмечено.
+  const [acceptOffer, setAcceptOffer] = useState(false)
 
   const submit = async () => {
     setError("")
     if (!email.trim() || !pass) { setError("Введите email и пароль"); return }
     if (mode === "register" && !name.trim()) { setError("Введите имя"); return }
+    if (mode === "register" && !acceptOffer) {
+      setError("Примите условия публичной оферты, чтобы продолжить")
+      return
+    }
     setLoading(true)
     try {
       if (mode === "login") {
@@ -2685,7 +2692,7 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
         const plan: Plan = res.user.plan === "pro" || res.user.plan === "plus" ? res.user.plan : "free"
         onSuccess({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: res.user.balance || 0 })
       } else {
-        const res = await api.register(email.trim(), pass, name.trim())
+        const res = await api.register(email.trim(), pass, name.trim(), acceptOffer)
         if (res.access_token) {
           setToken(res.access_token)
           const displayName = (res.user && res.user.name) || name.trim() || email.trim().split("@")[0]
@@ -2731,6 +2738,21 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
           )}
           <label className="field"><span>Email</span><input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /></label>
           <label className="field"><span>Пароль</span><input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="••••••••" /></label>
+          {mode === "register" && (
+            <label className="legal-consent">
+              <input
+                type="checkbox"
+                checked={acceptOffer}
+                onChange={(e) => setAcceptOffer(e.target.checked)}
+              />
+              <span>
+                Принимаю{" "}
+                <a href="/offer" target="_blank" rel="noopener noreferrer">публичную оферту</a>{" "}
+                и{" "}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer">политику обработки персональных данных</a>
+              </span>
+            </label>
+          )}
           {error && <p className="auth-modal__error">{error}</p>}
           <Button className="w-full" onClick={submit} disabled={loading}>{loading ? "Подождите…" : mode === "login" ? "Войти" : "Зарегистрироваться"}</Button>
           <div className="auth-modal__divider">или</div>
@@ -2755,6 +2777,33 @@ function PricingModal({ user, onClose, onSelectPlan }: {
   user: User | null; onClose: () => void; onSelectPlan: (p: Plan) => void
 }) {
   const currentPlan = user?.plan ?? "free"
+  const [catalog, setCatalog] = useState<{ prices_defined: boolean; note: string } | null>(null)
+  // Согласие перед оплатой: по умолчанию НЕ отмечено.
+  const [acceptPayments, setAcceptPayments] = useState(false)
+  const [checkoutError, setCheckoutError] = useState("")
+  const [checkingOut, setCheckingOut] = useState(false)
+
+  useEffect(() => {
+    api.billingCatalog().then((c) => setCatalog(c)).catch(() => setCatalog(null))
+  }, [])
+
+  const canBuy = Boolean(catalog?.prices_defined)
+
+  const handleCheckout = async (plan: Plan) => {
+    if (!acceptPayments) { setCheckoutError("Подтвердите условия оплаты"); return }
+    setCheckoutError("")
+    setCheckingOut(true)
+    try {
+      await api.recordConsent("offer", "checkout")
+      await api.createOrder({ plan })
+      onSelectPlan(plan)
+    } catch (e) {
+      setCheckoutError(e instanceof Error ? e.message : "Оплата пока недоступна")
+    } finally {
+      setCheckingOut(false)
+    }
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal modal--wide" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
@@ -2763,6 +2812,20 @@ function PricingModal({ user, onClose, onSelectPlan }: {
           <p className="eyebrow">Подписка</p>
           <h2>Тарифы</h2>
           <p className="pricing__hint">Сравните возможности тарифов и выберите подходящий. Текущий тариф выделен цветом.</p>
+          <div className="payment-note">
+            <p>{catalog?.note || "Цены ещё не утверждены. Покупка недоступна до публикации цен."}</p>
+            <p>
+              Условия:{" "}
+              <a href="/payment" target="_blank" rel="noopener noreferrer">оплата и возвраты</a>
+              {" · "}
+              <a href="/offer" target="_blank" rel="noopener noreferrer">публичная оферта</a>
+            </p>
+          </div>
+          <label className="legal-consent">
+            <input type="checkbox" checked={acceptPayments} onChange={(e) => setAcceptPayments(e.target.checked)} />
+            <span>Принимаю условия оплаты и публичной оферты</span>
+          </label>
+          {checkoutError && <p className="auth-modal__error" role="alert">{checkoutError}</p>}
           <div className="matrix">
             <div className="matrix__row matrix__row--head">
               <span>Возможность</span>
@@ -2798,9 +2861,20 @@ function PricingModal({ user, onClose, onSelectPlan }: {
                     ))}
                   </ul>
                   {p.key !== "free" && (
-                    <Button small variant={p.key === "pro" ? "primary" : "secondary"} onClick={() => onSelectPlan(p.key)} disabled={current}>
-                      {current ? "Текущий" : `Перейти на ${p.title}`}
-                    </Button>
+                    canBuy ? (
+                      <Button
+                        small
+                        variant={p.key === "pro" ? "primary" : "secondary"}
+                        onClick={() => handleCheckout(p.key)}
+                        disabled={current || !acceptPayments || checkingOut}
+                      >
+                        {current ? "Текущий" : checkingOut ? "Оформляем…" : `Оплатить ${p.title}`}
+                      </Button>
+                    ) : (
+                      <Button small variant="secondary" disabled>
+                        {current ? "Текущий" : "Цена не утверждена"}
+                      </Button>
+                    )
                   )}
                 </div>
               )
@@ -3401,6 +3475,61 @@ function HelpModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+function DeleteAccountModal({ onClose, onDeleted }: { onClose: () => void; onDeleted: () => void }) {
+  const [confirm, setConfirm] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const ready = confirm.trim().toUpperCase() === "УДАЛИТЬ"
+
+  const submit = async () => {
+    if (!ready || loading) return
+    setLoading(true)
+    setError("")
+    try {
+      await api.deleteAccount(confirm.trim(), password || undefined)
+      onDeleted()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось удалить аккаунт")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal__close" onClick={onClose} aria-label="Закрыть"><Icon name="close" size={18} /></button>
+        <div className="auth-modal">
+          <p className="eyebrow">Аккаунт</p>
+          <h2>Удалить аккаунт</h2>
+          <div className="danger-note">
+            Будут удалены профиль кожи, история проверок, полка, отчёты, загруженные фото и привязки входа.
+            Действие необратимо.
+          </div>
+          <label className="field">
+            <span>Введите слово УДАЛИТЬ</span>
+            <input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="УДАЛИТЬ" autoComplete="off" />
+          </label>
+          <label className="field">
+            <span>Пароль (для входа по паролю)</span>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
+          </label>
+          {error && <p className="auth-modal__error" role="alert">{error}</p>}
+          <Button className="w-full" onClick={submit} disabled={!ready || loading}>
+            {loading ? "Удаляем…" : "Удалить аккаунт навсегда"}
+          </Button>
+          <button type="button" className="guest-link" onClick={onClose}>Отмена</button>
+          <p className="panel__note">
+            Нет доступа к аккаунту? Напишите на{" "}
+            <a href="mailto:aidermy@yandex.com">aidermy@yandex.com</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [items, setItems] = useState<Product[]>([])
   const [shelfItems, setShelfItems] = useState<Product[]>([])
@@ -3408,6 +3537,8 @@ export default function App() {
   const [removeReason, setRemoveReason] = useState("")
   const [clearCabinet, setClearCabinet] = useState<CabinetKey | null>(null)
   const [page, setPage] = useState<Page>("home")
+  // Прямое открытие /offer, /privacy и т.п. обрабатывается по pathname.
+  const [legalPath, setLegalPath] = useState<string | null>(() => legalDocFromPath(window.location.pathname))
   const [open, setOpen] = useState<Product | null>(null)
   const [morphOrigin, setMorphOrigin] = useState<HTMLElement | null>(null)
   const [checkingIds, setCheckingIds] = useState<Set<number>>(new Set())
@@ -3420,6 +3551,7 @@ export default function App() {
   const [guestBusy, setGuestBusy] = useState(false)
   const [guestError, setGuestError] = useState("")
   const [authModal, setAuthModal] = useState<null | "login" | "register">(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [pricingOpen, setPricingOpen] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [autoPickResults, setAutoPickResults] = useState<Product[] | null>(null)
@@ -3561,6 +3693,25 @@ export default function App() {
       return () => { document.body.style.overflow = prevBody; document.documentElement.style.overflow = prevHtml }
     }
   }, [open, authModal, pricingOpen, addModalOpen, autoPickResults, pointsOpen, removeProduct, clearCabinet])
+
+  useEffect(() => {
+    const onPop = () => setLegalPath(legalDocFromPath(window.location.pathname))
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [])
+
+  const openLegal = (path: string) => {
+    const slug = (path || "/").replace(/^\/+/, "").replace(/\/+$/, "")
+    if (!slug) {
+      window.history.pushState(null, "", "/")
+      setLegalPath(null)
+      window.scrollTo({ top: 0 })
+      return
+    }
+    window.history.pushState(null, "", `/${slug}`)
+    setLegalPath(slug)
+    window.scrollTo({ top: 0 })
+  }
 
   const navigate = (p: Page) => {
     // Гостю доступна только «Главная»: остальные разделы требуют входа.
@@ -3704,6 +3855,18 @@ export default function App() {
         .finally(() => resetGuestFlow())
     }
   }
+  const handleAccountDeleted = () => {
+    setDeleteOpen(false)
+    resetGuestFlow()
+    setToken(null)
+    setUser(null)
+    setShelfItems([])
+    setItems((cur) => cur.map((p) => ({ ...p, match: undefined, state: undefined, shelf_id: undefined })))
+    setPage("home")
+    setToast("Аккаунт удалён")
+    window.scrollTo({ top: 0 })
+  }
+
   const handleLogout = () => {
     setToken(null)
     setUser(null)
@@ -3806,6 +3969,10 @@ export default function App() {
   }
   const goToCatalog = (q: string) => { setQuery(q); setPage("catalog"); window.scrollTo({ top: 0 }) }
 
+  if (legalPath) {
+    return <LegalPage slug={legalPath} onNavigate={openLegal} />
+  }
+
   return (
     <div className={`app-shell ${user ? "" : "app-shell--guest"}`}>
       <LoadingScreen done={!loading} />
@@ -3852,14 +4019,16 @@ export default function App() {
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
-            {user && page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} />}
+            {user && page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} onDelete={() => setDeleteOpen(true)} />}
           </div>
         </main>
+        <SiteFooter onNavigate={openLegal} />
       </div>
       {user && <BottomNav page={page} onNavigate={navigate} />}
       {open && <ProductDrawer key={open.id} product={open} morphOrigin={morphOrigin} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onCheckFinished={onCheckFinished} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
+      {deleteOpen && <DeleteAccountModal onClose={() => setDeleteOpen(false)} onDeleted={handleAccountDeleted} />}
       {pointsOpen && <PointsModal user={user} onClose={() => setPointsOpen(false)} onTopUp={handleTopUp} />}
       {addModalOpen && (
         <ShelfAddModal

@@ -576,6 +576,14 @@ async def upload_product_image(
     return {"url": url, "key": key, "content_type": "image/jpeg", "bytes": len(payload)}
 
 
+@app.get("/api/legal/meta")
+async def legal_meta_endpoint():
+    """Версии юридических документов и статус реквизитов для фронтенда."""
+    from .legal_documents import legal_meta
+
+    return legal_meta()
+
+
 @app.get("/api/brands")
 async def get_brands(q: str = ""):
     data = await get_categories()
