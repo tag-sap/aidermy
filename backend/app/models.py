@@ -69,6 +69,8 @@ class CheckResponse(BaseModel):
     report: Optional[str] = None
     analysis_id: Optional[int] = None
     goal_evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    # Трассировка замещения взаимодействий (None, если interactions не применялись).
+    interaction_replacement: Optional[Dict[str, Any]] = None
 
 class CheckWithIngredientsRequest(BaseModel):
     product_name: str

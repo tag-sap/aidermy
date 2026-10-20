@@ -555,6 +555,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'phase1_violations': (deterministic.get('phase1') or {}).get('violations') or [],
         'phase1_branches': (deterministic.get('phase1') or {}).get('branches') or {},
         'phase1_version': deterministic.get('phase1_version'),
+        'interaction_replacement': deterministic.get('interaction_replacement'),
         # Полный deterministic-результат Score Engine — источник истины для Report.
         'deterministic': deterministic,
     }

@@ -402,6 +402,9 @@ async def analyze_composition_endpoint(
             save_ingredients(request.product_name, ingredients_str, slug)
 
         user_id = current_user.get("id") if current_user else None
+        # Списание балла за проверку: тот же учёт, что и в /api/check.
+        _charge_check(user_id, request.product_name)
+
         conn_products = get_connection(PRODUCTS_DB)
         existing_product = conn_products.execute(
             "SELECT id, slug FROM products WHERE name = ? OR slug = ?",
@@ -640,12 +643,7 @@ async def check_product(
                 print(f"[IMAGE] save failed: {exc!r}")
 
         # Списание балла за проверку (Слой 1).
-        if user_id:
-            try:
-                from .database import change_balance
-                change_balance(user_id, -1, "spend", f"Проверка: {request.product_name[:60]}")
-            except Exception:
-                pass
+        _charge_check(user_id, request.product_name)
 
         # Сохраняем СИСТЕМНУЮ проверку (Слой 1) в актуальный User Analysis.
         # Описание (report) НЕ сохраняется здесь — оно запрашивается отдельно.
@@ -687,6 +685,7 @@ async def check_product(
             analysis_id=analysis_id,
             phase1_status=result.get("phase1_status"),
             recommendation_status=result.get("recommendation_status"),
+            interaction_replacement=result.get("interaction_replacement"),
             pending=pending,
         )
     except HTTPException:
@@ -746,6 +745,10 @@ async def check_with_ingredients(
             except Exception as exc:
                 print(f"[IMAGE] save failed: {exc!r}")
 
+        # Списание балла за проверку (Слой 1): то же правило, что и в /api/check,
+        # чтобы второй вход не стал бесплатным обходом лимита.
+        _charge_check(user_id, check_request.product_name)
+
         # Отправляем в модерацию
         if check_request.ingredients and result.get("score") is not None:
             save_pending_product(
@@ -795,6 +798,7 @@ async def check_with_ingredients(
             analysis_id=analysis_id,
             phase1_status=result.get("phase1_status"),
             recommendation_status=result.get("recommendation_status"),
+            interaction_replacement=result.get("interaction_replacement"),
             pending=pending,
         )
         
@@ -1264,6 +1268,22 @@ def _profile_from_user(user: dict) -> dict:
         result["structured"] = structured
         result["age"] = result.get("age") or structured.get("age") or ""
     return result
+
+
+def _charge_check(user_id, product_name: str) -> None:
+    """Списывает один балл за системную проверку (Слой 1).
+
+    Списание атомарное: две параллельные проверки не могут израсходовать один
+    и тот же балл, баланс не уходит в минус. Если баллов нет, проверка не
+    блокируется — бесплатный доступ сохраняется как прежде.
+    """
+    if not user_id:
+        return
+    try:
+        from .database import change_balance
+        change_balance(user_id, -1, "spend", f"Проверка: {(product_name or '')[:60]}")
+    except Exception as exc:
+        print(f"[BILLING] spend failed: {exc!r}")
 
 
 def _guest_gate(guest_token: str) -> dict:
