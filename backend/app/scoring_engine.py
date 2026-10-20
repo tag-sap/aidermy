@@ -232,6 +232,8 @@ def score_product_against_profile_canonical(
     dimensions = {axis: 0.0 for axis in AXES}
     axis_positive: Dict[str, List[float]] = {axis: [] for axis in AXES}
     axis_negative: Dict[str, List[float]] = {axis: [] for axis in AXES}
+    # Individual effects by axis: нужен слою замещения (interaction replacement).
+    individual_by_axis: Dict[str, List[Dict[str, Any]]] = {axis: [] for axis in AXES}
     positive_factors: List[Dict[str, Any]] = []
     negative_factors: List[Dict[str, Any]] = []
     unknown_factors: List[Dict[str, Any]] = []
@@ -263,6 +265,13 @@ def score_product_against_profile_canonical(
             if sign == 0.0:
                 continue
             weighted_value = strength * confidence * position_weight
+            individual_by_axis[axis].append({
+                'ingredient': ingredient_key,
+                'sign': sign,
+                'value': weighted_value,
+                'strength': strength,
+                'confidence': confidence,
+            })
 
             # Product negativity is independent of the user profile.
             # Profile risk selects relevant Phase 1 axes; it must not amplify
@@ -319,23 +328,68 @@ def score_product_against_profile_canonical(
 
     interaction_breakdown: List[Dict[str, Any]] = []
     adjusted_agg: Dict[str, float] = {}
+    interaction_replacement = None
     if interactions:
         from . import interaction_scoring
-        if interaction_scoring.INTERACTION_SCORING_ENABLED:
+        if (
+            interaction_scoring.INTERACTION_SCORING_ENABLED
+            and interaction_scoring.INTERACTION_REPLACEMENT_ENABLED
+        ):
+            # Замещение: пара заменяет индивидуальные эффекты только на своей оси.
+            replacement = interaction_scoring.apply_interaction_replacements(
+                individual_by_axis, interactions
+            )
+            if replacement["applied"]:
+                axis_positive = replacement["positive"]
+                axis_negative = replacement["negative"]
+                replaced_keys = {
+                    (ingredient, item["axis"])
+                    for item in replacement["applied"]
+                    for ingredient in item["pair"]
+                }
+                positive_factors = [
+                    f for f in positive_factors
+                    if (normalize_ingredient_name(str(f.get("ingredient") or "")), f.get("property"))
+                    not in replaced_keys
+                ]
+                negative_factors = [
+                    f for f in negative_factors
+                    if (normalize_ingredient_name(str(f.get("ingredient") or "")), f.get("property"))
+                    not in replaced_keys
+                ]
+                for item in replacement["applied"]:
+                    sign = interaction_scoring.interaction_sign(item["axis"], item.get("direction"))
+                    factor = {
+                        "ingredient": " + ".join(item["pair"]),
+                        "property": item["axis"],
+                        "direction": "positive" if sign > 0 else "negative",
+                        "strength": item["combined_effect"],
+                        "confidence": item["confidence"],
+                        "position_weight": 1.0,
+                        "profile_multiplier": 1.0,
+                        "axis_multiplier": 1.0,
+                        "weighted_value": item["effective_contribution"],
+                        "interaction_id": item["interaction_id"],
+                        "source": item.get("source"),
+                        "evidence": item.get("evidence"),
+                    }
+                    (positive_factors if sign > 0 else negative_factors).append(factor)
+            interaction_replacement = {
+                "version": replacement["version"],
+                "applied": replacement["applied"],
+                "rejected": replacement["rejected"],
+            }
+        elif interaction_scoring.INTERACTION_SCORING_ENABLED:
+            # Feature flag off: прежний аддитивный путь (бит-в-бит legacy).
             _, interaction_breakdown = interaction_scoring.aggregate_interactions(interactions)
             for item in interaction_breakdown:
                 axis = item["axis"]
                 contribution = float(item["contribution"])
-                # Interaction negativity is independent of the user profile.
-                # Phase 1 selects relevant axes; profile risk must not amplify
-                # the interaction signal or double-count risk in Phase 2.
                 axis_multiplier = 1.0
                 profile_multiplier = 1.0
                 item["axis_multiplier"] = axis_multiplier
                 item["profile_multiplier"] = profile_multiplier
-                item["weighted_contribution"] = round(
-                    contribution * axis_multiplier, 6
-                )
+                item["weighted_contribution"] = round(contribution * axis_multiplier, 6)
                 adjusted_agg[axis] = adjusted_agg.get(axis, 0.0) + item["weighted_contribution"]
 
     phase1_result = None
@@ -500,6 +554,7 @@ def score_product_against_profile_canonical(
         ), 3),
         'hard_flags': hard_flags,
         'interaction_breakdown': interaction_breakdown,
+        'interaction_replacement': interaction_replacement,
         'interaction_scoring_version': _interaction_scoring_version(),
         'phase1': phase1_result,
         'phase1_status': phase1_result.get('status') if phase1_result else None,

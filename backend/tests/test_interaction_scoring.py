@@ -27,8 +27,13 @@ def _known(axis, direction, strength=0.8, confidence=0.9, **kw):
         "strength": strength,
         "confidence": confidence,
         "type": "internal",
-        "ingredient_a": "a",
+        "ingredient_a": "glycerin",
         "ingredient_b": "b",
+        # Замещение допускает только полный совместный эффект с подтверждённым источником.
+        "effect_kind": "absolute",
+        "source_type": "pubmed",
+        "source": "pubmed:test",
+        "evidence": "test evidence",
         **kw,
     }
 
@@ -169,8 +174,8 @@ class ScoreIntegrationTests(unittest.TestCase):
         self.assertEqual(base["score"], enabled["score"])
 
     def test_anti_double_counting(self):
-        # individual (glycerin hydration+) + interaction (hydration-) — три разных источника
-        # не дублируются: dimensions = +0.81 (individual) + (-0.81) (interaction) = 0.0.
+        # Замещение: индивидуальный эффект glycerin на hydration УДАЛЯЕТСЯ,
+        # остаётся только совместный эффект пары (-0.81), без сложения.
         iscore.INTERACTION_SCORING_ENABLED = True
         try:
             r = score_product_against_profile(
@@ -179,8 +184,13 @@ class ScoreIntegrationTests(unittest.TestCase):
             )
         finally:
             iscore.INTERACTION_SCORING_ENABLED = False
-        self.assertAlmostEqual(r["dimensions"]["hydration"], 0.0, places=3)
-        self.assertEqual(len(r["interaction_breakdown"]), 1)
+        self.assertAlmostEqual(r["dimensions"]["hydration"], -0.81, places=3)
+        self.assertEqual(r["interaction_breakdown"], [])
+        self.assertEqual(len(r["interaction_replacement"]["applied"]), 1)
+        self.assertFalse([
+            f for f in r["positive_factors"]
+            if f.get("ingredient") == "glycerin" and f.get("property") == "hydration"
+        ])
 
     def test_version_in_result(self):
         r = score_product_against_profile(["glycerin"], self.knowledge, self.profile, self.weights)

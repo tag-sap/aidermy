@@ -471,6 +471,7 @@ class IngredientRepository:
                 source TEXT DEFAULT '',
                 source_type TEXT DEFAULT '',
                 interaction_type TEXT DEFAULT '',
+                effect_kind TEXT NOT NULL DEFAULT 'delta',
                 research_version TEXT DEFAULT 'v1',
                 knowledge_version TEXT DEFAULT 'v1',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -479,6 +480,13 @@ class IngredientRepository:
             )
             '''
         )
+        # Миграция существующих SQLite: добавляем effect_kind без потери данных.
+        cols = {row[1] for row in cursor.execute("PRAGMA table_info(ingredient_interactions)").fetchall()}
+        if "effect_kind" not in cols:
+            cursor.execute(
+                "ALTER TABLE ingredient_interactions "
+                "ADD COLUMN effect_kind TEXT NOT NULL DEFAULT 'delta'"
+            )
         conn.commit()
         conn.close()
 

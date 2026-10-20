@@ -155,6 +155,9 @@ class IngredientGraph:
                 "confidence": conf,
                 "state": state,
                 "source": r.get("source"),
+                "source_type": r.get("source_type"),
+                "interaction_type": r.get("interaction_type"),
+                "effect_kind": r.get("effect_kind"),
                 "evidence": r.get("evidence"),
             })
         agg = EffectState.KNOWN if has_known else EffectState.INSUFFICIENT
