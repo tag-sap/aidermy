@@ -8,7 +8,11 @@ image_storage.py — загрузка изображений в Yandex Object St
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -55,6 +59,37 @@ def processed_key(slug: str) -> str:
     """Ключ обработанного изображения (подпрефикс processed/ в том же bucket)."""
     safe = "".join(c if (c.isalnum() or c in "-_") else "_" for c in slug)
     return f"processed/{safe}.png"
+
+
+_DATA_URL_RE = re.compile(r"^data:(image/(?:jpeg|jpg|png|webp));base64,(.+)$", re.S | re.I)
+_EXTENSIONS = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp"}
+_MAX_IMAGE_BYTES = 12 * 1024 * 1024
+
+
+def upload_product_source_image(data_url: str, key_hint: str = "product") -> str:
+    """Загружает исходное фото продукта (data URL) в постоянное хранилище.
+
+    В карточку нельзя записывать временный base64/локальный путь: возвращаем
+    публичный URL S3. Ключ детерминирован по содержимому, поэтому повторная
+    загрузка того же фото не создаёт мусорных объектов.
+    """
+    match = _DATA_URL_RE.match((data_url or "").strip())
+    if not match:
+        raise ValueError("Ожидается изображение в формате data:image/...;base64,...")
+    mime = match.group(1).lower()
+    try:
+        payload = base64.b64decode(match.group(2), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Некорректный base64 изображения") from exc
+    if not payload:
+        raise ValueError("Пустое изображение")
+    if len(payload) > _MAX_IMAGE_BYTES:
+        raise ValueError("Изображение больше 12 МБ")
+
+    digest = hashlib.sha1(payload).hexdigest()[:16]
+    hint = re.sub(r"[^a-zA-Z0-9_-]+", "-", (key_hint or "product").strip()).strip("-")[:48] or "product"
+    key = f"product_source/{hint}-{digest}.{_EXTENSIONS[mime]}"
+    return upload_image(key, payload, content_type=mime)
 
 
 def process_product_image_sync(pid: int, slug: str, image_url: str) -> str:

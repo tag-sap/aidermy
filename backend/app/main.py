@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Depends, status, Request, Header, Fi
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from .models import (
     CheckRequest,
@@ -29,6 +29,7 @@ from .models import (
     AnalyzeCompositionRequest,
     CreateProductRequest,
     ProductIdentifyRequest,
+    ProductScanRequest,
     ProductWebSearchRequest,
 )
 from .services import check_product_with_ai, check_product_with_ingredients, search_products, capitalize_name
@@ -57,6 +58,7 @@ from .product_identification import (
     has_reliable_inci,
     web_search_product,
 )
+from .product_scan import ProductScanError, scan_product_package
 
 # PostgreSQL mode: не создавать и не мигрировать локальные SQLite-базы
 # при импорте приложения. Старые SQLite-вызовы должны быть мигрированы отдельно.
@@ -198,6 +200,8 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
             "category": product.get("category") or "",
             "ingredients": product.get("ingredients") or "",
             "url": product.get("url") or "",
+            "barcode": product.get("barcode") or "",
+            "variant": product.get("variant") or "",
         },
         "score": score,
         "analysis": analysis,
@@ -293,6 +297,7 @@ async def recognize_composition_endpoint(request: RecognizeCompositionRequest):
 # запрос никогда не зависнет бесконечно (Vision / Web Search / scraper).
 VISION_TIMEOUT = 90.0
 WEB_SEARCH_TIMEOUT = 180.0
+SCAN_TIMEOUT = 300.0
 
 
 @app.post("/api/product/identify")
@@ -322,6 +327,33 @@ async def identify_product_endpoint(request: ProductIdentifyRequest):
         logger.exception("[IDENTIFY] IDENTIFICATION_ERROR")
         print(f"❌ Ошибка идентификации продукта: {exc!r}")
         raise HTTPException(status_code=500, detail="Не удалось определить продукт") from exc
+
+
+@app.post("/api/product/scan")
+async def product_scan_endpoint(request: ProductScanRequest):
+    """Единый скан: две обязательные фотографии -> карточка/черновик без записи в БД."""
+    try:
+        from . import product_scan as product_scan_module
+
+        return await asyncio.wait_for(
+            product_scan_module.scan_product_package(request.front_image, request.back_image),
+            timeout=SCAN_TIMEOUT,
+        )
+    except ProductScanError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except asyncio.TimeoutError:
+        logger.error("[SCAN] IDENTIFICATION_ERROR scan_timeout")
+        raise HTTPException(
+            status_code=504,
+            detail="Распознавание не завершилось вовремя. Попробуйте ещё раз.",
+        ) from None
+    except RuntimeError as exc:
+        logger.exception("[SCAN] IDENTIFICATION_ERROR vision_runtime")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("[SCAN] IDENTIFICATION_ERROR")
+        print(f"❌ Ошибка сканирования продукта: {exc!r}")
+        raise HTTPException(status_code=500, detail="Не удалось распознать продукт по фото") from exc
 
 
 @app.post("/api/product/web-search")
@@ -472,7 +504,7 @@ async def create_product_endpoint(
     try:
         from .ingredient_normalizer import canonicalize_ingredient_name
         from .shelf_service import normalize_imported_category
-        from .product_dedup import find_or_create_canonical_product
+        from .product_dedup import ProductConflictError, find_or_create_canonical_product
 
         brand = (request.brand or "").strip()
         name = (request.name or "").strip()
@@ -489,7 +521,26 @@ async def create_product_endpoint(
             register_ingredients([{"raw": n, "normalized": n} for n in normalized])
 
         slug = (request.slug or "").strip()
-        category = normalize_imported_category("", name)
+        category = (request.category or "").strip() or normalize_imported_category("", name)
+
+        # Лицевое фото из единого сканирования сохраняем в постоянное хранилище.
+        # При ошибке S3 карточку без фото не создаём и успех не выдаём.
+        front_image_url = ""
+        if request.image_data_url:
+            try:
+                from .image_storage import upload_product_source_image
+
+                front_image_url = await asyncio.to_thread(
+                    upload_product_source_image,
+                    request.image_data_url,
+                    f"{brand}-{name}",
+                )
+            except Exception as exc:
+                print(f"❌ Ошибка сохранения лицевого фото: {exc!r}")
+                raise HTTPException(
+                    status_code=502,
+                    detail="Не удалось сохранить фото продукта. Попробуйте ещё раз.",
+                ) from exc
 
         saved = find_or_create_canonical_product({
             "name": name,
@@ -497,7 +548,12 @@ async def create_product_endpoint(
             "ingredients": ingredients_str,
             "category": category,
             "slug": slug or None,
-            "source_type": "manual",
+            "image_url": front_image_url or None,
+            "url": (request.source_url or "").strip() or None,
+            "volume": (request.volume or "").strip() or None,
+            "variant": (request.variant or "").strip() or None,
+            "barcode": (request.barcode or "").strip() or None,
+            "source_type": (request.source_type or "").strip() or "manual",
         })
 
         return {
@@ -510,9 +566,25 @@ async def create_product_endpoint(
                 "image_url": saved.get("image_url"),
                 "category": saved.get("category"),
                 "ingredients": saved.get("ingredients"),
+                "source_url": saved.get("url"),
+                "volume": saved.get("volume"),
+                "variant": saved.get("variant") or (request.variant or "").strip() or None,
+                "barcode": saved.get("barcode") or (request.barcode or "").strip() or None,
             },
             "duplicate": not saved.get("is_new", True),
         }
+    except ProductConflictError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "conflict",
+                "message": str(exc),
+                "barcode": exc.barcode,
+                "product": exc.product,
+            },
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         print(f"❌ Ошибка создания продукта: {exc!r}")
         raise HTTPException(status_code=500, detail=f"Ошибка создания продукта: {str(exc)}") from exc
@@ -1005,7 +1077,7 @@ async def get_catalog(
         order_sql = f"{TITLE_SQL} COLLATE NOCASE_RU ASC" if sort == "alpha" else "name ASC"
 
         cursor.execute(
-            f"SELECT id, name, slug, image_url, ingredients, category, subcategory, taxonomy_category, brand "
+            f"SELECT id, name, slug, image_url, ingredients, category, subcategory, taxonomy_category, brand, barcode, variant "
             f"FROM products WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
             params + [limit, offset],
         )

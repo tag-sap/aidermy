@@ -197,9 +197,30 @@ def source_priority(source_type: Any) -> int:
     return _SOURCE_PRIORITY.get(str(source_type or "").strip().lower(), 1)
 
 
+class ProductConflictError(ValueError):
+    """Конфликт бизнес-идентификатора (например, штрихкода).
+
+    Карточки не объединяются вслепую: вызывающий код получает существующий
+    продукт и может показать пользователю понятный конфликт.
+    """
+
+    def __init__(self, message: str, *, barcode: str | None = None, product: Dict[str, Any] | None = None):
+        super().__init__(message)
+        self.barcode = barcode
+        self.product = product or {}
+
+
+def normalize_barcode(value: Any) -> Optional[str]:
+    """Штрихкод хранится строкой: ведущие нули и пробелы не теряются."""
+    if value is None:
+        return None
+    text = re.sub(r"\s+", "", str(value)).strip()
+    return text or None
+
+
 _MERGE_FIELDS = [
     "name", "brand", "ingredients", "image_url", "url", "category",
-    "volume", "description", "sku", "price", "currency", "incidecoder_url",
+    "volume", "variant", "barcode", "description", "sku", "price", "currency", "incidecoder_url",
 ]
 
 
@@ -244,7 +265,14 @@ def build_canonical(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     if not _non_empty(merged.get("brand")):
         merged["brand"] = _extract_brand_from_name(merged.get("name")) or a.get("brand") or b.get("brand")
 
-    merged["ingredients"] = _pick_ingredients(a.get("ingredients"), b.get("ingredients"))
+    # Подтверждённый состав из более приоритетного источника (official/verified)
+    # не перезаписываем более длинным, но сомнительным INCI со сканера/OCR.
+    a_pri = _field_priority(a, "ingredients")
+    b_pri = _field_priority(b, "ingredients")
+    if _non_empty(a.get("ingredients")) and _non_empty(b.get("ingredients")) and a_pri != b_pri:
+        merged["ingredients"] = a.get("ingredients") if a_pri > b_pri else b.get("ingredients")
+    else:
+        merged["ingredients"] = _pick_ingredients(a.get("ingredients"), b.get("ingredients"))
 
     if not _non_empty(merged.get("volume")):
         merged["volume"] = normalize_volume(a.get("name")) or normalize_volume(b.get("name"))
@@ -289,6 +317,35 @@ def _resolve_canonical(cursor, row: Dict[str, Any]) -> Dict[str, Any]:
         r = cursor.execute("SELECT * FROM products WHERE id = ?", (cid,)).fetchone()
         if r:
             return dict(zip(_columns(cursor), r))
+    return row
+
+
+def find_product_by_barcode(barcode: Any) -> Optional[Dict[str, Any]]:
+    """Находит canonical-карточку по штрихкоду (строка, без числовых преобразований)."""
+    normalized = normalize_barcode(barcode)
+    if not normalized:
+        return None
+    from .database import get_connection, PRODUCTS_DB
+
+    conn = get_connection(PRODUCTS_DB)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM products WHERE barcode = ? AND is_canonical = 1 LIMIT 2",
+        (normalized,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    if not rows:
+        return None
+    return dict(rows[0])
+
+
+def _canonical_candidate(candidates: List[Dict[str, Any]], row: Dict[str, Any]) -> Dict[str, Any]:
+    cid = row.get("canonical_id")
+    if cid:
+        for candidate in candidates:
+            if candidate.get("id") == cid:
+                return candidate
     return row
 
 
@@ -345,12 +402,54 @@ def find_or_create_canonical_product(payload: Dict[str, Any]) -> Dict[str, Any]:
                 # им корректное имя существующего товара при merge.
                 incoming["name"] = ""
 
+    # Штрихкод — бизнес-идентификатор. Нельзя молча склеить две карточки,
+    # если он уже принадлежит другому canonical-продукту (или если у найденной
+    # карточки уже есть другой штрихкод).
+    incoming["barcode"] = normalize_barcode(incoming.get("barcode"))
+    incoming["variant"] = str(incoming.get("variant") or "").strip() or None
+    barcode = incoming.get("barcode")
+    best_canonical: Optional[Dict[str, Any]] = None
+    if best is not None:
+        best_canonical = _canonical_candidate(candidates, best[1])
+
+    if barcode:
+        owner = find_product_by_barcode(barcode)
+        if owner:
+            if best_canonical is None or best_canonical.get("id") != owner.get("id"):
+                raise ProductConflictError(
+                    "Этот штрихкод уже принадлежит другому продукту в каталоге.",
+                    barcode=barcode,
+                    product=owner,
+                )
+        if best_canonical is not None:
+            existing_barcode = normalize_barcode(best_canonical.get("barcode"))
+            if existing_barcode and existing_barcode != barcode:
+                raise ProductConflictError(
+                    "У найденной карточки уже указан другой штрихкод. "
+                    "Проверьте вариант продукта и не объединяйте карточки автоматически.",
+                    barcode=barcode,
+                    product=best_canonical,
+                )
+
     conn = get_connection(PRODUCTS_DB)
     try:
         cursor = conn.cursor()
 
         if best is None:
-            canonical = _insert_canonical(cursor, incoming)
+            try:
+                canonical = _insert_canonical(cursor, incoming)
+            except Exception as exc:
+                # Гонка двух одновременных сканирований: partial unique index
+                # по barcode мог сработать между проверкой и INSERT.
+                if barcode:
+                    owner = find_product_by_barcode(barcode)
+                    if owner:
+                        raise ProductConflictError(
+                            "Этот штрихкод уже принадлежит другому продукту в каталоге.",
+                            barcode=barcode,
+                            product=owner,
+                        ) from exc
+                raise
             conn.commit()
             return {**canonical, "is_new": True}
 
@@ -380,15 +479,15 @@ def _insert_canonical(cursor, payload: Dict[str, Any]) -> Dict[str, Any]:
     cursor.execute(
         """INSERT INTO products (
             name, slug, brand, manufacturer, ingredients, url, incidecoder_url, image_url,
-            category, volume, description, sku, price, currency,
+            category, volume, variant, barcode, description, sku, price, currency,
             source_type, contributed_by, normalized_name, is_canonical, canonical_id, saved_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, CURRENT_TIMESTAMP)""",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, CURRENT_TIMESTAMP)""",
         (
             name, slug,
             payload.get("brand"), payload.get("manufacturer"), payload.get("ingredients"), payload.get("url"),
             payload.get("incidecoder_url"), payload.get("image_url"),
-            payload.get("category"), payload.get("volume"), payload.get("description"),
-            payload.get("sku"), payload.get("price"), payload.get("currency"),
+            payload.get("category"), payload.get("volume"), payload.get("variant"), payload.get("barcode"),
+            payload.get("description"), payload.get("sku"), payload.get("price"), payload.get("currency"),
             payload.get("source_type"), payload.get("contributed_by"), normalize_name(name),
         ),
     )
@@ -409,6 +508,8 @@ def _update_canonical(cursor, canonical_id: int, fields: Dict[str, Any]) -> None
             image_url = COALESCE(NULLIF(?, ''), image_url),
             category = COALESCE(NULLIF(?, ''), category),
             volume = COALESCE(NULLIF(?, ''), volume),
+            variant = COALESCE(NULLIF(?, ''), variant),
+            barcode = COALESCE(NULLIF(?, ''), barcode),
             description = COALESCE(NULLIF(?, ''), description),
             sku = COALESCE(NULLIF(?, ''), sku),
             price = COALESCE(?, price),
@@ -417,8 +518,8 @@ def _update_canonical(cursor, canonical_id: int, fields: Dict[str, Any]) -> None
         (
             fields.get("name"), fields.get("brand"), fields.get("manufacturer"), fields.get("ingredients"),
             fields.get("url"), fields.get("incidecoder_url"), fields.get("image_url"),
-            fields.get("category"), fields.get("volume"), fields.get("description"),
-            fields.get("sku"), fields.get("price"), fields.get("currency"),
+            fields.get("category"), fields.get("volume"), fields.get("variant"), fields.get("barcode"),
+            fields.get("description"), fields.get("sku"), fields.get("price"), fields.get("currency"),
             canonical_id,
         ),
     )

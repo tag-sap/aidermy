@@ -78,7 +78,7 @@ class IdempotentMergeTests(unittest.TestCase):
             CREATE TABLE products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT, slug TEXT, brand TEXT, manufacturer TEXT, ingredients TEXT, url TEXT,
-                incidecoder_url TEXT, image_url TEXT, category TEXT, volume TEXT,
+                incidecoder_url TEXT, image_url TEXT, category TEXT, volume TEXT, barcode TEXT, variant TEXT,
                 description TEXT, sku TEXT, price REAL, currency TEXT,
                 source_type TEXT, contributed_by INTEGER, normalized_name TEXT,
                 is_canonical INTEGER DEFAULT 1, canonical_id INTEGER, saved_at TEXT

@@ -330,36 +330,50 @@ def register_ingredients(ingredients: List[Dict[str, Any]], db_path: str = AIDER
 # IDENTIFY PRODUCT (этап 1: фото продукта -> бренд/название/вариант/тип)
 # ===========================================================================
 IDENTIFY_SYSTEM_PROMPT = (
-    "Ты — система идентификации косметического продукта по фотографии упаковки. "
-    "Ты определяешь только БРЕНД, НАЗВАНИЕ и ВАРИАНТ продукта. "
+    "Ты — система идентификации косметического продукта по фотографиям упаковки. "
+    "Ты определяешь БРЕНД, НАЗВАНИЕ, ВАРИАНТ, ТИП, ОБЪЁМ и ШТРИХКОД продукта. "
     "Ты НЕ читаешь состав (INCI), НЕ оцениваешь совместимость и НЕ придумываешь данные. "
     "Возвращай только корректный JSON без пояснений и без markdown-разметки."
 )
 
 
 def _identify_user_prompt(image_count: int) -> str:
-    return f"""Тебе передано {image_count} фотографий одного косметического продукта (упаковка/флакон).
+    return f"""Тебе передано {image_count} фотографий одного косметического продукта (лицевая и задняя стороны упаковки).
 
 Твоя задача — определить продукт как структурированный объект:
 1. brand — бренд (отдельно от названия, НЕ склеивай в одно поле);
 2. product_name — полное название продукта (без бренда);
 3. manufacturer — производитель, если он явно указан/определим на упаковке, иначе null;
 4. category — категория/тип продукта (крем, сыворотка, шампунь, тональный крем, патчи и т.п.), если видно, иначе null;
-5. variant — вариант/линейку, если видно (например, «для сухой кожи», SPF, оттенок).
+5. variant — вариант/линейку, если видно (например, «для сухой кожи», SPF, оттенок);
+6. volume — объём/вес, если явно указан (например, «150 ml», «50 g»), иначе null;
+7. barcode — штрихкод цифрами, если он читается на фотографии, иначе null.
 
 Если что-то не видно или неоднозначно — оставь поле пустым или null. НЕ придумывай.
 Если уверенность низкая — отрази это в confidence (0..1).
 
 Верни СТРОГО один JSON-объект:
-{{"brand": "...", "product_name": "...", "manufacturer": null, "category": null, "variant": null, "confidence": 0.0}}
+{{"brand": "...", "product_name": "...", "manufacturer": null, "category": null, "variant": null, "volume": null, "barcode": null, "confidence": 0.0}}
 """
 
 
 def _coerce_identification(parsed: Any) -> Dict[str, Any]:
     if not isinstance(parsed, dict):
-        return {"brand": "", "product_name": "", "name": "", "manufacturer": None, "category": None, "variant": None, "type": None, "confidence": 0.0}
+        return {
+            "brand": "",
+            "product_name": "",
+            "name": "",
+            "manufacturer": None,
+            "category": None,
+            "variant": None,
+            "type": None,
+            "volume": None,
+            "barcode": None,
+            "confidence": 0.0,
+        }
     brand = str(parsed.get("brand") or "").strip()
     product_name = str(parsed.get("product_name") or parsed.get("name") or "").strip()
+    barcode = str(parsed.get("barcode") or "").strip() or None
     return {
         "brand": brand,
         "product_name": product_name,
@@ -369,6 +383,8 @@ def _coerce_identification(parsed: Any) -> Dict[str, Any]:
         "category": parsed.get("category") or parsed.get("type") or None,
         "variant": parsed.get("variant") or None,
         "type": parsed.get("type") or None,
+        "volume": str(parsed.get("volume") or "").strip() or None,
+        "barcode": barcode,
         "confidence": float(parsed.get("confidence") or 0.0),
     }
 

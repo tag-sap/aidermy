@@ -511,6 +511,8 @@ def init_db():
             ingredients TEXT,
             url TEXT,
             incidecoder_url TEXT,
+            barcode TEXT,
+            variant TEXT,
             saved_at TEXT
         )
     ''')
@@ -536,11 +538,18 @@ def init_db():
         ("normalized_name", "TEXT"),
         ("is_canonical", "INTEGER DEFAULT 1"),
         ("canonical_id", "INTEGER"),
+        ("barcode", "TEXT"),
+        ("variant", "TEXT"),
     ]:
         if column not in product_columns:
             cursor.execute(f"ALTER TABLE products ADD COLUMN {column} {ddl}")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_normalized ON products (normalized_name)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_products_canonical ON products (is_canonical, canonical_id)")
+    # Штрихкод — строка (ведущие нули), уникален только среди canonical-карточек.
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_products_barcode_canonical "
+        "ON products (barcode) WHERE barcode IS NOT NULL AND barcode <> '' AND is_canonical = 1"
+    )
     conn.commit()
     conn.close()
     
@@ -603,6 +612,8 @@ def upsert_imported_product(product: dict) -> dict:
         "image_url": product.get("image_url"),
         "category": product.get("category"),
         "volume": product.get("volume"),
+        "variant": product.get("variant"),
+        "barcode": product.get("barcode"),
         "description": product.get("description"),
         "sku": product.get("sku"),
         "price": product.get("price"),

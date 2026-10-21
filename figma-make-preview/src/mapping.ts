@@ -98,6 +98,8 @@ export function mapApiProduct(api: ApiProduct): Product {
     tags: category ? [category] : [],
     slug: api.slug,
     ingredients: api.ingredients || "",
+    barcode: api.barcode || undefined,
+    variant: api.variant || undefined,
     match: toMatch(api.analysis as Parameters<typeof toMatch>[0]),
   }
 }

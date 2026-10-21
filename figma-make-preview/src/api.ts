@@ -31,10 +31,47 @@ export type ApiProduct = {
   catalog_category?: string
   catalog_subcategory?: string
   brand?: string
+  barcode?: string
+  variant?: string
   rating?: number | null
   rating_count?: number
   score?: number | null
   analysis?: unknown
+}
+
+export type ScanProductPayload = {
+  id?: number
+  name: string
+  slug?: string
+  brand?: string
+  image_url?: string
+  category?: string
+  ingredients?: string
+  barcode?: string
+  variant?: string
+  ingredients_source?: string
+  source_url?: string
+  has_inci?: boolean
+}
+
+export type ScanCandidatePayload = ScanProductPayload & {
+  match_score?: number
+  has_inci?: boolean
+}
+
+export type ScanDraftPayload = {
+  id?: number | null
+  slug?: string
+  brand?: string
+  name?: string
+  variant?: string | null
+  type?: string | null
+  volume?: string | null
+  barcode?: string | null
+  ingredients: string
+  ingredients_source: string
+  source_url?: string
+  image_url?: string
 }
 
 export type CheckResult = {
@@ -367,6 +404,44 @@ export const api = {
   // ===== сканирование / проверка =====
   async identify(payload: Record<string, unknown>) {
     return request("/product/identify", { method: "POST", body: JSON.stringify(payload) })
+  },
+  async scanProduct(payload: { front_image: string; back_image: string }) {
+    return request<{
+      status: "ready" | "ambiguous" | "needs_confirmation" | "not_found"
+      message?: string
+      product?: ScanProductPayload
+      candidates?: ScanCandidatePayload[]
+      draft?: ScanDraftPayload | null
+      can_analyze?: boolean
+      warnings?: string[]
+      identified?: {
+        brand?: string
+        product_name?: string
+        variant?: string | null
+        type?: string | null
+        volume?: string | null
+        barcode?: string | null
+        missing_fields?: string[]
+      }
+    }>("/product/scan", { method: "POST", body: JSON.stringify(payload) })
+  },
+  async createProduct(payload: {
+    brand?: string
+    name: string
+    ingredients?: string[]
+    slug?: string
+    image_data_url?: string
+    source_url?: string
+    volume?: string
+    variant?: string
+    barcode?: string
+    category?: string
+    source_type?: string
+  }) {
+    return request<{ success: boolean; duplicate?: boolean; product: ScanProductPayload }>("/products/create", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
   },
   async compositionRecognize(payload: Record<string, unknown>) {
     return request("/composition/recognize", { method: "POST", body: JSON.stringify(payload) })

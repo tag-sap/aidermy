@@ -114,7 +114,7 @@ def _build_catalog_query(
         SELECT
             id, name, slug, image_url, ingredients,
             category, subcategory, taxonomy_category, brand,
-            catalog_category, catalog_subcategory
+            catalog_category, catalog_subcategory, barcode, variant
         FROM public.products
         WHERE {where_sql}
         ORDER BY {order_sql}

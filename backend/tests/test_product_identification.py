@@ -12,6 +12,7 @@ import app.database as database
 from app.product_identification import (
     _is_matching_product,
     _normalize,
+    find_product_candidates,
     find_product_in_db,
     has_reliable_inci,
     web_search_product,
@@ -52,6 +53,16 @@ class ProductIdentificationTests(unittest.TestCase):
         self.assertEqual(ident["category"], "Сыворотка")
         self.assertEqual(ident["name"], "Advanced Snail 96 Mucin Power Essence")
 
+    def test_structured_output_keeps_package_fields(self):
+        ident = _coerce_identification({
+            "brand": "COSRX",
+            "product_name": "Advanced Snail 96 Mucin Power Essence",
+            "volume": "100 ml",
+            "barcode": "8809416470511",
+        })
+        self.assertEqual(ident["volume"], "100 ml")
+        self.assertEqual(ident["barcode"], "8809416470511")
+
     def test_has_reliable_inci(self):
         self.assertFalse(has_reliable_inci(None))
         self.assertFalse(has_reliable_inci({"ingredients": ""}))
@@ -68,7 +79,7 @@ class FindProductInDbTests(unittest.TestCase):
         cur = conn.cursor()
         cur.execute(
             "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, slug TEXT, brand TEXT, "
-            "image_url TEXT, category TEXT, ingredients TEXT, is_canonical INTEGER DEFAULT 1, source_url TEXT)"
+            "image_url TEXT, category TEXT, ingredients TEXT, is_canonical INTEGER DEFAULT 1, source_url TEXT, barcode TEXT, variant TEXT)"
         )
         cur.execute(
             "INSERT INTO products (name, slug, brand, ingredients, is_canonical) "
@@ -89,6 +100,13 @@ class FindProductInDbTests(unittest.TestCase):
         p = find_product_in_db("The Ordinary", "Niacinamide")
         self.assertIsNotNone(p)
         self.assertIn("Niacinamide", p["ingredients"])
+
+    def test_candidates_keep_clean_name_and_brand(self):
+        candidates = find_product_candidates("The Ordinary", "Niacinamide")
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["brand"], "The Ordinary")
+        self.assertEqual(candidates[0]["name"], "Niacinamide 10%")
+        self.assertTrue(candidates[0]["has_inci"])
 
     def test_name_only_without_brand_is_not_found(self):
         # «Название» есть, но бренд не совпадает -> не считаем найденным.
@@ -114,7 +132,7 @@ class CosrxLookupTests(unittest.TestCase):
         cur = conn.cursor()
         cur.execute(
             "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, slug TEXT, brand TEXT, "
-            "image_url TEXT, category TEXT, ingredients TEXT, is_canonical INTEGER DEFAULT 1, source_url TEXT)"
+            "image_url TEXT, category TEXT, ingredients TEXT, is_canonical INTEGER DEFAULT 1, source_url TEXT, barcode TEXT, variant TEXT)"
         )
         # Бренд в имени (первая строка), brand-колонка пустая — воспроизводит реальный каталог.
         cur.execute(
@@ -151,6 +169,19 @@ class CosrxLookupTests(unittest.TestCase):
 
 
 class IsMatchingProductTests(unittest.TestCase):
+    def test_official_url_has_priority_over_catalog_and_retailer(self):
+        from app.product_identification import _prioritize_product_urls
+
+        urls = [
+            "https://goldapple.ru/product/1",
+            "https://incidecoder.com/products/x",
+            "https://www.cosrx.com/products/x",
+        ]
+        self.assertEqual(
+            _prioritize_product_urls(urls, "COSRX")[0],
+            "https://www.cosrx.com/products/x",
+        )
+
     def test_brand_and_name_match(self):
         self.assertTrue(_is_matching_product("La Roche-Posay", "Anthelios 50+", "La Roche-Posay", "Anthelios"))
 
@@ -215,7 +246,7 @@ class WebSearchSaveAndReuseTests(unittest.TestCase):
             "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, slug TEXT UNIQUE, brand TEXT, manufacturer TEXT, "
             "ingredients TEXT, url TEXT, incidecoder_url TEXT, image_url TEXT, category TEXT, volume TEXT, "
             "description TEXT, sku TEXT, price REAL, currency TEXT, source_type TEXT, contributed_by INTEGER, "
-            "normalized_name TEXT, is_canonical INTEGER DEFAULT 1, canonical_id INTEGER, saved_at TEXT)"
+            "normalized_name TEXT, is_canonical INTEGER DEFAULT 1, canonical_id INTEGER, barcode TEXT, variant TEXT, saved_at TEXT)"
         )
         conn.commit()
         conn.close()

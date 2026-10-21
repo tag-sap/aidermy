@@ -41,6 +41,8 @@ export type Product = {
   shelf_id?: number
   needs_recheck?: boolean
   ingredients?: string
+  barcode?: string
+  variant?: string
   match?: Match
 }
 

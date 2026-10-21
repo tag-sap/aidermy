@@ -96,6 +96,11 @@ class ProductIdentifyRequest(BaseModel):
     images: List[str] = Field(..., description="Base64 data URL фотографий продукта/упаковки")
 
 
+class ProductScanRequest(BaseModel):
+    front_image: str = Field(..., min_length=20, description="Фото лицевой стороны (data URL)")
+    back_image: str = Field(..., min_length=20, description="Фото задней стороны с INCI (data URL)")
+
+
 class ProductWebSearchRequest(BaseModel):
     brand: str = Field(default="", description="Бренд продукта")
     name: str = Field(default="", description="Название продукта")
@@ -116,3 +121,12 @@ class CreateProductRequest(BaseModel):
     name: str = Field(..., min_length=1, description="Название продукта")
     ingredients: List[str] = Field(default=[], description="Распознанный список INCI")
     slug: str = Field(default="", description="Slug продукта (опционально)")
+    # Данные единого сканирования: лицевое фото хранится в постоянном S3,
+    # source_url — найденная карточка товара, volume/barcode — с упаковки.
+    image_data_url: Optional[str] = Field(default=None, description="Лицевое фото (data URL) для постоянного хранения")
+    source_url: Optional[str] = Field(default=None, description="URL найденной карточки товара")
+    volume: Optional[str] = Field(default=None, description="Объём/вес с упаковки")
+    variant: Optional[str] = Field(default=None, description="Вариант/линейка с упаковки")
+    barcode: Optional[str] = Field(default=None, description="Штрихкод с упаковки")
+    category: Optional[str] = Field(default=None, description="Тип/категория продукта")
+    source_type: Optional[str] = Field(default=None, description="Источник данных: scan/retailer/url")

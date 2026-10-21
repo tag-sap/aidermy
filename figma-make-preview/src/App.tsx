@@ -6,6 +6,7 @@ import { api, ApiError, setToken, getToken, type ApiProduct, type ReportResult, 
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
+import { PhotoScan } from "./photo-scan"
 import {
   products, skinProfile, shelfReport, CABINETS, FACE_TAXONOMY, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -453,7 +454,7 @@ function AutoPickCarousel({
 }: {
   items: Product[]
   onOpen: (p: Product, card?: HTMLElement) => void
-  onAdd: (p: Product) => Promise<boolean> | boolean
+  onAdd: (p: Product) => Promise<boolean> | boolean | void
 }) {
   const [order, setOrder] = useState<number[]>(() =>
     items.map((_, index) => index)
@@ -1481,8 +1482,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
   const [busy, setBusy] = useState(false)
 
   const METHODS: { id: ScanMethod; title: string; desc: string; icon: IconName }[] = [
-    { id: "photo", title: "Скан по фото упаковки", desc: "Распознаём продукт по фото этикетки", icon: "camera" },
-    { id: "inci", title: "Скан по составу", desc: "Фото списка состава (INCI)", icon: "drop" },
+    { id: "photo", title: "Скан по фото", desc: "Лицевая и задняя стороны упаковки", icon: "camera" },
     { id: "link", title: "Вставить ссылку", desc: "Вставить ссылку на продукт", icon: "link" },
     { id: "manual", title: "Ручной ввод", desc: "Название, бренд и состав вручную", icon: "pencil" },
   ]
@@ -1490,7 +1490,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
   const needManualFields = method === "inci" || method === "manual"
   const canRun = busy ? false : method === "photo" ? photoAdded : method === "inci" ? brand.trim().length > 0 && name.trim().length > 0 && inciPhotoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
 
-  const buildResult = (b: string, n: string, image: string, productSlug: string | undefined, inci: string, res: { score?: number | null; verdict?: string; analysis_id?: number; recommendation_status?: string; } | undefined, productId?: number): Product => {
+  const buildResult = (b: string, n: string, image: string, productSlug: string | undefined, inci: string, res: { score?: number | null; verdict?: string; analysis_id?: number; recommendation_status?: string; negative_only_score?: number; } | undefined, productId?: number): Product => {
     const score = res?.score ?? null
     const recStatus = res?.recommendation_status
     const negOnly = res && typeof res.negative_only_score === "number" ? res.negative_only_score : null
@@ -1623,6 +1623,18 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
     } finally {
       setBusy(false)
     }
+  }
+
+  if (method === "photo" && picked) {
+    return (
+      <div className="page">
+        <PageHeading eyebrow="Проверка" title="Скан по фото" lead="Загрузите лицевую и заднюю стороны одного продукта — этого достаточно для карточки и проверки." />
+        <section className="panel scan-form">
+          <button type="button" className="scan-back" onClick={() => setPicked(false)}><Icon name="back" size={16} /> Выбрать способ</button>
+          <PhotoScan guestToken={guestToken} onContinue={onContinue} />
+        </section>
+      </div>
+    )
   }
 
   return (
@@ -2185,6 +2197,11 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
     setReviewLoading(true)
     setReviewError("")
     setReviewSent(false)
+    if (!product.slug) {
+      setReviewError("У продукта нет ссылки для отзыва.")
+      setReviewLoading(false)
+      return
+    }
     try {
       await api.addReview(product.slug, rating, text, anonymous)
       const result = await api.reviews(product.slug)
@@ -2513,6 +2530,14 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
             )
           })()}
+
+              {!showAnalysisExplainer && (product.barcode || product.variant) && (
+                <section className="report-card">
+                  <h4>Данные упаковки</h4>
+                  {product.variant && <p className="drawer__report-summary">Вариант: {product.variant}</p>}
+                  {product.barcode && <p className="drawer__report-summary">Штрихкод: {product.barcode}</p>}
+                </section>
+              )}
 
 {!showAnalysisExplainer && (
               <section className="report-card drawer__inci">
@@ -3267,11 +3292,7 @@ function ShelfAddModal({
                 </button>
                 <button type="button" className="add-menu__opt" onClick={() => onScan("photo")}>
                   <Icon name="camera" size={18} />
-                  <span>По фото упаковки</span>
-                </button>
-                <button type="button" className="add-menu__opt" onClick={() => onScan("inci")}>
-                  <Icon name="drop" size={18} />
-                  <span>По фото состава</span>
+                  <span>Скан по фото</span>
                 </button>
                 <button type="button" className="add-menu__opt" onClick={() => onScan("manual")}>
                   <Icon name="pencil" size={18} />
@@ -3718,7 +3739,6 @@ export default function App() {
     if (!user && p !== "home") { setAuthModal("login"); return }
     if (p === "sets") { setPage("home"); window.scrollTo({ top: 0 }); return }
     if (p === "shelf" && !user) { setAuthModal("login"); return }
-    if (p === "sets" && !user) { setAuthModal("login"); return }
     if (p === "report") { setToast("Раздел «Отчёт» скоро появится"); return }
     if (p === "scan") setScanMethod(null)
     setPage(p)
