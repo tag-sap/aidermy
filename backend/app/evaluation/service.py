@@ -73,6 +73,7 @@ class EvaluationService:
         composition: Mapping[str, Any],
         profile: Mapping[str, Any] | None,
         now: datetime | None = None,
+        user_id: int | None = None,
     ) -> BuildResult:
         product_id = product.get("id")
         if product_id is None:
@@ -97,6 +98,7 @@ class EvaluationService:
             result=result,
             rules=self.rules,
             created_at=now,
+            user_id=user_id,
         )
         existing = self.store.get_snapshot(str(snapshot.get("snapshot_id") or ""))
         if existing is not None:

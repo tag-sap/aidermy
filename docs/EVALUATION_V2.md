@@ -98,48 +98,88 @@
 `verify_snapshot` обнаруживает любое изменение сохранённого результата. UI и отчёт
 должны читать только snapshot — пересчёт в отчёте запрещён.
 
+`snapshot_id` вычисляется по **входам** (продукт, версия состава, fingerprint профиля,
+параметры, версии правил/движка, `user_id`) и не зависит от времени создания: повторный
+запрос с теми же данными возвращает тот же snapshot. `created_at` входит только в
+`snapshot_hash`, поэтому первый сохранённый результат не перезаписывается.
+
 ## 7. Схема БД (черновик)
 
 `backend/migrations/20261023_evaluation_v2.sql` — схема `evaluation`:
 `product_compositions`, `parameter_registry`, `research_jobs`, `sources`, `evidence`,
-`parameter_evaluations`, `rule_versions`, `snapshots`. RLS включён; snapshot —
-append-only (триггер); уникальные индексы защищают от дублей AI-задач и повторных
-snapshot с теми же входами. **Миграция не применена.**
+`parameter_evaluations`, `rule_versions`, `snapshots` (+ `product_name` в snapshot,
+чтобы UI не делал join к каталогу). RLS включён; snapshot — append-only (триггер);
+уникальные индексы защищают от дублей AI-задач и повторных snapshot с теми же входами.
+**Миграция не применена.**
+
+## 7.1. Хранилище
+
+- `store.py::EvaluationStore` — протокол; `InMemoryStore` — эталонная реализация для тестов.
+- `postgres_store.py::PostgresStore` — реализация поверх `evaluation.*`:
+  - все запросы параметризованы;
+  - `save_evaluation` выполняется в транзакции: `SELECT ... FOR UPDATE` → `INSERT` →
+    `UPDATE ... SET superseded_by` (история сохраняется);
+  - `save_snapshot` идемпотентен по `snapshot_id` (`ON CONFLICT DO NOTHING`),
+    требует зарегистрированного `rule_version` и `composition` (иначе `StoreError`);
+  - `enqueue_research` опирается на частичный уникальный индекс — дубли AI-задач
+    не создаются;
+  - `seed_rule()` / `seed_registry()` регистрируют версию правил и реестр параметров.
+
+## 7.2. API (`/api/v1/evaluation`)
+
+| Метод | Путь | Доступ | Назначение |
+|---|---|---|---|
+| GET | `/parameters` | публично | реестр параметров + описание правил (включая `calibrated: false`) |
+| POST | `/preview` | публично | чистый расчёт без сохранения (для проверки методики) |
+| POST | `/snapshots` | авторизация | собрать/переиспользовать snapshot, вернуть `pending_parameters` |
+| GET | `/snapshots/{id}` | владелец | чтение snapshot с проверкой целостности |
+| POST | `/research-jobs` | авторизация | поставить в очередь только отсутствующие параметры |
+
+Роутер **не зарегистрирован** в `app/main.py`: включение — одна строка
+`setup_evaluation_routes(app, store=PostgresStore())` после применения миграции.
+
 
 ## 8. Тесты
 
-`backend/tests/test_evaluation_engine.py` (28) и `backend/tests/test_evaluation_service.py` (10)
-— 38 проверок: реестр и якоря, маппинг анкеты (max вместо суммы, активная терапия,
-свежие процедуры, аллергии), детерминизм и хэш, политика пропусков, статусы, отсутствие
-вердикта до калибровки, freshness, неизменяемость snapshot, идемпотентность сборки,
-supersede истории, дедуп research-задач, проверка целостности snapshot при чтении.
+Четыре файла, **66 проверок**:
+
+| Файл | Проверок | Что покрыто |
+|---|---:|---|
+| `test_evaluation_engine.py` | 28 | реестр и якоря, маппинг анкеты, детерминизм и хэш, политика пропусков, статусы, гейт вердикта, freshness, snapshot |
+| `test_evaluation_service.py` | 10 | идемпотентность сборки, supersede истории, дедуп research-задач, проверка целостности при чтении |
+| `test_evaluation_postgres_store.py` | 16 | маппинг строк, `ON CONFLICT`, `FOR UPDATE` + supersede, обязательные rule/composition, идемпотентный insert, seeds |
+| `test_evaluation_api.py` | 12 | контракт `/api/v1/evaluation/*`, 403 для чужого snapshot, 409 при подмене, 422 на невалидную шкалу |
 
 ```bash
-cd backend && python -m pytest tests/test_evaluation_engine.py tests/test_evaluation_service.py -q
-# 38 passed
+cd backend && python -m pytest tests/test_evaluation_engine.py tests/test_evaluation_service.py \
+  tests/test_evaluation_postgres_store.py tests/test_evaluation_api.py -q
+# 66 passed
 ```
 
-Сравнение с базовой линией (`origin/main` @ 6ea708a, один и тот же прогон):
+Сравнение с базовой линией (`origin/main` @ 6ea708a):
 
 | Прогон | passed | failed |
 |---|---:|---:|
 | чистый `origin/main` | 771 | 59 |
-| ветка `feat/evaluation-v2` | 809 | 59 |
+| ветка `feat/evaluation-v2` | 845 | 51 |
 
-Набор падающих тестов **идентичен** (сравнение через `diff`), то есть новые модули
-регрессий не вносят и добавляют 38 проходящих проверок. 59 падений — предсуществующие
-и средовые: отсутствует `SUPABASE_DATABASE_URL` (PG-тесты), локальная SQLite-база
-без fixtures пользователей, тесты, требующие LLM. `tests/test_report_flow.py`
-исключён из прогона: он падает уже на импорте без переменных окружения.
+Критерий корректности — отсутствие **новых** падений: `comm -23` по спискам FAILED даёт
+пустой результат, то есть все текущие падения входят в базовый набор. Число падений
+снизилось (59 → 51), потому что локальная SQLite-база приобретает схему и fixtures
+при повторных прогонах — это средовой эффект, а не влияние нового кода. Причины базовых
+падений: отсутствует `SUPABASE_DATABASE_URL` (PG-тесты), пустая SQLite без fixtures,
+тесты, требующие LLM. `tests/test_report_flow.py` исключён: падает на импорте без
+переменных окружения.
 
 ## 9. Что дальше (требует согласования)
 
-1. Применить миграцию в отдельной схеме Supabase (после бэкапа) и прогнать миграционные тесты.
-2. Реализовать `PostgresStore` по протоколу `EvaluationStore` (сейчас есть `InMemoryStore`)
-   и `api.py` (`/api/v1/...`) с идемпотентной выдачей snapshot.
+1. Применить миграцию в отдельной схеме Supabase (после бэкапа) и прогнать `PostgresStore`
+   против живой схемы (интеграционные тесты на staging).
+2. Зарегистрировать роутер в `main.py`: `setup_evaluation_routes(app, store=PostgresStore())`.
 3. Исследование AI: контракт «факт + цитата + источник + статус», строгая валидация,
    дедуп задач, учёт стоимости и таймаутов.
 4. Собрать эталонную выборку и провести калибровку (MAE по параметрам, bias, coverage,
    согласие вердиктов), после чего выпустить `rule_version` с `calibrated=true`.
-5. Подключить `figma-make-preview` к snapshot-контракту и убрать двойные пороги вердикта.
+5. Перевести `figma-make-preview` на snapshot-контракт и убрать дублирующие пороги вердикта.
+
 

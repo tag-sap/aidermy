@@ -46,6 +46,7 @@ def build_snapshot(
     result: EngineResult,
     rules: RuleSet,
     created_at: datetime | None = None,
+    user_id: int | None = None,
 ) -> dict:
     composition_hash = str(composition.get("composition_hash") or "")
     if not composition_hash:
@@ -60,6 +61,7 @@ def build_snapshot(
     body = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "engine_version": ENGINE_VERSION,
+        "user_id": user_id,
         "rule_version": rules.version,
         "rules_hash": rules.hash,
         "engine_input_hash": result.input_hash,
@@ -91,7 +93,8 @@ def build_snapshot(
         "created_at": created,
     }
     body["snapshot_hash"] = sha256_of({k: v for k, v in body.items() if k != "snapshot_hash"})
-    body["snapshot_id"] = body["snapshot_hash"][:32]
+    identity = {k: v for k, v in body.items() if k not in {"snapshot_hash", "created_at"}}
+    body["snapshot_id"] = sha256_of(identity)[:32]
     return body
 
 

@@ -137,6 +137,7 @@ create table if not exists evaluation.snapshots (
     schema_version      text        not null,
     user_id             bigint,
     product_id          bigint      not null,
+    product_name        text        not null default '',
     composition_id      bigint      not null references evaluation.product_compositions (id) on delete restrict,
     profile_fingerprint jsonb       not null,
     rule_version        text        not null references evaluation.rule_versions (version) on delete restrict,
