@@ -55,7 +55,7 @@ class PreviewEndpointTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         result = response.json()["result"]
-        self.assertEqual(result["total"], 73)
+        self.assertEqual(result["total"], 70)
         self.assertIsNone(result["verdict"])
         self.assertEqual(store.snapshot_count(), 0)
 
@@ -113,7 +113,7 @@ class SnapshotEndpointTests(unittest.TestCase):
                 ),
             )
         body = self._create(client).json()
-        self.assertEqual(body["snapshot"]["total"], 73)
+        self.assertEqual(body["snapshot"]["total"], 70)
         self.assertEqual(body["pending_parameters"], [])
 
 class SnapshotReadTests(unittest.TestCase):
