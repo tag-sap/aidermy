@@ -16,8 +16,12 @@ from .goal_evidence import (
     scoped_concern_property,
     selected_concern_ids,
 )
-from .ingredient_normalizer import normalize_ingredient_name
+from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingredient_name
 from .ingredient_repository import IngredientRepository
+
+# Existing neutral policy: water is deliberately excluded from AI research.
+# Keep this explicit rather than treating a catalogue stub as a research task.
+NEUTRAL_INGREDIENT_KEYS = {"water", "aqua"}
 
 
 def find_missing_concern_evidence(
@@ -40,23 +44,32 @@ def find_unknown_ingredients(
     ingredients: List[str],
     repository: Optional[IngredientRepository] = None,
 ) -> List[str]:
-    """Возвращает список ингредиентов, которых нет в Ingredient DB.
+    """Return ingredients that lack knowledge usable by Score Engine.
 
-    Проверка дешёвая: по normalized_name и синонимам (get_known_names).
+    Catalogue presence alone is not readiness: an ingredient can have
+    ``functions``/``skin_effects``/``research_status='researched'`` but no
+    canonical claims.  The canonical knowledge map is the scoring contract and
+    is therefore the source of truth here.  Names are deduplicated by canonical
+    identity so aliases cannot create duplicate research tasks.
     """
     repo = repository or IngredientRepository()
     repo.ensure_ingredient_tables()
-    known = repo.get_known_names()
+    knowledge = repo.get_canonical_knowledge_map()
+    aliases = repo.get_canonical_name_map()
 
     unknown: List[str] = []
     seen: Set[str] = set()
     for raw in ingredients:
-        key = normalize_ingredient_name(raw)
-        if not key or key in seen or key in {"water", "aqua"}:
+        key = canonicalize_ingredient_name(raw)
+        if not key or key in NEUTRAL_INGREDIENT_KEYS:
+            continue
+        # Resolve catalogue aliases to the same key used by scoring.  If no
+        # catalogue row exists, the canonical name is still a valid unknown.
+        key = aliases.get(key, key)
+        if key in knowledge or key in seen:
             continue
         seen.add(key)
-        if key not in known:
-            unknown.append(raw)
+        unknown.append(raw)
     return unknown
 
 

@@ -103,10 +103,10 @@ def normalize_inci(value: Any) -> List[str]:
     """Нормализованные токены INCI для дополнительного сигнала совпадения."""
     if not value:
         return []
-    from .ingredient_normalizer import normalize_ingredient_name
+    from .ingredient_normalizer import normalize_ingredient_name, split_inci_tokens
 
     tokens: List[str] = []
-    for part in re.split(r"[,;\n]+", str(value)):
+    for part in split_inci_tokens(str(value)):
         norm = normalize_ingredient_name(part)
         if norm and norm not in {"water", "aqua"}:
             tokens.append(norm)

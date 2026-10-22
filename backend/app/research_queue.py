@@ -14,7 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .axes import AXES
 from .claim_direction import prompt_instruction, validate_claim
-from .ingredient_normalizer import normalize_ingredient_name
+from .ingredient_enrichment import NEUTRAL_INGREDIENT_KEYS
+from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingredient_name
 from .ingredient_repository import IngredientRepository
 from .instrumentation import METRICS
 
@@ -31,6 +32,10 @@ RESEARCH_BATCH_SIZE = 25
 RESEARCH_MAX_ATTEMPTS = 3
 RESEARCH_WAIT_TIMEOUT = 90.0
 RESEARCH_POLL_INTERVAL = 0.5
+# No dedicated lease column exists; updated_at is the conservative lease marker.
+RESEARCH_PROCESSING_LEASE_SECONDS = 300
+# A terminally failed/completed task may be retried only after this interval.
+RESEARCH_RETRY_COOLDOWN_SECONDS = 300
 
 _RESEARCH_MODEL_FALLBACKS = ["deepseek-chat"]
 _RESEARCH_MAX_TOKENS = 8000
@@ -47,7 +52,7 @@ def _num(value: Any, default: float = 0.0) -> float:
 
 
 def _ingredient_dedup_key(name: str) -> str:
-    return f"ingredient:{normalize_ingredient_name(name)}"
+    return f"ingredient:{canonicalize_ingredient_name(name)}"
 
 
 def _interaction_dedup_key(a: str, b: str) -> str:
@@ -65,11 +70,15 @@ def enqueue_research(
     task_ids: List[int] = []
     created = 0
     for raw in (unknown_ingredients or []):
-        key = normalize_ingredient_name(raw)
-        if not key or key in {"water", "aqua"}:
+        key = canonicalize_ingredient_name(raw)
+        if not key or key in NEUTRAL_INGREDIENT_KEYS:
             continue
         tid, was_created = repo.enqueue_research_task(
-            INGREDIENT_RESEARCH, _ingredient_dedup_key(key), {"ingredient": key}
+            INGREDIENT_RESEARCH,
+            _ingredient_dedup_key(key),
+            {"ingredient": key},
+            retry_terminal=True,
+            retry_cooldown_seconds=RESEARCH_RETRY_COOLDOWN_SECONDS,
         )
         task_ids.append(tid)
         if was_created:
@@ -138,8 +147,12 @@ async def run_research(
 
 async def _process_batch(repo: IngredientRepository) -> int:
     """Забирает pending-задачи и обрабатывает их batch'ом. Возвращает число обработанных."""
+    repo.reclaim_stale_processing_tasks(
+        max_attempts=RESEARCH_MAX_ATTEMPTS,
+        stale_after_seconds=RESEARCH_PROCESSING_LEASE_SECONDS,
+    )
     with _batch_lock:
-        tasks = repo.claim_pending_research_tasks(RESEARCH_BATCH_SIZE)
+        tasks = repo.claim_pending_research_tasks(RESEARCH_BATCH_SIZE, RESEARCH_MAX_ATTEMPTS)
     if not tasks:
         return 0
     METRICS.increment("research_batch_created")
@@ -260,7 +273,13 @@ def _save_ingredient_result(repo: IngredientRepository, name: str, record: Dict[
         "allergen": record.get("allergen") or {},
     }
     try:
-        return bool(repo.save_enriched_ingredient(data))
+        saved = bool(repo.save_enriched_ingredient(data))
+        if not saved:
+            return False
+        # Catalogue metadata/functions alone are not a completed research
+        # result.  Completion requires at least one canonical claim that the
+        # Score Engine can consume.
+        return repo.has_canonical_claims(data.get("normalized_name") or name)
     except Exception:
         return False
 

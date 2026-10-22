@@ -11,7 +11,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from .database import get_connection, PRODUCTS_DB
-from .ingredient_normalizer import canonicalize_ingredient_name
+from .ingredient_normalizer import canonicalize_ingredient_name, split_inci_tokens
 from .services import capitalize_name
 from .catalog_taxonomy import TAXONOMY, classify_product, canonical_subcategory
 
@@ -89,7 +89,7 @@ def _formula_signature(ingredients: str) -> str:
         from .ingredient_normalizer import canonicalize_ingredient_name
     except Exception:
         return ""
-    parts = [canonicalize_ingredient_name(p) for p in re.split(r"[,;\n]+", str(ingredients))]
+    parts = [canonicalize_ingredient_name(p) for p in split_inci_tokens(str(ingredients))]
     keys = [p for p in parts if p and p not in {"water", "aqua"}][:5]
     return "|".join(keys)
 
@@ -880,7 +880,7 @@ def _allergy_conflict(ingredients: str, allergies: List[str]) -> bool:
     if not allergies or not ingredients or not str(ingredients).strip():
         return False
     ing_lower = str(ingredients).lower()
-    ing_tokens = {canonicalize_ingredient_name(p) for p in re.split(r"[,;\n]+", ing_lower)}
+    ing_tokens = {canonicalize_ingredient_name(p) for p in split_inci_tokens(ing_lower)}
     ing_tokens.discard("")
 
     for a in allergies:
@@ -913,7 +913,7 @@ def _hard_filter_exclusion(profile: Dict[str, Any], ingredients: str) -> bool:
         from .scoring_engine import apply_hard_filters
     except Exception:
         return False
-    raw_items = [p.strip() for p in re.split(r"[,;\n]+", ingredients or "") if p.strip()]
+    raw_items = [p.strip() for p in split_inci_tokens(ingredients or "") if p.strip()]
     return bool(apply_hard_filters(profile, raw_items))
 
 

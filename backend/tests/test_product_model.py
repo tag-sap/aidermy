@@ -38,6 +38,15 @@ class ProductModelTests(unittest.TestCase):
         METRICS.reset()
         self._tmp.cleanup()
 
+    def test_parenthetical_inci_is_not_split_into_fake_ingredients(self):
+        p = {"id": 99, "ingredients": "Aqua (Water, Eau), Retinol"}
+        model = build_static_product_model(p, graph=self.graph)
+        self.assertEqual(model["ingredient_names"], ["water", "retinol"])
+        self.assertEqual(
+            model["composition_hash"],
+            composition_hash("Aqua (Water, Eau), Retinol"),
+        )
+
     def test_build_model_has_hash_and_classes(self):
         p = {"id": 1, "ingredients": "Aqua, Retinol"}
         m = build_static_product_model(p, graph=self.graph)

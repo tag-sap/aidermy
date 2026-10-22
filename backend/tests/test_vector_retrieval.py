@@ -118,8 +118,15 @@ class PpmTests(unittest.TestCase):
         build_or_refresh_ppm(p1, repo=self.repo, canonical_knowledge=self.knowledge)
         build_or_refresh_ppm(p2, repo=self.repo, canonical_knowledge=self.knowledge)
 
-        self.repo.upsert_ingredient("ExoticA", "ExoticA", "exotica")
-        refreshed = refresh_ppms_for_ingredients(["exotica"], repo=self.repo)
+        self.repo.save_enriched_ingredient({
+            "inci_name": "ExoticA",
+            "canonical_name": "ExoticA",
+            "normalized_name": "exotica",
+            "claims": [{"property_name": "hydration", "direction": "positive",
+                        "strength": 0.5, "confidence": 0.7}],
+        })
+        with patch("app.database.get_product_by_id", side_effect=lambda pid: p1 if pid == 1 else p2):
+            refreshed = refresh_ppms_for_ingredients(["exotica"], repo=self.repo)
         self.assertEqual(refreshed, 1)
 
         ppm1 = self.repo.get_ppm(1)

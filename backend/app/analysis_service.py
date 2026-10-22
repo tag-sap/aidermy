@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingredient_name
+from .ingredient_normalizer import (
+    canonicalize_ingredient_name,
+    normalize_ingredient_name,
+    split_inci_tokens,
+)
 from .ingredient_repository import IngredientRepository
 from .scoring_engine import apply_hard_filters, score_product_against_profile_canonical
 from .goal_evidence import evaluate_goal_evidence, selected_concern_ids
@@ -16,11 +20,30 @@ class AnalysisService:
 
     def prepare_product_ingredients(self, raw_ingredients: str | List[str]) -> List[str]:
         if isinstance(raw_ingredients, str):
-            cleaned = raw_ingredients.split(',') if ',' in raw_ingredients else raw_ingredients.split('\n')
-            items = [canonicalize_ingredient_name(item) for item in cleaned]
+            items = split_inci_tokens(raw_ingredients)
         else:
-            items = [canonicalize_ingredient_name(item) for item in raw_ingredients]
-        return [item for item in items if item]
+            items = list(raw_ingredients or [])
+
+        aliases: Dict[str, str] = {}
+        try:
+            aliases = self.repository.get_canonical_name_map()
+        except Exception:
+            # Custom/mock repositories used by older callers may not expose the
+            # catalogue helper; canonicalization still works without it.
+            aliases = {}
+
+        prepared: List[str] = []
+        seen = set()
+        for item in items:
+            key = canonicalize_ingredient_name(item)
+            if not key:
+                continue
+            key = aliases.get(key, key)
+            if key in seen:
+                continue
+            seen.add(key)
+            prepared.append(key)
+        return prepared
 
     def find_unknown_ingredients(self, ingredients: str | List[str]) -> List[str]:
         """Ингредиенты, которых нет в Ingredient DB (для AI #2 Enrichment)."""

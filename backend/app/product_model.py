@@ -12,7 +12,7 @@ import re
 import threading
 from typing import Any, Dict, List
 
-from .ingredient_normalizer import normalize_ingredient_name
+from .ingredient_normalizer import canonicalize_ingredient_name, split_inci_tokens
 from .instrumentation import METRICS
 
 TAXONOMY_VERSION = "v2"
@@ -23,17 +23,17 @@ MODEL_VERSION = "v1"
 
 def composition_hash(ingredients: str) -> str:
     parts = sorted({
-        normalize_ingredient_name(p)
-        for p in re.split(r"[,;\n]+", str(ingredients or ""))
-        if normalize_ingredient_name(p)
+        canonicalize_ingredient_name(p)
+        for p in split_inci_tokens(ingredients)
+        if canonicalize_ingredient_name(p)
     })
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
 def _split_ingredients(raw: str) -> List[str]:
     out: List[str] = []
-    for p in re.split(r"[,;\n]+", str(raw or "")):
-        n = normalize_ingredient_name(p)
+    for p in split_inci_tokens(raw):
+        n = canonicalize_ingredient_name(p)
         if n and n not in out:
             out.append(n)
     return out

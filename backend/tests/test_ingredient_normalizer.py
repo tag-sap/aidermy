@@ -1,13 +1,50 @@
 import os, sys, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.ingredient_normalizer import normalize_ingredient_name, canonicalize_ingredient_name, parse_inci_list
+from app.ingredient_normalizer import (
+    normalize_ingredient_name,
+    canonicalize_ingredient_name,
+    parse_inci_list,
+    split_inci_tokens,
+)
 
 
 class IngredientNormalizerTests(unittest.TestCase):
     def test_water_variants_canonicalize_to_water(self):
-        for v in ["Purified Water", "Deionized Water", "Distilled Water", "Aqua Water", "Water Aqua Eau"]:
+        for v in [
+            "Purified Water", "Deionized Water", "Distilled Water",
+            "Aqua Water", "Water Aqua Eau", "Aqua", "Eau",
+        ]:
             self.assertEqual(canonicalize_ingredient_name(v), "water", v)
+
+    def test_split_inci_keeps_parenthetical_synonym_together(self):
+        self.assertEqual(
+            split_inci_tokens("Aqua (Water, Eau), Glycerin"),
+            ["Aqua (Water, Eau)", "Glycerin"],
+        )
+        self.assertEqual(
+            canonicalize_ingredient_name("Aqua (Water, Eau)"),
+            "water",
+        )
+
+    def test_split_inci_handles_several_groups_and_separators(self):
+        self.assertEqual(
+            split_inci_tokens("Aqua (Water, Eau); Glycerin (Plant, Derived)\nNiacinamide"),
+            ["Aqua (Water, Eau)", "Glycerin (Plant, Derived)", "Niacinamide"],
+        )
+
+    def test_split_inci_skips_empty_items_and_trims_spaces(self):
+        self.assertEqual(
+            split_inci_tokens("  Glycerin ,, ;\n Niacinamide  "),
+            ["Glycerin", "Niacinamide"],
+        )
+
+    def test_split_inci_unbalanced_open_bracket_is_predictable(self):
+        # Legacy-safe fallback: damaged input must not swallow the rest.
+        self.assertEqual(
+            split_inci_tokens("Aqua (Water, Eau, Glycerin"),
+            ["Aqua (Water", "Eau", "Glycerin"],
+        )
 
     def test_nano_filters_canonicalize_to_base(self):
         self.assertEqual(canonicalize_ingredient_name("Titanium Dioxide Nano"), "titanium dioxide")

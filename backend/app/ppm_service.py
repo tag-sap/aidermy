@@ -7,17 +7,30 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
-from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingredient_name
+from .ingredient_normalizer import canonicalize_ingredient_name, normalize_ingredient_name, split_inci_tokens
 
 
-def _prepare(raw: Any) -> List[str]:
-    """Зеркалит AnalysisService.prepare_product_ingredients без открытия соединения."""
+def _prepare(raw: Any, repository=None) -> List[str]:
+    """Mirror AnalysisService.prepare_product_ingredients with the shared parser."""
     if isinstance(raw, str):
-        cleaned = raw.split(",") if "," in raw else raw.split("\n")
-        items = [canonicalize_ingredient_name(item) for item in cleaned]
+        items = split_inci_tokens(raw)
     else:
-        items = [canonicalize_ingredient_name(item) for item in (raw or [])]
-    return [i for i in items if i]
+        items = list(raw or [])
+    aliases = {}
+    if repository is not None:
+        try:
+            aliases = repository.get_canonical_name_map()
+        except Exception:
+            aliases = {}
+    out: List[str] = []
+    seen = set()
+    for item in items:
+        canonical = canonicalize_ingredient_name(item)
+        canonical = aliases.get(canonical, canonical)
+        if canonical and canonical not in seen:
+            seen.add(canonical)
+            out.append(canonical)
+    return out
 
 
 def build_or_refresh_ppm(
@@ -44,7 +57,7 @@ def build_or_refresh_ppm(
     )
 
     raw = product.get("ingredients") or ""
-    normalized = _prepare(raw)
+    normalized = _prepare(raw, repo)
     if not normalized:
         return {"skipped": True, "representation_type": None, "reason": "no_ingredients"}
 

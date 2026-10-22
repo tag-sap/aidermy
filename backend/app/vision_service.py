@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .ingredient_normalizer import canonicalize_ingredient_name
+from .ingredient_normalizer import canonicalize_ingredient_name, split_inci_tokens
 from .ingredient_repository import IngredientRepository
 from .database import get_connection, PRODUCTS_DB, AIDERMY_DB
 from .services import DEEPSEEK_API_KEY, DEEPSEEK_API_URL, extract_json_from_response
@@ -215,7 +215,7 @@ def recognized_normalized_list(recognition: Dict[str, Any]) -> List[str]:
 
 def _tokenize_inci(raw: str) -> set:
     tokens: set = set()
-    for part in re.split(r"[,;\n]+", raw or ""):
+    for part in split_inci_tokens(raw or ""):
         normalized = canonicalize_ingredient_name(part)
         if normalized:
             tokens.add(normalized)

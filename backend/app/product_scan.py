@@ -15,6 +15,7 @@ import asyncio
 import re
 from typing import Any, Dict, List, Optional
 
+from .ingredient_normalizer import split_inci_tokens
 from .product_identification import (
     find_product_candidates,
     has_reliable_inci,
@@ -54,7 +55,7 @@ def _clean_scraped_inci(value: Any) -> List[str]:
     )[0]
     return [
         part.strip(" .\u200b\u200c\ufeff")
-        for part in re.split(r"[,;\n]+", text)
+        for part in split_inci_tokens(text)
         if part.strip(" .\u200b\u200c\ufeff")
     ]
 

@@ -52,13 +52,14 @@ def test_recognized_normalized_list_dedup_and_order():
         ]
     }
     result = recognized_normalized_list(recognition)
-    # glycerine и glycerin канонизируются в один ингредиент, без дублей.
-    assert result == ["aqua", "glycerin", "niacinamide"]
+    # glycerine и glycerin канонизируются в один ингредиент, без дублей;
+    # Aqua нормализуется к тому же ключу, который использует Score Engine.
+    assert result == ["water", "glycerin", "niacinamide"]
 
 
 def test_tokenize_inci_splits_and_normalizes():
     tokens = _tokenize_inci("Aqua, Glycerin; Niacinamide\nTocopherol (Vit E)")
-    assert tokens == {"aqua", "glycerin", "niacinamide", "tocopherol"}
+    assert tokens == {"water", "glycerin", "niacinamide", "tocopherol"}
 
 
 def test_find_product_matches_returns_sorted_matches():
@@ -90,7 +91,7 @@ def test_register_ingredients_dedup_and_reuse():
         db_path=db_path,
     )
     names = [r["normalized"] for r in first]
-    assert names == ["glycerin", "aqua"]
+    assert names == ["glycerin", "water"]
 
     second = register_ingredients([{"raw": "Glycerin", "normalized": "Glycerin"}], db_path=db_path)
     assert second[0]["id"] == first[0]["id"]

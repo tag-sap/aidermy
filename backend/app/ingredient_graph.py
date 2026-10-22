@@ -15,7 +15,7 @@ import threading
 from typing import Any, Dict, List, Optional
 
 from .axes import AXES
-from .ingredient_normalizer import normalize_ingredient_name
+from .ingredient_normalizer import canonicalize_ingredient_name, split_inci_tokens
 from .ingredient_repository import IngredientRepository
 from .instrumentation import METRICS
 from .scoring_config import DEFAULT_CONFIDENCE_THRESHOLD
@@ -88,7 +88,7 @@ class IngredientGraph:
     # ------------------------------------------------------------------
     def lookup_effect(self, ingredient: str, axis: str) -> Dict[str, Any]:
         """Состояние эффекта ингредиента по одной канонической оси."""
-        key = normalize_ingredient_name(ingredient)
+        key = canonicalize_ingredient_name(ingredient)
         if axis not in AXES:
             return {"ingredient": key, "axis": axis, "state": EffectState.UNKNOWN, "reason": "invalid_axis"}
         entry = self.get_canonical_knowledge_map().get(key, {}).get(axis)
@@ -134,7 +134,7 @@ class IngredientGraph:
         порогу confidence и список записей по осям (с source/evidence).
         """
         METRICS.increment("interaction_lookup_count")
-        a_c, b_c = sorted([normalize_ingredient_name(ingredient_a), normalize_ingredient_name(ingredient_b)])
+        a_c, b_c = sorted([canonicalize_ingredient_name(ingredient_a), canonicalize_ingredient_name(ingredient_b)])
         records = self._interaction_map().get((a_c, b_c), [])
         if not records:
             METRICS.increment("interaction_unknown_count")
@@ -183,13 +183,13 @@ class IngredientGraph:
     def lookup_classes(self, ingredient: str) -> List[str]:
         """Классы ингредиента (листья + предки). Пусто = класс неизвестен."""
         METRICS.increment("class_lookup_count")
-        return list(self._class_map().get(normalize_ingredient_name(ingredient), []))
+        return list(self._class_map().get(canonicalize_ingredient_name(ingredient), []))
 
     @staticmethod
     def _split_ingredients(raw: Any) -> List[str]:
         out: List[str] = []
-        for part in re.split(r"[,;\n]+", str(raw or "")):
-            n = normalize_ingredient_name(part)
+        for part in split_inci_tokens(str(raw or "")):
+            n = canonicalize_ingredient_name(part)
             if n:
                 out.append(n)
         return out

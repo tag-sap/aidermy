@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from app import research_queue as rq
+from app.database import get_connection
 from app.ingredient_repository import IngredientRepository
 from app.instrumentation import METRICS
 
@@ -107,7 +108,16 @@ class ResearchQueueTests(unittest.TestCase):
 
         async def fake_call(names):
             calls.append(list(names))
-            return [{"inci_name": n, "effects": []} for n in names]
+            return [
+                {
+                    "inci_name": n,
+                    "effects": [{
+                        "axis": "hydration", "direction": "positive",
+                        "effect_magnitude": "moderate", "confidence": 0.8,
+                    }],
+                }
+                for n in names
+            ]
 
         rq.RESEARCH_BATCH_SIZE = 2
         try:
@@ -137,7 +147,7 @@ class ResearchQueueTests(unittest.TestCase):
     def test_unknown_not_neutral(self):
         # effects пуст → ингредиент сохранён, но без канонических эффектов (не neutral).
         record = {"inci_name": "X", "canonical_name": "X", "effects": []}
-        rq._save_ingredient_result(self.repo, "x", record)
+        self.assertFalse(rq._save_ingredient_result(self.repo, "x", record))
         cm = self.repo.get_canonical_knowledge_map()
         self.assertNotIn("x", cm)
 
@@ -178,6 +188,67 @@ class ResearchQueueTests(unittest.TestCase):
             self.repo.claim_pending_research_tasks(10)
             status = self.repo.fail_research_task(tid, "err", max_attempts=3)
         self.assertEqual(status, "failed")
+
+    def test_failed_task_can_be_reopened_after_cooldown(self):
+        tid, _ = self.repo.enqueue_research_task(
+            rq.INGREDIENT_RESEARCH, "ingredient:x", {"ingredient": "x"}
+        )
+        for _ in range(3):
+            self.repo.claim_pending_research_tasks(10)
+            self.repo.fail_research_task(tid, "err", max_attempts=3)
+        reopened, created = self.repo.enqueue_research_task(
+            rq.INGREDIENT_RESEARCH,
+            "ingredient:x",
+            {"ingredient": "x"},
+            retry_terminal=True,
+            retry_cooldown_seconds=0,
+        )
+        self.assertFalse(created)
+        self.assertEqual(reopened, tid)
+        task = self.repo.get_research_tasks([tid])[0]
+        self.assertEqual(task["status"], "pending")
+        self.assertEqual(task["attempts"], 0)
+
+    def test_completed_task_is_not_reopened_by_default(self):
+        tid, _ = self.repo.enqueue_research_task(
+            rq.INGREDIENT_RESEARCH, "ingredient:y", {"ingredient": "y"}
+        )
+        self.repo.claim_pending_research_tasks(10)
+        self.repo.complete_research_task(tid)
+        reopened, _ = self.repo.enqueue_research_task(
+            rq.INGREDIENT_RESEARCH, "ingredient:y", {"ingredient": "y"}
+        )
+        self.assertEqual(reopened, tid)
+        self.assertEqual(self.repo.get_research_tasks([tid])[0]["status"], "completed")
+
+    def test_stale_processing_task_is_reclaimed(self):
+        tid, _ = self.repo.enqueue_research_task(
+            rq.INGREDIENT_RESEARCH, "ingredient:stale", {"ingredient": "stale"}
+        )
+        self.repo.claim_pending_research_tasks(10)
+        conn = get_connection(self.db_path)
+        conn.execute(
+            "UPDATE research_tasks SET updated_at = ? WHERE id = ?",
+            ("2000-01-01 00:00:00", tid),
+        )
+        conn.commit()
+        conn.close()
+        reclaimed = self.repo.reclaim_stale_processing_tasks(
+            max_attempts=3, stale_after_seconds=300
+        )
+        self.assertEqual(reclaimed, 1)
+        self.assertEqual(self.repo.get_research_tasks([tid])[0]["status"], "pending")
+
+    def test_active_processing_task_is_not_reclaimed(self):
+        tid, _ = self.repo.enqueue_research_task(
+            rq.INGREDIENT_RESEARCH, "ingredient:active", {"ingredient": "active"}
+        )
+        self.repo.claim_pending_research_tasks(10)
+        reclaimed = self.repo.reclaim_stale_processing_tasks(
+            max_attempts=3, stale_after_seconds=300
+        )
+        self.assertEqual(reclaimed, 0)
+        self.assertEqual(self.repo.get_research_tasks([tid])[0]["status"], "processing")
 
     def test_failed_research_status(self):
         async def fake_call(names):

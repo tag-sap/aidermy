@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from .database import get_connection, AIDERMY_DB
@@ -603,10 +604,20 @@ class IngredientRepository:
         conn.commit()
         conn.close()
 
-    def enqueue_research_task(self, task_type: str, dedup_key: str, payload: Any) -> Tuple[int, bool]:
+    def enqueue_research_task(
+        self,
+        task_type: str,
+        dedup_key: str,
+        payload: Any,
+        retry_terminal: bool = False,
+        retry_cooldown_seconds: int = 0,
+    ) -> Tuple[int, bool]:
         """Добавляет research-задачу. Возвращает (task_id, created).
 
-        created=False, если задача с таким dedup_key уже существует (дедупликация).
+        created=False, если задача с таким dedup_key уже существует.  Если
+        задача завершилась failed/completed, её можно безопасно переоткрыть
+        явным запросом после cooldown; иначе она осталась бы навсегда
+        заблокированной для того же dedup_key.
         """
         self.ensure_research_tables()
         conn = get_connection(self.db_path)
@@ -617,9 +628,29 @@ class IngredientRepository:
         )
         created = cursor.rowcount > 0
         conn.commit()
-        row = cursor.execute("SELECT id, status, attempts FROM research_tasks WHERE dedup_key = ?", (dedup_key,)).fetchone()
+        row = cursor.execute(
+            "SELECT id, status, attempts, updated_at FROM research_tasks WHERE dedup_key = ?",
+            (dedup_key,),
+        ).fetchone()
+        row = dict(row) if row else None
+        task_id = int(row["id"]) if row else 0
+        if row and not created and retry_terminal and str(row["status"]) in {"failed", "completed"}:
+            updated = self._parse_storage_timestamp(row.get("updated_at"))
+            cooldown_ok = (
+                updated is None
+                or retry_cooldown_seconds <= 0
+                or (datetime.now(timezone.utc) - updated).total_seconds() >= retry_cooldown_seconds
+            )
+            if cooldown_ok:
+                cursor.execute(
+                    "UPDATE research_tasks SET status = 'pending', attempts = 0, "
+                    "last_error = '', updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = ? AND status IN ('failed', 'completed')",
+                    (task_id,),
+                )
+                conn.commit()
         conn.close()
-        return (int(row["id"]) if row else 0, created)
+        return task_id, created
 
     def get_research_tasks(self, task_ids: List[int]) -> List[Dict[str, Any]]:
         if not task_ids:
@@ -634,8 +665,55 @@ class IngredientRepository:
         conn.close()
         return rows
 
-    def claim_pending_research_tasks(self, batch_size: int) -> List[Dict[str, Any]]:
-        """Атомарно забирает pending-задачи и помечает их processing (attempts+1)."""
+    def reclaim_stale_processing_tasks(
+        self,
+        max_attempts: int,
+        stale_after_seconds: int,
+    ) -> int:
+        """Recover only genuinely stale processing tasks.
+
+        ``research_tasks`` has no dedicated lease column; the existing
+        ``updated_at`` is used as a conservative lease timestamp.  A task is
+        reclaimed only after the configured interval and only while it is still
+        processing, so an active worker's task is not taken away immediately.
+        Attempts are preserved; the existing attempt limit still applies.
+        """
+        self.ensure_research_tables()
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        now = datetime.now(timezone.utc)
+        claimed = 0
+        rows = cursor.execute(
+            "SELECT id, attempts, updated_at FROM research_tasks WHERE status = ?",
+            ("processing",),
+        ).fetchall()
+        for row in [dict(r) for r in rows]:
+            updated = self._parse_storage_timestamp(row.get("updated_at"))
+            if updated is not None and (now - updated).total_seconds() < stale_after_seconds:
+                continue
+            attempts = int(row.get("attempts") or 0)
+            next_status = "failed" if attempts >= max_attempts else "pending"
+            cursor.execute(
+                "UPDATE research_tasks SET status = ?, last_error = ?, "
+                "updated_at = CURRENT_TIMESTAMP "
+                "WHERE id = ? AND status = 'processing'",
+                (next_status, "processing lease expired" if next_status == "failed" else "", row["id"]),
+            )
+            claimed += int(cursor.rowcount or 0)
+        conn.commit()
+        conn.close()
+        return claimed
+
+    def claim_pending_research_tasks(
+        self,
+        batch_size: int,
+        max_attempts: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Атомарно забирает pending-задачи и помечает их processing (attempts+1).
+
+        A conditional ``UPDATE ... WHERE status='pending'`` prevents two workers
+        from claiming the same row after both performed the initial SELECT.
+        """
         self.ensure_research_tables()
         conn = get_connection(self.db_path)
         cursor = conn.cursor()
@@ -643,19 +721,31 @@ class IngredientRepository:
             "SELECT * FROM research_tasks WHERE status = 'pending' "
             "ORDER BY priority DESC, id ASC LIMIT ?", (batch_size,)
         ).fetchall()]
-        ids = [r["id"] for r in rows]
-        if ids:
-            placeholders = ",".join("?" for _ in ids)
+        claimed: List[Dict[str, Any]] = []
+        for row in rows:
+            attempts = int(row.get("attempts") or 0)
+            if max_attempts is not None and attempts >= max_attempts:
+                cursor.execute(
+                    "UPDATE research_tasks SET status = 'failed', "
+                    "last_error = 'max attempts reached', updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = ? AND status = 'pending'",
+                    (row["id"],),
+                )
+                continue
             cursor.execute(
-                f"UPDATE research_tasks SET status = 'processing', attempts = attempts + 1, "
-                f"updated_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})", ids
+                "UPDATE research_tasks SET status = 'processing', "
+                "attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP "
+                "WHERE id = ? AND status = 'pending'",
+                (row["id"],),
             )
-            conn.commit()
-            for r in rows:
-                r["status"] = "processing"
-                r["attempts"] = (r.get("attempts") or 0) + 1
+            if not cursor.rowcount:
+                continue
+            row["status"] = "processing"
+            row["attempts"] = attempts + 1
+            claimed.append(row)
+        conn.commit()
         conn.close()
-        return rows
+        return claimed
 
     def complete_research_task(self, task_id: int) -> None:
         self.ensure_research_tables()
@@ -1200,6 +1290,82 @@ class IngredientRepository:
                 known.setdefault(syn, row['id'])
         return known
 
+    def get_canonical_name_map(self) -> Dict[str, str]:
+        """Return alias -> canonical normalized_name using the existing catalog.
+
+        This is the same synonym vocabulary as ``get_known_names``, but it returns
+        the target catalogue key instead of an id.  It lets the scoring and
+        readiness paths resolve names consistently without changing catalog rows.
+        """
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        rows = cursor.execute(
+            "SELECT normalized_name, synonyms FROM ingredients_catalog"
+        ).fetchall()
+        conn.close()
+
+        aliases: Dict[str, str] = {}
+        for row in rows:
+            canonical = (row['normalized_name'] or '').strip().lower()
+            if canonical:
+                aliases.setdefault(canonical, canonical)
+        for row in rows:
+            canonical = (row['normalized_name'] or '').strip().lower()
+            if not canonical:
+                continue
+            for synonym in self._synonym_names(row['synonyms']):
+                aliases.setdefault(synonym, canonical)
+        return aliases
+
+    def _canonical_claims_for(self, ingredient_id: int) -> bool:
+        """Whether an ingredient has a claim usable by Score Engine axes."""
+        from .axes import canonicalize_axis
+
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        rows = cursor.execute(
+            "SELECT property_name FROM ingredient_claims WHERE ingredient_id = ?",
+            (ingredient_id,),
+        ).fetchall()
+        conn.close()
+        return any(
+            canonicalize_axis(str(row['property_name'] or ''))[0]
+            for row in rows
+        )
+
+    def has_canonical_claims(self, ingredient_name: str) -> bool:
+        """Check readiness against the same canonical-axis contract as scoring."""
+        from .ingredient_normalizer import canonicalize_ingredient_name
+
+        key = canonicalize_ingredient_name(ingredient_name)
+        if not key:
+            return False
+        aliases = self.get_canonical_name_map()
+        key = aliases.get(key, key)
+        conn = get_connection(self.db_path)
+        cursor = conn.cursor()
+        row = cursor.execute(
+            "SELECT id FROM ingredients_catalog WHERE normalized_name = ? LIMIT 1",
+            (key,),
+        ).fetchone()
+        conn.close()
+        return bool(row and self._canonical_claims_for(int(row['id'])))
+
+    @staticmethod
+    def _parse_storage_timestamp(value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            result = value
+        elif value:
+            try:
+                result = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+            except ValueError:
+                return None
+        else:
+            return None
+        if result.tzinfo is None:
+            result = result.replace(tzinfo=timezone.utc)
+        return result.astimezone(timezone.utc)
+
     def resolve_ingredient(self, name: str) -> Optional[Dict[str, Any]]:
         """Ищет ингредиент по normalized_name или синониму."""
         conn = get_connection(self.db_path)
@@ -1250,6 +1416,15 @@ class IngredientRepository:
         evidence_level = str(data.get('evidence_level') or 'moderate')
         knowledge_confidence = _num(data.get('confidence') or data.get('knowledge_confidence'), 0.0)
 
+        from .axes import canonicalize_axis
+        input_claims = [
+            str(claim.get('property_name') or claim.get('property') or '')
+            for claim in (data.get('claims') or []) if isinstance(claim, dict)
+        ]
+        initial_status = 'researched' if any(
+            canonicalize_axis(prop)[0] for prop in input_claims
+        ) else 'missing'
+
         cursor.execute(
             '''
             INSERT INTO ingredients_catalog (
@@ -1258,7 +1433,7 @@ class IngredientRepository:
                 oil_control, brightening, irritation_risk, comedogenicity,
                 sensitization, evidence_level, sources,
                 research_status, knowledge_confidence, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'researched', ?, CURRENT_TIMESTAMP)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(normalized_name) DO UPDATE SET
                 canonical_name = excluded.canonical_name,
                 synonyms = excluded.synonyms,
@@ -1274,7 +1449,7 @@ class IngredientRepository:
                 sensitization = excluded.sensitization,
                 evidence_level = excluded.evidence_level,
                 sources = excluded.sources,
-                research_status = 'researched',
+                research_status = excluded.research_status,
                 knowledge_confidence = excluded.knowledge_confidence,
                 last_researched_at = CURRENT_TIMESTAMP,
                 updated_at = CURRENT_TIMESTAMP
@@ -1286,7 +1461,7 @@ class IngredientRepository:
                 _num(data.get('soothing')), _num(data.get('oil_control')),
                 _num(data.get('brightening')), _num(data.get('irritation_risk')),
                 _num(data.get('comedogenicity')), _num(data.get('sensitization')),
-                evidence_level, sources, knowledge_confidence,
+                evidence_level, sources, initial_status, knowledge_confidence,
             ),
         )
 
@@ -1330,6 +1505,23 @@ class IngredientRepository:
                     str(claim.get('evidence_level') or evidence_level),
                 ),
             )
+
+        # Important: save_enriched_ingredient is also used for metadata and
+        # concern-only claims.  A row is "researched" for scoring only when at
+        # least one persisted claim maps to a canonical Score Engine axis.
+        persisted_claims = cursor.execute(
+            "SELECT property_name FROM ingredient_claims WHERE ingredient_id = ?",
+            (ingredient_id,),
+        ).fetchall()
+        final_status = 'researched' if any(
+            canonicalize_axis(str(row['property_name'] or ''))[0]
+            for row in persisted_claims
+        ) else 'missing'
+        cursor.execute(
+            "UPDATE ingredients_catalog SET research_status = ?, updated_at = CURRENT_TIMESTAMP "
+            "WHERE id = ?",
+            (final_status, ingredient_id),
+        )
 
         # Allergen / Sensitizer DB.
         allergen = data.get('allergen') or {}

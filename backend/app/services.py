@@ -9,6 +9,7 @@ import unicodedata
 from typing import List
 from dotenv import load_dotenv
 from .database import get_ingredients
+from .ingredient_normalizer import split_inci_tokens
 from .postgres_connection import get_postgres_connection
 
 load_dotenv()
@@ -1893,7 +1894,7 @@ async def identify_key_ingredient_with_ai(product_name: str, ingredients: str | 
         return None
 
     if isinstance(ingredients, str):
-        ing_list = [i.strip() for i in re.split(r'[,;\n]+', ingredients) if i.strip()]
+        ing_list = split_inci_tokens(ingredients)
     else:
         ing_list = [str(i).strip() for i in ingredients if str(i).strip()]
     if not ing_list:

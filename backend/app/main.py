@@ -20,6 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
+from .ingredient_normalizer import split_inci_tokens
+
 from .models import (
     CheckRequest,
     CheckResponse,
@@ -223,7 +225,7 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
             try:
                 import re as _re
                 from .vision_service import find_product_matches
-                raw_parts = [p.strip().replace("\u200b", "").replace("\u200c", "").replace("\ufeff", "") for p in _re.split(r'[,;\n]+', imported.ingredients_raw) if p.strip()]
+                raw_parts = [p.strip().replace("\u200b", "").replace("\u200c", "").replace("\ufeff", "") for p in split_inci_tokens(imported.ingredients_raw) if p.strip()]
                 matches = find_product_matches(raw_parts, limit=1)
                 if matches and matches[0].get("match_percent", 0) >= 85:
                     m = matches[0]
@@ -1576,7 +1578,7 @@ def _compute_compatibility(products: list) -> dict:
 
     def parse_ingredients(raw: str) -> set:
         out = set()
-        for part in re.split(r'[,;\n]+', raw or ''):
+        for part in split_inci_tokens(raw or ''):
             c = canonicalize_ingredient_name(part)
             if c:
                 out.add(c)
