@@ -15,6 +15,7 @@ Guarantees:
 """
 from __future__ import annotations
 
+import math
 from typing import Mapping, Sequence
 
 from .contracts import (
@@ -163,7 +164,7 @@ def evaluate(
         weighted_sum = sum(
             r.weight * float(r.value) for r in results if r.included and r.value is not None
         )
-        total = int(round(weighted_sum / covered_weight))
+        total = int(math.floor(weighted_sum / covered_weight + 0.5))
         verdict = _verdict_for(total, rules)
         if not rules.calibrated:
             limitations.append(
