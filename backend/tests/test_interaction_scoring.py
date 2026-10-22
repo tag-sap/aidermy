@@ -185,7 +185,11 @@ class ScoreIntegrationTests(unittest.TestCase):
         finally:
             iscore.INTERACTION_SCORING_ENABLED = False
         self.assertAlmostEqual(r["dimensions"]["hydration"], -0.81, places=3)
-        self.assertEqual(r["interaction_breakdown"], [])
+        # Replacement обязан попадать в trace: раньше он применялся к score,
+        # но interaction_breakdown оставался пустым.
+        self.assertEqual(len(r["interaction_breakdown"]), 1)
+        self.assertEqual(r["interaction_breakdown"][0]["axis"], "hydration")
+        self.assertAlmostEqual(r["interaction_breakdown"][0]["weighted_contribution"], -0.81, places=3)
         self.assertEqual(len(r["interaction_replacement"]["applied"]), 1)
         self.assertFalse([
             f for f in r["positive_factors"]

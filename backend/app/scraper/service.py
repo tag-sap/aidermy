@@ -6,7 +6,7 @@ import socket
 import sys
 from urllib.parse import urlparse
 
-from .extractors import extract_product
+from .extractors import ProductPageBlocked, extract_product
 from .models import ProductImportResult
 
 logger = logging.getLogger(__name__)
@@ -174,6 +174,13 @@ async def import_product(url: str) -> ProductImportResult:
         except asyncio.TimeoutError:
             last_error = ProductImportError(f"{fetcher} fetch timed out")
             logger.info("[SCRAPER] %s timed out after %.0fs", fetcher.capitalize(), SCRAPER_FETCH_TIMEOUT)
+        except ProductPageBlocked as exc:
+            logger.warning("[SCRAPER] %s blocked by site challenge", fetcher.capitalize())
+            raise ProductImportError(
+                "Сайт не отдал карточку товара и запросил проверку устройства. "
+                "Автоматический импорт остановлен; используйте распознавание по фото или ручной ввод.",
+                repr(exc),
+            ) from exc
         except ProductImportError as exc:
             last_error = exc
             logger.info("[SCRAPER] %s rejected: %s", fetcher.capitalize(), exc.technical)

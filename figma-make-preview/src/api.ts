@@ -75,7 +75,7 @@ export type ScanDraftPayload = {
 }
 
 export type CheckResult = {
-  score: number
+  score: number | null
   verdict: string
   summary: string
   pending?: boolean
@@ -94,6 +94,28 @@ export type CheckResult = {
 
 export type ReportFragment = { text: string; sentiment: "positive" | "negative" }
 
+export type ReportIngredient = {
+  name: string
+  inci_name?: string
+  function?: string
+  skin_effects?: string
+  role?: string
+  evidence_level?: string
+  sources?: string
+  direction?: "positive" | "negative" | "neutral"
+  unknown?: boolean
+  is_key?: boolean
+}
+
+export type ReportDetail = {
+  version?: string
+  data_quality?: { known_ingredients?: number; unknown_ingredients?: number; total_ingredients?: number; coverage?: number; confidence?: number; label?: string }
+  sections?: { id: string; title: string; basis?: string; paragraphs?: string[] }[]
+  key_ingredients?: ReportIngredient[]
+  other_ingredients?: ReportIngredient[]
+  interactions?: Record<string, unknown>[]
+}
+
 export type ReportResult = {
   score: number | null
   verdict?: string | null
@@ -108,6 +130,7 @@ export type ReportResult = {
   expectations?: { when?: string; normal?: string; danger?: string } | null
   inci?: string[]
   category?: string
+  details?: ReportDetail | null
 }
 
 export type Review = {
@@ -405,7 +428,7 @@ export const api = {
   async identify(payload: Record<string, unknown>) {
     return request("/product/identify", { method: "POST", body: JSON.stringify(payload) })
   },
-  async scanProduct(payload: { front_image: string; back_image: string }) {
+  async scanProduct(payload: { front_image: string; back_images: string[] }) {
     return request<{
       status: "ready" | "ambiguous" | "needs_confirmation" | "not_found"
       message?: string

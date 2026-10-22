@@ -429,7 +429,7 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, name, ingredients, slug, image_url
+                SELECT id, name, ingredients, slug, image_url, category
                 FROM public.products
                 WHERE REPLACE(
                     REPLACE(REPLACE(name, CHR(10), ''), CHR(13), ''),
@@ -447,7 +447,8 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
             product_name,
             skin_type,
             profile,
-            row['ingredients']
+            row['ingredients'],
+            product_category=row.get('category') or "",
         )
         result['slug'] = row['slug'] or generate_slug(product_name)
         result['ingredients'] = row['ingredients']
@@ -476,11 +477,55 @@ async def check_product_with_ai(product_name: str, skin_type: str, profile: dict
         "expectations": None
     }
 
-async def check_product_with_ingredients(product_name: str, skin_type: str, profile: dict, ingredients: str) -> dict:
+async def check_product_with_ingredients(
+    product_name: str,
+    skin_type: str,
+    profile: dict,
+    ingredients: str,
+    product_category: str = "",
+) -> dict:
     if profile is None:
         profile = {}
 
     from .decision_engine import DecisionEngine
+    from .scoring_scope import resolve_scoring_scope
+
+    scope = resolve_scoring_scope(product_name=product_name, category=product_category)
+    if not scope["applies"]:
+        deterministic = {
+            "score": None,
+            "verdict": "Не оценивается",
+            "summary": scope["reason"],
+            "safe_ingredients": [],
+            "caution_ingredients": [],
+            "phase1_status": "not_applicable",
+            "recommendation_status": "Не оценивается",
+            "score_scope": scope,
+            "normalized_ingredients": [],
+            "unknown_factors": [],
+            "interaction_breakdown": [],
+        }
+        return {
+            "score": None,
+            "verdict": "Не оценивается",
+            "summary": scope["reason"],
+            "report": None,
+            "safe_ingredients": [],
+            "caution_ingredients": [],
+            "active_ingredients": None,
+            "how_to_use": None,
+            "expectations": None,
+            "research_status": None,
+            "goal_evidence": [],
+            "phase1_status": "not_applicable",
+            "recommendation_status": "Не оценивается",
+            "phase1_violations": [],
+            "phase1_branches": {},
+            "phase1_version": None,
+            "interaction_replacement": None,
+            "score_scope": scope,
+            "deterministic": deterministic,
+        }
 
     engine = DecisionEngine()
 
@@ -533,7 +578,11 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         interactions = get_internal_interactions({"ingredients": ingredients}) or None
     except Exception:
         interactions = None
-    deterministic = engine.analyze(product_name, ingredients, profile, skin_type, interactions=interactions)
+    deterministic = engine.analyze(
+        product_name, ingredients, profile, skin_type,
+        interactions=interactions,
+        product_category=product_category,
+    )
 
     # Отчёт и его поясняющие блоки создаются только отдельным запросом после
     # явного действия пользователя; этап проверки возвращает только Match.
@@ -556,6 +605,7 @@ async def check_product_with_ingredients(product_name: str, skin_type: str, prof
         'phase1_branches': (deterministic.get('phase1') or {}).get('branches') or {},
         'phase1_version': deterministic.get('phase1_version'),
         'interaction_replacement': deterministic.get('interaction_replacement'),
+        'score_scope': deterministic.get('score_scope') or scope,
         # Полный deterministic-результат Score Engine — источник истины для Report.
         'deterministic': deterministic,
     }
@@ -1274,9 +1324,12 @@ async def generate_full_report(
             "review": review,
             "expectations": None,
             "report_prompt_version": saved.get("report_prompt_version"),
+            "details": None,
         }
 
     allowed = _report_allowed_ingredients(deterministic)
+    from .report_details import build_report_details
+    details = build_report_details(product_name, product_type, deterministic, profile)
     parts = None
     if DEEPSEEK_API_KEY:
         try:
@@ -1327,6 +1380,7 @@ async def generate_full_report(
         "review": review,
         "expectations": expectations,
         "report_prompt_version": report_prompt_version,
+        "details": details,
     }
 
 

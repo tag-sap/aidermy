@@ -5,6 +5,26 @@ from urllib.parse import urljoin, urlparse
 
 from .models import ProductImportResult
 
+_BLOCKED_PAGE_MARKERS = (
+    "checking device",
+    "just a moment",
+    "access denied",
+    "enable javascript",
+    "включите javascript",
+    "проверка устройства",
+    "captcha",
+)
+
+
+class ProductPageBlocked(Exception):
+    """Страница вернула антибот/JS-заглушку вместо карточки товара."""
+
+
+def is_blocked_page(text: str | None) -> bool:
+    haystack = (text or "").lower()
+    return any(marker in haystack for marker in _BLOCKED_PAGE_MARKERS)
+
+
 _INGREDIENT_LABELS = re.compile(
     r"(?:ingredients?|inci|состав|ингредиенты)\s*[:\-]?\s*(.{0,8000})",
     re.IGNORECASE | re.DOTALL,
@@ -292,6 +312,8 @@ def extract_product(page: Any, source_url: str) -> ProductImportResult:
     image = _first(record.get("image"))
     image = urljoin(source_url, image) if image else None
     body_text = _text(" ".join(page.xpath("//body//text()").getall())) or ""
+    if is_blocked_page(body_text) or is_blocked_page(_meta(page, "og:title")):
+        raise ProductPageBlocked("Страница вернула проверку устройства/антибот-заглушку")
 
     name = (
         _text(record.get("name"))

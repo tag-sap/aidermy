@@ -97,28 +97,29 @@ def _recognized_ingredients(recognition: Dict[str, Any]) -> List[str]:
     return recognized_normalized_list(recognition)
 
 
-async def scan_product_package(front_image: str, back_image: str) -> Dict[str, Any]:
-    """Распознаёт продукт и состав по двум обязательным фотографиям.
+async def scan_product_package(front_image: str, back_image: str | List[str]) -> Dict[str, Any]:
+    """Распознаёт продукт и состав по обязательному front + одному/нескольким back.
 
-    Ничего не сохраняет и не запускает Score Engine. Возвращает:
-    - status=ready: найдена существующая карточка с надёжным INCI;
-    - status=ambiguous: несколько похожих карточек, нужно подтверждение;
-    - status=needs_confirmation: есть черновик карточки (сайт/задняя фотография);
-    - status=not_found: не удалось прочитать бренд и название.
+    Несколько снимков задней стороны нужны для цилиндрических упаковок, где INCI
+    не помещается в один кадр. Они передаются в существующий Vision как один набор.
     """
     if not (front_image or "").strip():
         raise ProductScanError("Загрузите фото лицевой стороны упаковки.")
-    if not (back_image or "").strip():
+    if isinstance(back_image, str):
+        back_images = [back_image] if back_image.strip() else []
+    else:
+        back_images = [str(item).strip() for item in (back_image or []) if str(item).strip()]
+    if not back_images:
         raise ProductScanError("Загрузите фото задней стороны упаковки (состав INCI).")
 
     warnings: List[str] = []
 
     # Обе стороны передаём в идентификацию: на задней может быть бренд/объём/
-    # штрихкод. INCI читаем отдельно только с задней стороны, чтобы не смешивать
+    # штрихкод. INCI читаем отдельно только с задних сторон, чтобы не смешивать
     # маркетинговый текст лицевой стороны с составом.
     identified_result, composition_result = await asyncio.gather(
-        identify_product([front_image, back_image]),
-        recognize_composition([back_image]),
+        identify_product([front_image, *back_images]),
+        recognize_composition(back_images),
         return_exceptions=True,
     )
 

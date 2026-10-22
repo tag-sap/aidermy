@@ -132,7 +132,8 @@ export function PhotoScan({ guestToken, onContinue }: {
   onContinue: (product: Product) => void
 }) {
   const [front, setFront] = useState("")
-  const [back, setBack] = useState("")
+  const [backs, setBacks] = useState<string[]>([])
+  const [backEditIndex, setBackEditIndex] = useState<number | null>(null)
   const [status, setStatus] = useState<ScanStatus>("idle")
   const [result, setResult] = useState<ScanResponse | null>(null)
   const [draft, setDraft] = useState<ScanDraftPayload | null>(null)
@@ -145,7 +146,8 @@ export function PhotoScan({ guestToken, onContinue }: {
   const backRef = useRef<HTMLInputElement | null>(null)
 
   const skinType = getUserProfile().skinType || "Нормальная"
-  const canScan = Boolean(front && back) && !busy
+  const canScan = Boolean(front && backs.length > 0) && !busy
+  const MAX_BACK_PHOTOS = 6
   const canSave = Boolean(draft?.name?.trim()) && splitIngredients(draft?.ingredients || "").length >= 2 && !saving
 
   const resetResult = () => {
@@ -156,7 +158,7 @@ export function PhotoScan({ guestToken, onContinue }: {
     setError("")
   }
 
-  const handleFile = async (kind: "front" | "back", file: File | undefined) => {
+  const handleFrontFile = async (file: File | undefined) => {
     if (!file) return
     if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
       setError("Поддерживаются JPEG, PNG или WebP.")
@@ -167,13 +169,42 @@ export function PhotoScan({ guestToken, onContinue }: {
       return
     }
     try {
-      const dataUrl = await fileToResizedDataUrl(file, kind === "back" ? 2400 : 2000)
-      if (kind === "front") setFront(dataUrl)
-      else setBack(dataUrl)
+      setFront(await fileToResizedDataUrl(file, 2000))
       resetResult()
     } catch (e) {
       setError(errorText(e, "Не удалось прочитать фото."))
     }
+  }
+
+  const handleBackFile = async (file: File | undefined) => {
+    if (!file) return
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
+      setError("Поддерживаются JPEG, PNG или WebP.")
+      return
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      setError("Файл больше 12 МБ. Сделайте фото меньшего размера.")
+      return
+    }
+    try {
+      const dataUrl = await fileToResizedDataUrl(file, 2400)
+      setBacks((current) => {
+        if (backEditIndex == null) {
+          if (current.length >= MAX_BACK_PHOTOS) return current
+          return [...current, dataUrl]
+        }
+        return current.map((item, index) => (index === backEditIndex ? dataUrl : item))
+      })
+      setBackEditIndex(null)
+      resetResult()
+    } catch (e) {
+      setError(errorText(e, "Не удалось прочитать фото."))
+    }
+  }
+
+  const openBackPicker = (index: number | null) => {
+    setBackEditIndex(index)
+    backRef.current?.click()
   }
 
   const scan = async () => {
@@ -185,7 +216,7 @@ export function PhotoScan({ guestToken, onContinue }: {
     setReadyProduct(null)
     setStatus("scanning")
     try {
-      const data = await api.scanProduct({ front_image: front, back_image: back })
+      const data = await api.scanProduct({ front_image: front, back_images: backs })
       setResult(data as ScanResponse)
       if (data.status === "ready" && data.product) {
         setReadyProduct(data.product)
@@ -289,19 +320,39 @@ export function PhotoScan({ guestToken, onContinue }: {
         <PhotoSlot
           label="Фото 2 — задняя"
           hint="Состав INCI, штрихкод"
-          image={back}
+          image={backs[0] || ""}
           busy={busy || saving || checking}
-          onPick={() => backRef.current?.click()}
-          onRemove={() => { setBack(""); resetResult() }}
+          onPick={() => openBackPicker(backs.length ? 0 : null)}
+          onRemove={() => { setBacks((current) => current.slice(1)); resetResult() }}
         />
+        {backs.slice(1).map((image, index) => (
+          <PhotoSlot
+            key={`back-${index + 1}`}
+            label={`Доп. фото состава ${index + 1}`}
+            hint="Продолжение списка INCI"
+            image={image}
+            busy={busy || saving || checking}
+            onPick={() => openBackPicker(index + 1)}
+            onRemove={() => { setBacks((current) => current.filter((_, i) => i !== index + 1)); resetResult() }}
+          />
+        ))}
       </div>
-      <input ref={frontRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(e) => { void handleFile("front", e.target.files?.[0]); e.target.value = "" }} />
-      <input ref={backRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(e) => { void handleFile("back", e.target.files?.[0]); e.target.value = "" }} />
+      <div className="scan-photo-add">
+        <button type="button" className="btn btn--ghost btn--small" onClick={() => openBackPicker(null)} disabled={backs.length >= MAX_BACK_PHOTOS || busy}>
+          + Добавить ещё фото состава
+        </button>
+        <small>Можно до {MAX_BACK_PHOTOS} фото задней стороны. Это помогает, если состав не помещается на круглой банке или флаконе.</small>
+      </div>
+      <p className="panel__note">
+        Сфотографируйте лицевую сторону и состав на упаковке. Если весь состав не помещается в один кадр, добавьте несколько снимков задней стороны — так мы точнее прочитаем ингредиенты.
+      </p>
+      <input ref={frontRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(e) => { void handleFrontFile(e.target.files?.[0]); e.target.value = "" }} />
+      <input ref={backRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(e) => { void handleBackFile(e.target.files?.[0]); e.target.value = "" }} />
 
       <button type="button" className="btn btn--primary" onClick={() => void scan()} disabled={!canScan}>
         {busy ? "Распознаём упаковку и состав…" : "Распознать продукт"}
       </button>
-      {(!front || !back) && !busy && <p className="panel__note">Загрузите оба фото — без них распознавание не запускается.</p>}
+      {(!front || backs.length === 0) && !busy && <p className="panel__note">Загрузите лицевую сторону и хотя бы одно фото состава — без них распознавание не запускается.</p>}
       {error && status !== "error" && <p className="scan-error" role="alert">{error}</p>}
 
       {status === "ready" && readyProduct && (

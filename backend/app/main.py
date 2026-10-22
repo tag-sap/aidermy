@@ -335,8 +335,14 @@ async def product_scan_endpoint(request: ProductScanRequest):
     try:
         from . import product_scan as product_scan_module
 
+        back_images = list(getattr(request, "back_images", None) or [])
+        back_image = getattr(request, "back_image", None)
+        if back_image:
+            back_images.insert(0, back_image)
+        if not back_images:
+            raise HTTPException(status_code=422, detail="Загрузите хотя бы одно фото задней стороны.")
         return await asyncio.wait_for(
-            product_scan_module.scan_product_package(request.front_image, request.back_image),
+            product_scan_module.scan_product_package(request.front_image, back_images),
             timeout=SCAN_TIMEOUT,
         )
     except ProductScanError as exc:
@@ -758,6 +764,7 @@ async def check_product(
             phase1_status=result.get("phase1_status"),
             recommendation_status=result.get("recommendation_status"),
             interaction_replacement=result.get("interaction_replacement"),
+            score_scope=result.get("score_scope"),
             pending=pending,
         )
     except HTTPException:
@@ -871,6 +878,7 @@ async def check_with_ingredients(
             phase1_status=result.get("phase1_status"),
             recommendation_status=result.get("recommendation_status"),
             interaction_replacement=result.get("interaction_replacement"),
+            score_scope=result.get("score_scope"),
             pending=pending,
         )
         
@@ -2006,7 +2014,15 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         and analysis.get("score_engine_version") == SCORE_ENGINE_VERSION
         and analysis.get("report_generator_version") == REPORT_GENERATOR_VERSION
     ):
+        from .report_details import build_report_details
         review = _fragments_from_value(analysis.get("report"))
+        profile = _profile_from_user(current_user)
+        details = build_report_details(
+            name,
+            product_type,
+            (analysis.get("deterministic") or deterministic or {}),
+            profile,
+        )
         return {
             "score": score,
             "verdict": analysis.get("verdict") or "",
@@ -2016,6 +2032,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
             "phase1_status": phase1_status,
             "recommendation_status": (analysis or {}).get("recommendation_status"),
             "report_ready": True,
+            "details": details,
         }
 
     profile = _profile_from_user(current_user)
@@ -2060,6 +2077,7 @@ async def review_shelf_product(request: ShelfAnalyzeRequest, current_user: dict 
         "phase1_status": phase1_status,
         "recommendation_status": (analysis or {}).get("recommendation_status"),
         "report_ready": True,
+        "details": full.get("details"),
     }
 
 
@@ -2169,6 +2187,7 @@ async def guest_report_endpoint(payload: GuestTokenRequest):
         "phase1_status": result.get("phase1_status"),
         "recommendation_status": result.get("recommendation_status"),
         "report_ready": True,
+        "details": full.get("details"),
     }
     try:
         save_guest_report(payload.guest_token, response)

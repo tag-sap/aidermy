@@ -193,6 +193,17 @@ class ReplacementTests(unittest.TestCase):
 
 
 class ScoringIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        # Другой тестовый модуль может оставить runtime-флаг выключенным.
+        # Для этого файла проверяем именно replacement-путь.
+        import app.interaction_scoring as _iscore
+        self._saved_enabled = _iscore.INTERACTION_SCORING_ENABLED
+        _iscore.INTERACTION_SCORING_ENABLED = True
+
+    def tearDown(self):
+        import app.interaction_scoring as _iscore
+        _iscore.INTERACTION_SCORING_ENABLED = self._saved_enabled
+
     def test_score_uses_replacement_and_trace(self):
         baseline = _score(None)
         result = _score([_record()])

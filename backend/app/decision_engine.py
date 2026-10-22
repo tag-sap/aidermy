@@ -180,6 +180,7 @@ class DecisionEngine:
         knowledge: Optional[Dict[str, Dict[str, Dict[str, float]]]] = None,
         interactions: Optional[List[Dict[str, Any]]] = None,
         saturation_scale: float | None = None,
+        product_category: str = "",
     ) -> Dict[str, Any]:
         profile = dict(profile or {})
         if not profile.get("skin_type") and skin_type:
@@ -187,6 +188,8 @@ class DecisionEngine:
         from .profile_resolver import normalize_scoring_profile
         profile = normalize_scoring_profile(profile)
         priorities = profile_weights(profile, skin_type)
+        from .scoring_scope import resolve_scoring_scope
+        scope = resolve_scoring_scope(product_name=product_name, category=product_category)
         result = self.analysis_service.analyze(
             product_name,
             ingredients,
@@ -196,6 +199,7 @@ class DecisionEngine:
             interactions=interactions,
             priorities_are_canonical=True,
             saturation_scale=saturation_scale,
+            scoring_scope=scope,
         )
         raw_score = result.get("score")
         score = int(raw_score) if raw_score is not None else None
@@ -224,7 +228,8 @@ class DecisionEngine:
 
         result["safe_ingredients"] = safe
         result["caution_ingredients"] = caution
-        result["priorities"] = priorities
+        result["priorities"] = (result.get("profile_effects") or {}).get("weights") or priorities
+        result["score_scope"] = scope
         from .score_version import SCORE_ENGINE_VERSION
         result["score_engine_version"] = SCORE_ENGINE_VERSION
         return result

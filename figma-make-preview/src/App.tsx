@@ -7,6 +7,8 @@ import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import { PhotoScan } from "./photo-scan"
+import { ReportDetails } from "./report-details"
+import { AnimatedBorderWrapper } from "./components/ui/moving-border"
 import {
   products, skinProfile, shelfReport, CABINETS, FACE_TAXONOMY, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -1198,6 +1200,7 @@ function GuestResultScreen({ product, guestToken, onSignup, onLogin, onRestart }
               ? report.review.map((f, i) => <p key={i} className="guest-report__frag">{f.text}</p>)
               : null}
             {report.expectations?.normal && <p className="guest-report__frag">{report.expectations.normal}</p>}
+            {report.details && <ReportDetails details={report.details} />}
           </div>
         )}
       </section>
@@ -1480,6 +1483,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
   const [slug, setSlug] = useState<string | undefined>(undefined)
   const [imageUrl, setImageUrl] = useState("")
   const [busy, setBusy] = useState(false)
+  const [scanError, setScanError] = useState("")
 
   const METHODS: { id: ScanMethod; title: string; desc: string; icon: IconName }[] = [
     { id: "photo", title: "Скан по фото", desc: "Лицевая и задняя стороны упаковки", icon: "camera" },
@@ -1515,6 +1519,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
   const run = async () => {
     if (!canRun) return
     setPhase("recognizing")
+    setScanError("")
     const skinType = getUserProfile().skinType
     const profile = buildProfile()
     try {
@@ -1546,18 +1551,15 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
         setResult(buildResult(brand.trim(), name.trim(), manualImage || "", checkRes.slug || "", inci.trim(), checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
       }
       setPhase("ready")
-    } catch {
-      // Ошибка запроса: сохраняем введённые данные и фото, но НЕ придумываем score.
-      // Пользователь может повторить проверку в карточке продукта.
-      setResult(buildResult(
-        brand.trim() || "COSRX",
-        name.trim() || "Advanced Snail 96 Mucin Power Essence",
-        manualImage || imageUrl,
-        slug,
-        inci.trim(),
-        undefined,
-      ))
-      setPhase("ready")
+    } catch (e) {
+      // Не выдаём вымышленный продукт и score. Сохраняем введённые данные/фото,
+      // показываем понятную ошибку и оставляем возможность повторить.
+      setScanError(
+        e instanceof Error && e.message
+          ? e.message
+          : "Не удалось проверить продукт. Попробуйте ещё раз или загрузите фото состава."
+      )
+      setPhase("input")
     }
   }
 
@@ -1655,6 +1657,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
       {phase === "input" && picked && (
         <section className="panel scan-form">
           <button type="button" className="scan-back" onClick={() => setPicked(false)}><Icon name="back" size={16} /> Выбрать способ</button>
+          {scanError && <p className="scan-error" role="alert">{scanError}</p>}
           {needManualFields && (
             <div className="scan-form__row">
               <label><span>Бренд *</span><input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Например, COSRX" /></label>
@@ -2327,7 +2330,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
       if (recStatus === "Не рекомендовано") {
         finalVerdict = "Не рекомендовано"
         finalScore = rawScore
-      } else if (recStatus === "Недостаточно данных") {
+      } else if (recStatus === "Недостаточно данных" || recStatus === "Не оценивается") {
         finalVerdict = null
         finalScore = null
       } else if (rawScore != null) {
@@ -2355,8 +2358,16 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
     // Повторное нажатие сворачивает уже раскрытый отчёт, карточка не меняется.
     if (reportData) { setReportData(null); return }
     // Недостаточно состава — это отдельное состояние, а не «нет анализа».
-    if (recommendationStatus === "Недостаточно данных" || (score == null && product.match == null)) {
-      setReportError("Недостаточно данных о составе: отчёт недоступен. Добавьте полный состав и проверьте снова.")
+    if (
+      recommendationStatus === "Недостаточно данных"
+      || recommendationStatus === "Не оценивается"
+      || (score == null && product.match == null)
+    ) {
+      setReportError(
+        recommendationStatus === "Не оценивается"
+          ? "Для этой категории отчёт о кожной совместимости не формируется."
+          : "Недостаточно данных о составе: отчёт недоступен. Добавьте полный состав и проверьте снова."
+      )
       return
     }
     // Отчёт можно получить по analysis_id даже если у продукта нет slug
@@ -2436,10 +2447,15 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
           )}
 
           {!showAnalysisExplainer && phase === "match" && (
+            <AnimatedBorderWrapper active={reportLoading} className="drawer__report-wrap" borderRadius="18px">
             <div className="drawer__body">
               <div className="drawer__score">
-                {recommendationStatus === "Недостаточно данных" ? (
-                  <p className="drawer__score-note">Недостаточно данных для достоверной оценки совместимости.</p>
+                {recommendationStatus === "Недостаточно данных" || recommendationStatus === "Не оценивается" ? (
+                  <p className="drawer__score-note">
+                    {recommendationStatus === "Не оценивается"
+                      ? "Для этой категории процент совместимости с кожей не рассчитывается."
+                      : "Недостаточно данных для достоверной оценки совместимости."}
+                  </p>
                 ) : (
                   <>
                     {(score != null || verdict != null || recommendationStatus === "Не рекомендовано") && (
@@ -2485,6 +2501,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               </div>}
 
             </div>
+            </AnimatedBorderWrapper>
           )}
 
           {!showAnalysisExplainer && !!reportData && (() => {
@@ -2526,6 +2543,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
                   <p className="drawer__report-summary">{reportData.expectations.normal}</p>
                 </section>
               )}
+              {reportData?.details && <ReportDetails details={reportData.details} />}
               
             </div>
             )

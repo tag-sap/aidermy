@@ -371,9 +371,25 @@ def score_product_against_profile_canonical(
                         "weighted_value": item["effective_contribution"],
                         "interaction_id": item["interaction_id"],
                         "source": item.get("source"),
+                        "source_type": item.get("source_type"),
                         "evidence": item.get("evidence"),
                     }
                     (positive_factors if sign > 0 else negative_factors).append(factor)
+                    # Trace для отчёта и диагностики: interaction replacement раньше
+                    # применялся к score, но полностью исчезал из interaction_breakdown.
+                    interaction_breakdown.append({
+                        "interaction_id": item["interaction_id"],
+                        "ingredient_a": item["pair"][0],
+                        "ingredient_b": item["pair"][1],
+                        "axis": item["axis"],
+                        "direction": item.get("direction"),
+                        "weighted_contribution": round(sign * float(item["effective_contribution"]), 6),
+                        "confidence": item["confidence"],
+                        "source": item.get("source"),
+                        "source_type": item.get("source_type"),
+                        "evidence": item.get("evidence"),
+                        "interaction_type": item.get("interaction_type"),
+                    })
             interaction_replacement = {
                 "version": replacement["version"],
                 "applied": replacement["applied"],

@@ -39,6 +39,7 @@ class AnalysisService:
         interactions: List[Dict[str, Any]] | None = None,
         priorities_are_canonical: bool = False,
         saturation_scale: float | None = None,
+        scoring_scope: Dict[str, Any] | None = None,
     ):
         from .axes import canonicalize_weights
 
@@ -53,6 +54,9 @@ class AnalysisService:
         hard_filters = apply_hard_filters(scoring_profile, normalized_ingredients)
 
         canonical_weights = priorities if priorities_are_canonical else canonicalize_weights(priorities)
+        if scoring_scope and scoring_scope.get("applies") and scoring_scope.get("relevant_axes"):
+            from .scoring_scope import filter_weights_for_scope
+            canonical_weights = filter_weights_for_scope(canonical_weights, scoring_scope)
 
         from .phase1 import evaluate_phase1, recommendation_status
         from .scoring_engine import PHASE1_AFFECTS_SCORE

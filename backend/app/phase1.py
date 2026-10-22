@@ -74,11 +74,34 @@ def compute_negative_loads(
         if wv is None:
             # «Голая» запись непереносимости (без weighted_value) — учитывается ниже один раз.
             continue
+        # Interaction replacement уже добавлен в negative_factors для trace/report.
+        # Его числовой вклад берём из interaction_breakdown ниже, чтобы не считать дважды.
+        if f.get("interaction_id") is not None:
+            continue
         axis = f.get("property")
         if axis in neg_weights:
             neg_weights[axis].append(float(wv))
 
     negative_dim: Dict[str, float] = {axis: 0.0 for axis in AXES}
+
+    # Негативные взаимодействия учитываются один раз через weighted_contribution.
+    # Для replacement-ветки парный factor уже присутствует в negative_factors, но
+    # его числовой вклад добавляем здесь — в том же виде, что и раньше (rank decay),
+    # без двойного счёта.
+    seen_interactions = set()
+    for item in scoring_result.get("interaction_breakdown") or []:
+        wc = item.get("weighted_contribution")
+        if wc is None or float(wc) >= 0:
+            continue
+        interaction_id = item.get("interaction_id")
+        if interaction_id is not None:
+            if interaction_id in seen_interactions:
+                continue
+            seen_interactions.add(interaction_id)
+        axis = item.get("axis")
+        if axis in neg_weights:
+            neg_weights[axis].append(abs(float(wc)))
+
     for axis in AXES:
         vals = sorted(neg_weights[axis], reverse=True)
         negative_dim[axis] = -sum(v / rank for rank, v in enumerate(vals, start=1))
@@ -86,15 +109,6 @@ def compute_negative_loads(
     # Непереносимость — один раз (тот же источник, что scoring engine).
     if _detect_intolerance(user_profile, ingredients):
         negative_dim[INTOLERANCE_PENALTY["axis"]] -= float(INTOLERANCE_PENALTY["dimension_delta"])
-
-    # Негативные взаимодействия учитываются один раз через weighted_contribution.
-    # Профильный риск отдельно определяет блокирующие оси и пороги Phase 1.
-    for item in scoring_result.get("interaction_breakdown") or []:
-        wc = item.get("weighted_contribution")
-        if wc is not None and float(wc) < 0:
-            axis = item.get("axis")
-            if axis in negative_dim:
-                negative_dim[axis] += float(wc)
 
     return negative_dim, neg_weights
 

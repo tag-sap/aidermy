@@ -152,7 +152,7 @@ class PersonalizedReportStructureTests(unittest.TestCase):
         self.assertEqual(
             set(report),
             {"score", "verdict", "explanation", "review", "expectations",
-             "report_prompt_version"},
+             "report_prompt_version", "details"},
         )
 
 

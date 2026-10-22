@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any
 
 class Profile(BaseModel):
@@ -71,6 +71,8 @@ class CheckResponse(BaseModel):
     goal_evidence: List[Dict[str, Any]] = Field(default_factory=list)
     # Трассировка замещения взаимодействий (None, если interactions не применялись).
     interaction_replacement: Optional[Dict[str, Any]] = None
+    # Применим ли кожный скоринг к категории (макияж/парфюм — нет).
+    score_scope: Optional[Dict[str, Any]] = None
 
 class CheckWithIngredientsRequest(BaseModel):
     product_name: str
@@ -98,7 +100,14 @@ class ProductIdentifyRequest(BaseModel):
 
 class ProductScanRequest(BaseModel):
     front_image: str = Field(..., min_length=20, description="Фото лицевой стороны (data URL)")
-    back_image: str = Field(..., min_length=20, description="Фото задней стороны с INCI (data URL)")
+    back_image: Optional[str] = Field(default=None, min_length=20, description="Фото задней стороны (старый клиент)")
+    back_images: List[str] = Field(default_factory=list, description="Фото задней стороны (одно или несколько)")
+
+    @model_validator(mode="after")
+    def _require_back_image(self):
+        if not self.back_image and not self.back_images:
+            raise ValueError("Нужно хотя бы одно фото задней стороны с составом")
+        return self
 
 
 class ProductWebSearchRequest(BaseModel):

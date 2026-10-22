@@ -28,7 +28,10 @@ class ProductImportResult:
         # «Состав» = весь текст страницы (не INCI) — не валидные данные товара.
         if self.ingredients_raw and len(self.ingredients_raw) > 15000:
             return False
-        blocked_markers = ("включен javascript", "checking device", "captcha", "access denied")
+        blocked_markers = (
+            "включен javascript", "checking device", "just a moment",
+            "captcha", "access denied", "проверка устройства",
+        )
         haystack = " ".join(filter(None, (self.name, self.description))).lower()
         if any(marker in haystack for marker in blocked_markers):
             return False

@@ -7,8 +7,27 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.models import ProductScanRequest
+
+
+def test_multiple_back_images_are_valid():
+    req = ProductScanRequest(
+        front_image="data:image/jpeg;base64," + "a" * 20,
+        back_images=[
+            "data:image/jpeg;base64," + "b" * 20,
+            "data:image/jpeg;base64," + "c" * 20,
+        ],
+    )
+    assert len(req.back_images) == 2
+
+
+def test_at_least_one_back_image_is_required():
+    with pytest.raises(ValidationError):
+        ProductScanRequest(front_image="data:image/jpeg;base64," + "a" * 20)
 
 from app.product_scan import ProductScanError, scan_product_package
 
@@ -71,6 +90,30 @@ def _run(identified=None, recognition=None, candidates=None, web=None):
          patch("app.product_scan.web_search_product", new=AsyncMock(return_value=web)) as web_mock:
         result = asyncio.run(scan_product_package("data:image/jpeg;base64,front", "data:image/jpeg;base64,back"))
     return result, web_mock
+
+
+def test_multiple_back_photos_are_passed_to_existing_vision_pipeline():
+    identify_mock = AsyncMock(return_value=IDENTIFIED)
+    compose_mock = AsyncMock(return_value=RECOGNITION)
+    with patch("app.product_scan.identify_product", new=identify_mock), \
+         patch("app.product_scan.recognize_composition", new=compose_mock), \
+         patch("app.product_scan.find_product_candidates", return_value=[LOCAL_PRODUCT]), \
+         patch("app.product_scan.web_search_product", new=AsyncMock()) as web_mock:
+        result = asyncio.run(scan_product_package(
+            "data:image/jpeg;base64,front",
+            ["data:image/jpeg;base64,back1", "data:image/jpeg;base64,back2"],
+        ))
+    assert result["status"] == "ready"
+    identify_mock.assert_awaited_once_with([
+        "data:image/jpeg;base64,front",
+        "data:image/jpeg;base64,back1",
+        "data:image/jpeg;base64,back2",
+    ])
+    compose_mock.assert_awaited_once_with([
+        "data:image/jpeg;base64,back1",
+        "data:image/jpeg;base64,back2",
+    ])
+    web_mock.assert_not_awaited()
 
 
 def test_both_photos_are_required():
