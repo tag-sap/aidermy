@@ -108,6 +108,21 @@ class AnalysisService:
 
         result['product_name'] = product_name
         result['normalized_ingredients'] = normalized_ingredients
+        unknown_names = {
+            normalize_ingredient_name(str(item.get('ingredient') or ''))
+            for item in (result.get('unknown_factors') or [])
+            if isinstance(item, dict)
+        }
+        coverage = (
+            1.0 - len([x for x in normalized_ingredients if normalize_ingredient_name(x) in unknown_names]) / len(normalized_ingredients)
+            if normalized_ingredients else 0.0
+        )
+        result['data_quality'] = {
+            'total_ingredients': len(normalized_ingredients),
+            'unknown_ingredients': len([x for x in normalized_ingredients if normalize_ingredient_name(x) in unknown_names]),
+            'coverage': round(max(0.0, coverage), 3),
+            'confidence': float(result.get('confidence') or 0.0),
+        }
         result['hard_filters'] = hard_filters
         result['excluded'] = bool(hard_filters)
         structured = scoring_profile.get("structured") or {}

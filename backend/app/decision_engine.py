@@ -225,6 +225,12 @@ class DecisionEngine:
         else:
             result["verdict"] = (result.get("recommendation_status") or "Не рекомендовано") if result.get("phase1_status") == "blocked" else build_verdict(score)
             result["summary"] = build_summary(result, profile, skin_type, score)
+            quality = result.get("data_quality") or {}
+            if float(quality.get("coverage") or 0.0) < 0.5:
+                result["summary"] = (
+                    result["summary"].rstrip()
+                    + " Часть состава не имеет подтверждённых данных, поэтому оценка ориентировочная."
+                ).strip()
 
         result["safe_ingredients"] = safe
         result["caution_ingredients"] = caution
