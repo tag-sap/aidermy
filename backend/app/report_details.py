@@ -7,13 +7,37 @@ existing Ingredient DB and the same factor list that produced the score.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List
 
 from .database import AIDERMY_DB, get_connection
 from .ingredient_normalizer import normalize_ingredient_name
 from .category_knowledge import get_category_knowledge
 
-REPORT_DETAILS_VERSION = "1.0.0"
+REPORT_DETAILS_VERSION = "1.0.1"
+
+_FUNCTION_LABELS = {
+    "humectant": "увлажнитель",
+    "soothing": "успокаивающее действие",
+    "skin conditioning": "уход за кожей",
+    "skin_conditioning": "уход за кожей",
+    "barrier repair": "восстановление барьера",
+    "barrier_repair": "восстановление барьера",
+    "preservative": "консервант",
+    "antimicrobial": "антимикробное действие",
+    "solvent": "растворитель",
+    "uv filter": "UV-фильтр",
+    "colorant": "краситель",
+    "opacifying agent": "создание непрозрачности",
+    "antioxidant": "антиоксидант",
+    "emollient": "эмолент",
+    "surfactant": "поверхностно-активное вещество",
+    "fragrance": "ароматизатор",
+    "anti-aging": "антивозрастное действие",
+    "collagen stimulator": "стимулятор коллагена",
+    "prebiotic": "пребиотик",
+    "hydration": "увлажнение",
+}
 
 _AXIS_LABELS = {
     "hydration": "увлажнение",
@@ -23,6 +47,40 @@ _AXIS_LABELS = {
     "sebum": "жирность/себум",
     "pigmentation": "пигментация",
 }
+
+
+def _as_text(value: Any) -> str:
+    """Render catalogue JSON values as a compact human-readable string.
+
+    Ingredient knowledge is stored both as plain text and as JSON arrays
+    (for example ``'["humectant", "soothing"]'``).  Passing such a value
+    through ``str()`` made the report show raw JSON, and an empty list showed
+    ``[]``.  Parse JSON-shaped values, join arrays, and keep unknown values
+    untouched instead of inventing a description.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text in {"[]", "{}", "null", "None"}:
+            return ""
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError):
+            return _FUNCTION_LABELS.get(text.lower(), text)
+        return _as_text(parsed)
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple, set)):
+        return "; ".join(part for part in (_as_text(item) for item in value) if part)
+    if isinstance(value, dict):
+        title = value.get("title") or value.get("name") or value.get("label")
+        url = value.get("url") or value.get("link")
+        if title:
+            title_text = str(title).strip()
+            url_text = str(url).strip() if url else ""
+            return f"{title_text} ({url_text})" if url_text and url_text not in title_text else title_text
+        return "; ".join(part for part in (_as_text(item) for item in value.values()) if part)
+    text = str(value).strip()
+    return _FUNCTION_LABELS.get(text.lower(), text) if text else ""
 
 
 def _ingredient_meta(names: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -156,8 +214,8 @@ def build_report_details(
         info = meta.get(key, {})
         related = [f for f in factors if normalize_ingredient_name(f["ingredient"]) == key]
         direction = "negative" if any(f["direction"] == "negative" for f in related) else ("positive" if related else "neutral")
-        function = str(info.get("functions") or "").strip()
-        effects = str(info.get("skin_effects") or "").strip()
+        function = _as_text(info.get("functions"))
+        effects = _as_text(info.get("skin_effects"))
         if not function and not effects:
             function = "Функция в базе знаний не описана."
         role = "Входит в нормализованный INCI продукта."
@@ -175,7 +233,7 @@ def build_report_details(
             "skin_effects": effects,
             "role": role,
             "evidence_level": info.get("evidence_level") or ("algorithm_only" if related else "unknown"),
-            "sources": info.get("sources") or "",
+            "sources": _as_text(info.get("sources")),
             "direction": direction,
             "unknown": not bool(info),
             "is_key": is_key,
