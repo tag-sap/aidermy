@@ -147,7 +147,7 @@ class RuleSet:
     min_confidence: float = 0.0
 
     def __post_init__(self) -> None:
-        if self.aggregation != "weighted_mean":
+        if self.aggregation not in {"weighted_mean", "arithmetic_mean"}:
             raise ContractError(f"unsupported aggregation: {self.aggregation}")
         if not 0 <= self.completeness_threshold <= 1:
             raise ContractError("completeness_threshold must be within 0..1")

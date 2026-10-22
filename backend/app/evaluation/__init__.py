@@ -16,10 +16,32 @@ from .contracts import (
     ParameterEvaluation,
     RuleSet,
 )
+from .assessment import EVIDENCE_RULE_VERSION, assess, net_score, value_for_net
 from .engine import evaluate
+from .evidence import (
+    Evidence,
+    EvidenceCandidate,
+    EvidenceError,
+    Source,
+    normalize_text,
+    validate_candidate,
+    validate_candidates,
+)
 from .freshness import is_current, select_current, stale_reason
 from .parameters import PARAMETERS, collect_signals, resolve_relevance, validate_registry
 from .rules import DEFAULT_RULE_VERSION, RULE_SETS, describe_rules, get_rules
+from .research import (
+    FakeResearchProvider,
+    ResearchOutcome,
+    ResearchProvider,
+    ResearchRequest,
+    candidate,
+    insufficient,
+    ok,
+    provider_error,
+    source_unavailable,
+)
+from .research_service import ResearchPlan, ResearchRunReport, ResearchService
 from .snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
     build_snapshot,
@@ -30,6 +52,7 @@ from .snapshot import (
 
 __all__ = [
     "ENGINE_VERSION",
+    "EVIDENCE_RULE_VERSION",
     "SNAPSHOT_SCHEMA_VERSION",
     "STATUS_EVALUATED",
     "STATUS_INSUFFICIENT",
@@ -38,9 +61,31 @@ __all__ = [
     "STATUS_STALE",
     "ContractError",
     "EngineResult",
+    "Evidence",
+    "EvidenceCandidate",
+    "EvidenceError",
+    "FakeResearchProvider",
     "Parameter",
     "ParameterEvaluation",
+    "ResearchOutcome",
+    "ResearchPlan",
+    "ResearchProvider",
+    "ResearchRequest",
+    "ResearchRunReport",
+    "ResearchService",
     "RuleSet",
+    "Source",
+    "assess",
+    "candidate",
+    "insufficient",
+    "net_score",
+    "ok",
+    "provider_error",
+    "source_unavailable",
+    "value_for_net",
+    "normalize_text",
+    "validate_candidate",
+    "validate_candidates",
     "PARAMETERS",
     "RULE_SETS",
     "DEFAULT_RULE_VERSION",

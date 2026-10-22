@@ -1,0 +1,364 @@
+"""Research orchestration tests. Fake provider only: no network, no paid calls."""
+from __future__ import annotations
+
+import threading
+import unittest
+
+from app.evaluation import (
+    FakeResearchProvider,
+    ParameterEvaluation,
+    ResearchService,
+    ParameterEvaluation as PE,
+    candidate,
+    evaluate,
+    get_rules,
+    build_snapshot,
+    insufficient,
+    ok,
+    provider_error,
+    source_unavailable,
+)
+from app.evaluation.service import DEFAULT_METHOD_VERSION, EvaluationService
+from app.evaluation.store import InMemoryStore
+
+PRODUCT = {"id": 7, "name": "Serum"}
+COMP_A = "a" * 64
+COMP_B = "b" * 64
+PROFILE = {"skin_type": "dry"}  # relevance: hydration + barrier
+
+
+def composition(comp_hash: str = COMP_A) -> dict:
+    return {
+        "composition_hash": comp_hash,
+        "inci_raw": "Aqua, Glycerin",
+        "source": "catalog",
+        "verified_at": "2026-10-20",
+    }
+
+
+def evidence_ok(parameter_id: str, *, strength: str = "moderate", cost: float = 0.0, **kwargs):
+    kwargs.setdefault("confidence", 1.0)
+    return ok(
+        candidate(
+            parameter_id=parameter_id,
+            claim=f"{parameter_id}: подтверждённое свойство",
+            quote=f"{parameter_id} confirmed property",
+            source_text=f"Formula. {parameter_id} confirmed property. End.",
+            strength=strength,
+            **kwargs,
+        ),
+        cost_usd=cost,
+    )
+
+class ResearchFlowTests(unittest.TestCase):
+    def setUp(self):
+        self.store = InMemoryStore()
+        self.provider = FakeResearchProvider(
+            {
+                "hydration": evidence_ok("hydration", strength="strong"),
+                "barrier": evidence_ok("barrier", strength="moderate"),
+            }
+        )
+        self.service = ResearchService(self.store, self.provider)
+
+    def _run(self, comp: str = COMP_A, profile=PROFILE, **kwargs):
+        return self.service.research_missing(
+            product=PRODUCT,
+            composition=composition(comp),
+            profile=profile,
+            **kwargs,
+        )
+
+    def _composition_id(self, comp: str = COMP_A) -> int:
+        record = self.store.get_composition(PRODUCT["id"], comp)
+        self.assertIsNotNone(record, "composition must exist after research")
+        return int(record["id"])
+
+    def test_research_creates_evaluations_and_evidence(self):
+        report = self._run()
+        self.assertEqual(report.researched, ("barrier", "hydration"))
+        self.assertEqual(self.provider.call_count(), 2)
+
+        composition_id = self._composition_id()
+        current = {
+            item.parameter_id: item
+            for item in self.store.current_evaluations(composition_id, DEFAULT_METHOD_VERSION)
+        }
+        self.assertEqual(current["hydration"].value, 80)
+        self.assertEqual(current["barrier"].value, 70)
+        self.assertTrue(current["hydration"].evidence_ids)
+
+        rows = self.store.evidence_for(composition_id, "hydration")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["verification"], "confirmed")
+        self.assertEqual(rows[0]["composition_id"], composition_id)
+        self.assertEqual(rows[0]["parameter_id"], "hydration")
+
+    def test_second_run_reuses_evaluations_without_provider_calls(self):
+        self._run()
+        calls = self.provider.call_count()
+        report = self._run()
+        self.assertEqual(self.provider.call_count(), calls)
+        self.assertEqual(report.researched, ())
+        self.assertEqual(report.enqueued, ())
+
+    def test_existing_current_evaluation_skips_research(self):
+        record = self.store.upsert_composition(
+            {"product_id": PRODUCT["id"], "composition_hash": COMP_A}
+        )
+        for parameter_id in ("hydration", "barrier"):
+            self.store.save_evaluation(
+                record["id"],
+                ParameterEvaluation(
+                    parameter_id=parameter_id,
+                    status="evaluated",
+                    value=70,
+                    composition_hash=COMP_A,
+                    method_version=DEFAULT_METHOD_VERSION,
+                ),
+            )
+        report = self._run()
+        self.assertEqual(self.provider.call_count(), 0)
+        self.assertEqual(report.enqueued, ())
+
+    def test_research_request_carries_product_and_composition(self):
+        self._run()
+        request = self.provider.calls[0]
+        self.assertEqual(request.product_id, PRODUCT["id"])
+        self.assertEqual(request.product_name, PRODUCT["name"])
+        self.assertEqual(request.composition_hash, COMP_A)
+        self.assertEqual(request.ingredients, ("Aqua", "Glycerin"))
+
+class ResearchFailureTests(unittest.TestCase):
+    def setUp(self):
+        self.store = InMemoryStore()
+
+    def _service(self, provider, **kwargs):
+        return ResearchService(self.store, provider, **kwargs)
+
+    def _run(self, service, **kwargs):
+        return service.research_missing(
+            product=PRODUCT, composition=composition(), profile=PROFILE, **kwargs
+        )
+
+    def _composition_id(self) -> int:
+        return int(self.store.get_composition(PRODUCT["id"], COMP_A)["id"])
+
+    def test_provider_error_leaves_no_success_state(self):
+        provider = FakeResearchProvider(default=provider_error("timeout"))
+        service = self._service(provider)
+        report = self._run(service)
+        self.assertEqual(report.failed, ("barrier", "hydration"))
+        composition_id = self._composition_id()
+        self.assertEqual(self.store.current_evaluations(composition_id, DEFAULT_METHOD_VERSION), [])
+        jobs = self.store.jobs_for(composition_id, "hydration", DEFAULT_METHOD_VERSION)
+        self.assertEqual(jobs[0]["status"], "failed")
+        self.assertIn("timeout", jobs[0]["last_error"])
+
+    def test_retry_after_failure_can_succeed(self):
+        provider = FakeResearchProvider(default=provider_error("timeout"))
+        service = self._service(provider)
+        self._run(service)
+        provider.set_response("hydration", evidence_ok("hydration", strength="strong"))
+        provider.set_response("barrier", evidence_ok("barrier"))
+        report = self._run(service)
+        self.assertEqual(report.researched, ("barrier", "hydration"))
+        composition_id = self._composition_id()
+        jobs = self.store.jobs_for(composition_id, "hydration", DEFAULT_METHOD_VERSION)
+        self.assertEqual([job["status"] for job in jobs], ["failed", "completed"])
+
+    def test_source_unavailable_is_retryable_failure(self):
+        provider = FakeResearchProvider(default=source_unavailable("404"))
+        service = self._service(provider)
+        self._run(service)
+        composition_id = self._composition_id()
+        jobs = self.store.jobs_for(composition_id, "barrier", DEFAULT_METHOD_VERSION)
+        self.assertEqual(jobs[0]["status"], "failed")
+        self.assertIn("источник недоступен", jobs[0]["last_error"])
+
+    def test_all_candidates_rejected_is_a_failure(self):
+        bad = ok(
+            candidate(
+                parameter_id="hydration",
+                claim="Выдуманное свойство",
+                quote="this sentence is not in the source",
+                source_text="Formula: Aqua, Glycerin.",
+            )
+        )
+        provider = FakeResearchProvider(default=bad)
+        service = self._service(provider)
+        report = self._run(service)
+        self.assertEqual(report.failed, ("barrier", "hydration"))
+        composition_id = self._composition_id()
+        self.assertEqual(self.store.current_evaluations(composition_id, DEFAULT_METHOD_VERSION), [])
+        rows = self.store.evidence_for(composition_id, "hydration")
+        self.assertEqual(rows[0]["verification"], "rejected")
+        self.assertTrue(rows[0]["rejection_reason"])
+
+class ResearchBudgetTests(unittest.TestCase):
+    def setUp(self):
+        self.store = InMemoryStore()
+
+    def _run(self, service):
+        return service.research_missing(
+            product=PRODUCT, composition=composition(), profile=PROFILE
+        )
+
+    def test_cost_limit_per_job_fails_without_evaluation(self):
+        expensive = ok(
+            candidate(
+                parameter_id="hydration",
+                claim="Подтверждённое свойство",
+                quote="confirmed property",
+                source_text="Formula. confirmed property.",
+            ),
+            cost_usd=1.0,
+        )
+        provider = FakeResearchProvider(default=expensive)
+        service = ResearchService(self.store, provider, max_cost_per_job=0.1)
+        report = self._run(service)
+        self.assertEqual(report.failed, ("barrier", "hydration"))
+        self.assertEqual(report.cost_usd, 2.0)
+        composition_id = int(self.store.get_composition(PRODUCT["id"], COMP_A)["id"])
+        self.assertEqual(
+            self.store.current_evaluations(composition_id, DEFAULT_METHOD_VERSION), []
+        )
+        jobs = self.store.jobs_for(composition_id, "hydration", DEFAULT_METHOD_VERSION)
+        self.assertIn("лимит стоимости", jobs[0]["last_error"])
+
+    def test_run_budget_defers_remaining_jobs(self):
+        provider = FakeResearchProvider(
+            {
+                "hydration": evidence_ok("hydration", cost=0.4),
+                "barrier": evidence_ok("barrier", cost=0.4),
+            }
+        )
+        service = ResearchService(
+            self.store, provider, max_cost_per_job=1.0, max_cost_per_run=0.3
+        )
+        report = self._run(service)
+        self.assertEqual(report.researched, ("barrier",))
+        self.assertEqual(report.deferred, ("hydration",))
+        composition_id = int(self.store.get_composition(PRODUCT["id"], COMP_A)["id"])
+        jobs = self.store.jobs_for(composition_id, "hydration", DEFAULT_METHOD_VERSION)
+        self.assertEqual(jobs[0]["status"], "pending")
+
+    def test_max_attempts_stops_retries(self):
+        provider = FakeResearchProvider(default=provider_error("timeout"))
+        service = ResearchService(self.store, provider, max_attempts=1)
+        self._run(service)
+        calls = provider.call_count()
+        report = self._run(service)
+        self.assertEqual(report.exhausted, ("barrier", "hydration"))
+        self.assertEqual(provider.call_count(), calls)
+        self.assertTrue(any("лимит попыток" in note for note in report.notes))
+
+
+class ResearchFreshnessTests(unittest.TestCase):
+    def setUp(self):
+        self.store = InMemoryStore()
+        self.provider = FakeResearchProvider(
+            {"hydration": evidence_ok("hydration"), "barrier": evidence_ok("barrier")}
+        )
+        self.service = ResearchService(self.store, self.provider)
+
+    def test_composition_change_requires_new_research(self):
+        self.service.research_missing(
+            product=PRODUCT, composition=composition(COMP_A), profile=PROFILE
+        )
+        calls_after_a = self.provider.call_count()
+        report = self.service.research_missing(
+            product=PRODUCT, composition=composition(COMP_B), profile=PROFILE
+        )
+        self.assertEqual(report.researched, ("barrier", "hydration"))
+        self.assertEqual(self.provider.call_count(), calls_after_a + 2)
+
+    def test_old_method_version_requires_new_research(self):
+        record = self.store.upsert_composition(
+            {"product_id": PRODUCT["id"], "composition_hash": COMP_A}
+        )
+        for parameter_id in ("hydration", "barrier"):
+            self.store.save_evaluation(
+                record["id"],
+                ParameterEvaluation(
+                    parameter_id=parameter_id,
+                    status="evaluated",
+                    value=70,
+                    composition_hash=COMP_A,
+                    method_version="research-0.9.0",
+                ),
+            )
+        report = self.service.research_missing(
+            product=PRODUCT, composition=composition(COMP_A), profile=PROFILE
+        )
+        self.assertEqual(report.researched, ("barrier", "hydration"))
+
+class ResearchConcurrencyTests(unittest.TestCase):
+    def test_parallel_workers_call_provider_once_per_parameter(self):
+        store = InMemoryStore()
+        provider = FakeResearchProvider(
+            {"hydration": evidence_ok("hydration"), "barrier": evidence_ok("barrier")}
+        )
+        service = ResearchService(store, provider)
+        barrier = threading.Barrier(2)
+        reports = []
+
+        def worker(name: str) -> None:
+            barrier.wait()
+            reports.append(
+                service.research_missing(
+                    product=PRODUCT,
+                    composition=composition(),
+                    profile=PROFILE,
+                    worker_id=name,
+                )
+            )
+
+        threads = [threading.Thread(target=worker, args=(f"w{i}",)) for i in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(provider.call_count(), 2, provider.calls)
+        composition_id = int(store.get_composition(PRODUCT["id"], COMP_A)["id"])
+        self.assertEqual(
+            len(store.current_evaluations(composition_id, DEFAULT_METHOD_VERSION)), 2
+        )
+        researched = sorted(item for report in reports for item in report.researched)
+        self.assertEqual(researched, ["barrier", "hydration"])
+
+
+class ResearchEngineIntegrationTests(unittest.TestCase):
+    def test_researched_values_feed_arithmetic_mean_without_verdict(self):
+        store = InMemoryStore()
+        provider = FakeResearchProvider(
+            {
+                "hydration": evidence_ok("hydration", strength="strong"),
+                "barrier": evidence_ok("barrier", strength="moderate"),
+            }
+        )
+        ResearchService(store, provider).research_missing(
+            product=PRODUCT, composition=composition(), profile=PROFILE
+        )
+        record = store.get_composition(PRODUCT["id"], COMP_A)
+        evaluations = store.current_evaluations(record["id"], DEFAULT_METHOD_VERSION)
+        result = evaluate(PROFILE, evaluations)
+        self.assertEqual(result.total, 75)
+        self.assertIsNone(result.verdict)
+        self.assertAlmostEqual(result.completeness, 1.0, places=6)
+
+        snapshot = build_snapshot(
+            product=PRODUCT,
+            composition=record,
+            profile=PROFILE,
+            evaluations=evaluations,
+            result=result,
+            rules=get_rules(),
+        )
+        self.assertEqual(snapshot["total"], 75)
+        self.assertIsNone(snapshot["verdict"])
+
+
+if __name__ == "__main__":
+    unittest.main()

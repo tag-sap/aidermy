@@ -164,7 +164,7 @@ class FullCycleTests(SchemaTestBase):
             product=PRODUCT, composition=composition, profile=PROFILE, user_id=1
         )
         snapshot = built.snapshot
-        self.assertEqual(snapshot["total"], 73)
+        self.assertEqual(snapshot["total"], 70)
         self.assertAlmostEqual(snapshot["completeness"], 1.0, places=6)
         self.assertEqual(built.pending_parameters, ())
         self.assertTrue(verify_snapshot(snapshot))
@@ -623,6 +623,190 @@ class RlsTests(SchemaTestBase):
             self.assertEqual(cur.fetchone()["n"], 2)
         finally:
             conn.close()
+
+
+class EvidenceStorageTests(SchemaTestBase):
+    def _evidence(self, *, parameter_id: str = "hydration", verification: str = "confirmed", **kwargs):
+        from app.evaluation import Evidence, Source
+
+        return Evidence(
+            parameter_id=parameter_id,
+            claim=kwargs.get("claim", "Glycerin удерживает влагу"),
+            quote=kwargs.get("quote", "Glycerin helps keep the skin hydrated"),
+            direction=kwargs.get("direction", "supports"),
+            strength=kwargs.get("strength", "moderate"),
+            confidence=kwargs.get("confidence", 0.8),
+            source=Source(
+                url=kwargs.get("url", "https://brand.example/serum"),
+                title="Brand page",
+                source_type="official",
+                retrieved_at="2026-10-01T00:00:00+00:00",
+            ),
+            verification=verification,
+            product_id=PRODUCT["id"],
+            composition_hash=COMPOSITION,
+            extraction_method="quote_extraction_v1",
+            retrieved_at="2026-10-01T00:00:00+00:00",
+            rejection_reason=kwargs.get("rejection_reason", ""),
+        )
+
+    def test_evidence_roundtrip_is_bound_to_composition_and_parameter(self):
+        composition = self.make_composition()
+        ids = self.store.save_evidence(
+            composition["id"],
+            [self._evidence(), self._evidence(parameter_id="barrier")],
+        )
+        self.assertEqual(len(ids), 2)
+        rows = self.store.evidence_for(composition["id"], "hydration")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["composition_id"], composition["id"])
+        self.assertEqual(rows[0]["parameter_id"], "hydration")
+        self.assertEqual(rows[0]["verification"], "confirmed")
+        self.assertEqual(rows[0]["source"]["url"], "https://brand.example/serum")
+        self.assertEqual(rows[0]["source"]["source_type"], "official")
+        self.assertTrue(rows[0]["retrieved_at"])
+
+    def test_same_quote_from_same_source_is_stored_once(self):
+        composition = self.make_composition()
+        first = self.store.save_evidence(composition["id"], [self._evidence()])
+        second = self.store.save_evidence(composition["id"], [self._evidence()])
+        self.assertEqual(first, second)
+        self.assertEqual(len(self.store.evidence_for(composition["id"], "hydration")), 1)
+        self.assertEqual(sql("select count(*) as n from evaluation.sources")[0]["n"], 1)
+
+    def test_rejected_evidence_is_kept_for_audit(self):
+        composition = self.make_composition()
+        self.store.save_evidence(
+            composition["id"],
+            [self._evidence(verification="rejected", rejection_reason="цитата не найдена")],
+        )
+        rows = self.store.evidence_for(composition["id"], "hydration")
+        self.assertEqual(rows[0]["verification"], "rejected")
+        self.assertEqual(rows[0]["rejection_reason"], "цитата не найдена")
+
+    def test_evidence_requires_known_composition(self):
+        with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+            self.store.save_evidence(999_999, [self._evidence()])
+
+
+class JobClaimTests(SchemaTestBase):
+    def _enqueue(self, parameter_id: str = "hydration") -> dict:
+        composition = self.make_composition()
+        self.store.enqueue_research(composition["id"], parameter_id, DEFAULT_METHOD_VERSION)
+        return composition
+
+    def test_claim_marks_processing_and_counts_attempt(self):
+        composition = self._enqueue()
+        job = self.store.claim_job("worker-a", composition_id=composition["id"])
+        self.assertIsNotNone(job)
+        self.assertEqual(job["status"], "processing")
+        self.assertEqual(job["attempts"], 1)
+        self.assertEqual(job["worker_id"], "worker-a")
+        self.assertIsNone(self.store.claim_job("worker-b", composition_id=composition["id"]))
+
+    def test_release_returns_job_to_queue(self):
+        composition = self._enqueue()
+        job = self.store.claim_job("worker-a", composition_id=composition["id"])
+        self.store.release_job(job["id"])
+        again = self.store.claim_job("worker-b", composition_id=composition["id"])
+        self.assertEqual(again["id"], job["id"])
+        self.assertEqual(again["attempts"], 2)
+
+    def test_failed_job_records_cost_and_error(self):
+        composition = self._enqueue()
+        job = self.store.claim_job("worker-a", composition_id=composition["id"])
+        self.store.fail_job(
+            job["id"], "провайдер недоступен", tokens_in=10, tokens_out=20, cost_usd=0.12
+        )
+        stored = self.store.job(job["id"])
+        self.assertEqual(stored["status"], "failed")
+        self.assertIn("недоступен", stored["last_error"])
+        self.assertEqual(float(stored["cost_usd"]), 0.12)
+        self.assertEqual(stored["tokens_in"], 10)
+        self.assertEqual(stored["tokens_out"], 20)
+
+    def test_parallel_workers_claim_different_jobs(self):
+        composition = self.make_composition()
+        for parameter_id in ("hydration", "barrier"):
+            self.store.enqueue_research(composition["id"], parameter_id, DEFAULT_METHOD_VERSION)
+        claimed: list = []
+        barrier = threading.Barrier(2)
+        lock = threading.Lock()
+
+        def worker(name: str) -> None:
+            store = make_store()
+            barrier.wait()
+            job = store.claim_job(name, composition_id=composition["id"])
+            if job:
+                with lock:
+                    claimed.append(job["id"])
+
+        threads = [threading.Thread(target=worker, args=(f"w{i}",)) for i in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(len(claimed), 2)
+        self.assertEqual(len(set(claimed)), 2)
+
+
+class ResearchIntegrationTests(SchemaTestBase):
+    def test_fake_provider_research_persists_evidence_and_evaluation(self):
+        from app.evaluation import FakeResearchProvider, ResearchService, candidate, ok
+
+        provider = FakeResearchProvider(
+            {
+                "hydration": ok(
+                    candidate(
+                        parameter_id="hydration",
+                        claim="Glycerin удерживает влагу",
+                        quote="Glycerin helps keep the skin hydrated",
+                        source_text="Formula. Glycerin helps keep the skin hydrated.",
+                        strength="strong",
+                        confidence=1.0,
+                    )
+                ),
+                "barrier": ok(
+                    candidate(
+                        parameter_id="barrier",
+                        claim="Ceramides поддерживают барьер",
+                        quote="Ceramides support the skin barrier",
+                        source_text="Formula. Ceramides support the skin barrier.",
+                        strength="moderate",
+                        confidence=1.0,
+                    )
+                ),
+            }
+        )
+        service = ResearchService(self.store, provider)
+        report = service.research_missing(
+            product=PRODUCT, composition=self.make_composition(), profile=PROFILE
+        )
+        self.assertEqual(report.researched, ("barrier", "hydration"))
+        composition = self.store.get_composition(PRODUCT["id"], COMPOSITION)
+
+        rows = self.store.evidence_for(composition["id"], "hydration")
+        self.assertEqual(rows[0]["verification"], "confirmed")
+        self.assertEqual(rows[0]["composition_id"], composition["id"])
+
+        evaluations = self.store.current_evaluations(composition["id"], DEFAULT_METHOD_VERSION)
+        values = {item.parameter_id: item.value for item in evaluations}
+        self.assertEqual(values, {"barrier": 70.0, "hydration": 80.0})
+        self.assertTrue(
+            next(item for item in evaluations if item.parameter_id == "hydration").evidence_ids
+        )
+
+        built = EvaluationService(self.store).build(
+            product=PRODUCT, composition=self.make_composition(), profile=PROFILE, user_id=1
+        )
+        self.assertEqual(built.snapshot["total"], 75)
+        self.assertIsNone(built.snapshot["verdict"])
+
+        calls = provider.call_count()
+        service.research_missing(
+            product=PRODUCT, composition=self.make_composition(), profile=PROFILE
+        )
+        self.assertEqual(provider.call_count(), calls, "second run must not call the provider")
 
 
 class MigrationIdempotencyTests(SchemaTestBase):

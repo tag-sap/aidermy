@@ -89,6 +89,35 @@ RLS подтверждён реальными ролями (`authenticated`, `an
 Не проверено (ограничения): TLS/пулер Supabase, реальный JWT-claim, распределённая
 конкуренция, Storage/S3.
 
+## AI-слой исследования (2026-10-23)
+
+Добавлен контракт доказательств, провайдер с fake-реализацией и оркестратор.
+Проверки требований:
+
+| Требование | Где проверено |
+|---|---|
+| доказательство привязано к продукту, составу и параметру | `test_evidence_roundtrip_is_bound_to_composition_and_parameter`, `test_wrong_parameter_is_rejected` |
+| нет цитаты/источника — нет подтверждённого факта | `test_missing_quote_is_rejected`, `test_missing_source_text_is_rejected`, `test_quote_must_exist_in_source_text` |
+| недостаточные доказательства не создают score | `test_no_evidence_means_insufficient_not_zero`, `test_insufficient_evidence_is_saved_and_not_retried` |
+| отсутствие сведений о пользе ≠ доказанный вред | `test_neutral_only_is_insufficient_not_harm` |
+| устаревшие данные требуют повторной проверки | `test_composition_change_requires_new_research`, `test_old_method_version_requires_new_research` |
+| одинаковые задачи дедуплицируются | `test_second_run_reuses_evaluations_without_provider_calls`, `test_parallel_workers_call_provider_once_per_parameter` |
+| сбой провайдера не оставляет ложный успех | `test_provider_error_leaves_no_success_state`, `test_all_candidates_rejected_is_a_failure` |
+| объяснение только из подтверждённых доказательств | `test_rationale_uses_only_confirmed_claims` |
+
+Дефект, найденный интеграционным тестом: миграция разрешала в `rule_versions`
+только `aggregation = 'weighted_mean'`, из-за чего новая версия правил
+`2.0.0-draft` (арифметическое среднее) не могла быть зарегистрирована в БД.
+CHECK расширен до `('weighted_mean', 'arithmetic_mean')`.
+
+Осознанные решения, требующие калибровки:
+- полосы `evidence-bands-1.0.0` и «прежнее незнание» 0.6 — черновые;
+- `rationale` намеренно шаблонный (claim + quote + домен), без свободного текста модели.
+
+Незавершённая часть: **production-провайдер не реализован** — нет веб-поиска,
+загрузки страниц и LLM-извлечения. Все тесты используют `FakeResearchProvider`,
+платные вызовы не выполнялись.
+
 ## Вывод
 
 Ветка пригодна к слиянию **только после** staging-проверки миграции и `PostgresStore`.

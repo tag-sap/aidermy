@@ -64,7 +64,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             RuleSet(
                 version="bad",
-                aggregation="weighted_mean",
+                aggregation="arithmetic_mean",
                 completeness_threshold=0.5,
                 verdict_bands=((50, "mid"), (80, "high")),
                 calibrated=True,
@@ -74,7 +74,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             RuleSet(
                 version="bad",
-                aggregation="weighted_mean",
+                aggregation="arithmetic_mean",
                 completeness_threshold=0.5,
                 verdict_bands=(),
                 calibrated=True,
@@ -138,7 +138,17 @@ class EngineTests(unittest.TestCase):
             [ev("hydration", 80), ev("barrier", None, status="not_researched")],
         )
         self.assertEqual(result.total, 80)
-        self.assertAlmostEqual(result.completeness, 1.0 / 1.6, places=6)
+        self.assertAlmostEqual(result.completeness, 0.5, places=6)
+
+    def test_arithmetic_mean_uses_equal_shares(self):
+        result = evaluate(
+            {"skin_type": "dry"},
+            [ev("hydration", 80), ev("barrier", 50)],
+        )
+        self.assertEqual(result.total, 65)
+        weights = {item.parameter_id: item.weight for item in result.parameters}
+        self.assertAlmostEqual(weights["hydration"], 0.5, places=6)
+        self.assertAlmostEqual(weights["barrier"], 0.5, places=6)
 
     def test_insufficient_completeness_produces_no_total(self):
         result = evaluate({"skin_type": "sensitive"}, [ev("irritation", 90)])
@@ -188,7 +198,7 @@ class EngineTests(unittest.TestCase):
     def test_calibrated_rules_enable_verdict(self):
         rules = RuleSet(
             version="9.9.9-test",
-            aggregation="weighted_mean",
+            aggregation="arithmetic_mean",
             completeness_threshold=0.5,
             verdict_bands=((80, "high"), (50, "medium"), (0, "low")),
             calibrated=True,
@@ -224,7 +234,7 @@ class EngineTests(unittest.TestCase):
     def test_min_confidence_excludes_unknown_confidence(self):
         rules = RuleSet(
             version="9.9.9-conf",
-            aggregation="weighted_mean",
+            aggregation="arithmetic_mean",
             completeness_threshold=0.5,
             verdict_bands=((0, "low"),),
             calibrated=False,

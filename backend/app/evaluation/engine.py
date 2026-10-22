@@ -61,8 +61,16 @@ def evaluate(
     assert_unique(evaluations)
 
     relevance = resolve_relevance(profile)
-    weights = normalized_weights(relevance.weights)
     limitations: list[str] = list(relevance.notes)
+
+    if rules.aggregation == "arithmetic_mean":
+        # Relevance only selects WHICH parameters matter. Every selected parameter
+        # gets the same share, so the total is a plain arithmetic mean: no
+        # importance weights, no blockers, no hidden penalties.
+        share = 1.0 / len(relevance.weights) if relevance.weights else 0.0
+        weights = {parameter_id: share for parameter_id in relevance.weights}
+    else:
+        weights = normalized_weights(relevance.weights)
 
     if not weights:
         payload = {

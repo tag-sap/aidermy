@@ -16,9 +16,10 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import closing
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from .contracts import ParameterEvaluation, RuleSet, sha256_of
+from .evidence import Evidence
 from .parameters import PARAMETERS
 from .store import StoreError
 
@@ -286,6 +287,206 @@ class PostgresStore:
                     (composition_id, parameter_id),
                 )
                 return [row_to_evaluation(row) for row in cur.fetchall()]
+
+    # -- evidence -----------------------------------------------------------
+    def save_evidence(self, composition_id: int, evidence: Sequence[Evidence]) -> list[int]:
+        ids: list[int] = []
+        for item in evidence:
+            source = item.source
+            source_row = self._fetchone_write(
+                f"""
+                insert into {self._table('sources')}
+                    (url, title, publisher, source_type, retrieved_at, content_hash)
+                values (%s, %s, %s, %s, %s, %s)
+                on conflict (url, content_hash) do update
+                    set title = excluded.title,
+                        publisher = excluded.publisher,
+                        source_type = excluded.source_type,
+                        retrieved_at = coalesce(excluded.retrieved_at,
+                                                {self._table('sources')}.retrieved_at)
+                returning id
+                """,
+                (
+                    source.url,
+                    source.title,
+                    source.publisher,
+                    source.source_type,
+                    source.retrieved_at or None,
+                    source.content_hash,
+                ),
+            )
+            if source_row is None:
+                raise StoreError("source upsert returned no id")
+            evidence_row = self._fetchone_write(
+                f"""
+                insert into {self._table('evidence')}
+                    (source_id, composition_id, parameter_id, claim, quote, direction,
+                     strength, confidence, extraction_method, verification,
+                     rejection_reason, retrieved_at)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                on conflict (composition_id, parameter_id, source_id, md5(quote)) do update
+                    set verification = excluded.verification,
+                        rejection_reason = excluded.rejection_reason,
+                        confidence = excluded.confidence
+                returning id
+                """,
+                (
+                    source_row["id"],
+                    composition_id,
+                    item.parameter_id,
+                    item.claim,
+                    item.quote,
+                    item.direction,
+                    item.strength,
+                    item.confidence,
+                    item.extraction_method,
+                    item.verification,
+                    item.rejection_reason,
+                    item.retrieved_at or None,
+                ),
+            )
+            if evidence_row is None:
+                raise StoreError("evidence insert returned no id")
+            ids.append(int(evidence_row["id"]))
+        return ids
+
+    def evidence_for(self, composition_id: int, parameter_id: str) -> list[dict]:
+        with closing(self._connect()) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    select e.id, e.composition_id, e.parameter_id, e.claim, e.quote,
+                           e.direction, e.strength, e.confidence, e.extraction_method,
+                           e.verification, e.rejection_reason, e.retrieved_at,
+                           s.url, s.title, s.publisher, s.source_type,
+                           s.retrieved_at as source_retrieved_at, s.content_hash
+                    from {self._table('evidence')} e
+                    join {self._table('sources')} s on s.id = e.source_id
+                    where e.composition_id = %s and e.parameter_id = %s
+                    order by e.id
+                    """,
+                    (composition_id, parameter_id),
+                )
+                rows = cur.fetchall()
+        return [
+            {
+                "id": row["id"],
+                "composition_id": row["composition_id"],
+                "parameter_id": row["parameter_id"],
+                "claim": row["claim"],
+                "quote": row["quote"],
+                "direction": row["direction"],
+                "strength": row["strength"],
+                "confidence": float(row["confidence"]),
+                "verification": row["verification"],
+                "rejection_reason": row["rejection_reason"],
+                "extraction_method": row["extraction_method"],
+                "retrieved_at": str(row["retrieved_at"] or ""),
+                "source": {
+                    "url": row["url"],
+                    "title": row["title"],
+                    "publisher": row["publisher"],
+                    "source_type": row["source_type"],
+                    "retrieved_at": str(row["source_retrieved_at"] or ""),
+                    "content_hash": row["content_hash"],
+                },
+            }
+            for row in rows
+        ]
+
+    # -- research job claiming ---------------------------------------------
+    def claim_job(
+        self, worker_id: str, *, composition_id: int | None = None, lock_seconds: int = 120
+    ) -> dict | None:
+        row = self._fetchone_write(
+            f"""
+            with picked as (
+                select id from {self._table('research_jobs')}
+                where status = 'pending'
+                  and (%s is null or composition_id = %s)
+                order by id
+                for update skip locked
+                limit 1
+            )
+            update {self._table('research_jobs')} j
+               set status = 'processing',
+                   worker_id = %s,
+                   locked_until = now() + make_interval(secs => %s),
+                   attempts = j.attempts + 1,
+                   updated_at = now()
+              from picked
+             where j.id = picked.id
+            returning j.id, j.composition_id, j.parameter_id, j.method_version,
+                      j.status, j.attempts, j.worker_id, j.locked_until,
+                      j.tokens_in, j.tokens_out, j.cost_usd, j.last_error
+            """,
+            (composition_id, composition_id, worker_id, lock_seconds),
+        )
+        return dict(row) if row else None
+
+    def complete_job(
+        self, job_id: int, *, tokens_in: int = 0, tokens_out: int = 0, cost_usd: float = 0.0
+    ) -> None:
+        self._execute(
+            f"""
+            update {self._table('research_jobs')}
+               set status = 'completed', tokens_in = %s, tokens_out = %s,
+                   cost_usd = %s, locked_until = null, updated_at = now()
+             where id = %s
+            """,
+            (tokens_in, tokens_out, cost_usd, job_id),
+        )
+
+    def fail_job(
+        self, job_id: int, error: str, *, tokens_in: int = 0, tokens_out: int = 0, cost_usd: float = 0.0
+    ) -> None:
+        self._execute(
+            f"""
+            update {self._table('research_jobs')}
+               set status = 'failed', last_error = %s, locked_until = null,
+                   tokens_in = %s, tokens_out = %s, cost_usd = %s, updated_at = now()
+             where id = %s
+            """,
+            (str(error)[:500], tokens_in, tokens_out, cost_usd, job_id),
+        )
+
+    def release_job(self, job_id: int) -> None:
+        self._execute(
+            f"""
+            update {self._table('research_jobs')}
+               set status = 'pending', worker_id = '', locked_until = null,
+                   updated_at = now()
+             where id = %s
+            """,
+            (job_id,),
+        )
+
+    def job(self, job_id: int) -> dict | None:
+        row = self._fetchone(
+            f"""
+            select id, composition_id, parameter_id, method_version, status, attempts,
+                   worker_id, locked_until, tokens_in, tokens_out, cost_usd, last_error
+            from {self._table('research_jobs')} where id = %s
+            """,
+            (job_id,),
+        )
+        return dict(row) if row else None
+
+    def jobs_for(self, composition_id: int, parameter_id: str, method_version: str) -> list[dict]:
+        with closing(self._connect()) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    select id, composition_id, parameter_id, method_version, status,
+                           attempts, worker_id, locked_until, tokens_in, tokens_out,
+                           cost_usd, last_error
+                    from {self._table('research_jobs')}
+                    where composition_id = %s and parameter_id = %s and method_version = %s
+                    order by id
+                    """,
+                    (composition_id, parameter_id, method_version),
+                )
+                return [dict(row) for row in cur.fetchall()]
 
     # -- snapshots ----------------------------------------------------------
     def save_snapshot(self, snapshot: Mapping[str, Any]) -> dict:

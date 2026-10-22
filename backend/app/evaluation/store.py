@@ -15,9 +15,12 @@ Contract notes:
 """
 from __future__ import annotations
 
-from typing import Protocol
+import threading
+from datetime import datetime, timedelta, timezone
+from typing import Protocol, Sequence
 
 from .contracts import ParameterEvaluation
+from .evidence import Evidence
 
 
 class StoreError(RuntimeError):
@@ -33,6 +36,20 @@ class EvaluationStore(Protocol):
     def save_snapshot(self, snapshot: dict) -> dict: ...
     def get_snapshot(self, snapshot_id: str) -> dict | None: ...
     def enqueue_research(self, composition_id: int, parameter_id: str, method_version: str) -> bool: ...
+    def save_evidence(self, composition_id: int, evidence: Sequence[Evidence]) -> list[int]: ...
+    def evidence_for(self, composition_id: int, parameter_id: str) -> list[dict]: ...
+    def claim_job(
+        self, worker_id: str, *, composition_id: int | None = None, lock_seconds: int = 120
+    ) -> dict | None: ...
+    def complete_job(
+        self, job_id: int, *, tokens_in: int = 0, tokens_out: int = 0, cost_usd: float = 0.0
+    ) -> None: ...
+    def fail_job(
+        self, job_id: int, error: str, *, tokens_in: int = 0, tokens_out: int = 0, cost_usd: float = 0.0
+    ) -> None: ...
+    def release_job(self, job_id: int) -> None: ...
+    def job(self, job_id: int) -> dict | None: ...
+    def jobs_for(self, composition_id: int, parameter_id: str, method_version: str) -> list[dict]: ...
 
 
 class InMemoryStore:
@@ -43,7 +60,11 @@ class InMemoryStore:
         self._next_composition_id = 1
         self._evaluations: list[tuple[int, ParameterEvaluation]] = []
         self._snapshots: dict[str, dict] = {}
-        self._jobs: set[tuple[int, str, str]] = set()
+        self._jobs: dict[int, dict] = {}
+        self._next_job_id = 1
+        self._evidence: list[dict] = []
+        self._next_evidence_id = 1
+        self._lock = threading.RLock()
 
     # -- compositions -------------------------------------------------------
     def upsert_composition(self, composition: dict) -> dict:
@@ -126,13 +147,136 @@ class InMemoryStore:
     def snapshot_count(self) -> int:
         return len(self._snapshots)
 
-    # -- research -----------------------------------------------------------
+    # -- evidence -----------------------------------------------------------
+    def save_evidence(self, composition_id: int, evidence: Sequence[Evidence]) -> list[int]:
+        if self.get_composition_by_id(composition_id) is None:
+            raise StoreError(f"unknown composition_id: {composition_id}")
+        ids: list[int] = []
+        for item in evidence:
+            existing = next(
+                (
+                    row
+                    for row in self._evidence
+                    if row["composition_id"] == composition_id
+                    and row["parameter_id"] == item.parameter_id
+                    and row["source"]["url"] == item.source.url
+                    and row["quote"] == item.quote
+                ),
+                None,
+            )
+            if existing is not None:
+                ids.append(existing["id"])
+                continue
+            record = {
+                "id": self._next_evidence_id,
+                "composition_id": composition_id,
+                **item.as_dict(),
+            }
+            self._evidence.append(record)
+            ids.append(record["id"])
+            self._next_evidence_id += 1
+        return ids
+
+    def evidence_for(self, composition_id: int, parameter_id: str) -> list[dict]:
+        return [
+            dict(row)
+            for row in self._evidence
+            if row["composition_id"] == composition_id and row["parameter_id"] == parameter_id
+        ]
+
+    # -- research jobs ------------------------------------------------------
     def enqueue_research(self, composition_id: int, parameter_id: str, method_version: str) -> bool:
-        key = (composition_id, parameter_id, method_version)
-        if key in self._jobs:
-            return False
-        self._jobs.add(key)
-        return True
+        with self._lock:
+            for job in self._jobs.values():
+                if (
+                    job["composition_id"] == composition_id
+                    and job["parameter_id"] == parameter_id
+                    and job["method_version"] == method_version
+                    and job["status"] in ("pending", "processing")
+                ):
+                    return False
+            job = {
+                "id": self._next_job_id,
+                "composition_id": composition_id,
+                "parameter_id": parameter_id,
+                "method_version": method_version,
+                "status": "pending",
+                "attempts": 0,
+                "worker_id": "",
+                "locked_until": None,
+                "last_error": "",
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "cost_usd": 0.0,
+            }
+            self._jobs[job["id"]] = job
+            self._next_job_id += 1
+            return True
+
+    def claim_job(
+        self, worker_id: str, *, composition_id: int | None = None, lock_seconds: int = 120
+    ) -> dict | None:
+        with self._lock:
+            now = datetime.now(timezone.utc)
+            for job in self._jobs.values():
+                if job["status"] != "pending":
+                    continue
+                if composition_id is not None and job["composition_id"] != composition_id:
+                    continue
+                job["status"] = "processing"
+                job["worker_id"] = worker_id
+                job["attempts"] += 1
+                job["locked_until"] = (now + timedelta(seconds=lock_seconds)).isoformat()
+                return dict(job)
+            return None
+
+    def complete_job(
+        self, job_id: int, *, tokens_in: int = 0, tokens_out: int = 0, cost_usd: float = 0.0
+    ) -> None:
+        job = self._jobs.get(job_id)
+        if job is None:
+            raise StoreError(f"unknown job: {job_id}")
+        job.update(
+            status="completed",
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+            locked_until=None,
+        )
+
+    def fail_job(
+        self, job_id: int, error: str, *, tokens_in: int = 0, tokens_out: int = 0, cost_usd: float = 0.0
+    ) -> None:
+        job = self._jobs.get(job_id)
+        if job is None:
+            raise StoreError(f"unknown job: {job_id}")
+        job.update(
+            status="failed",
+            last_error=str(error)[:500],
+            locked_until=None,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+        )
+
+    def release_job(self, job_id: int) -> None:
+        job = self._jobs.get(job_id)
+        if job is None:
+            raise StoreError(f"unknown job: {job_id}")
+        job.update(status="pending", worker_id="", locked_until=None)
+
+    def job(self, job_id: int) -> dict | None:
+        job = self._jobs.get(job_id)
+        return dict(job) if job else None
+
+    def jobs_for(self, composition_id: int, parameter_id: str, method_version: str) -> list[dict]:
+        return [
+            dict(job)
+            for job in self._jobs.values()
+            if job["composition_id"] == composition_id
+            and job["parameter_id"] == parameter_id
+            and job["method_version"] == method_version
+        ]
 
     def job_count(self) -> int:
         return len(self._jobs)

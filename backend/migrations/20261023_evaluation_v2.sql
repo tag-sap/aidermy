@@ -75,15 +75,27 @@ create table if not exists evaluation.sources (
 );
 
 create table if not exists evaluation.evidence (
-    id             bigserial primary key,
-    source_id      bigint      not null references evaluation.sources (id) on delete restrict,
-    fact_type      text        not null,
-    value          text        not null,
-    quote          text        not null,
-    verification   text        not null default 'unverified'
-                   check (verification in ('confirmed', 'unverified', 'contradicted')),
-    created_at     timestamptz not null default now()
+    id               bigserial primary key,
+    source_id        bigint      not null references evaluation.sources (id) on delete restrict,
+    composition_id   bigint      not null references evaluation.product_compositions (id) on delete cascade,
+    parameter_id     text        not null,
+    claim            text        not null,
+    quote            text        not null,
+    direction        text        not null check (direction in ('supports', 'contradicts', 'neutral')),
+    strength         text        not null check (strength in ('weak', 'moderate', 'strong')),
+    confidence       numeric(4, 3) not null check (confidence >= 0 and confidence <= 1),
+    extraction_method text       not null default '',
+    verification     text        not null default 'unverified'
+                     check (verification in ('confirmed', 'unverified', 'rejected')),
+    rejection_reason text        not null default '',
+    retrieved_at     timestamptz,
+    created_at       timestamptz not null default now()
 );
+create index if not exists idx_evidence_lookup
+    on evaluation.evidence (composition_id, parameter_id, verification);
+-- the same quote from the same source for the same parameter is one fact
+create unique index if not exists uq_evidence_dedupe
+    on evaluation.evidence (composition_id, parameter_id, source_id, md5(quote));
 
 -- 5. Parameter evaluations (current row + append-only history)
 create table if not exists evaluation.parameter_evaluations (
@@ -120,7 +132,7 @@ create index if not exists idx_parameter_evaluations_lookup
 -- 6. Rule versions (immutable; calibrated flag gates verdicts)
 create table if not exists evaluation.rule_versions (
     version       text        primary key,
-    aggregation   text        not null check (aggregation = 'weighted_mean'),
+    aggregation   text        not null check (aggregation in ('weighted_mean', 'arithmetic_mean')),
     rules         jsonb       not null,
     rules_hash    text        not null,
     calibrated    boolean     not null default false,

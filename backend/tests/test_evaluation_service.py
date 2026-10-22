@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.evaluation import ParameterEvaluation
+from app.evaluation import ParameterEvaluation, RuleSet
 from app.evaluation.service import EvaluationService
 from app.evaluation.store import StoreError, InMemoryStore
 
@@ -59,7 +59,7 @@ class ServiceTests(unittest.TestCase):
         result = self.service.build(
             product=PRODUCT, composition=self._composition(), profile=PROFILE
         )
-        self.assertEqual(result.snapshot["total"], 73)
+        self.assertEqual(result.snapshot["total"], 70)
         self.assertEqual(result.pending_parameters, ())
         self.assertAlmostEqual(result.snapshot["completeness"], 1.0, places=6)
 
@@ -83,12 +83,20 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(result.snapshot["composition"]["hash"], COMP_B)
 
     def test_insufficient_evidence_is_not_requested_again(self):
+        strict = RuleSet(
+            version="test-strict",
+            aggregation="arithmetic_mean",
+            completeness_threshold=0.9,
+            verdict_bands=((0, "low"),),
+            calibrated=False,
+        )
+        service = EvaluationService(self.store, rules=strict)
         composition_id = self._composition_id()
-        self.service.record_evaluation(
+        service.record_evaluation(
             composition_id, ev("hydration", None, status="insufficient_evidence")
         )
-        self.service.record_evaluation(composition_id, ev("barrier", 60))
-        result = self.service.build(
+        service.record_evaluation(composition_id, ev("barrier", 60))
+        result = service.build(
             product=PRODUCT, composition=self._composition(), profile=PROFILE
         )
         self.assertEqual(result.pending_parameters, ())
