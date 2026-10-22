@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
 from ..auth import get_current_user, get_current_user_optional
@@ -88,6 +89,16 @@ def _service(request: Request) -> EvaluationService:
         rules=get_rules(getattr(request.app.state, "evaluation_rule_version", None)),
         method_version=_method_version(request),
     )
+
+
+_admin_security = HTTPBasic()
+
+
+def require_admin(credentials: HTTPBasicCredentials = Depends(_admin_security)) -> None:
+    """Reuse the admin credentials check from the existing admin routes."""
+    from ..admin_routes import verify_admin
+
+    verify_admin(credentials)
 
 
 @router.get("/parameters")
@@ -168,7 +179,7 @@ async def read_snapshot(
         status = 409 if "integrity" in message else 404
         raise HTTPException(status_code=status, detail=message) from exc
     owner = snapshot.get("user_id")
-    if owner is not None and int(owner) != int(user["id"]):
+    if owner is None or int(owner) != int(user["id"]):
         raise HTTPException(status_code=403, detail="snapshot belongs to another user")
     return {"snapshot": snapshot}
 
@@ -177,7 +188,7 @@ async def read_snapshot(
 async def create_research_jobs(
     payload: ResearchRequest,
     request: Request,
-    _user: dict = Depends(get_current_user),
+    _admin: None = Depends(require_admin),
 ) -> dict:
     store = _store(request)
     record = store.get_composition(payload.product_id, payload.composition_hash)

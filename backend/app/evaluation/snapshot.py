@@ -81,7 +81,7 @@ def build_snapshot(
                 "value": item.value,
                 "status": item.status,
                 "included": item.included,
-                "weight": round(item.weight, 6),
+                "weight": item.weight,
                 "reason": item.reason,
             }
             for item in result.parameters

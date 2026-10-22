@@ -150,6 +150,12 @@ class CompositionTests(unittest.TestCase):
         with self.assertRaises(StoreError):
             store_for(db).upsert_composition({"product_id": 1, "composition_hash": COMPOSITION})
 
+    def test_upsert_is_committed(self):
+        db = FakeDB()
+        db.on("insert into", {"id": 1, "product_id": 1, "composition_hash": COMPOSITION})
+        store_for(db).upsert_composition({"product_id": 1, "composition_hash": COMPOSITION})
+        self.assertGreaterEqual(db.commits, 1, "INSERT ... RETURNING must be committed")
+
 
 class EvaluationTests(unittest.TestCase):
     def test_current_evaluations_exclude_superseded_rows(self):
@@ -267,33 +273,20 @@ class SnapshotTests(unittest.TestCase):
 
     def test_existing_snapshot_is_returned_without_insert(self):
         db = FakeDB()
-        db.on(
-            "from evaluation.snapshots s",
-            {
-                "snapshot_id": "abc123",
-                "snapshot_hash": "hash",
-                "schema_version": "1.0.0",
-                "user_id": 1,
-                "product_id": 7,
-                "product_name": "Test",
-                "profile_fingerprint": {},
-                "rule_version": get_rules().version,
-                "engine_version": "2.0.0-draft",
-                "engine_input_hash": "input",
-                "parameters": [],
-                "total": None,
-                "verdict": None,
-                "completeness": 0.0,
-                "limitations": [],
-                "created_at": "2026-10-23T10:00:00+00:00",
-                "composition_hash": COMPOSITION,
-                "source": "",
-                "verified_at": None,
-                "rules_hash": get_rules().hash,
-            },
-        )
+        db.on("from evaluation.snapshots s", {"document": {"snapshot_id": "abc123", "snapshot_hash": "h"}})
         store_for(db).save_snapshot(self._snapshot())
         self.assertNotIn("insert into evaluation.snapshots", sql_text(db))
+
+    def test_document_is_returned_verbatim(self):
+        db = FakeDB()
+        document = {
+            "snapshot_id": "abc123",
+            "snapshot_hash": "hash",
+            "total": 70,
+            "created_at": "2026-10-23T10:00:00.123456+00:00",
+        }
+        db.on("from evaluation.snapshots s", {"document": document})
+        self.assertEqual(store_for(db).get_snapshot("abc123"), document)
 
 
 class ResearchAndSeedTests(unittest.TestCase):
@@ -306,6 +299,7 @@ class ResearchAndSeedTests(unittest.TestCase):
         db = FakeDB()
         db.on("insert into", {"id": 1})
         self.assertTrue(store_for(db).enqueue_research(3, "hydration", "m"))
+        self.assertGreaterEqual(db.commits, 1, "research job insert must be committed")
 
     def test_seed_rule_upserts_version(self):
         db = FakeDB()

@@ -62,7 +62,11 @@ class Parameter:
         if not self.anchors:
             raise ContractError(f"parameter {self.id} needs at least one scale anchor")
         for value, text in self.anchors:
-            if not 0 <= int(value) <= 100:
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ContractError(f"anchor value must be an integer for {self.id}") from exc
+            if not 0 <= numeric <= 100:
                 raise ContractError(f"anchor out of 0..100 for {self.id}: {value}")
             if not str(text).strip():
                 raise ContractError(f"empty anchor text for {self.id}")
@@ -151,6 +155,19 @@ class RuleSet:
             raise ContractError("rule version is required")
         if self.missing_policy != "exclude_and_reduce_completeness":
             raise ContractError(f"unsupported missing policy: {self.missing_policy}")
+        if self.calibrated and not self.verdict_bands:
+            raise ContractError("calibrated rules require verdict bands")
+        thresholds = []
+        for threshold, label in self.verdict_bands:
+            if not 0 <= int(threshold) <= 100:
+                raise ContractError(f"verdict threshold out of 0..100: {threshold}")
+            if not str(label).strip():
+                raise ContractError("verdict label must not be empty")
+            thresholds.append(int(threshold))
+        if thresholds != sorted(set(thresholds), reverse=True):
+            raise ContractError(
+                "verdict bands must be unique and sorted from high to low"
+            )
 
     def as_dict(self) -> dict:
         return {

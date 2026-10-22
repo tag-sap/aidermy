@@ -123,7 +123,10 @@ def evaluate(
                     f"{parameter.label}: {text}" for text in evaluation.limitations
                 )
             continue
-        if evaluation.confidence is not None and evaluation.confidence < rules.min_confidence:
+        if rules.min_confidence > 0 and (
+            evaluation.confidence is None
+            or evaluation.confidence < rules.min_confidence
+        ):
             results.append(
                 ParameterResult(
                     parameter_id=parameter_id,

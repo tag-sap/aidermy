@@ -49,6 +49,37 @@ class RegistryTests(unittest.TestCase):
             self.assertIn(0, values, parameter.id)
             self.assertIn(100, values, parameter.id)
 
+    def test_parameter_rejects_non_numeric_anchor(self):
+        from app.evaluation import Parameter
+
+        with self.assertRaises(ContractError):
+            Parameter(
+                id="x",
+                label="X",
+                definition="d",
+                anchors=(("high", "текст"),),
+            )
+
+    def test_calibrated_rules_require_sorted_unique_bands(self):
+        with self.assertRaises(ContractError):
+            RuleSet(
+                version="bad",
+                aggregation="weighted_mean",
+                completeness_threshold=0.5,
+                verdict_bands=((50, "mid"), (80, "high")),
+                calibrated=True,
+            )
+
+    def test_calibrated_rules_without_bands_are_rejected(self):
+        with self.assertRaises(ContractError):
+            RuleSet(
+                version="bad",
+                aggregation="weighted_mean",
+                completeness_threshold=0.5,
+                verdict_bands=(),
+                calibrated=True,
+            )
+
 
 class RelevanceTests(unittest.TestCase):
     def test_dry_skin_requests_hydration_and_barrier(self):
@@ -84,6 +115,12 @@ class RelevanceTests(unittest.TestCase):
         )
         self.assertIn("procedure_safety", recent.weights)
         self.assertNotIn("procedure_safety", old.weights)
+
+    def test_dict_shaped_therapy_is_understood(self):
+        relevance = resolve_relevance(
+            {"structured": {"therapy": {"tretinoin": True, "aha_therapy": False}}}
+        )
+        self.assertIn("therapy_safety", relevance.weights)
 
     def test_allergies_add_fragrance_parameter_and_note(self):
         relevance = resolve_relevance({"skin_type": "normal", "allergies": ["fragrance"]})
@@ -184,6 +221,27 @@ class EngineTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             ev("hydration", 50, status="stale")
 
+    def test_min_confidence_excludes_unknown_confidence(self):
+        rules = RuleSet(
+            version="9.9.9-conf",
+            aggregation="weighted_mean",
+            completeness_threshold=0.5,
+            verdict_bands=((0, "low"),),
+            calibrated=False,
+            min_confidence=0.5,
+        )
+        result = evaluate(
+            {"skin_type": "dry"},
+            [
+                ev("hydration", 80),  # confidence is None
+                ev("barrier", 60, confidence=0.9),
+            ],
+            rules,
+        )
+        hydration = next(item for item in result.parameters if item.parameter_id == "hydration")
+        self.assertFalse(hydration.included)
+        self.assertEqual(hydration.status, "insufficient_evidence")
+
 class FreshnessTests(unittest.TestCase):
     def test_composition_change_invalidates(self):
         evaluation = ev("hydration", 70)
@@ -210,6 +268,11 @@ class FreshnessTests(unittest.TestCase):
         self.assertIsNone(
             stale_reason(evaluation, composition_hash=COMPOSITION, method_version=METHOD)
         )
+
+    def test_invalid_valid_until_is_treated_as_stale(self):
+        evaluation = ev("hydration", 70, valid_until="not-a-date")
+        reason = stale_reason(evaluation, composition_hash=COMPOSITION, method_version=METHOD)
+        self.assertIn("valid_until", reason)
 
 
 class SnapshotTests(unittest.TestCase):

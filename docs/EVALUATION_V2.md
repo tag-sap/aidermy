@@ -141,14 +141,14 @@
 
 ## 8. Тесты
 
-Четыре файла, **66 проверок**:
+Четыре файла, **75 проверок**:
 
 | Файл | Проверок | Что покрыто |
 |---|---:|---|
-| `test_evaluation_engine.py` | 28 | реестр и якоря, маппинг анкеты, детерминизм и хэш, политика пропусков, статусы, гейт вердикта, freshness, snapshot |
+| `test_evaluation_engine.py` | 34 | реестр и якоря, маппинг анкеты, детерминизм и хэш, политика пропусков, статусы, гейт вердикта, `min_confidence`, freshness (включая невалидные даты), snapshot |
 | `test_evaluation_service.py` | 10 | идемпотентность сборки, supersede истории, дедуп research-задач, проверка целостности при чтении |
-| `test_evaluation_postgres_store.py` | 16 | маппинг строк, `ON CONFLICT`, `FOR UPDATE` + supersede, обязательные rule/composition, идемпотентный insert, seeds |
-| `test_evaluation_api.py` | 12 | контракт `/api/v1/evaluation/*`, 403 для чужого snapshot, 409 при подмене, 422 на невалидную шкалу |
+| `test_evaluation_postgres_store.py` | 18 | маппинг строк, commit для `INSERT ... RETURNING`, `ON CONFLICT`, `FOR UPDATE` + supersede, обязательные rule/composition, документ snapshot, seeds |
+| `test_evaluation_api.py` | 13 | контракт `/api/v1/evaluation/*`, 403 для чужого snapshot, 409 при подмене, 422 на невалидную шкалу, admin-only research |
 
 ```bash
 cd backend && python -m pytest tests/test_evaluation_engine.py tests/test_evaluation_service.py \

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.auth import get_current_user, get_current_user_optional
 from app.evaluation import ParameterEvaluation
-from app.evaluation.api import setup_evaluation_routes
+from app.evaluation.api import require_admin, setup_evaluation_routes
 from app.evaluation.service import DEFAULT_METHOD_VERSION, EvaluationService
 from app.evaluation.store import InMemoryStore
 
@@ -18,12 +18,14 @@ COMPOSITION = {"composition_hash": HASH, "source": "catalog", "verified_at": "20
 PROFILE = {"skin_type": "dry"}
 
 
-def make_client(store: InMemoryStore | None = None, user_id: int = 1):
+def make_client(store: InMemoryStore | None = None, user_id: int = 1, admin: bool = True):
     store = store or InMemoryStore()
     app = FastAPI()
     setup_evaluation_routes(app, store=store)
     app.dependency_overrides[get_current_user] = lambda: {"id": user_id}
     app.dependency_overrides[get_current_user_optional] = lambda: None
+    if admin:
+        app.dependency_overrides[require_admin] = lambda: None
     return TestClient(app), store, app
 
 
@@ -149,6 +151,14 @@ class SnapshotReadTests(unittest.TestCase):
 
 
 class ResearchEndpointTests(unittest.TestCase):
+    def test_research_requires_admin(self):
+        client, _, _ = make_client(admin=False)
+        response = client.post(
+            "/api/v1/evaluation/research-jobs",
+            json={"product_id": 7, "composition_hash": HASH, "parameters": ["hydration"]},
+        )
+        self.assertIn(response.status_code, (401, 403))
+
     def test_unregistered_composition_returns_404(self):
         client, _, _ = make_client()
         response = client.post(

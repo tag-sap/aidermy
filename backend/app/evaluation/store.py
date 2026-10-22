@@ -51,6 +51,11 @@ class InMemoryStore:
         composition_hash = str(composition["composition_hash"])
         for existing in self._compositions.values():
             if existing["product_id"] == product_id and existing["composition_hash"] == composition_hash:
+                # mirror the Postgres upsert: enrich, never overwrite with empty values
+                if composition.get("source"):
+                    existing["source"] = composition["source"]
+                if composition.get("verified_at"):
+                    existing["verified_at"] = composition["verified_at"]
                 return existing
         record = {
             "id": self._next_composition_id,

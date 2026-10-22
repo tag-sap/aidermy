@@ -64,21 +64,6 @@ def row_to_evaluation(row: Mapping[str, Any]) -> ParameterEvaluation:
     )
 
 
-def evaluation_to_params(evaluation: ParameterEvaluation) -> tuple:
-    return (
-        evaluation.parameter_id,
-        evaluation.status,
-        evaluation.value,
-        evaluation.confidence,
-        evaluation.rationale,
-        _as_json(list(evaluation.limitations)),
-        _as_json(list(evaluation.evidence_ids)),
-        evaluation.composition_hash,  # used only by the input hash, not stored here
-        evaluation.method_version,
-        evaluation.valid_until,
-    )
-
-
 class PostgresStore:
     """Storage adapter over the `evaluation` schema."""
 
@@ -105,6 +90,14 @@ class PostgresStore:
                 cur.execute(sql, tuple(params))
                 return cur.fetchone()
 
+    def _fetchone_write(self, sql: str, params: Iterable[Any] = ()) -> Mapping[str, Any] | None:
+        """Same as _fetchone but commits: required for INSERT/UPDATE ... RETURNING."""
+        with closing(self._connect()) as conn:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, tuple(params))
+                    return cur.fetchone()
+
     def _execute(self, sql: str, params: Iterable[Any] = ()) -> None:
         with closing(self._connect()) as conn:
             with conn:
@@ -121,7 +114,7 @@ class PostgresStore:
         return dict(row) if row else None
 
     def upsert_composition(self, composition: Mapping[str, Any]) -> dict:
-        row = self._fetchone(
+        row = self._fetchone_write(
             f"""
             insert into {self._table('product_compositions')}
                 (product_id, composition_hash, inci_raw, source, verified_at)
@@ -275,11 +268,11 @@ class PostgresStore:
             insert into {self._table('snapshots')} (
                 snapshot_id, snapshot_hash, schema_version, user_id,
                 product_id, product_name, composition_id, profile_fingerprint,
-                rule_version, engine_version, engine_input_hash, parameters,
+                rule_version, engine_version, engine_input_hash, document, parameters,
                 total, verdict, completeness, limitations
             ) values (
                 %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
-                %s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb
+                %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s::jsonb
             )
             on conflict (snapshot_id) do nothing
             """,
@@ -295,6 +288,7 @@ class PostgresStore:
                 rule_version,
                 str(snapshot.get("engine_version") or ""),
                 str(snapshot.get("engine_input_hash") or ""),
+                _as_json(dict(snapshot)),
                 _as_json(snapshot.get("parameters") or []),
                 snapshot.get("total"),
                 snapshot.get("verdict"),
@@ -313,7 +307,7 @@ class PostgresStore:
             select s.snapshot_id, s.snapshot_hash, s.schema_version, s.user_id,
                    s.product_id, s.product_name, s.profile_fingerprint,
                    s.rule_version, s.engine_version, s.engine_input_hash,
-                   s.parameters, s.total, s.verdict, s.completeness,
+                   s.document, s.parameters, s.total, s.verdict, s.completeness,
                    s.limitations, s.created_at,
                    c.composition_hash, c.source, c.verified_at, r.rules_hash
             from {self._table('snapshots')} s
@@ -325,6 +319,11 @@ class PostgresStore:
         )
         if not row:
             return None
+        document = row.get("document")
+        if isinstance(document, Mapping) and document.get("snapshot_hash"):
+            # Canonical copy: byte-for-byte identical to what was hashed at build
+            # time, so verify_snapshot() stays valid after a database round-trip.
+            return dict(document)
         return {
             "schema_version": row["schema_version"],
             "engine_version": row["engine_version"],
@@ -352,7 +351,7 @@ class PostgresStore:
     def enqueue_research(
         self, composition_id: int, parameter_id: str, method_version: str
     ) -> bool:
-        row = self._fetchone(
+        row = self._fetchone_write(
             f"""
             insert into {self._table('research_jobs')}
                 (composition_id, parameter_id, method_version)

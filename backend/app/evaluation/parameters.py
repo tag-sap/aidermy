@@ -291,6 +291,34 @@ def _as_list(value: Any) -> list:
     return []
 
 
+def _as_items(value: Any) -> list:
+    """Normalise list-like and dict-like questionnaire collections.
+
+    Production payloads use lists of dicts, but older/custom profiles may store
+    ``{"tretinoin": true}`` — both must be understood instead of iterating keys.
+    """
+    if value is None:
+        return []
+    if isinstance(value, Mapping):
+        items: list = []
+        for key, flag in value.items():
+            if isinstance(flag, Mapping):
+                item = dict(flag)
+                item.setdefault("id", key)
+                items.append(item)
+            elif isinstance(flag, bool):
+                if flag:
+                    items.append({"id": key})
+            else:
+                items.append({"id": key, "period": str(flag)})
+        return items
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
+
+
 def collect_signals(profile: Mapping[str, Any] | None) -> ProfileSignals:
     """Extract questionnaire IDs and risk flags from a profile payload.
 
@@ -311,7 +339,7 @@ def collect_signals(profile: Mapping[str, Any] | None) -> ProfileSignals:
         ids.add(str(skin_type).strip())
 
     active_therapy: list[str] = []
-    for item in structured.get("therapy") or []:
+    for item in _as_items(structured.get("therapy")):
         if isinstance(item, Mapping):
             therapy_id = str(item.get("id") or "").strip()
             if therapy_id and bool(item.get("active", True)):
@@ -320,7 +348,7 @@ def collect_signals(profile: Mapping[str, Any] | None) -> ProfileSignals:
             active_therapy.append(item.strip())
 
     recent_procedures: list[str] = []
-    for item in structured.get("procedures") or []:
+    for item in _as_items(structured.get("procedures")):
         if isinstance(item, Mapping):
             procedure_id = str(item.get("id") or "").strip()
             period = str(item.get("period") or "").strip()

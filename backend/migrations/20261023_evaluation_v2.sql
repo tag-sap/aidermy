@@ -143,6 +143,7 @@ create table if not exists evaluation.snapshots (
     rule_version        text        not null references evaluation.rule_versions (version) on delete restrict,
     engine_version      text        not null,
     engine_input_hash   text        not null,
+    document            jsonb       not null default '{}'::jsonb,
     parameters          jsonb       not null,
     total               int         check (total is null or (total >= 0 and total <= 100)),
     verdict             text,

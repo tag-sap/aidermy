@@ -45,12 +45,16 @@ def stale_reason(
     if evaluation.valid_until:
         valid_until = _parse(evaluation.valid_until)
         current = now or datetime.now(timezone.utc)
-        if valid_until is not None and current > valid_until:
+        if valid_until is None:
+            return "некорректный формат valid_until — актуальность не подтверждена"
+        if current > valid_until:
             return "истёк срок действия оценки (valid_until)"
     if max_age_days is not None and evaluation.evaluated_at:
         evaluated_at = _parse(evaluation.evaluated_at)
         current = now or datetime.now(timezone.utc)
-        if evaluated_at is not None and current - evaluated_at > timedelta(days=max_age_days):
+        if evaluated_at is None:
+            return "некорректная дата оценки — возраст не подтверждён"
+        if current - evaluated_at > timedelta(days=max_age_days):
             return f"оценка старше {max_age_days} дн."
     return None
 
