@@ -13,6 +13,7 @@ Usage (after the migration is applied):
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from contextlib import closing
 from typing import Any, Callable, Iterable, Mapping
@@ -62,6 +63,12 @@ def row_to_evaluation(row: Mapping[str, Any]) -> ParameterEvaluation:
         evaluated_at=str(row.get("evaluated_at") or ""),
         valid_until=str(row["valid_until"]) if row.get("valid_until") else None,
     )
+
+
+def _advisory_key(*parts: Any) -> int:
+    """Stable signed 64-bit key for pg_advisory_xact_lock."""
+    raw = "|".join(str(part) for part in parts).encode("utf-8")
+    return int.from_bytes(hashlib.blake2b(raw, digest_size=8).digest(), "big", signed=True)
 
 
 class PostgresStore:
@@ -166,6 +173,19 @@ class PostgresStore:
         with closing(self._connect()) as conn:
             with conn:
                 with conn.cursor() as cur:
+                    # Serialise concurrent writers for the same natural key:
+                    # SELECT ... FOR UPDATE cannot lock a row that does not exist yet,
+                    # so two first-time inserts would race on the partial unique index.
+                    cur.execute(
+                        "select pg_advisory_xact_lock(%s)",
+                        (
+                            _advisory_key(
+                                composition_id,
+                                evaluation.parameter_id,
+                                evaluation.method_version,
+                            ),
+                        ),
+                    )
                     cur.execute(
                         f"""
                         select id from {self._table('parameter_evaluations')}
@@ -176,6 +196,49 @@ class PostgresStore:
                         (composition_id, evaluation.parameter_id, evaluation.method_version),
                     )
                     previous = cur.fetchone()
+                    if previous is not None:
+                        # Mark the old row superseded BEFORE inserting the new one:
+                        # the partial unique index forbids two current rows even
+                        # inside one transaction. The FK is deferred, so pointing
+                        # to the id that is inserted next is checked at COMMIT.
+                        cur.execute(
+                            "select nextval(pg_get_serial_sequence(%s, 'id')) as id",
+                            (f"{self.schema}.parameter_evaluations",),
+                        )
+                        new_id = int(cur.fetchone()["id"])
+                        cur.execute(
+                            f"update {self._table('parameter_evaluations')} "
+                            "set superseded_by = %s where id = %s",
+                            (new_id, previous["id"]),
+                        )
+                        cur.execute(
+                            f"""
+                            insert into {self._table('parameter_evaluations')}
+                                (id, composition_id, parameter_id, status, value, confidence,
+                                 rationale, limitations, evidence_ids, input_hash,
+                                 method_version, valid_until)
+                            values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s)
+                            returning id
+                            """,
+                            (
+                                new_id,
+                                composition_id,
+                                evaluation.parameter_id,
+                                evaluation.status,
+                                evaluation.value,
+                                evaluation.confidence,
+                                evaluation.rationale,
+                                _as_json(list(evaluation.limitations)),
+                                _as_json(list(evaluation.evidence_ids)),
+                                sha256_of(evaluation.as_dict()),
+                                evaluation.method_version,
+                                evaluation.valid_until,
+                            ),
+                        )
+                        inserted = cur.fetchone()
+                        if inserted is None:
+                            raise StoreError("evaluation insert returned no id")
+                        return evaluation
                     cur.execute(
                         f"""
                         insert into {self._table('parameter_evaluations')}
@@ -202,12 +265,6 @@ class PostgresStore:
                     inserted = cur.fetchone()
                     if inserted is None:
                         raise StoreError("evaluation insert returned no id")
-                    if previous is not None:
-                        cur.execute(
-                            f"update {self._table('parameter_evaluations')} "
-                            "set superseded_by = %s where id = %s",
-                            (inserted["id"], previous["id"]),
-                        )
         return evaluation
 
     def evaluation_history(

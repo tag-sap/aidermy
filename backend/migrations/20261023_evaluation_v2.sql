@@ -104,7 +104,8 @@ create table if not exists evaluation.parameter_evaluations (
     input_hash       text        not null,
     evaluated_at     timestamptz not null default now(),
     valid_until      timestamptz,
-    superseded_by    bigint      references evaluation.parameter_evaluations (id),
+    superseded_by    bigint      references evaluation.parameter_evaluations (id)
+                     deferrable initially deferred,
     constraint evaluated_requires_value check (
         (status = 'evaluated' and value is not null)
         or (status <> 'evaluated' and value is null)

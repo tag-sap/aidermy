@@ -141,14 +141,15 @@
 
 ## 8. Тесты
 
-Четыре файла, **75 проверок**:
+Пять файлов, **106 проверок**:
 
 | Файл | Проверок | Что покрыто |
 |---|---:|---|
 | `test_evaluation_engine.py` | 34 | реестр и якоря, маппинг анкеты, детерминизм и хэш, политика пропусков, статусы, гейт вердикта, `min_confidence`, freshness (включая невалидные даты), snapshot |
 | `test_evaluation_service.py` | 10 | идемпотентность сборки, supersede истории, дедуп research-задач, проверка целостности при чтении |
-| `test_evaluation_postgres_store.py` | 18 | маппинг строк, commit для `INSERT ... RETURNING`, `ON CONFLICT`, `FOR UPDATE` + supersede, обязательные rule/composition, документ snapshot, seeds |
+| `test_evaluation_postgres_store.py` | 18 | маппинг строк, commit для `INSERT ... RETURNING`, advisory lock и порядок supersede, `ON CONFLICT`, обязательные rule/composition, документ snapshot, seeds |
 | `test_evaluation_api.py` | 13 | контракт `/api/v1/evaluation/*`, 403 для чужого snapshot, 409 при подмене, 422 на невалидную шкалу, admin-only research |
+| `test_evaluation_postgres_integration.py` | 31 | реальный PostgreSQL: полный цикл, повторные запросы, `ON CONFLICT`, rollback, ограничения/FK, `jsonb`, даты, конкурентность, supersede, RLS реальными ролями, идемпотентность миграции |
 
 ```bash
 cd backend && python -m pytest tests/test_evaluation_engine.py tests/test_evaluation_service.py \
@@ -161,25 +162,101 @@ cd backend && python -m pytest tests/test_evaluation_engine.py tests/test_evalua
 | Прогон | passed | failed |
 |---|---:|---:|
 | чистый `origin/main` | 771 | 59 |
-| ветка `feat/evaluation-v2` | 845 | 51 |
+| ветка, без `EVALUATION_TEST_DSN` (интеграция пропущена) | 854 | 51 |
+| ветка, с локальным PostgreSQL (интеграция выполнена) | 885 | 51 |
 
 Критерий корректности — отсутствие **новых** падений: `comm -23` по спискам FAILED даёт
-пустой результат, то есть все текущие падения входят в базовый набор. Число падений
-снизилось (59 → 51), потому что локальная SQLite-база приобретает схему и fixtures
-при повторных прогонах — это средовой эффект, а не влияние нового кода. Причины базовых
-падений: отсутствует `SUPABASE_DATABASE_URL` (PG-тесты), пустая SQLite без fixtures,
-тесты, требующие LLM. `tests/test_report_flow.py` исключён: падает на импорте без
-переменных окружения.
+пустой результат в обоих режимах. Число падений снизилось (59 → 51), потому что локальная
+SQLite-база приобретает схему и fixtures при повторных прогонах — средовой эффект.
+Причины базовых падений: отсутствует `SUPABASE_DATABASE_URL` (PG-тесты), пустая SQLite
+без fixtures, тесты, требующие LLM. `tests/test_report_flow.py` исключён: падает на
+импорте без переменных окружения.
 
-## 9. Что дальше (требует согласования)
+## 10. Интеграционная проверка на реальном PostgreSQL
+
+Проведена 2026-10-23 на **изолированном локальном** PostgreSQL, а не на Supabase.
+
+| Параметр | Значение |
+|---|---|
+| Сервер | PostgreSQL 16.2 (автономный кластер `pgserver`, без прав администратора) |
+| Адрес | `127.0.0.1:57879` |
+| База | `aidermy_eval_test` (создана специально для теста) |
+| Пользователь | `postgres` (локальный, trust-auth, пароль не используется/не печатается) |
+| SSL | выключен (локально); в Supabase обязателен TLS — это различие зафиксировано |
+| Production | **не использовался**: guard отклоняет `*.supabase.*`, IP сервера, `eclectusgames.ru`, любой не-localhost и любую БД вне `aidermy_eval_test*` |
+
+Запуск:
+
+```bash
+EVALUATION_TEST_DSN="postgresql://…@127.0.0.1:57879/aidermy_eval_test" \
+  python -m pytest tests/test_evaluation_postgres_integration.py -q
+# 31 passed
+```
+
+Схема пересоздаётся из файла миграции при каждом прогоне (`drop schema … cascade`
++ apply), поэтому тест проверяет **текущую** миграцию, а не остатки прошлой.
+Supabase-специфичные объекты эмулируются явно: схема `auth`, `auth.uid()` от
+`request.jwt.claim.sub`, роли `anon` / `authenticated` / `service_role`
+(последняя с `BYPASSRLS`), поскольку миграция ссылается на `auth.uid()`.
+
+Покрытие (31 проверка):
+
+- полный цикл `seed_rule → ensure_composition → save_evaluation → build → read → verify`;
+- повторные запросы: повторный `build` возвращает тот же snapshot (`reused=True`, 1 строка);
+- `ON CONFLICT`: upsert состава, `snapshots DO NOTHING`, дедуп research-задач;
+- транзакции и rollback: принудительный откат не оставляет «половинчатого» supersede;
+- ограничения: value 0–100, `evaluated` требует value, confidence 0–1, допустимые статусы;
+- внешние ключи: несуществующий `composition_id` и незарегистрированный `rule_version`;
+- `jsonb`: кавычки, переводы строк, табуляция, emoji, обратный слеш, `{json}`;
+- даты: `valid_until` (актуально/просрочено), `evaluated_at` из БД;
+- конкурентность: два потока `save_evaluation` и два потока `build`;
+- история supersede: 2 версии, одна текущая, `superseded_by` указывает на новую;
+- неизменяемость snapshot: `UPDATE`/`DELETE` блокируются триггером; при отключённом
+  триггере подмена обнаруживается `verify_snapshot`;
+- миграция идемпотентна (повторное применение).
+
+RLS проверен **реальными ролями** (не «на слово»):
+
+| Проверка | Результат |
+|---|---|
+| `authenticated` без GRANT | `InsufficientPrivilege` (доступ закрыт по умолчанию) |
+| `authenticated` + `GRANT SELECT`, claim sub=1 | видит ровно 1 свою строку |
+| claim sub=2 и запрос чужого `snapshot_id` | 0 строк |
+| `authenticated` + `GRANT INSERT` | `InsufficientPrivilege` (нет INSERT-политики) |
+| `anon` | `InsufficientPrivilege` |
+| `service_role` (BYPASSRLS) | видит обе строки |
+
+Найденные реальной БД дефекты (исправлены):
+
+1. **`snapshot` не сериализовался**: `composition.verified_at` из Postgres — `datetime`,
+   а не строка → `TypeError`. Добавлена нормализация `_iso()`; без неё прод-путь
+   через БД падал бы на первом же расчёте.
+2. **Гонка при первой записи оценки**: `SELECT … FOR UPDATE` не блокирует ещё не
+   существующую строку → второй поток получал `UniqueViolation`. Добавлен
+   `pg_advisory_xact_lock` по естественному ключу.
+3. **Порядок supersede**: частичный уникальный индекс запрещает две текущие строки
+   даже внутри транзакции, поэтому «вставить → обновить» падало. Теперь
+   «обновить старое → вставить новое», а FK `superseded_by` сделан
+   `deferrable initially deferred`.
+
+Ограничения этой проверки:
+
+- локальный кластер, не Supabase: не проверены TLS, пулер соединений, права
+  Supabase-роли `postgres` и поведение `auth.uid()` с реальным JWT;
+- `service_role` эмулирован флагом `BYPASSRLS`, а не платформой Supabase;
+- один поток/процесс-хост: конкурентность проверена потоками, но не распределённо;
+- Storage/S3 не участвует в этих тестах.
+
+## 11. Что дальше (требует согласования)
 
 1. Применить миграцию в отдельной схеме Supabase (после бэкапа) и прогнать `PostgresStore`
-   против живой схемы (интеграционные тесты на staging).
+   против живой схемы (staging-проект Supabase, не production).
 2. Зарегистрировать роутер в `main.py`: `setup_evaluation_routes(app, store=PostgresStore())`.
 3. Исследование AI: контракт «факт + цитата + источник + статус», строгая валидация,
    дедуп задач, учёт стоимости и таймаутов.
 4. Собрать эталонную выборку и провести калибровку (MAE по параметрам, bias, coverage,
    согласие вердиктов), после чего выпустить `rule_version` с `calibrated=true`.
 5. Перевести `figma-make-preview` на snapshot-контракт и убрать дублирующие пороги вердикта.
+
 
 

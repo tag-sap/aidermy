@@ -37,6 +37,15 @@ def profile_fingerprint(profile: Mapping | None) -> dict:
     }
 
 
+def _iso(value: Any) -> str:
+    """Normalise DB datetimes and strings to one canonical ISO representation."""
+    if value is None or value == "":
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 def build_snapshot(
     *,
     product: Mapping[str, Any],
@@ -72,7 +81,7 @@ def build_snapshot(
         "composition": {
             "hash": composition_hash,
             "source": composition.get("source") or "",
-            "verified_at": composition.get("verified_at") or "",
+            "verified_at": _iso(composition.get("verified_at")),
         },
         "profile": profile_fingerprint(profile),
         "parameters": [

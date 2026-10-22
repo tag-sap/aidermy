@@ -168,6 +168,7 @@ class EvaluationTests(unittest.TestCase):
     def test_save_evaluation_supersedes_previous_row(self):
         db = FakeDB()
         db.on("for update", {"id": 10})
+        db.on("nextval", {"id": 11})
         db.on("insert into", {"id": 11})
         evaluation = ParameterEvaluation(
             parameter_id="hydration",
@@ -178,8 +179,14 @@ class EvaluationTests(unittest.TestCase):
         )
         store_for(db).save_evaluation(3, evaluation)
         text = sql_text(db)
-        self.assertIn("for update", text)
-        self.assertIn("set superseded_by = %s", text)
+        self.assertIn("pg_advisory_xact_lock", text)
+        self.assertIn("nextval", text)
+        self.assertIn("set superseded_by", text)
+        self.assertLess(
+            text.index("set superseded_by"),
+            text.index("insert into evaluation.parameter_evaluations"),
+            "history must be updated before the new row is inserted",
+        )
 
     def test_first_evaluation_does_not_supersede(self):
         db = FakeDB()
@@ -193,7 +200,10 @@ class EvaluationTests(unittest.TestCase):
             method_version="m",
         )
         store_for(db).save_evaluation(3, evaluation)
-        self.assertNotIn("set superseded_by", sql_text(db))
+        text = sql_text(db)
+        self.assertNotIn("set superseded_by", text)
+        self.assertNotIn("nextval", text)
+        self.assertIn("pg_advisory_xact_lock", text)
 
 class SnapshotTests(unittest.TestCase):
     def _snapshot(self):
