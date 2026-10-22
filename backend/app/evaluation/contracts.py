@@ -48,19 +48,28 @@ class ContractError(ValueError):
 
 @dataclass(frozen=True)
 class Parameter:
-    """One evaluated property of a product."""
+    """One evaluated questionnaire parameter (never a universal product axis)."""
 
     id: str
     label: str
     definition: str
     anchors: Tuple[Tuple[int, str], ...]
     direction: str = "benefit"  # benefit | risk (risk is already inverted into 0..100)
+    section: str = ""           # questionnaire section: skin_type|problem|therapy|...
+    option_id: str = ""         # selected option inside that section
+    modifier: str = ""          # e.g. procedure period
+    question: str = ""          # the user-facing question this parameter answers
+    product_axes: Tuple[str, ...] = ()  # research hints only, never a stored axis
 
     def __post_init__(self) -> None:
         if self.direction not in {"benefit", "risk"}:
             raise ContractError(f"unknown direction for {self.id}: {self.direction}")
         if not self.anchors:
             raise ContractError(f"parameter {self.id} needs at least one scale anchor")
+        if self.section and not self.id.startswith(f"{self.section}:"):
+            raise ContractError(
+                f"parameter {self.id} is not bound to questionnaire section {self.section!r}"
+            )
         for value, text in self.anchors:
             try:
                 numeric = int(value)
@@ -78,6 +87,11 @@ class Parameter:
             "definition": self.definition,
             "anchors": [[int(v), t] for v, t in self.anchors],
             "direction": self.direction,
+            "section": self.section,
+            "option_id": self.option_id,
+            "modifier": self.modifier,
+            "question": self.question,
+            "product_axes": list(self.product_axes),
         }
 
 

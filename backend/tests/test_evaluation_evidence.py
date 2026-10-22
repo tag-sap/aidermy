@@ -5,6 +5,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from app.evaluation import (
+    PARAMETERS,
     EvidenceError,
     Source,
     assess,
@@ -23,7 +24,7 @@ NOW = datetime(2026, 10, 23, 12, 0, 0, tzinfo=timezone.utc)
 
 def make(**overrides):
     base = dict(
-        parameter_id="hydration",
+        parameter_id="goal:hydration",
         claim="Glycerin удерживает влагу в роговом слое",
         quote="Glycerin helps keep the skin hydrated",
         source_text="Formula: Aqua, Glycerin. Glycerin helps keep the skin hydrated.",
@@ -51,7 +52,7 @@ class EvidenceContractTests(unittest.TestCase):
         self.assertTrue(evidence.usable)
         self.assertEqual(evidence.product_id, PRODUCT_ID)
         self.assertEqual(evidence.composition_hash, COMPOSITION)
-        self.assertEqual(evidence.parameter_id, "hydration")
+        self.assertEqual(evidence.parameter_id, "goal:hydration")
         self.assertEqual(evidence.source.host, "brand.example")
 
     def test_quote_must_exist_in_source_text(self):
@@ -71,12 +72,12 @@ class EvidenceContractTests(unittest.TestCase):
         self.assertIn("источник недоступен", evidence.rejection_reason)
 
     def test_wrong_parameter_is_rejected(self):
-        item = make(parameter_id="barrier")
+        item = make(parameter_id="skin_type:dry")
         evidence = validate_candidate(
             item,
             product_id=PRODUCT_ID,
             composition_hash=COMPOSITION,
-            parameter_id="hydration",
+            parameter_id="goal:hydration",
             now=NOW,
         )
         self.assertEqual(evidence.verification, "rejected")
@@ -109,7 +110,7 @@ class EvidenceContractTests(unittest.TestCase):
 class AssessmentTests(unittest.TestCase):
     def _evaluate(self, *evidence):
         return assess(
-            "hydration",
+            "goal:hydration",
             list(evidence),
             composition_hash=COMPOSITION,
             method_version=METHOD,
@@ -148,13 +149,45 @@ class AssessmentTests(unittest.TestCase):
         )
         self.assertEqual(result.value, 20)
 
-    def test_balanced_evidence_is_midpoint_with_note(self):
+    def test_balanced_evidence_is_contradictory_not_midpoint(self):
+        # A midpoint would hide the contradiction and pretend the value is known.
         result = self._evaluate(
             confirmed(direction="supports", strength="strong", confidence=1.0),
             confirmed(direction="contradicts", strength="strong", confidence=1.0),
         )
-        self.assertEqual(result.value, 50)
+        self.assertEqual(result.status, "contradictory_evidence")
+        self.assertIsNone(result.value)
         self.assertTrue(any("сопоставимы" in t for t in result.limitations))
+        self.assertIn("противоречат", result.rationale)
+
+    def test_explanation_answers_the_parameter_question(self):
+        result = self._evaluate(confirmed(strength="strong", confidence=1.0))
+        parameter = PARAMETERS["goal:hydration"]
+        self.assertIn(parameter.label, result.rationale)
+        self.assertIn(parameter.question, result.rationale)
+        self.assertIn("Оценка 80/100", result.rationale)
+        # Only confirmed claim + quote, never the model's rejected text.
+        self.assertIn("Glycerin удерживает влагу", result.rationale)
+        self.assertIn("brand.example", result.rationale)
+        self.assertNotIn("https://", result.rationale)
+
+    def test_explanation_has_no_unsupported_medical_claims(self):
+        result = self._evaluate(confirmed(strength="strong", confidence=1.0))
+        generated = result.rationale.replace(confirmed().claim, "")
+        for forbidden in ("лечит", "гарантирует", "безопасен", "вреден", "излечивает"):
+            self.assertNotIn(forbidden, generated.lower())
+        self.assertIn("не клиническую пригодность", " ".join(result.limitations))
+
+    def test_explanation_distinguishes_absence_from_harm(self):
+        absent = self._evaluate()
+        harmful = self._evaluate(
+            confirmed(direction="contradicts", strength="strong", confidence=1.0)
+        )
+        self.assertIsNone(absent.value)
+        self.assertEqual(absent.status, "insufficient_evidence")
+        self.assertIn("не является доказательством вреда", " ".join(absent.limitations))
+        self.assertEqual(harmful.value, 20)
+        self.assertIn("против требования", harmful.rationale.lower())
 
     def test_confidence_changes_weight_not_direction(self):
         low = net_score([confirmed(direction="supports", strength="strong", confidence=0.2)])

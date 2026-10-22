@@ -29,11 +29,15 @@ def profile_fingerprint(profile: Mapping | None) -> dict:
     """Non-identifying profile representation used in snapshots and hashes."""
     signals = collect_signals(profile)
     return {
-        "signals": list(signals.ids),
-        "therapy": list(signals.active_therapy),
-        "procedures": list(signals.recent_procedures),
-        "allergy_count": len(signals.allergies),
+        "skin_type": signals.skin_type,
+        "age": signals.age,
+        "problems": list(signals.problems),
+        "therapy": list(signals.therapy),
+        "procedures": list(signals.procedures),
+        "goals": list(signals.goals),
+        # Intolerances are the most sensitive answers: only the count is stored.
         "intolerance_count": len(signals.intolerances),
+        "unresolved_count": len(signals.unresolved),
     }
 
 
@@ -67,6 +71,13 @@ def build_snapshot(
             )
 
     created = (created_at or datetime.now(timezone.utc)).isoformat()
+    status = str(composition.get("status") or "unverified")
+    limitations = list(result.limitations)
+    if status != "active":
+        limitations.append(
+            f"Состав не подтверждён (status={status}): результат справочный и не должен "
+            "рассматриваться как проверенный."
+        )
     body = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "engine_version": ENGINE_VERSION,
@@ -82,6 +93,7 @@ def build_snapshot(
             "hash": composition_hash,
             "source": composition.get("source") or "",
             "verified_at": _iso(composition.get("verified_at")),
+            "status": status,
         },
         "profile": profile_fingerprint(profile),
         "parameters": [
@@ -98,7 +110,7 @@ def build_snapshot(
         "total": result.total,
         "verdict": result.verdict,
         "completeness": round(result.completeness, 6),
-        "limitations": list(result.limitations),
+        "limitations": limitations,
         "created_at": created,
     }
     body["snapshot_hash"] = sha256_of({k: v for k, v in body.items() if k != "snapshot_hash"})

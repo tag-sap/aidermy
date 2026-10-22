@@ -23,9 +23,10 @@ from ..auth import get_current_user, get_current_user_optional
 from .contracts import ContractError, ParameterEvaluation
 from .engine import evaluate
 from .parameters import PARAMETERS
+from .questionnaire import QUESTIONNAIRE_SOURCE, QUESTIONNAIRE_VERSION, SECTIONS
 from .rules import describe_rules, get_rules
 from .service import DEFAULT_METHOD_VERSION, EvaluationService
-from .store import StoreError
+from .store import COMPOSITION_ACTIVE, StoreError
 
 router = APIRouter(prefix="/api/v1/evaluation", tags=["evaluation"])
 
@@ -105,6 +106,26 @@ def require_admin(credentials: HTTPBasicCredentials = Depends(_admin_security)) 
 async def list_parameters() -> dict:
     rules = get_rules()
     return {
+        "questionnaire": {
+            "version": QUESTIONNAIRE_VERSION,
+            "source": QUESTIONNAIRE_SOURCE,
+            "sections": [
+                {
+                    "id": section.id,
+                    "label": section.label,
+                    "evaluated": section.evaluated,
+                    "options": [
+                        {"id": option.id, "label": option.label}
+                        for option in section.options
+                    ],
+                    "modifiers": [
+                        {"id": item.id, "label": item.label}
+                        for item in section.modifiers
+                    ],
+                }
+                for section in SECTIONS
+            ],
+        },
         "parameters": [parameter.as_dict() for parameter in PARAMETERS.values()],
         "rules": describe_rules(rules),
     }
@@ -194,6 +215,14 @@ async def create_research_jobs(
     record = store.get_composition(payload.product_id, payload.composition_hash)
     if record is None:
         raise HTTPException(status_code=404, detail="composition is not registered")
+    if str(record.get("status") or "") != COMPOSITION_ACTIVE:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "composition is not verified (status="
+                f"{record.get('status') or 'unverified'}): verify the INCI before research"
+            ),
+        )
     service = _service(request)
     created = service.enqueue_research(record["id"], payload.parameters)
     return {"created": created, "composition_id": record["id"]}

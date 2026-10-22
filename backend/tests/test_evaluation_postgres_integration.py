@@ -43,7 +43,7 @@ MIGRATION_PATH = os.path.join(
 COMPOSITION = "e" * 64
 OTHER_COMPOSITION = "f" * 64
 PRODUCT = {"id": 7, "name": "Integration Serum"}
-PROFILE = {"skin_type": "dry"}
+PROFILE = {"skin_type": "dry", "concerns": ["dryness"]}
 
 SUPABASE_STUB = """
 create schema if not exists auth;
@@ -156,8 +156,8 @@ class SchemaTestBase(unittest.TestCase):
 class FullCycleTests(SchemaTestBase):
     def test_full_cycle_build_read_verify(self):
         composition = self.make_composition()
-        self.store.save_evaluation(composition["id"], ev("hydration", 80))
-        self.store.save_evaluation(composition["id"], ev("barrier", 60))
+        self.store.save_evaluation(composition["id"], ev("problem:dryness", 80))
+        self.store.save_evaluation(composition["id"], ev("skin_type:dry", 60))
 
         service = EvaluationService(self.store)
         built = service.build(
@@ -177,8 +177,8 @@ class FullCycleTests(SchemaTestBase):
 
     def test_repeated_build_reuses_one_snapshot(self):
         composition = self.make_composition()
-        self.store.save_evaluation(composition["id"], ev("hydration", 80))
-        self.store.save_evaluation(composition["id"], ev("barrier", 60))
+        self.store.save_evaluation(composition["id"], ev("problem:dryness", 80))
+        self.store.save_evaluation(composition["id"], ev("skin_type:dry", 60))
         service = EvaluationService(self.store)
 
         first = service.build(product=PRODUCT, composition=composition, profile=PROFILE, user_id=1)
@@ -278,7 +278,7 @@ class ConstraintTests(SchemaTestBase):
             sql(
                 "insert into evaluation.parameter_evaluations "
                 "(composition_id, parameter_id, method_version, status, value, input_hash) "
-                "values (%s, 'hydration', %s, 'evaluated', 150, 'x')",
+                "values (%s, 'goal:hydration', %s, 'evaluated', 150, 'x')",
                 (composition["id"], DEFAULT_METHOD_VERSION),
             )
 
@@ -288,7 +288,7 @@ class ConstraintTests(SchemaTestBase):
             sql(
                 "insert into evaluation.parameter_evaluations "
                 "(composition_id, parameter_id, method_version, status, value, input_hash) "
-                "values (%s, 'hydration', %s, 'evaluated', null, 'x')",
+                "values (%s, 'goal:hydration', %s, 'evaluated', null, 'x')",
                 (composition["id"], DEFAULT_METHOD_VERSION),
             )
 
@@ -298,7 +298,7 @@ class ConstraintTests(SchemaTestBase):
             sql(
                 "insert into evaluation.parameter_evaluations "
                 "(composition_id, parameter_id, method_version, status, value, confidence, input_hash) "
-                "values (%s, 'hydration', %s, 'evaluated', 50, 1.5, 'x')",
+                "values (%s, 'goal:hydration', %s, 'evaluated', 50, 1.5, 'x')",
                 (composition["id"], DEFAULT_METHOD_VERSION),
             )
 
@@ -308,13 +308,13 @@ class ConstraintTests(SchemaTestBase):
             sql(
                 "insert into evaluation.parameter_evaluations "
                 "(composition_id, parameter_id, method_version, status, input_hash) "
-                "values (%s, 'hydration', %s, 'maybe', 'x')",
+                "values (%s, 'goal:hydration', %s, 'maybe', 'x')",
                 (composition["id"], DEFAULT_METHOD_VERSION),
             )
 
     def test_foreign_key_rejects_unknown_composition(self):
         with self.assertRaises(psycopg.errors.ForeignKeyViolation):
-            self.store.save_evaluation(999_999, ev("hydration", 70))
+            self.store.save_evaluation(999_999, ev("problem:dryness", 70))
 
     def test_snapshot_requires_registered_rule_version(self):
         composition = self.make_composition()
@@ -334,14 +334,14 @@ class ConstraintTests(SchemaTestBase):
 class SupersedeAndConcurrencyTests(SchemaTestBase):
     def test_history_keeps_previous_versions(self):
         composition = self.make_composition()
-        self.store.save_evaluation(composition["id"], ev("hydration", 40))
-        self.store.save_evaluation(composition["id"], ev("hydration", 90))
+        self.store.save_evaluation(composition["id"], ev("problem:dryness", 40))
+        self.store.save_evaluation(composition["id"], ev("problem:dryness", 90))
 
         current = self.store.current_evaluations(composition["id"], DEFAULT_METHOD_VERSION)
         self.assertEqual(len(current), 1)
         self.assertEqual(current[0].value, 90.0)
 
-        history = self.store.evaluation_history(composition["id"], "hydration")
+        history = self.store.evaluation_history(composition["id"], "problem:dryness")
         self.assertEqual([item.value for item in history], [40.0, 90.0])
 
         rows = sql("select id, superseded_by from evaluation.parameter_evaluations order by id")
@@ -356,7 +356,7 @@ class SupersedeAndConcurrencyTests(SchemaTestBase):
         def worker(value: float) -> None:
             barrier.wait()
             try:
-                make_store().save_evaluation(composition["id"], ev("hydration", value))
+                make_store().save_evaluation(composition["id"], ev("problem:dryness", value))
                 results.append(("ok", value))
             except Exception as exc:  # noqa: BLE001
                 results.append((type(exc).__name__, str(exc)[:100]))
@@ -371,11 +371,11 @@ class SupersedeAndConcurrencyTests(SchemaTestBase):
         current = self.store.current_evaluations(composition["id"], DEFAULT_METHOD_VERSION)
         self.assertEqual(len(current), 1)
         self.assertIn(current[0].value, (60.0, 80.0))
-        self.assertEqual(len(self.store.evaluation_history(composition["id"], "hydration")), 2)
+        self.assertEqual(len(self.store.evaluation_history(composition["id"], "problem:dryness")), 2)
 
     def test_rollback_leaves_no_partial_supersede(self):
         composition = self.make_composition()
-        self.store.save_evaluation(composition["id"], ev("hydration", 50))
+        self.store.save_evaluation(composition["id"], ev("problem:dryness", 50))
 
         with self.assertRaises(RuntimeError):
             with connect() as conn:
@@ -399,7 +399,7 @@ class SupersedeAndConcurrencyTests(SchemaTestBase):
                     cur.execute(
                         "insert into evaluation.parameter_evaluations "
                         "(id, composition_id, parameter_id, method_version, status, value, input_hash) "
-                        "values (%s, %s, 'hydration', %s, 'evaluated', 90, 'rollback-test')",
+                        "values (%s, %s, 'goal:hydration', %s, 'evaluated', 90, 'rollback-test')",
                         (new_id, composition["id"], DEFAULT_METHOD_VERSION),
                     )
                     raise RuntimeError("forced rollback")
@@ -407,7 +407,7 @@ class SupersedeAndConcurrencyTests(SchemaTestBase):
         current = self.store.current_evaluations(composition["id"], DEFAULT_METHOD_VERSION)
         self.assertEqual(len(current), 1)
         self.assertEqual(current[0].value, 50.0)
-        self.assertEqual(len(self.store.evaluation_history(composition["id"], "hydration")), 1)
+        self.assertEqual(len(self.store.evaluation_history(composition["id"], "problem:dryness")), 1)
 
 
 class SnapshotConcurrencyTests(SchemaTestBase):
@@ -442,29 +442,29 @@ class ResearchJobTests(SchemaTestBase):
     def test_active_jobs_are_deduplicated(self):
         composition = self.make_composition()
         self.assertTrue(
-            self.store.enqueue_research(composition["id"], "hydration", DEFAULT_METHOD_VERSION)
+            self.store.enqueue_research(composition["id"], "problem:dryness", DEFAULT_METHOD_VERSION)
         )
         self.assertFalse(
-            self.store.enqueue_research(composition["id"], "hydration", DEFAULT_METHOD_VERSION)
+            self.store.enqueue_research(composition["id"], "problem:dryness", DEFAULT_METHOD_VERSION)
         )
         self.assertEqual(sql("select count(*) as n from evaluation.research_jobs")[0]["n"], 1)
 
     def test_completed_job_allows_a_new_attempt(self):
         composition = self.make_composition()
-        self.store.enqueue_research(composition["id"], "hydration", DEFAULT_METHOD_VERSION)
+        self.store.enqueue_research(composition["id"], "problem:dryness", DEFAULT_METHOD_VERSION)
         sql("update evaluation.research_jobs set status = 'completed'")
         self.assertTrue(
-            self.store.enqueue_research(composition["id"], "hydration", DEFAULT_METHOD_VERSION)
+            self.store.enqueue_research(composition["id"], "problem:dryness", DEFAULT_METHOD_VERSION)
         )
         self.assertEqual(sql("select count(*) as n from evaluation.research_jobs")[0]["n"], 2)
 
     def test_two_active_jobs_are_impossible(self):
         composition = self.make_composition()
-        self.store.enqueue_research(composition["id"], "hydration", DEFAULT_METHOD_VERSION)
+        self.store.enqueue_research(composition["id"], "problem:dryness", DEFAULT_METHOD_VERSION)
         with self.assertRaises(psycopg.errors.UniqueViolation):
             sql(
                 "insert into evaluation.research_jobs "
-                "(composition_id, parameter_id, method_version) values (%s, 'hydration', %s)",
+                "(composition_id, parameter_id, method_version) values (%s, 'problem:dryness', %s)",
                 (composition["id"], DEFAULT_METHOD_VERSION),
             )
 
@@ -482,7 +482,7 @@ class JsonAndDateTests(SchemaTestBase):
         self.store.save_evaluation(
             composition["id"],
             ev(
-                "hydration",
+                "problem:dryness",
                 70,
                 limitations=limitations,
                 evidence_ids=("ev-1", "ev-2"),
@@ -500,7 +500,7 @@ class JsonAndDateTests(SchemaTestBase):
         composition = self.make_composition()
         future = (datetime.now(timezone.utc) + timedelta(days=30)).replace(microsecond=0)
         self.store.save_evaluation(
-            composition["id"], ev("hydration", 70, valid_until=future.isoformat())
+            composition["id"], ev("problem:dryness", 70, valid_until=future.isoformat())
         )
         stored = self.store.current_evaluations(composition["id"], DEFAULT_METHOD_VERSION)[0]
         self.assertTrue(stored.valid_until)
@@ -510,7 +510,7 @@ class JsonAndDateTests(SchemaTestBase):
 
         past = (datetime.now(timezone.utc) - timedelta(days=1)).replace(microsecond=0)
         self.store.save_evaluation(
-            composition["id"], ev("hydration", 75, valid_until=past.isoformat())
+            composition["id"], ev("problem:dryness", 75, valid_until=past.isoformat())
         )
         stored = self.store.current_evaluations(composition["id"], DEFAULT_METHOD_VERSION)[0]
         reason = stale_reason(
@@ -520,7 +520,7 @@ class JsonAndDateTests(SchemaTestBase):
 
     def test_evaluated_at_is_set_by_database(self):
         composition = self.make_composition()
-        self.store.save_evaluation(composition["id"], ev("hydration", 70))
+        self.store.save_evaluation(composition["id"], ev("problem:dryness", 70))
         stored = self.store.current_evaluations(composition["id"], DEFAULT_METHOD_VERSION)[0]
         self.assertTrue(stored.evaluated_at)
 
@@ -626,7 +626,7 @@ class RlsTests(SchemaTestBase):
 
 
 class EvidenceStorageTests(SchemaTestBase):
-    def _evidence(self, *, parameter_id: str = "hydration", verification: str = "confirmed", **kwargs):
+    def _evidence(self, *, parameter_id: str = "problem:dryness", verification: str = "confirmed", **kwargs):
         from app.evaluation import Evidence, Source
 
         return Evidence(
@@ -654,13 +654,13 @@ class EvidenceStorageTests(SchemaTestBase):
         composition = self.make_composition()
         ids = self.store.save_evidence(
             composition["id"],
-            [self._evidence(), self._evidence(parameter_id="barrier")],
+            [self._evidence(), self._evidence(parameter_id="skin_type:dry")],
         )
         self.assertEqual(len(ids), 2)
-        rows = self.store.evidence_for(composition["id"], "hydration")
+        rows = self.store.evidence_for(composition["id"], "problem:dryness")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["composition_id"], composition["id"])
-        self.assertEqual(rows[0]["parameter_id"], "hydration")
+        self.assertEqual(rows[0]["parameter_id"], "problem:dryness")
         self.assertEqual(rows[0]["verification"], "confirmed")
         self.assertEqual(rows[0]["source"]["url"], "https://brand.example/serum")
         self.assertEqual(rows[0]["source"]["source_type"], "official")
@@ -671,7 +671,7 @@ class EvidenceStorageTests(SchemaTestBase):
         first = self.store.save_evidence(composition["id"], [self._evidence()])
         second = self.store.save_evidence(composition["id"], [self._evidence()])
         self.assertEqual(first, second)
-        self.assertEqual(len(self.store.evidence_for(composition["id"], "hydration")), 1)
+        self.assertEqual(len(self.store.evidence_for(composition["id"], "problem:dryness")), 1)
         self.assertEqual(sql("select count(*) as n from evaluation.sources")[0]["n"], 1)
 
     def test_rejected_evidence_is_kept_for_audit(self):
@@ -680,7 +680,7 @@ class EvidenceStorageTests(SchemaTestBase):
             composition["id"],
             [self._evidence(verification="rejected", rejection_reason="цитата не найдена")],
         )
-        rows = self.store.evidence_for(composition["id"], "hydration")
+        rows = self.store.evidence_for(composition["id"], "problem:dryness")
         self.assertEqual(rows[0]["verification"], "rejected")
         self.assertEqual(rows[0]["rejection_reason"], "цитата не найдена")
 
@@ -690,7 +690,7 @@ class EvidenceStorageTests(SchemaTestBase):
 
 
 class JobClaimTests(SchemaTestBase):
-    def _enqueue(self, parameter_id: str = "hydration") -> dict:
+    def _enqueue(self, parameter_id: str = "problem:dryness") -> dict:
         composition = self.make_composition()
         self.store.enqueue_research(composition["id"], parameter_id, DEFAULT_METHOD_VERSION)
         return composition
@@ -727,7 +727,7 @@ class JobClaimTests(SchemaTestBase):
 
     def test_parallel_workers_claim_different_jobs(self):
         composition = self.make_composition()
-        for parameter_id in ("hydration", "barrier"):
+        for parameter_id in ("problem:dryness", "skin_type:dry"):
             self.store.enqueue_research(composition["id"], parameter_id, DEFAULT_METHOD_VERSION)
         claimed: list = []
         barrier = threading.Barrier(2)
@@ -756,9 +756,9 @@ class ResearchIntegrationTests(SchemaTestBase):
 
         provider = FakeResearchProvider(
             {
-                "hydration": ok(
+                "problem:dryness": ok(
                     candidate(
-                        parameter_id="hydration",
+                        parameter_id="problem:dryness",
                         claim="Glycerin удерживает влагу",
                         quote="Glycerin helps keep the skin hydrated",
                         source_text="Formula. Glycerin helps keep the skin hydrated.",
@@ -766,9 +766,9 @@ class ResearchIntegrationTests(SchemaTestBase):
                         confidence=1.0,
                     )
                 ),
-                "barrier": ok(
+                "skin_type:dry": ok(
                     candidate(
-                        parameter_id="barrier",
+                        parameter_id="skin_type:dry",
                         claim="Ceramides поддерживают барьер",
                         quote="Ceramides support the skin barrier",
                         source_text="Formula. Ceramides support the skin barrier.",
@@ -782,18 +782,18 @@ class ResearchIntegrationTests(SchemaTestBase):
         report = service.research_missing(
             product=PRODUCT, composition=self.make_composition(), profile=PROFILE
         )
-        self.assertEqual(report.researched, ("barrier", "hydration"))
+        self.assertEqual(report.researched, ("problem:dryness", "skin_type:dry"))
         composition = self.store.get_composition(PRODUCT["id"], COMPOSITION)
 
-        rows = self.store.evidence_for(composition["id"], "hydration")
+        rows = self.store.evidence_for(composition["id"], "problem:dryness")
         self.assertEqual(rows[0]["verification"], "confirmed")
         self.assertEqual(rows[0]["composition_id"], composition["id"])
 
         evaluations = self.store.current_evaluations(composition["id"], DEFAULT_METHOD_VERSION)
         values = {item.parameter_id: item.value for item in evaluations}
-        self.assertEqual(values, {"barrier": 70.0, "hydration": 80.0})
+        self.assertEqual(values, {"skin_type:dry": 70.0, "problem:dryness": 80.0})
         self.assertTrue(
-            next(item for item in evaluations if item.parameter_id == "hydration").evidence_ids
+            next(item for item in evaluations if item.parameter_id == "problem:dryness").evidence_ids
         )
 
         built = EvaluationService(self.store).build(

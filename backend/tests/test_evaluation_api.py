@@ -15,7 +15,7 @@ from app.evaluation.store import InMemoryStore
 HASH = "a" * 64
 PRODUCT = {"id": 7, "name": "Test Cream"}
 COMPOSITION = {"composition_hash": HASH, "source": "catalog", "verified_at": "2026-10-20"}
-PROFILE = {"skin_type": "dry"}
+PROFILE = {"skin_type": "dry", "concerns": ["dryness"]}
 
 
 def make_client(store: InMemoryStore | None = None, user_id: int = 1, admin: bool = True):
@@ -35,9 +35,31 @@ class ParametersEndpointTests(unittest.TestCase):
         response = client.get("/api/v1/evaluation/parameters")
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(len(body["parameters"]), 12)
+        self.assertGreaterEqual(len(body["parameters"]), 80)
         self.assertFalse(body["rules"]["calibrated"])
         self.assertTrue(all("anchors" in item for item in body["parameters"]))
+
+    def test_questionnaire_catalog_is_exposed(self):
+        client, _, _ = make_client()
+        body = client.get("/api/v1/evaluation/parameters").json()
+        questionnaire = body["questionnaire"]
+        self.assertEqual(questionnaire["version"], "quiz-1.0.0")
+        sections = {item["id"]: item for item in questionnaire["sections"]}
+        self.assertEqual(
+            list(sections),
+            ["skin_type", "age", "problem", "therapy", "procedure", "intolerance", "goal"],
+        )
+        self.assertFalse(sections["age"]["evaluated"])
+        self.assertIn(
+            {"id": "hydration", "label": "Увлажнить кожу"}, sections["goal"]["options"]
+        )
+        periods = [item["id"] for item in sections["procedure"]["modifiers"]]
+        self.assertEqual(periods, ["<7", "7-14", "14-30", "1-3m", ">3m"])
+        parameter = next(
+            item for item in body["parameters"] if item["id"] == "goal:hydration"
+        )
+        self.assertEqual(parameter["section"], "goal")
+        self.assertTrue(parameter["question"])
 
 
 class PreviewEndpointTests(unittest.TestCase):
@@ -48,8 +70,8 @@ class PreviewEndpointTests(unittest.TestCase):
             json={
                 "profile": PROFILE,
                 "evaluations": [
-                    {"parameter_id": "hydration", "value": 80},
-                    {"parameter_id": "barrier", "value": 60},
+                    {"parameter_id": "problem:dryness", "value": 80},
+                    {"parameter_id": "skin_type:dry", "value": 60},
                 ],
             },
         )
@@ -65,7 +87,7 @@ class PreviewEndpointTests(unittest.TestCase):
             "/api/v1/evaluation/preview",
             json={
                 "profile": PROFILE,
-                "evaluations": [{"parameter_id": "hydration", "value": 150}],
+                "evaluations": [{"parameter_id": "problem:dryness", "value": 150}],
             },
         )
         self.assertEqual(response.status_code, 422)
@@ -84,7 +106,7 @@ class SnapshotEndpointTests(unittest.TestCase):
         response = self._create(client)
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["pending_parameters"], ["barrier", "hydration"])
+        self.assertEqual(body["pending_parameters"], ["problem:dryness", "skin_type:dry"])
         self.assertIsNone(body["snapshot"]["total"])
         self.assertFalse(body["reused"])
         self.assertEqual(store.snapshot_count(), 1)
@@ -101,7 +123,7 @@ class SnapshotEndpointTests(unittest.TestCase):
         client, store, _ = make_client()
         service = EvaluationService(store)
         record = service.ensure_composition(7, COMPOSITION)
-        for parameter_id, value in (("hydration", 80), ("barrier", 60)):
+        for parameter_id, value in (("problem:dryness", 80), ("skin_type:dry", 60)):
             service.record_evaluation(
                 record["id"],
                 ParameterEvaluation(
@@ -155,7 +177,7 @@ class ResearchEndpointTests(unittest.TestCase):
         client, _, _ = make_client(admin=False)
         response = client.post(
             "/api/v1/evaluation/research-jobs",
-            json={"product_id": 7, "composition_hash": HASH, "parameters": ["hydration"]},
+            json={"product_id": 7, "composition_hash": HASH, "parameters": ["problem:dryness"]},
         )
         self.assertIn(response.status_code, (401, 403))
 
@@ -163,9 +185,21 @@ class ResearchEndpointTests(unittest.TestCase):
         client, _, _ = make_client()
         response = client.post(
             "/api/v1/evaluation/research-jobs",
-            json={"product_id": 7, "composition_hash": HASH, "parameters": ["hydration"]},
+            json={"product_id": 7, "composition_hash": HASH, "parameters": ["problem:dryness"]},
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_unverified_composition_is_rejected(self):
+        client, store, _ = make_client()
+        record = store.upsert_composition(
+            {"product_id": 7, "composition_hash": HASH, "inci_raw": "Aqua"}
+        )
+        self.assertEqual(record["status"], "unverified")
+        response = client.post(
+            "/api/v1/evaluation/research-jobs",
+            json={"product_id": 7, "composition_hash": HASH, "parameters": ["problem:dryness"]},
+        )
+        self.assertEqual(response.status_code, 409)
 
     def test_jobs_are_created_once(self):
         client, store, _ = make_client()
@@ -173,12 +207,12 @@ class ResearchEndpointTests(unittest.TestCase):
         payload = {
             "product_id": 7,
             "composition_hash": HASH,
-            "parameters": ["hydration", "barrier"],
+            "parameters": ["problem:dryness", "skin_type:dry"],
         }
         first = client.post("/api/v1/evaluation/research-jobs", json=payload)
         second = client.post("/api/v1/evaluation/research-jobs", json=payload)
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json()["created"], ["hydration", "barrier"])
+        self.assertEqual(first.json()["created"], ["problem:dryness", "skin_type:dry"])
         self.assertEqual(second.json()["created"], [])
 
 

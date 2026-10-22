@@ -1,276 +1,298 @@
-"""Parameter registry and questionnaire → parameter relevance.
+"""Questionnaire answers → evaluated parameters.
 
-The registry is the single place where the meaning of the 0..100 scale is
-defined for each parameter. Relevance comes ONLY from the user's questionnaire
-answers (no invented importance): a parameter is evaluated only when at least
-one selected answer makes it relevant. Pure module: no I/O.
+The identity of a stored evaluation is the questionnaire option the user chose:
+
+    ``<section>:<option>``                    e.g. ``problem:acne_general``
+    ``procedure:<procedure>@<period>``        e.g. ``procedure:recent_laser@<7``
+    ``intolerance:ingredient:<name>``         a concrete ingredient from a
+                                              structured profile
+
+Product-level technical aspects (sebum, comedogenicity, barrier, ...) are NOT
+evaluated units: they only describe what to look for inside a questionnaire
+parameter (``Parameter.product_axes``). This keeps shared product knowledge bound
+to what the user actually selected instead of an invented universal scorecard.
+
+No importance weights are produced here: every relevant parameter gets an equal
+share in ``engine.py`` (plain arithmetic mean). Relevance only selects WHICH
+parameters matter for this profile. Pure module: no I/O, no network, no AI.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from .contracts import Parameter
+from . import questionnaire as q
+from .contracts import ContractError, Parameter
 
-PARAMETERS: dict[str, Parameter] = {
-    "hydration": Parameter(
-        id="hydration",
-        label="Увлажнённость",
-        definition=(
-            "Соответствие потребности кожи в увлажнении: наличие подтверждённых "
-            "влагоудерживающих и смягчающих компонентов и отсутствие высушивающих "
-            "факторов без компенсации."
-        ),
-        anchors=(
-            (0, "Подтверждённые высушивающие факторы без компенсирующих компонентов"),
-            (50, "Нет подтверждённых данных ни за, ни против"),
-            (100, "Подтверждённые влагоудерживающие и смягчающие компоненты в значимых позициях"),
-        ),
-        direction="benefit",
+# ---------------------------------------------------------------------------
+# 0..100 scale: wording is derived from the parameter's own question, so the
+# anchors never promise a clinical effect, safety or harm.
+# ---------------------------------------------------------------------------
+ANCHORS_BENEFIT: tuple[tuple[int, str], ...] = (
+    (0, "Подтверждённые свойства состава противоречат требованию пункта"),
+    (50, "Подтверждённых данных нет — значение не вычисляется"),
+    (100, "Подтверждённые свойства состава соответствуют требованию пункта"),
+)
+ANCHORS_RISK: tuple[tuple[int, str], ...] = (
+    (0, "Подтверждённый конфликт с требованием пункта (например, вещество, "
+        "которого пользователь избегает)"),
+    (50, "Подтверждённых данных нет — значение не вычисляется"),
+    (100, "Подтверждённых конфликтов с требованием пункта не найдено"),
+)
+
+_RISK_SECTIONS = {"therapy", "procedure", "intolerance"}
+
+_SECTION_LABEL = {
+    "skin_type": "Тип кожи",
+    "problem": "Проблема",
+    "therapy": "Лечение",
+    "procedure": "Процедура",
+    "intolerance": "Непереносимость",
+    "goal": "Цель",
+}
+
+_QUESTION = {
+    "skin_type": "Подходит ли состав для кожи типа «{label}»?",
+    "problem": "Соответствует ли состав задаче «{label}»?",
+    "therapy": "Совместим ли состав с активной терапией «{label}»?",
+    "procedure": "Применим ли состав в период «{period}» после процедуры «{label}»?",
+    "intolerance": "Можно ли использовать состав при непереносимости «{label}»?",
+    "goal": "Соответствует ли состав цели «{label}»?",
+}
+
+_DEFINITION = {
+    "skin_type": (
+        "Соответствие типу кожи «{label}»: подтверждённые свойства состава, "
+        "значимые для этого типа кожи ({aspects}), и отсутствие подтверждённых "
+        "факторов, которые ему противоречат."
     ),
-    "barrier": Parameter(
-        id="barrier",
-        label="Поддержка барьера",
-        definition=(
-            "Соответствие задаче поддержки кожного барьера: липиды, церамиды, "
-            "компоненты восстановления и отсутствие агрессивных ПАВ."
-        ),
-        anchors=(
-            (0, "Агрессивные ПАВ/растворители в верхних позициях без компенсации"),
-            (50, "Нет подтверждённых данных"),
-            (100, "Подтверждённые барьерные компоненты в значимых позициях"),
-        ),
-        direction="benefit",
+    "problem": (
+        "Соответствие задаче «{label}»: подтверждённые свойства состава, значимые "
+        "для этой задачи ({aspects}), и отсутствие подтверждённых факторов, которые "
+        "её усиливают."
     ),
-    "irritation": Parameter(
-        id="irritation",
-        label="Риск раздражения",
-        definition=(
-            "Соответствие по риску раздражения: чем выше оценка, тем меньше "
-            "подтверждённых раздражающих факторов в составе."
-        ),
-        anchors=(
-            (0, "Подтверждённые раздражители в верхних позициях без смягчения"),
-            (50, "Данных недостаточно для вывода"),
-            (100, "Подтверждённых раздражающих факторов в значимых позициях не найдено"),
-        ),
-        direction="risk",
+    "therapy": (
+        "Безопасное сочетание с активной терапией «{label}»: отсутствие "
+        "подтверждённых конфликтов и дублирования активов; учитываются {aspects}."
     ),
-    "sensitization": Parameter(
-        id="sensitization",
-        label="Риск сенсибилизации",
-        definition=(
-            "Соответствие по риску аллергической сенсибилизации: чем выше оценка, "
-            "тем меньше подтверждённых аллергенов и сенсибилизаторов."
-        ),
-        anchors=(
-            (0, "Подтверждённые сильные аллергены в значимых позициях"),
-            (50, "Данных недостаточно для вывода"),
-            (100, "Подтверждённых аллергенов/сенсибилизаторов в значимых позициях не найдено"),
-        ),
-        direction="risk",
+    "procedure": (
+        "Применимость состава в период «{period}» после процедуры «{label}»: "
+        "отсутствие подтверждённых факторов риска; учитываются {aspects}."
     ),
-    "sebum": Parameter(
-        id="sebum",
-        label="Контроль жирности",
-        definition=(
-            "Соответствие задаче снижения жирности и блеска: подтверждённые "
-            "себорегулирующие компоненты против жирных/окклюзивных."
-        ),
-        anchors=(
-            (0, "Подтверждённые жирные/окклюзивные компоненты в верхних позициях"),
-            (50, "Нет подтверждённых данных"),
-            (100, "Подтверждённые себорегулирующие компоненты в значимых позициях"),
-        ),
-        direction="benefit",
+    "intolerance": (
+        "Отсутствие в составе компонентов категории «{label}» ({aspects}); "
+        "учитываются только подтверждённые сведения о наличии этих компонентов."
     ),
-    "comedogenicity": Parameter(
-        id="comedogenicity",
-        label="Риск закупорки пор",
-        definition=(
-            "Соответствие по риску закупорки пор: чем выше оценка, тем меньше "
-            "подтверждённых комедогенных компонентов."
-        ),
-        anchors=(
-            (0, "Подтверждённые комедогенные компоненты в верхних позициях"),
-            (50, "Данных недостаточно для вывода"),
-            (100, "Подтверждённых комедогенных компонентов в значимых позициях не найдено"),
-        ),
-        direction="risk",
-    ),
-    "pigmentation": Parameter(
-        id="pigmentation",
-        label="Работа с пигментацией",
-        definition=(
-            "Соответствие задаче выравнивания тона: подтверждённые компоненты, "
-            "влияющие на пигментацию, и отсутствие фотосенсибилизаторов."
-        ),
-        anchors=(
-            (0, "Подтверждённых компонентов нет, при этом есть фотосенсибилизаторы"),
-            (50, "Нет подтверждённых данных"),
-            (100, "Подтверждённые компоненты без фотосенсибилизаторов"),
-        ),
-        direction="benefit",
-    ),
-    "texture": Parameter(
-        id="texture",
-        label="Рельеф и кератоз",
-        definition=(
-            "Соответствие задаче выравнивания рельефа: подтверждённые "
-            "кератолитические/отшелушивающие механизмы."
-        ),
-        anchors=(
-            (0, "Подтверждённых механизмов нет; возможен обратный эффект"),
-            (50, "Нет подтверждённых данных"),
-            (100, "Подтверждённые кератолитические механизмы в значимых позициях"),
-        ),
-        direction="benefit",
-    ),
-    "ageing": Parameter(
-        id="ageing",
-        label="Возрастные изменения",
-        definition=(
-            "Соответствие задаче работы с возрастными изменениями: подтверждённые "
-            "компоненты (ретиноиды, пептиды, антиоксиданты и др.)."
-        ),
-        anchors=(
-            (0, "Подтверждённых компонентов нет"),
-            (50, "Нет подтверждённых данных"),
-            (100, "Подтверждённые компоненты с описанным механизмом"),
-        ),
-        direction="benefit",
-    ),
-    "therapy_safety": Parameter(
-        id="therapy_safety",
-        label="Совместимость с терапией",
-        definition=(
-            "Безопасное сочетание с указанной активной терапией (ретиноиды, кислоты, "
-            "бензоилпероксид, изотретиноин): отсутствие дублирующих/конфликтующих "
-            "активов и усиливающих раздражение факторов."
-        ),
-        anchors=(
-            (0, "Подтверждённый конфликт с активной терапией"),
-            (50, "Данных недостаточно для вывода"),
-            (100, "Подтверждённых конфликтов нет"),
-        ),
-        direction="risk",
-    ),
-    "procedure_safety": Parameter(
-        id="procedure_safety",
-        label="Совместимость с процедурами",
-        definition=(
-            "Подходит ли состав после указанной процедуры (лазер, пилинг, микронидлинг): "
-            "отсутствие раздражающих и фотосенсибилизирующих факторов."
-        ),
-        anchors=(
-            (0, "Подтверждённые раздражающие/фотосенсибилизирующие факторы"),
-            (50, "Данных недостаточно для вывода"),
-            (100, "Подтверждённых факторов риска после процедуры нет"),
-        ),
-        direction="risk",
-    ),
-    "fragrance_allergen": Parameter(
-        id="fragrance_allergen",
-        label="Ароматизаторы и аллергены",
-        definition=(
-            "Соответствие по наличию подтверждённых ароматизаторов и аллергенов: "
-            "чем выше оценка, тем меньше таких компонентов."
-        ),
-        anchors=(
-            (0, "Подтверждённые ароматизаторы/аллергены в верхних позициях"),
-            (50, "Данных недостаточно для вывода"),
-            (100, "Подтверждённых ароматизаторов/аллергенов не найдено"),
-        ),
-        direction="risk",
+    "goal": (
+        "Соответствие цели «{label}»: подтверждённые свойства состава, значимые для "
+        "этой цели ({aspects})."
     ),
 }
 
-# Relevance of a parameter given a selected questionnaire answer.
-# 1.0 = the answer directly states this need; lower = secondary influence.
-# Values are a design decision of the questionnaire mapping, NOT calibrated weights.
-CATEGORY_RELEVANCE: dict[str, dict[str, float]] = {
-    "dryness": {"hydration": 1.0, "barrier": 0.7},
-    "barrier": {"barrier": 1.0},
-    "sensitivity": {"irritation": 1.0, "sensitization": 0.8},
-    "redness": {"irritation": 1.0, "sensitization": 0.5},
-    "rosacea": {"irritation": 1.0, "sensitization": 0.6},
-    "acne": {"comedogenicity": 1.0, "sebum": 0.8, "irritation": 0.6},
-    "sebum_pores": {"sebum": 1.0, "comedogenicity": 0.6},
-    "pigmentation": {"pigmentation": 1.0},
-    "photosensitivity": {"pigmentation": 0.8, "sensitization": 0.4},
-    "post_acne": {"pigmentation": 0.7, "texture": 0.6, "comedogenicity": 0.5},
-    "texture": {"texture": 1.0, "comedogenicity": 0.4},
-    "ageing": {"ageing": 1.0},
-    "dullness": {"pigmentation": 0.6, "texture": 0.4},
-    "diagnosed": {"sensitization": 0.5},
-    "therapy": {"therapy_safety": 1.0},
-    "procedure": {"procedure_safety": 1.0},
+_LABEL = {
+    "skin_type": "Тип кожи: «{label}»",
+    "problem": "Проблема: «{label}»",
+    "therapy": "Лечение: «{label}»",
+    "procedure": "Процедура: «{label}», {period}",
+    "intolerance": "Непереносимость: «{label}»",
+    "goal": "Цель: «{label}»",
 }
 
-ID_RELEVANCE: dict[str, dict[str, float]] = {
+
+# What to look for inside each questionnaire option (research hints only; the
+# stored result stays bound to the questionnaire parameter, never to these axes).
+ASPECTS: dict[str, str] = {
     # skin type
-    "dry": {"hydration": 1.0, "barrier": 0.6},
-    "dehydrated": {"hydration": 1.0},
-    "oily": {"sebum": 1.0},
-    "combination": {"sebum": 0.8},
-    "sensitive": {"irritation": 1.0, "sensitization": 0.8, "barrier": 0.5},
-    # dryness details
-    "cracking": {"barrier": 1.0},
-    "dehydration_lines": {"hydration": 1.0},
-    "skin_tightness": {"hydration": 0.8, "barrier": 0.5},
-    "lipid_deficiency": {"barrier": 1.0, "hydration": 0.5},
-    # texture details
-    "flaking": {"barrier": 0.8, "texture": 0.5},
-    "scaling": {"barrier": 0.8, "texture": 0.4},
-    "keratosis_pilaris": {"texture": 1.0},
-    "follicular_hyperkeratosis": {"texture": 1.0},
-    "hyperkeratosis": {"texture": 1.0},
-    # acne details
-    "inflammatory_acne": {"irritation": 0.9, "comedogenicity": 0.8},
-    "papules": {"irritation": 0.8, "comedogenicity": 0.7},
-    "pustules": {"irritation": 0.9, "comedogenicity": 0.7},
-    "deep_inflammation": {"irritation": 1.0, "comedogenicity": 0.6},
-    "closed_comedones": {"comedogenicity": 1.0, "sebum": 0.7},
-    "open_comedones": {"comedogenicity": 1.0, "sebum": 0.7},
-    "blackheads": {"comedogenicity": 0.9, "sebum": 0.7},
-    "clogged_pores": {"comedogenicity": 0.9, "sebum": 0.6},
-    # pigmentation details
-    "melasma": {"pigmentation": 1.0},
-    "post_acne_pigmentation": {"pigmentation": 0.9},
-    "sun_pigmentation": {"pigmentation": 0.9},
-    # therapy (only when active)
-    "topical_retinoid": {"therapy_safety": 1.0, "irritation": 0.4},
-    "adapalene": {"therapy_safety": 1.0, "irritation": 0.4},
-    "tretinoin": {"therapy_safety": 1.0, "irritation": 0.5},
-    "tazarotene": {"therapy_safety": 1.0, "irritation": 0.5},
-    "systemic_isotretinoin": {"therapy_safety": 1.0, "barrier": 0.6, "hydration": 0.6},
-    "benzoyl_peroxide": {"therapy_safety": 1.0, "irritation": 0.4},
-    "aha_therapy": {"therapy_safety": 1.0, "irritation": 0.4},
-    "bha_therapy": {"therapy_safety": 1.0, "irritation": 0.4},
-    "pha_therapy": {"therapy_safety": 1.0},
-    "azelaic_acid_therapy": {"therapy_safety": 1.0},
-    # procedures (only when recent)
-    "recent_laser": {"procedure_safety": 1.0},
-    "recent_ipl": {"procedure_safety": 1.0},
-    "recent_microneedling": {"procedure_safety": 1.0},
-    "recent_dermabrasion": {"procedure_safety": 1.0},
-    "recent_rfa": {"procedure_safety": 1.0},
-    "recent_invasive_procedure": {"procedure_safety": 1.0},
+    "skin_type:normal": "сбалансированная формула без избыточной нагрузки",
+    "skin_type:dry": "увлажнение, липиды, барьер",
+    "skin_type:oily": "себорегуляция, лёгкая текстура, некомедогенность",
+    "skin_type:combination": "увлажнение без избыточной окклюзии, себорегуляция Т-зоны",
+    "skin_type:sensitive": "отсутствие раздражителей и аллергенов, поддержка барьера",
+    # problems
+    "problem:acne_general": "себорегуляция, кератинизация, воспаление, комедогенность",
+    "problem:sebum_pores": "себорегуляция, размер пор, комедогенность",
+    "problem:dryness": "увлажнение, липиды, барьер",
+    "problem:sensitivity": "раздражители, аллергены, барьер",
+    "problem:redness": "раздражители, тонус сосудов, успокаивающие компоненты",
+    "problem:pigmentation": "осветляющие механизмы, фотосенсибилизация",
+    "problem:texture": "кератолитики, отшелушивание, рельеф",
+    "problem:post_acne": "постакне, отшелушивание, осветление следов",
+    "problem:ageing": "ретиноиды, пептиды, антиоксиданты, фотозащита",
+    "problem:dullness": "отшелушивание, увлажнение, сияние",
+    # therapy
+    "therapy:topical_retinoid": "дублирование ретиноидов, раздражение, фотосенсибилизация",
+    "therapy:adapalene": "дублирование ретиноидов, раздражение, фотосенсибилизация",
+    "therapy:tretinoin": "дублирование ретиноидов, раздражение, фотосенсибилизация",
+    "therapy:tazarotene": "дублирование ретиноидов, раздражение, фотосенсибилизация",
+    "therapy:systemic_isotretinoin": "сухость, фотосенсибилизация, раздражение",
+    "therapy:other_retinoid": "дублирование ретиноидов, раздражение, фотосенсибилизация",
+    "therapy:acid_therapy": "кислоты, раздражение, фотосенсибилизация",
+    "therapy:aha_therapy": "кислоты, раздражение, фотосенсибилизация",
+    "therapy:bha_therapy": "кислоты, раздражение, фотосенсибилизация",
+    "therapy:pha_therapy": "кислоты, раздражение, фотосенсибилизация",
+    "therapy:azelaic_acid_therapy": "раздражение, отшелушивание",
+    "therapy:benzoyl_peroxide": "окислители, раздражение, сухость",
+    "therapy:antibiotic": "раздражение, сухость",
+    # procedures
+    "procedure:recent_laser": "раздражение, фотосенсибилизация, заживление",
+    "procedure:recent_ipl": "раздражение, фотосенсибилизация, заживление",
+    "procedure:recent_microneedling": "раздражение, восстановление барьера",
+    "procedure:recent_dermabrasion": "раздражение, восстановление барьера",
+    "procedure:recent_rfa": "раздражение, восстановление барьера",
+    "procedure:recent_botox": "раздражение в зонах инъекций",
+    "procedure:recent_fillers": "раздражение в зонах инъекций",
+    "procedure:recent_biorevitalization": "раздражение в зонах инъекций, восстановление",
+    "procedure:recent_mesotherapy": "раздражение в зонах инъекций, восстановление",
+    "procedure:recent_peeling": "раздражение, фотосенсибилизация, заживление",
+    # intolerances
+    "intolerance:fragrance_intolerance": "отдушки, ароматические композиции",
+    "intolerance:alcohol_intolerance": "этанол и другие спирты",
+    "intolerance:essential_oil_intolerance": "эфирные масла",
+    "intolerance:retinoid_intolerance": "ретиноиды и их производные",
+    "intolerance:acid_intolerance": "AHA, BHA, PHA и другие кислоты",
+    "intolerance:niacinamide_intolerance": "ниацинамид",
+    # goals
+    "goal:barrier": "липиды, церамиды, восстановление барьера",
+    "goal:hydration": "влагоудерживающие и смягчающие компоненты",
+    "goal:sebum": "себорегуляция, матирование",
+    "goal:acne": "себорегуляция, кератинизация, воспаление",
+    "goal:brightening": "осветление, выравнивание тона",
+    "goal:anti_age": "ретиноиды, пептиды, антиоксиданты",
+    "goal:calm": "успокаивающие компоненты, отсутствие раздражителей",
+}
+
+_SECTION_DEFAULT_ASPECT = {
+    "skin_type": "свойства, значимые для этого типа кожи",
+    "problem": "свойства, значимые для этой задачи",
+    "therapy": "конфликтующие активы и раздражители",
+    "procedure": "раздражители и фотосенсибилизаторы",
+    "intolerance": "указанная категория компонентов",
+    "goal": "свойства, значимые для этой цели",
 }
 
 
-RECENT_PERIODS = {"<7 days", "7-14 days", "14-30 days"}
+def parameter_id(section_id: str, option_id: str, modifier: str = "") -> str:
+    if section_id == "procedure":
+        if not modifier:
+            raise ContractError("procedure parameter requires a period")
+        return f"procedure:{option_id}@{modifier}"
+    return f"{section_id}:{option_id}"
 
 
+def build_parameter(section_id: str, option_id: str, modifier: str = "") -> Parameter:
+    """Build one registry entry from a real questionnaire option."""
+    section = q.section(section_id)
+    if not section.evaluated:
+        raise ContractError(f"section {section_id!r} is not evaluated")
+    option = section.option(option_id)
+    if option is None:
+        raise ContractError(f"unknown option {option_id!r} in section {section_id!r}")
+
+    period_label = ""
+    if section_id == "procedure":
+        modifier_option = section.modifier(modifier)
+        if modifier_option is None:
+            raise ContractError(f"unknown period {modifier!r} for {option_id!r}")
+        period_label = modifier_option.label
+
+    aspects = ASPECTS.get(f"{section_id}:{option_id}", _SECTION_DEFAULT_ASPECT[section_id])
+    fields = {"label": option.label, "aspects": aspects, "period": period_label}
+    direction = "risk" if section_id in _RISK_SECTIONS else "benefit"
+    return Parameter(
+        id=parameter_id(section_id, option_id, modifier),
+        label=_LABEL[section_id].format(**fields),
+        definition=_DEFINITION[section_id].format(**fields),
+        anchors=ANCHORS_RISK if direction == "risk" else ANCHORS_BENEFIT,
+        direction=direction,
+        section=section_id,
+        option_id=option_id,
+        modifier=modifier,
+        question=_QUESTION[section_id].format(**fields),
+        product_axes=tuple(part.strip() for part in aspects.split(",") if part.strip()),
+    )
+
+
+def ingredient_parameter(ingredient: str) -> Parameter:
+    """A concrete ingredient the user avoids (structured profile only)."""
+    name = str(ingredient or "").strip()
+    key = q.slug(name)
+    if not key:
+        raise ContractError("ingredient name is empty")
+    return Parameter(
+        id=f"intolerance:ingredient:{key}",
+        label=f"Непереносимость: «{name}»",
+        definition=(
+            f"Отсутствие в составе ингредиента «{name}»; учитываются только "
+            "подтверждённые сведения о его наличии."
+        ),
+        anchors=ANCHORS_RISK,
+        direction="risk",
+        section="intolerance",
+        option_id=f"ingredient:{key}",
+        question=f"Можно ли использовать состав при непереносимости «{name}»?",
+        product_axes=(name,),
+    )
+
+
+def catalog_parameters() -> tuple[Parameter, ...]:
+    """Every parameter the questionnaire can produce (``age`` excluded)."""
+    items: list[Parameter] = []
+    for section, option in q.iter_evaluated_options():
+        if section.id == "skin_type" and option.id == q.UNEVALUATED_SKIN_TYPE:
+            continue
+        if section.id == "procedure":
+            items.extend(
+                build_parameter(section.id, option.id, period)
+                for period in q.EVALUATED_PERIODS
+            )
+        else:
+            items.append(build_parameter(section.id, option.id))
+    return tuple(sorted(items, key=lambda item: item.id))
+
+
+# Full catalog, not a user's relevant set: used by the API listing and by
+# ``seed_registry`` for audit. Relevance comes from ``resolve_parameters``.
+PARAMETERS: dict[str, Parameter] = {item.id: item for item in catalog_parameters()}
+
+
+def validate_registry() -> None:
+    """Fail fast if the catalog and the real questionnaire disagree."""
+    if len(PARAMETERS) != len(catalog_parameters()):
+        raise ValueError("duplicate parameter ids in the catalog")
+    for item in PARAMETERS.values():
+        if not item.id.startswith(f"{item.section}:"):
+            raise ValueError(f"parameter {item.id} is not bound to its section")
+        if not item.question:
+            raise ValueError(f"parameter {item.id} has no user-facing question")
+        if item.section not in q.SECTIONS_BY_ID:
+            raise ValueError(f"parameter {item.id} uses unknown section {item.section}")
+        if q.section(item.section).option(item.option_id) is None:
+            raise ValueError(f"parameter {item.id} uses unknown option {item.option_id}")
+    for section, option in q.iter_evaluated_options():
+        if section.id == "skin_type" and option.id == q.UNEVALUATED_SKIN_TYPE:
+            continue
+        modifiers = q.EVALUATED_PERIODS if section.id == "procedure" else ("",)
+        for modifier in modifiers:
+            key = parameter_id(section.id, option.id, modifier)
+            if key not in PARAMETERS:
+                raise ValueError(f"questionnaire option {key} has no parameter")
+
+
+
+# ---------------------------------------------------------------------------
+# Profile payload → evaluated parameters
+# ---------------------------------------------------------------------------
 @dataclass(frozen=True)
-class ProfileSignals:
-    """Questionnaire signals extracted from a profile payload."""
+class ResolvedParameters:
+    """Parameters a concrete profile needs, with transparency notes."""
 
-    ids: tuple[str, ...]
-    active_therapy: tuple[str, ...]
-    recent_procedures: tuple[str, ...]
-    allergies: tuple[str, ...]
-    intolerances: tuple[str, ...]
+    parameters: tuple[Parameter, ...]
+    notes: tuple[str, ...] = ()
+    unresolved: tuple[str, ...] = ()
+
+    @property
+    def ids(self) -> tuple[str, ...]:
+        return tuple(item.id for item in self.parameters)
 
 
 @dataclass(frozen=True)
@@ -279,6 +301,25 @@ class Relevance:
 
     weights: dict
     notes: tuple[str, ...]
+    parameters: tuple[Parameter, ...] = ()
+
+    @property
+    def ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self.weights))
+
+
+@dataclass(frozen=True)
+class ProfileSignals:
+    """Canonical questionnaire signals (no free text, no raw personal data)."""
+
+    skin_type: str = ""
+    problems: tuple[str, ...] = ()
+    therapy: tuple[str, ...] = ()
+    procedures: tuple[str, ...] = ()
+    intolerances: tuple[str, ...] = ()
+    goals: tuple[str, ...] = ()
+    age: str = ""
+    unresolved: tuple[str, ...] = ()
 
 
 def _as_list(value: Any) -> list:
@@ -319,116 +360,171 @@ def _as_items(value: Any) -> list:
     return []
 
 
-def collect_signals(profile: Mapping[str, Any] | None) -> ProfileSignals:
-    """Extract questionnaire IDs and risk flags from a profile payload.
+def _entry_id(item: object) -> str:
+    if isinstance(item, Mapping):
+        return str(item.get("id") or item.get("type") or "").strip()
+    return str(item).strip()
 
-    Supports both the flat production payload (skin_type/concerns/allergies)
-    and the structured one (therapy/procedures/intolerances).
+
+
+def resolve_parameters(profile: Mapping[str, Any] | None) -> ResolvedParameters:
+    """Map the real questionnaire answers to the parameters to evaluate.
+
+    Accepts both the production payload (labels in ``concerns``/``allergies``,
+    ids in ``structured``) and a structured-only payload. Unknown answers are
+    reported, never guessed.
     """
-    profile = profile or {}
+    profile = profile if isinstance(profile, Mapping) else {}
     structured = profile.get("structured")
     structured = structured if isinstance(structured, Mapping) else {}
 
-    ids: set[str] = set()
-    for key in ("concerns", "imperfections", "states", "goals"):
-        ids.update(_as_list(structured.get(key)))
-    ids.update(_as_list(profile.get("concerns")))
+    found: dict[str, Parameter] = {}
+    notes: list[str] = []
+    unresolved: list[str] = []
 
-    skin_type = structured.get("skin_type") or profile.get("skin_type")
-    if skin_type:
-        ids.add(str(skin_type).strip())
+    def add(section_id: str, value: object) -> bool:
+        option = q.find_option(section_id, value)
+        if option is None:
+            return False
+        if section_id == "skin_type" and option.id == q.UNEVALUATED_SKIN_TYPE:
+            notes.append("Тип кожи указан как «Не знаю» — параметр типа кожи не оценивается.")
+            return True
+        item = build_parameter(section_id, option.id)
+        found.setdefault(item.id, item)
+        return True
 
-    active_therapy: list[str] = []
-    for item in _as_items(structured.get("therapy")):
-        if isinstance(item, Mapping):
-            therapy_id = str(item.get("id") or "").strip()
-            if therapy_id and bool(item.get("active", True)):
-                active_therapy.append(therapy_id)
-        elif isinstance(item, str) and item.strip():
-            active_therapy.append(item.strip())
+    for value in (structured.get("skin_type"), profile.get("skin_type")):
+        if value in (None, ""):
+            continue
+        if not add("skin_type", value):
+            unresolved.append(f"skin_type:{value}")
 
-    recent_procedures: list[str] = []
-    for item in _as_items(structured.get("procedures")):
+    for key in ("concerns", "imperfections", "states"):
+        for value in _as_list(structured.get(key)):
+            if not add("problem", value):
+                unresolved.append(f"concern:{value}")
+    for value in _as_list(profile.get("concerns")):
+        if not add("problem", value):
+            unresolved.append(f"concern:{value}")
+
+    for item in _as_items(structured.get("therapy")) + _as_items(profile.get("therapy")):
+        if isinstance(item, Mapping) and item.get("active") is False:
+            continue
+        value = _entry_id(item)
+        if value and not add("therapy", value):
+            unresolved.append(f"therapy:{value}")
+
+    for item in _as_items(structured.get("procedures")) + _as_items(profile.get("procedures")):
         if isinstance(item, Mapping):
             procedure_id = str(item.get("id") or "").strip()
-            period = str(item.get("period") or "").strip()
-            if procedure_id and (period in RECENT_PERIODS or not period):
-                recent_procedures.append(procedure_id)
+            period = q.normalize_period(item.get("period") or "")
+        else:
+            procedure_id, period = str(item).strip(), ""
+        option = q.PROCEDURES.find(procedure_id) if procedure_id else None
+        if option is None:
+            unresolved.append(f"procedure:{procedure_id or item}")
+            continue
+        if not period:
+            unresolved.append(f"procedure:{option.id} (период не указан)")
+            continue
+        if period in q.IGNORED_PERIODS:
+            notes.append(
+                f"Процедура «{option.label}» с периодом более 3 месяцев не создаёт "
+                "ограничений в этой версии методики."
+            )
+            continue
+        if period not in q.EVALUATED_PERIODS:
+            unresolved.append(f"procedure:{option.id} (неизвестный период {period!r})")
+            continue
+        parameter = build_parameter("procedure", option.id, period)
+        found.setdefault(parameter.id, parameter)
 
-    allergies = list(dict.fromkeys(
-        _as_list(profile.get("allergies")) + _as_list(structured.get("allergies"))
-    ))
-    intolerances = list(dict.fromkeys(_as_list(structured.get("intolerances"))))
+    raw_intolerances = (
+        _as_items(structured.get("intolerances"))
+        + _as_list(structured.get("allergies"))
+        + _as_list(profile.get("allergies"))
+    )
+    for item in raw_intolerances:
+        ingredient = ""
+        explicit = False
+        if isinstance(item, Mapping):
+            ingredient = str(item.get("ingredient_id") or item.get("ingredient") or "").strip()
+            explicit = bool(item.get("ingredient_id")) or str(item.get("type") or "") == "specific_ingredient"
+            value = ingredient or _entry_id(item)
+        else:
+            value = str(item).strip()
+        if not value:
+            continue
+        option = q.INTOLERANCES.find(value)
+        if option is not None:
+            parameter = build_parameter("intolerance", option.id)
+            found.setdefault(parameter.id, parameter)
+        elif explicit and ingredient:
+            parameter = ingredient_parameter(ingredient)
+            found.setdefault(parameter.id, parameter)
+        else:
+            unresolved.append(f"intolerance:{value}")
 
-    return ProfileSignals(
-        ids=tuple(sorted(ids)),
-        active_therapy=tuple(sorted(set(active_therapy))),
-        recent_procedures=tuple(sorted(set(recent_procedures))),
-        allergies=tuple(allergies),
-        intolerances=tuple(intolerances),
+    for value in _as_list(structured.get("goals")) + _as_list(profile.get("goals")):
+        if not add("goal", value):
+            unresolved.append(f"goal:{value}")
+    if structured.get("skin_goals") or profile.get("skin_goals"):
+        notes.append(
+            "Поле skin_goals использует устаревшие названия измерений и не "
+            "сопоставляется с целями анкеты автоматически."
+        )
+
+    unique = sorted(set(unresolved))
+    if unique:
+        notes.append(
+            "Ответы анкеты, которые не удалось сопоставить с параметрами: "
+            + ", ".join(unique[:10])
+            + (" …" if len(unique) > 10 else "")
+        )
+
+    return ResolvedParameters(
+        parameters=tuple(sorted(found.values(), key=lambda item: item.id)),
+        notes=tuple(notes),
+        unresolved=tuple(unique),
     )
 
 
-def _merge(weights: dict, extra: Mapping[str, float]) -> None:
-    for parameter_id, value in (extra or {}).items():
-        weights[parameter_id] = max(weights.get(parameter_id, 0.0), float(value))
-
-
 def resolve_relevance(profile: Mapping[str, Any] | None) -> Relevance:
-    """Map questionnaire answers to parameter relevance (max, never sum).
-
-    Using max instead of sum prevents "selecting more options" from inflating
-    a parameter's weight. Unknown answers are ignored and reported in notes.
-    """
-    signals = collect_signals(profile)
-    weights: dict[str, float] = {}
-    notes: list[str] = []
-    unknown: list[str] = []
-
-    for qid in signals.ids:
-        matched = False
-        if qid in ID_RELEVANCE:
-            _merge(weights, ID_RELEVANCE[qid])
-            matched = True
-        if qid in CATEGORY_RELEVANCE:
-            _merge(weights, CATEGORY_RELEVANCE[qid])
-            matched = True
-        if not matched:
-            unknown.append(qid)
-
-    for therapy_id in signals.active_therapy:
-        _merge(weights, ID_RELEVANCE.get(therapy_id, {"therapy_safety": 1.0}))
-
-    for procedure_id in signals.recent_procedures:
-        _merge(weights, ID_RELEVANCE.get(procedure_id, {"procedure_safety": 1.0}))
-
-    if signals.allergies:
-        _merge(weights, {"fragrance_allergen": 0.8})
-        notes.append(
-            "Указаны аллергии без привязки к конкретным ингредиентам: параметр "
-            "«Ароматизаторы и аллергены» учитывается по общему признаку."
-        )
-    if signals.intolerances:
-        _merge(weights, {"irritation": 0.5})
-        notes.append(
-            "Указана непереносимость компонентов. Персональный конфликт по конкретному "
-            "ингредиенту в текущей версии методики не рассчитывается и требует проверки."
-        )
-    if unknown:
-        notes.append(
-            "Часть ответов анкеты не влияет на оценку в этой версии методики: "
-            + ", ".join(sorted(unknown)[:10])
-            + (" …" if len(unknown) > 10 else "")
-        )
-
-    valid = {pid: w for pid, w in weights.items() if pid in PARAMETERS and w > 0}
-    return Relevance(weights=valid, notes=tuple(notes))
+    """Parameters relevant to this profile; equal weights (no importance)."""
+    resolved = resolve_parameters(profile)
+    return Relevance(
+        weights={item.id: 1.0 for item in resolved.parameters},
+        notes=resolved.notes,
+        parameters=resolved.parameters,
+    )
 
 
-def validate_registry() -> None:
-    """Fail fast if the mapping references an unknown parameter."""
-    for table_name, table in (("ID_RELEVANCE", ID_RELEVANCE), ("CATEGORY_RELEVANCE", CATEGORY_RELEVANCE)):
-        for key, mapping in table.items():
-            for parameter_id in mapping:
-                if parameter_id not in PARAMETERS:
-                    raise ValueError(f"{table_name}[{key}] references unknown parameter {parameter_id}")
+def collect_signals(profile: Mapping[str, Any] | None) -> ProfileSignals:
+    """Canonical questionnaire signals, used by snapshot fingerprints."""
+    resolved = resolve_parameters(profile)
+    groups: dict[str, list] = {"skin_type": [], "problem": [], "therapy": [],
+                               "procedure": [], "intolerance": [], "goal": []}
+    for item in resolved.parameters:
+        value = item.option_id
+        if item.section == "procedure":
+            value = f"{item.option_id}@{item.modifier}"
+        groups.setdefault(item.section, []).append(value)
+
+    profile = profile if isinstance(profile, Mapping) else {}
+    structured = profile.get("structured")
+    structured = structured if isinstance(structured, Mapping) else {}
+    raw_age = structured.get("age")
+    if not raw_age:
+        raw_age = profile.get("age")
+    age = q.AGES.find(raw_age)
+    return ProfileSignals(
+        skin_type=(groups["skin_type"][0] if groups["skin_type"] else ""),
+        problems=tuple(sorted(groups["problem"])),
+        therapy=tuple(sorted(groups["therapy"])),
+        procedures=tuple(sorted(groups["procedure"])),
+        intolerances=tuple(sorted(groups["intolerance"])),
+        goals=tuple(sorted(groups["goal"])),
+        age=age.id if age else "",
+        unresolved=resolved.unresolved,
+    )
+

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Protocol, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 from .contracts import ParameterEvaluation
 from .evidence import Evidence
@@ -27,15 +27,38 @@ class StoreError(RuntimeError):
     """Raised on a storage contract violation."""
 
 
+COMPOSITION_ACTIVE = "active"
+COMPOSITION_UNVERIFIED = "unverified"
+COMPOSITION_STATUSES = (COMPOSITION_ACTIVE, COMPOSITION_UNVERIFIED, "superseded")
+
+
+def composition_status(composition: Mapping[str, Any]) -> str:
+    """A composition is only ``active`` when it was explicitly verified.
+
+    ``verified_at`` (or an explicit ``status``) must be supplied by the caller who
+    imported/checked the INCI: an unknown formula is never trusted by default.
+    """
+    status = str(composition.get("status") or "").strip()
+    if status:
+        if status not in COMPOSITION_STATUSES:
+            raise StoreError(f"unknown composition status: {status}")
+        return status
+    if str(composition.get("verified_at") or "").strip():
+        return COMPOSITION_ACTIVE
+    return COMPOSITION_UNVERIFIED
+
+
 class EvaluationStore(Protocol):
     def get_composition(self, product_id: int, composition_hash: str) -> dict | None: ...
     def upsert_composition(self, composition: dict) -> dict: ...
+    def verify_composition(self, composition_id: int, verified_at: str, source: str = "") -> dict: ...
     def current_evaluations(self, composition_id: int, method_version: str) -> list[ParameterEvaluation]: ...
     def save_evaluation(self, composition_id: int, evaluation: ParameterEvaluation) -> ParameterEvaluation: ...
     def evaluation_history(self, composition_id: int, parameter_id: str) -> list[ParameterEvaluation]: ...
     def save_snapshot(self, snapshot: dict) -> dict: ...
     def get_snapshot(self, snapshot_id: str) -> dict | None: ...
     def enqueue_research(self, composition_id: int, parameter_id: str, method_version: str) -> bool: ...
+    def pending_parameters(self, composition_id: int, method_version: str) -> list[str]: ...
     def save_evidence(self, composition_id: int, evidence: Sequence[Evidence]) -> list[int]: ...
     def evidence_for(self, composition_id: int, parameter_id: str) -> list[dict]: ...
     def claim_job(
@@ -70,6 +93,7 @@ class InMemoryStore:
     def upsert_composition(self, composition: dict) -> dict:
         product_id = int(composition["product_id"])
         composition_hash = str(composition["composition_hash"])
+        status = composition_status(composition)
         for existing in self._compositions.values():
             if existing["product_id"] == product_id and existing["composition_hash"] == composition_hash:
                 # mirror the Postgres upsert: enrich, never overwrite with empty values
@@ -77,6 +101,11 @@ class InMemoryStore:
                     existing["source"] = composition["source"]
                 if composition.get("verified_at"):
                     existing["verified_at"] = composition["verified_at"]
+                # a verified composition never becomes unverified again
+                if status == COMPOSITION_ACTIVE:
+                    existing["status"] = COMPOSITION_ACTIVE
+                elif not existing.get("status"):
+                    existing["status"] = status
                 return existing
         record = {
             "id": self._next_composition_id,
@@ -85,9 +114,23 @@ class InMemoryStore:
             "inci_raw": composition.get("inci_raw") or "",
             "source": composition.get("source") or "",
             "verified_at": composition.get("verified_at") or "",
+            "status": status,
         }
         self._compositions[record["id"]] = record
         self._next_composition_id += 1
+        return record
+
+    def verify_composition(self, composition_id: int, verified_at: str, source: str = "") -> dict:
+        """Mark a composition as verified: only then is it usable for research."""
+        record = self.get_composition_by_id(composition_id)
+        if record is None:
+            raise StoreError(f"unknown composition_id: {composition_id}")
+        if not str(verified_at or "").strip():
+            raise StoreError("verified_at is required to verify a composition")
+        record["verified_at"] = str(verified_at)
+        if source:
+            record["source"] = str(source)
+        record["status"] = COMPOSITION_ACTIVE
         return record
 
     def get_composition(self, product_id: int, composition_hash: str) -> dict | None:
@@ -277,6 +320,17 @@ class InMemoryStore:
             and job["parameter_id"] == parameter_id
             and job["method_version"] == method_version
         ]
+
+    def pending_parameters(self, composition_id: int, method_version: str) -> list[str]:
+        return sorted(
+            {
+                job["parameter_id"]
+                for job in self._jobs.values()
+                if job["composition_id"] == composition_id
+                and job["method_version"] == method_version
+                and job["status"] == "pending"
+            }
+        )
 
     def job_count(self) -> int:
         return len(self._jobs)

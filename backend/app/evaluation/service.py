@@ -133,6 +133,12 @@ class EvaluationService:
         saved = self.store.save_evaluation(composition_id, evaluation)
         return saved.as_dict()
 
+    def verify_composition(
+        self, composition_id: int, verified_at: str, source: str = ""
+    ) -> dict:
+        """Explicitly mark an INCI as checked (required before research)."""
+        return self.store.verify_composition(composition_id, verified_at, source)
+
     # -- read ---------------------------------------------------------------
     def snapshot(self, snapshot_id: str) -> dict:
         stored = self.store.get_snapshot(snapshot_id)
@@ -147,6 +153,7 @@ class EvaluationService:
         relevance = resolve_relevance(profile)
         return {
             "weights": {k: round(v, 6) for k, v in sorted(relevance.weights.items())},
+            "parameters": [item.id for item in relevance.parameters],
             "notes": list(relevance.notes),
             "hash": sha256_of({k: round(v, 6) for k, v in sorted(relevance.weights.items())}),
         }

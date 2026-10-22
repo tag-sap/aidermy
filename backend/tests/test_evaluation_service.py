@@ -10,7 +10,7 @@ from app.evaluation.store import StoreError, InMemoryStore
 COMP_A = "a" * 64
 COMP_B = "b" * 64
 PRODUCT = {"id": 7, "name": "Test Serum"}
-PROFILE = {"skin_type": "dry"}
+PROFILE = {"skin_type": "dry", "concerns": ["dryness"]}
 
 
 def ev(parameter_id: str, value: float | None, status: str = "evaluated", composition=COMP_A, **kwargs):
@@ -40,7 +40,7 @@ class ServiceTests(unittest.TestCase):
         result = self.service.build(
             product=PRODUCT, composition=self._composition(), profile=PROFILE
         )
-        self.assertEqual(result.pending_parameters, ("barrier", "hydration"))
+        self.assertEqual(result.pending_parameters, ("problem:dryness", "skin_type:dry"))
         self.assertIsNone(result.snapshot["total"])
         self.assertFalse(result.reused)
         self.assertEqual(self.store.snapshot_count(), 1)
@@ -54,8 +54,8 @@ class ServiceTests(unittest.TestCase):
 
     def test_total_appears_when_all_relevant_parameters_are_evaluated(self):
         composition_id = self._composition_id()
-        self.service.record_evaluation(composition_id, ev("hydration", 80))
-        self.service.record_evaluation(composition_id, ev("barrier", 60))
+        self.service.record_evaluation(composition_id, ev("problem:dryness", 80))
+        self.service.record_evaluation(composition_id, ev("skin_type:dry", 60))
         result = self.service.build(
             product=PRODUCT, composition=self._composition(), profile=PROFILE
         )
@@ -65,20 +65,20 @@ class ServiceTests(unittest.TestCase):
 
     def test_new_evaluation_supersedes_old_one_but_history_is_kept(self):
         composition_id = self._composition_id()
-        self.service.record_evaluation(composition_id, ev("hydration", 40))
-        self.service.record_evaluation(composition_id, ev("hydration", 90))
+        self.service.record_evaluation(composition_id, ev("problem:dryness", 40))
+        self.service.record_evaluation(composition_id, ev("problem:dryness", 90))
         current = self.store.current_evaluations(composition_id, "research-1.0.0-draft")
-        hydration = next(item for item in current if item.parameter_id == "hydration")
+        hydration = next(item for item in current if item.parameter_id == "problem:dryness")
         self.assertEqual(hydration.value, 90)
-        self.assertEqual(len(self.store.evaluation_history(composition_id, "hydration")), 2)
+        self.assertEqual(len(self.store.evaluation_history(composition_id, "problem:dryness")), 2)
 
     def test_composition_change_invalidates_saved_evaluations(self):
         composition_id = self._composition_id(COMP_A)
-        self.service.record_evaluation(composition_id, ev("hydration", 80))
+        self.service.record_evaluation(composition_id, ev("problem:dryness", 80))
         result = self.service.build(
             product=PRODUCT, composition=self._composition(COMP_B), profile=PROFILE
         )
-        self.assertIn("hydration", result.pending_parameters)
+        self.assertIn("problem:dryness", result.pending_parameters)
         self.assertIsNone(result.snapshot["total"])
         self.assertEqual(result.snapshot["composition"]["hash"], COMP_B)
 
@@ -93,9 +93,9 @@ class ServiceTests(unittest.TestCase):
         service = EvaluationService(self.store, rules=strict)
         composition_id = self._composition_id()
         service.record_evaluation(
-            composition_id, ev("hydration", None, status="insufficient_evidence")
+            composition_id, ev("problem:dryness", None, status="insufficient_evidence")
         )
-        service.record_evaluation(composition_id, ev("barrier", 60))
+        service.record_evaluation(composition_id, ev("skin_type:dry", 60))
         result = service.build(
             product=PRODUCT, composition=self._composition(), profile=PROFILE
         )
@@ -104,9 +104,9 @@ class ServiceTests(unittest.TestCase):
 
     def test_research_jobs_are_deduplicated(self):
         composition_id = self._composition_id()
-        first = self.service.enqueue_research(composition_id, ["hydration", "barrier"])
-        second = self.service.enqueue_research(composition_id, ["hydration"])
-        self.assertEqual(first, ["hydration", "barrier"])
+        first = self.service.enqueue_research(composition_id, ["problem:dryness", "skin_type:dry"])
+        second = self.service.enqueue_research(composition_id, ["problem:dryness"])
+        self.assertEqual(first, ["problem:dryness", "skin_type:dry"])
         self.assertEqual(second, [])
         self.assertEqual(self.store.job_count(), 2)
 
@@ -121,14 +121,14 @@ class ServiceTests(unittest.TestCase):
         composition_id = self._composition_id()
         with self.assertRaises(StoreError):
             self.service.record_evaluation(
-                composition_id, ev("hydration", 70, method_version="other-method")
+                composition_id, ev("problem:dryness", 70, method_version="other-method")
             )
 
     def test_relevance_fingerprint_is_stable(self):
         first = self.service.relevance_fingerprint(PROFILE)
-        second = self.service.relevance_fingerprint({"skin_type": "dry"})
+        second = self.service.relevance_fingerprint({"skin_type": "dry", "concerns": ["dryness"]})
         self.assertEqual(first["hash"], second["hash"])
-        self.assertIn("hydration", first["weights"])
+        self.assertIn("problem:dryness", first["weights"])
 
 
 if __name__ == "__main__":

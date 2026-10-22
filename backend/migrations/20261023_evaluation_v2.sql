@@ -15,7 +15,9 @@ create table if not exists evaluation.product_compositions (
     composition_hash  text        not null,
     source            text        not null default '',
     verified_at       timestamptz,
-    status            text        not null default 'active'
+    -- A composition is only 'active' after an explicit verification step:
+    -- unknown INCI is never trusted by default (see store.composition_status).
+    status            text        not null default 'unverified'
                       check (status in ('active', 'superseded', 'unverified')),
     created_at        timestamptz not null default now(),
     unique (product_id, composition_hash)

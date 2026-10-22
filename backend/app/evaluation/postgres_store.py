@@ -21,11 +21,11 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from .contracts import ParameterEvaluation, RuleSet, sha256_of
 from .evidence import Evidence
 from .parameters import PARAMETERS
-from .store import StoreError
+from .store import StoreError, composition_status
 
 SCHEMA = "evaluation"
 
-_COMPOSITION_FIELDS = "id, product_id, composition_hash, inci_raw, source, verified_at"
+_COMPOSITION_FIELDS = "id, product_id, composition_hash, inci_raw, source, verified_at, status"
 
 
 def _as_json(value: Any) -> str:
@@ -122,16 +122,22 @@ class PostgresStore:
         return dict(row) if row else None
 
     def upsert_composition(self, composition: Mapping[str, Any]) -> dict:
+        status = composition_status(composition)
         row = self._fetchone_write(
             f"""
             insert into {self._table('product_compositions')}
-                (product_id, composition_hash, inci_raw, source, verified_at)
-            values (%s, %s, %s, %s, %s)
+                (product_id, composition_hash, inci_raw, source, verified_at, status)
+            values (%s, %s, %s, %s, %s, %s)
             on conflict (product_id, composition_hash) do update
                 set source = coalesce(nullif(excluded.source, ''),
                                       {self._table('product_compositions')}.source),
                     verified_at = coalesce(excluded.verified_at,
-                                           {self._table('product_compositions')}.verified_at)
+                                           {self._table('product_compositions')}.verified_at),
+                    status = case
+                        when excluded.status = 'active' then 'active'
+                        when {self._table('product_compositions')}.status = 'active' then 'active'
+                        else excluded.status
+                    end
             returning {_COMPOSITION_FIELDS}
             """,
             (
@@ -140,10 +146,32 @@ class PostgresStore:
                 composition.get("inci_raw") or "",
                 composition.get("source") or "",
                 composition.get("verified_at") or None,
+                status,
             ),
         )
         if row is None:
             raise StoreError("composition upsert returned no row")
+        return dict(row)
+
+    def verify_composition(
+        self, composition_id: int, verified_at: str, source: str = ""
+    ) -> dict:
+        """Mark a composition as verified: only then is it usable for research."""
+        if not str(verified_at or "").strip():
+            raise StoreError("verified_at is required to verify a composition")
+        row = self._fetchone_write(
+            f"""
+            update {self._table('product_compositions')}
+               set status = 'active',
+                   verified_at = %s,
+                   source = coalesce(nullif(%s, ''), source)
+             where id = %s
+            returning {_COMPOSITION_FIELDS}
+            """,
+            (verified_at, source or "", int(composition_id)),
+        )
+        if row is None:
+            raise StoreError(f"unknown composition_id: {composition_id}")
         return dict(row)
 
     # -- evaluations --------------------------------------------------------
@@ -488,6 +516,20 @@ class PostgresStore:
                 )
                 return [dict(row) for row in cur.fetchall()]
 
+    def pending_parameters(self, composition_id: int, method_version: str) -> list[str]:
+        with closing(self._connect()) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    select distinct parameter_id
+                    from {self._table('research_jobs')}
+                    where composition_id = %s and method_version = %s and status = 'pending'
+                    order by parameter_id
+                    """,
+                    (composition_id, method_version),
+                )
+                return [str(row["parameter_id"]) for row in cur.fetchall()]
+
     # -- snapshots ----------------------------------------------------------
     def save_snapshot(self, snapshot: Mapping[str, Any]) -> dict:
         snapshot_id = str(snapshot.get("snapshot_id") or "")
@@ -567,7 +609,7 @@ class PostgresStore:
                    s.rule_version, s.engine_version, s.engine_input_hash,
                    s.document, s.parameters, s.total, s.verdict, s.completeness,
                    s.limitations, s.created_at,
-                   c.composition_hash, c.source, c.verified_at, r.rules_hash
+                   c.composition_hash, c.source, c.verified_at, c.status, r.rules_hash
             from {self._table('snapshots')} s
             join {self._table('product_compositions')} c on c.id = s.composition_id
             join {self._table('rule_versions')} r on r.version = s.rule_version
@@ -593,6 +635,7 @@ class PostgresStore:
                 "hash": row["composition_hash"],
                 "source": row["source"] or "",
                 "verified_at": str(row["verified_at"] or ""),
+                "status": row.get("status") or "unverified",
             },
             "profile": row["profile_fingerprint"] or {},
             "parameters": _as_list(row["parameters"]),

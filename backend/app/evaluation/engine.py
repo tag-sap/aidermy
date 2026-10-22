@@ -7,10 +7,12 @@ rule set is calibrated), completeness, limitations and a reproducible hash.
 Guarantees:
   * pure function — no I/O, no randomness, no AI;
   * identical input + identical rule version => identical output and hash;
+  * the relevant set is exactly the questionnaire options the user selected
+    (``parameters.resolve_parameters``), never a universal product scorecard;
   * a missing evaluation is never replaced by 0/50/"neutral": it is excluded
     and reduces completeness;
-  * weights come only from questionnaire relevance, normalized over the
-    relevant set; missing parameters do not dilute the total;
+  * every relevant parameter has the same share (plain arithmetic mean);
+    missing parameters do not dilute the total;
   * the total is computed only when completeness >= rule threshold.
 """
 from __future__ import annotations
@@ -32,7 +34,7 @@ from .contracts import (
     normalized_weights,
     sha256_of,
 )
-from .parameters import PARAMETERS, resolve_relevance
+from .parameters import resolve_parameters
 from .rules import get_rules
 
 _STATUS_REASON = {
@@ -60,17 +62,22 @@ def evaluate(
     rules = rules or get_rules()
     assert_unique(evaluations)
 
-    relevance = resolve_relevance(profile)
-    limitations: list[str] = list(relevance.notes)
+    resolved = resolve_parameters(profile)
+    limitations: list[str] = list(resolved.notes)
 
-    if rules.aggregation == "arithmetic_mean":
-        # Relevance only selects WHICH parameters matter. Every selected parameter
-        # gets the same share, so the total is a plain arithmetic mean: no
-        # importance weights, no blockers, no hidden penalties.
-        share = 1.0 / len(relevance.weights) if relevance.weights else 0.0
-        weights = {parameter_id: share for parameter_id in relevance.weights}
-    else:
-        weights = normalized_weights(relevance.weights)
+    weights: dict[str, float] = {}
+    if resolved.parameters:
+        if rules.aggregation == "arithmetic_mean":
+            # Questionnaire answers only select WHICH parameters matter. Every
+            # selected parameter gets the same share, so the total is a plain
+            # arithmetic mean: no importance weights, no blockers, no penalties.
+            share = 1.0 / len(resolved.parameters)
+            weights = {parameter.id: share for parameter in resolved.parameters}
+        else:
+            weights = normalized_weights(
+                {parameter.id: 1.0 for parameter in resolved.parameters}
+            )
+    by_id = {parameter.id: parameter for parameter in resolved.parameters}
 
     if not weights:
         payload = {
@@ -97,7 +104,7 @@ def evaluate(
     covered_weight = 0.0
 
     for parameter_id, weight in sorted(weights.items(), key=lambda kv: (-kv[1], kv[0])):
-        parameter = PARAMETERS[parameter_id]
+        parameter = by_id[parameter_id]
         evaluation = by_parameter.get(parameter_id)
 
         if evaluation is None:

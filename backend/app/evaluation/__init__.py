@@ -16,7 +16,13 @@ from .contracts import (
     ParameterEvaluation,
     RuleSet,
 )
-from .assessment import EVIDENCE_RULE_VERSION, assess, net_score, value_for_net
+from .assessment import (
+    EVIDENCE_RULE_VERSION,
+    assess,
+    explain,
+    net_score,
+    value_for_net,
+)
 from .engine import evaluate
 from .evidence import (
     Evidence,
@@ -28,7 +34,19 @@ from .evidence import (
     validate_candidates,
 )
 from .freshness import is_current, select_current, stale_reason
-from .parameters import PARAMETERS, collect_signals, resolve_relevance, validate_registry
+from .parameters import (
+    PARAMETERS,
+    ProfileSignals,
+    Relevance,
+    ResolvedParameters,
+    build_parameter,
+    catalog_parameters,
+    collect_signals,
+    resolve_parameters,
+    resolve_relevance,
+    validate_registry,
+)
+from .questionnaire import QUESTIONNAIRE_VERSION, SECTIONS, Option, Section
 from .rules import DEFAULT_RULE_VERSION, RULE_SETS, describe_rules, get_rules
 from .research import (
     FakeResearchProvider,
@@ -54,6 +72,7 @@ __all__ = [
     "ENGINE_VERSION",
     "EVIDENCE_RULE_VERSION",
     "SNAPSHOT_SCHEMA_VERSION",
+    "QUESTIONNAIRE_VERSION",
     "STATUS_EVALUATED",
     "STATUS_INSUFFICIENT",
     "STATUS_CONTRADICTORY",
@@ -65,8 +84,12 @@ __all__ = [
     "EvidenceCandidate",
     "EvidenceError",
     "FakeResearchProvider",
+    "Option",
     "Parameter",
     "ParameterEvaluation",
+    "ProfileSignals",
+    "Relevance",
+    "ResolvedParameters",
     "ResearchOutcome",
     "ResearchPlan",
     "ResearchProvider",
@@ -74,9 +97,14 @@ __all__ = [
     "ResearchRunReport",
     "ResearchService",
     "RuleSet",
+    "Section",
+    "SECTIONS",
     "Source",
     "assess",
+    "build_parameter",
     "candidate",
+    "catalog_parameters",
+    "explain",
     "insufficient",
     "net_score",
     "ok",
@@ -96,6 +124,7 @@ __all__ = [
     "get_rules",
     "is_current",
     "profile_fingerprint",
+    "resolve_parameters",
     "resolve_relevance",
     "select_current",
     "snapshot_summary",
