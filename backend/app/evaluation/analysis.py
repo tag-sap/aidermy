@@ -31,6 +31,7 @@ from .knowledge import (
 )
 from .primary_function import build_primary_function, public_primary_function
 from .research import ResearchProvider
+from .timing import StageTimer
 from .research_service import (
     DEFAULT_MAX_ATTEMPTS,
     ResearchPlan,
@@ -61,6 +62,7 @@ class AnalysisReport:
     knowledge: ProductKnowledge | None = None
     evidence: dict[str, list[dict]] = field(default_factory=dict)
     primary_function: dict = field(default_factory=dict)
+    timings: dict = field(default_factory=dict)
 
     @property
     def is_final(self) -> bool:
@@ -107,6 +109,7 @@ class AnalysisReport:
             "evidence": self.evidence,
             "primary_function": self.primary_function,
             "user_report": self.user_report(),
+            "timings": self.timings,
         }
         if self.plan is not None:
             payload["plan"] = {
@@ -154,6 +157,7 @@ class AnalysisService:
         max_documents: int = MAX_DOCUMENTS_PER_SESSION,
         max_cost_per_job: float = 0.50,
         max_cost_per_run: float = 5.00,
+        max_concurrency: int = 4,
         allow_synthetic_evidence: bool = False,
     ) -> None:
         self.store = store
@@ -168,6 +172,7 @@ class AnalysisService:
         self.max_documents = max_documents
         self.max_cost_per_job = max_cost_per_job
         self.max_cost_per_run = max_cost_per_run
+        self.max_concurrency = max(1, min(int(max_concurrency), 8))
         self.allow_synthetic_evidence = allow_synthetic_evidence
         self._evaluation = EvaluationService(
             store,
@@ -194,13 +199,16 @@ class AnalysisService:
         user_id: int | None = None,
         now: datetime | None = None,
         knowledge: ProductKnowledge | None = None,
+        timer: StageTimer | None = None,
     ) -> AnalysisReport:
         """Scan all parameters, research the gaps, and assemble an honest report."""
         product_id = product.get("id")
         if product_id is None:
             raise AnalysisUnavailable("product.id is required")
+        timer = timer or StageTimer(product_id=int(product_id), allow_research=allow_research)
 
-        record = self._evaluation.ensure_composition(int(product_id), composition)
+        with timer.stage("composition"):
+            record = self._evaluation.ensure_composition(int(product_id), composition)
         # An existing record may have been registered earlier as unverified (e.g.
         # by /status). An explicit verification must upgrade it, otherwise the
         # analysed composition stays blocked forever.
@@ -218,13 +226,14 @@ class AnalysisService:
 
         if not blocked:
             service = self._research_service()
-            plan = service.plan(
-                product=product,
-                composition=composition,
-                profile=profile,
-                now=now,
-                source_urls=source_urls,
-            )
+            with timer.stage("plan"):
+                plan = service.plan(
+                    product=product,
+                    composition=composition,
+                    profile=profile,
+                    now=now,
+                    source_urls=source_urls,
+                )
             blocked = plan.blocked
             if plan.needed and allow_research:
                 if self.provider is None:
@@ -232,25 +241,28 @@ class AnalysisService:
                         "провайдер исследования не настроен: анализ недостающих "
                         "параметров невозможен"
                     )
-                research = service.research_missing(
-                    product=product,
-                    composition=composition,
-                    profile=profile,
-                    process=process,
-                    now=now,
-                    source_urls=source_urls,
-                )
+                with timer.stage("research"):
+                    research = service.research_missing(
+                        product=product,
+                        composition=composition,
+                        profile=profile,
+                        process=process,
+                        now=now,
+                        source_urls=source_urls,
+                        plan=plan,
+                    )
                 blocked = research.blocked or blocked
 
-        built = self._evaluation.build(
-            product=product,
-            composition=composition,
-            profile=profile,
-            now=now,
-            user_id=user_id,
-            research_summary=research.summary() if research is not None else None,
-            blocked=blocked,
-        )
+        with timer.stage("snapshot"):
+            built = self._evaluation.build(
+                product=product,
+                composition=composition,
+                profile=profile,
+                now=now,
+                user_id=user_id,
+                research_summary=research.summary() if research is not None else None,
+                blocked=blocked,
+            )
 
         extra_notes = list(knowledge.notes) if knowledge is not None else []
         state = built.analysis
@@ -282,21 +294,50 @@ class AnalysisService:
                 ", ".join(f"{gap.parameter_id}:{gap.reason}" for gap in state.gaps),
             )
 
-        evidence_by_parameter: dict[str, list[dict]] = {}
-        for parameter_id in (*state.assessed_parameters, *state.not_applicable_parameters):
-            rows = self.store.evidence_for(int(record["id"]), parameter_id)
-            confirmed = [
-                row
-                for row in rows
-                if str(row.get("verification") or "") == "confirmed"
-            ]
-            if confirmed:
-                evidence_by_parameter[parameter_id] = confirmed
+        parameter_ids = (*state.assessed_parameters, *state.not_applicable_parameters)
+        with timer.stage("evidence"):
+            if parameter_ids and hasattr(self.store, "evidence_for_many"):
+                evidence_by_parameter = self.store.evidence_for_many(
+                    int(record["id"]), parameter_ids
+                )
+                evidence_by_parameter = {
+                    parameter_id: [
+                        row
+                        for row in rows
+                        if str(row.get("verification") or "") == "confirmed"
+                    ]
+                    for parameter_id, rows in evidence_by_parameter.items()
+                }
+                evidence_by_parameter = {
+                    parameter_id: rows
+                    for parameter_id, rows in evidence_by_parameter.items()
+                    if rows
+                }
+            else:
+                evidence_by_parameter = {}
+                for parameter_id in parameter_ids:
+                    rows = self.store.evidence_for(int(record["id"]), parameter_id)
+                    confirmed = [
+                        row
+                        for row in rows
+                        if str(row.get("verification") or "") == "confirmed"
+                    ]
+                    if confirmed:
+                        evidence_by_parameter[parameter_id] = confirmed
 
-        primary_function = build_primary_function(
-            product,
-            {**record, "inci_raw": record.get("inci_raw") or composition.get("inci_raw") or ""},
-            composition_status=str(record.get("status") or ""),
+        with timer.stage("primary_function"):
+            primary_function = build_primary_function(
+                product,
+                {**record, "inci_raw": record.get("inci_raw") or composition.get("inci_raw") or ""},
+                composition_status=str(record.get("status") or ""),
+            )
+        timings = timer.log(
+            logger,
+            assessed=len(state.assessed_parameters),
+            gaps=len(state.gaps),
+            failed=len(state.failed_parameters),
+            needed=len(plan.needed) if plan is not None else 0,
+            researched=len(research.researched) if research is not None else 0,
         )
         return AnalysisReport(
             product={
@@ -317,6 +358,7 @@ class AnalysisService:
             knowledge=knowledge,
             evidence=evidence_by_parameter,
             primary_function=primary_function,
+            timings=timings,
         )
 
 
@@ -342,15 +384,17 @@ class AnalysisService:
         catalog INCI as the confirmed formula. It is refused when the record has
         no reliable INCI or no source URL, and it is recorded with its basis.
         """
+        timer = StageTimer(product_id=int(product_id), allow_research=allow_research)
         try:
-            knowledge = load_product_knowledge(
-                product_id,
-                product_loader=product_loader,
-                repository=repository,
-                verified_at=verified_at,
-                composition_source=composition_source,
-                extra_sources=extra_sources,
-            )
+            with timer.stage("knowledge"):
+                knowledge = load_product_knowledge(
+                    product_id,
+                    product_loader=product_loader,
+                    repository=repository,
+                    verified_at=verified_at,
+                    composition_source=composition_source,
+                    extra_sources=extra_sources,
+                )
         except ProductNotFound:
             raise
         except KnowledgeUnavailable as exc:
@@ -399,6 +443,7 @@ class AnalysisService:
             user_id=user_id,
             now=now,
             knowledge=knowledge,
+            timer=timer,
         )
 
     # -- internals -----------------------------------------------------------
@@ -416,5 +461,6 @@ class AnalysisService:
             max_documents=self.max_documents,
             max_cost_per_job=self.max_cost_per_job,
             max_cost_per_run=self.max_cost_per_run,
+            max_concurrency=self.max_concurrency,
         )
 

@@ -26,6 +26,34 @@ from .store import EvaluationStore, StoreError
 DEFAULT_METHOD_VERSION = "research-1.0.0-draft"
 
 
+def _same_snapshot_result(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    """Compare the stable result, ignoring transient research notes.
+
+    A completed report must keep its snapshot when a subsequent check reuses
+    the same evaluations/profile/composition. Research logs and document counts
+    are diagnostics, not part of the evaluated result, so they must not create
+    a duplicate append-only snapshot on every page refresh.
+    """
+    keys = (
+        "engine_input_hash",
+        "rule_version",
+        "engine_version",
+        "composition",
+        "parameters",
+        "total",
+        "verdict",
+        "completeness",
+    )
+    if any(left.get(key) != right.get(key) for key in keys):
+        return False
+    left_analysis = left.get("analysis") or {}
+    right_analysis = right.get("analysis") or {}
+    return (
+        left_analysis.get("status") == right_analysis.get("status")
+        and left_analysis.get("is_final") == right_analysis.get("is_final")
+    )
+
+
 @dataclass(frozen=True)
 class BuildResult:
     snapshot: dict
@@ -123,7 +151,20 @@ class EvaluationService:
         if existing is not None:
             saved, reused = existing, True
         else:
-            saved, reused = self.store.save_snapshot(snapshot), False
+            latest = None
+            if user_id is not None and hasattr(self.store, "latest_snapshot"):
+                latest = self.store.latest_snapshot(
+                    product_id=int(product_id),
+                    composition_hash=composition_hash,
+                    user_id=user_id,
+                    profile_fingerprint=snapshot.get("profile") or {},
+                )
+            if latest is not None and _same_snapshot_result(latest, snapshot):
+                # Same result, only transient diagnostics differ. Reuse the
+                # append-only snapshot instead of growing history on refresh.
+                saved, reused = latest, True
+            else:
+                saved, reused = self.store.save_snapshot(snapshot), False
 
         return BuildResult(
             snapshot=saved,

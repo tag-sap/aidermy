@@ -57,10 +57,21 @@ class EvaluationStore(Protocol):
     def evaluation_history(self, composition_id: int, parameter_id: str) -> list[ParameterEvaluation]: ...
     def save_snapshot(self, snapshot: dict) -> dict: ...
     def get_snapshot(self, snapshot_id: str) -> dict | None: ...
+    def latest_snapshot(
+        self,
+        *,
+        product_id: int,
+        composition_hash: str,
+        user_id: int | None,
+        profile_fingerprint: Mapping[str, Any],
+    ) -> dict | None: ...
     def enqueue_research(self, composition_id: int, parameter_id: str, method_version: str) -> bool: ...
     def pending_parameters(self, composition_id: int, method_version: str) -> list[str]: ...
     def save_evidence(self, composition_id: int, evidence: Sequence[Evidence]) -> list[int]: ...
     def evidence_for(self, composition_id: int, parameter_id: str) -> list[dict]: ...
+    def evidence_for_many(
+        self, composition_id: int, parameter_ids: Sequence[str]
+    ) -> dict[str, list[dict]]: ...
     def evidence_ref(self, evidence_id: int) -> dict | None: ...
     def save_documents(self, composition_id: int, documents: Sequence[Any]) -> list[str]: ...
     def documents_for(self, composition_id: int) -> list[dict]: ...
@@ -192,6 +203,27 @@ class InMemoryStore:
     def get_snapshot(self, snapshot_id: str) -> dict | None:
         return self._snapshots.get(snapshot_id)
 
+    def latest_snapshot(
+        self,
+        *,
+        product_id: int,
+        composition_hash: str,
+        user_id: int | None,
+        profile_fingerprint: Mapping[str, Any],
+    ) -> dict | None:
+        candidates = [
+            snapshot
+            for snapshot in self._snapshots.values()
+            if int((snapshot.get("product") or {}).get("id") or 0) == int(product_id)
+            and str((snapshot.get("composition") or {}).get("hash") or "")
+            == str(composition_hash)
+            and snapshot.get("user_id") == user_id
+            and snapshot.get("profile") == dict(profile_fingerprint)
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: str(item.get("created_at") or ""))
+
     def snapshot_count(self) -> int:
         return len(self._snapshots)
 
@@ -231,6 +263,19 @@ class InMemoryStore:
             for row in self._evidence
             if row["composition_id"] == composition_id and row["parameter_id"] == parameter_id
         ]
+
+    def evidence_for_many(
+        self, composition_id: int, parameter_ids: Sequence[str]
+    ) -> dict[str, list[dict]]:
+        wanted = {str(item) for item in parameter_ids}
+        grouped: dict[str, list[dict]] = {item: [] for item in wanted}
+        for row in self._evidence:
+            if row["composition_id"] != composition_id:
+                continue
+            parameter_id = str(row.get("parameter_id") or "")
+            if parameter_id in wanted:
+                grouped.setdefault(parameter_id, []).append(dict(row))
+        return {key: value for key, value in grouped.items() if value}
 
     def evidence_ref(self, evidence_id: int) -> dict | None:
         record = next(

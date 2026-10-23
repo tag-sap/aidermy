@@ -132,6 +132,9 @@ def analysis_limits_from_env() -> dict:
         "max_cost_per_job": _env_number("AIDERMY_MAX_COST_PER_JOB", 0.50, float),
         "max_cost_per_run": _env_number("AIDERMY_MAX_COST_PER_RUN", 5.00, float),
         "max_attempts": _env_number("AIDERMY_MAX_ATTEMPTS", 3, int),
+        # Bounded parallel provider/page calls. Keep this small for provider
+        # rate limits and DB write concurrency.
+        "max_concurrency": _env_number("AIDERMY_EVAL_CONCURRENCY", 4, int),
     }
 
 

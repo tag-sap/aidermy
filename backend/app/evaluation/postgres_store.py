@@ -66,6 +66,33 @@ def row_to_evaluation(row: Mapping[str, Any]) -> ParameterEvaluation:
     )
 
 
+def _evidence_row_to_dict(row: Mapping[str, Any]) -> dict:
+    return {
+        "id": row["id"],
+        "composition_id": row["composition_id"],
+        "parameter_id": row["parameter_id"],
+        "claim": row["claim"],
+        "quote": row["quote"],
+        "direction": row["direction"],
+        "strength": row["strength"],
+        "confidence": float(row["confidence"]),
+        "verification": row["verification"],
+        "rejection_reason": row["rejection_reason"],
+        "extraction_method": row["extraction_method"],
+        "retrieved_at": str(row["retrieved_at"] or ""),
+        "provenance": row.get("provenance") or "unknown",
+        "source": {
+            "url": row["url"],
+            "title": row["title"],
+            "publisher": row["publisher"],
+            "source_type": row["source_type"],
+            "retrieved_at": str(row["source_retrieved_at"] or ""),
+            "content_hash": row["content_hash"],
+            "provenance": row.get("provenance") or "unknown",
+        },
+    }
+
+
 def _advisory_key(*parts: Any) -> int:
     """Stable signed 64-bit key for pg_advisory_xact_lock."""
     raw = "|".join(str(part) for part in parts).encode("utf-8")
@@ -404,33 +431,36 @@ class PostgresStore:
                     (composition_id, parameter_id),
                 )
                 rows = cur.fetchall()
-        return [
-            {
-                "id": row["id"],
-                "composition_id": row["composition_id"],
-                "parameter_id": row["parameter_id"],
-                "claim": row["claim"],
-                "quote": row["quote"],
-                "direction": row["direction"],
-                "strength": row["strength"],
-                "confidence": float(row["confidence"]),
-                "verification": row["verification"],
-                "rejection_reason": row["rejection_reason"],
-                "extraction_method": row["extraction_method"],
-                "retrieved_at": str(row["retrieved_at"] or ""),
-                "provenance": row.get("provenance") or "unknown",
-                "source": {
-                    "url": row["url"],
-                    "title": row["title"],
-                    "publisher": row["publisher"],
-                    "source_type": row["source_type"],
-                    "retrieved_at": str(row["source_retrieved_at"] or ""),
-                    "content_hash": row["content_hash"],
-                    "provenance": row.get("provenance") or "unknown",
-                },
-            }
-            for row in rows
-        ]
+        return [_evidence_row_to_dict(row) for row in rows]
+
+    def evidence_for_many(
+        self, composition_id: int, parameter_ids: Sequence[str]
+    ) -> dict[str, list[dict]]:
+        wanted = [str(item) for item in dict.fromkeys(parameter_ids) if str(item)]
+        if not wanted:
+            return {}
+        with closing(self._connect()) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    select e.id, e.composition_id, e.parameter_id, e.claim, e.quote,
+                           e.direction, e.strength, e.confidence, e.extraction_method,
+                           e.verification, e.rejection_reason, e.retrieved_at, e.provenance,
+                           s.url, s.title, s.publisher, s.source_type,
+                           s.retrieved_at as source_retrieved_at, s.content_hash
+                    from {self._table('evidence')} e
+                    join {self._table('sources')} s on s.id = e.source_id
+                    where e.composition_id = %s and e.parameter_id = ANY(%s)
+                    order by e.id
+                    """,
+                    (int(composition_id), wanted),
+                )
+                rows = cur.fetchall()
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            item = _evidence_row_to_dict(row)
+            grouped.setdefault(str(item["parameter_id"]), []).append(item)
+        return grouped
 
     # -- research job claiming ---------------------------------------------
     def evidence_ref(self, evidence_id: int) -> dict | None:
@@ -730,7 +760,7 @@ class PostgresStore:
         *,
         product_id: int,
         composition_hash: str,
-        user_id: int,
+        user_id: int | None,
         profile_fingerprint: Mapping[str, Any],
     ) -> dict | None:
         """Last saved result for this product/version/user/profile (no analysis)."""
@@ -741,7 +771,7 @@ class PostgresStore:
             join {self._table('product_compositions')} c on c.id = s.composition_id
             where s.product_id = %s
               and c.composition_hash = %s
-              and s.user_id = %s
+              and s.user_id is not distinct from %s
               and s.profile_fingerprint = %s::jsonb
             order by s.created_at desc
             limit 1
@@ -749,7 +779,7 @@ class PostgresStore:
             (
                 int(product_id),
                 str(composition_hash),
-                int(user_id),
+                int(user_id) if user_id is not None else None,
                 _as_json(dict(profile_fingerprint)),
             ),
         )
