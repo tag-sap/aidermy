@@ -38,6 +38,7 @@ def _same_snapshot_result(left: Mapping[str, Any], right: Mapping[str, Any]) -> 
         "engine_input_hash",
         "rule_version",
         "engine_version",
+        "product",
         "composition",
         "parameters",
         "total",
