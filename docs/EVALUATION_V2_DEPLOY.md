@@ -65,6 +65,20 @@ EVALUATION_TEST_DSN=... python scripts/evaluation_test_env.py
 
 Ожидается 9 таблиц в схеме `evaluation`, включая `source_documents`.
 
+После миграций обязательно зарегистрировать версию правил и реестр параметров
+(идемпотентно). Без этого research падает на вставке снапшота с
+`rule version ... is not registered`:
+
+```bash
+cd backend
+python scripts/seed_evaluation_v2.py --yes
+# rule_version=3.0.0-draft calibrated=False
+# method_version=research-1.0.0-draft parameters=...
+```
+
+В production-рабочей копии SQL лежит в `backend/sql/`; скрипт миграций ищет
+`*evaluation_v2*.sql` и в `backend/migrations/`, и в `backend/sql/`.
+
 ## 4. Проверка после деплоя
 
 ```bash
@@ -81,11 +95,14 @@ curl -s -X POST https://<host>/api/v1/evaluation/products/123/status \
   -d '{"profile": {"skin_type": "dry", "concerns": ["dryness"]}}' | jq '.analysis'
 ```
 
-Админский путь (HTTP Basic, один продукт):
+Админский путь. Эндпоинт требует одновременно JWT пользователя и admin Basic,
+поэтому Basic передаётся отдельным заголовком `X-Admin-Authorization` (обычный
+`Authorization: Basic` тоже поддерживается, но он затирает Bearer):
 
 ```bash
 curl -s -X POST https://<host>/api/v1/evaluation/products/123/research \
-  -u admin:<password> -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Admin-Authorization: Basic $(printf 'admin:%s' "$ADMIN_PASSWORD" | base64 -w0)" \
   -H 'Content-Type: application/json' \
   -d '{"profile": {"skin_type": "dry", "concerns": ["dryness"]}, "verify_catalog_inci": true}' | jq '.analysis'
 ```
