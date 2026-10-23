@@ -146,11 +146,14 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("<EvaluationV2Panel", drawer)
 
     def test_v2_panel_has_one_check_product_action(self):
-        self.assertIn("Проверить продукт", self.panel)
+        self.assertIn("Проверить для меня", self.panel)
+        self.assertNotIn("Проверить продукт", self.panel)
         self.assertNotIn("Оценить продукт", self.panel)
         self.assertNotIn("Проверить состав", self.panel)
         self.assertIn("evaluationCompositionCheck", self.panel)
-        self.assertIn("composition_state", self.panel)
+        self.assertIn("evaluationProductEvaluate", self.panel)
+        self.assertNotIn("evaluationProductAnalyze", self.panel)
+        self.assertIn("v2Started", self.app)
 
     def test_api_exposes_composition_check(self):
         self.assertIn("evaluationCompositionCheck", self.api)

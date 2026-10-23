@@ -3539,3 +3539,25 @@ select:focus-visible,
 
 
 .evalv2__inci { overflow-wrap: anywhere; }
+.evalv2--intro { padding: 16px; }
+.evalv2__primary { display: block; width: 100%; margin-top: 12px; padding: 14px; background: var(--green); color: white; border: 0; border-radius: 13px; font-weight: 700; cursor: pointer; }
+.evalv2__primary:hover { background: #203d30; }
+.evalv2__parameter-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-top: 11px; }
+.evalv2__parameter-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.evalv2__parameter-head strong { font-size: 15px; }
+.evalv2__parameter-head small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; }
+.evalv2__parameter-score { font-size: 22px; font-weight: 800; letter-spacing: -.7px; }
+.evalv2__parameter-score small { font-size: 11px; color: var(--muted); font-weight: 500; }
+.evalv2__track { height: 9px; margin-top: 10px; border-radius: 20px; background: #e9e7df; overflow: hidden; }
+.evalv2__fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #b4c7b1, #47785d); }
+.evalv2__ticks { display: flex; justify-content: space-between; margin-top: 5px; color: #92948b; font-size: 10px; }
+.evalv2__explain { margin-top: 10px; border-top: 1px solid #eeece5; padding-top: 9px; }
+.evalv2__explain summary { cursor: pointer; color: var(--green); font-size: 12px; font-weight: 700; }
+.evalv2__explain p { margin: 7px 0 0; color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.evalv2__evidence-title { font-weight: 700; color: var(--ink); }
+.evalv2__unassessed { margin-top: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.evalv2__unassessed h4 { margin: 0 0 6px; font-size: 13px; }
+.evalv2__unassessed ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.evalv2__unassessed li { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.evalv2__unassessed em { color: var(--warn); font-style: normal; }
+

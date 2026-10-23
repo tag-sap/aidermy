@@ -624,6 +624,12 @@ export const api = {
       body: JSON.stringify({ profile }),
     })
   },
+  async evaluationProductEvaluate(productId: number, profile: Record<string, unknown>) {
+    return request<EvaluationReport>(`/v1/evaluation/products/${productId}/evaluate`, {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    })
+  },
   async evaluationCompositionCheck(productId: number, sourceUrl?: string) {
     return request<EvaluationCompositionCheck>(
       `/v1/evaluation/products/${productId}/composition/check`,

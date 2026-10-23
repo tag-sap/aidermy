@@ -682,6 +682,55 @@ class ProductEndpointTests(unittest.TestCase):
         self.assertEqual(body["snapshot"]["total"], 75)
         self.assertTrue(body["analysis"]["is_final"])
 
+    def test_user_evaluate_runs_all_missing_parameters_and_reuses_results(self):
+        client, store, app, provider, search = self._wired(admin=False)
+        checked = client.post(
+            "/api/v1/evaluation/products/1/composition/check", json={}
+        )
+        self.assertEqual(checked.status_code, 200, checked.text)
+        self.assertTrue(checked.json()["checked"])
+        response = client.post(
+            "/api/v1/evaluation/products/1/evaluate", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["analysis"]["status"], "complete")
+        self.assertEqual(sorted(body["analysis"]["assessed_parameters"]), ["problem:dryness", "skin_type:dry"])
+        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertEqual(len(provider.calls), 2)
+        first_query_count = len(search.queries)
+
+        again = client.post(
+            "/api/v1/evaluation/products/1/evaluate", json={"profile": PROFILE}
+        )
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(again.json()["analysis"]["status"], "complete")
+        self.assertEqual(len(provider.calls), 2, "valid results must not be researched twice")
+        self.assertEqual(len(search.queries), first_query_count)
+
+    def test_user_evaluate_does_not_turn_provider_failure_into_a_score(self):
+        client, store, app, provider, search = self._wired(admin=False)
+        checked = client.post(
+            "/api/v1/evaluation/products/1/composition/check", json={}
+        )
+        self.assertEqual(checked.status_code, 200, checked.text)
+
+        class FailingProvider:
+            name = "failing"
+
+            def research(self, request):
+                return provider_error("timeout")
+
+        app.state.evaluation_research_provider = FailingProvider()
+        response = client.post(
+            "/api/v1/evaluation/products/1/evaluate", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["analysis"]["assessed_parameters"], [])
+        self.assertIsNone(body["snapshot"]["total"])
+        self.assertIn(body["analysis"]["status"], {"failed", "incomplete"})
+
     def test_research_after_status_upgrades_the_unverified_composition(self):
         client, store, _, provider, _ = self._wired()
         status = client.post(

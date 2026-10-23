@@ -701,6 +701,24 @@ async def product_analyze(
     return await _run_analysis(body, request, user, allow_research=False)
 
 
+@router.post("/products/{product_id}/evaluate")
+async def product_evaluate(
+    product_id: int,
+    payload: ProductAnalysisRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Full user path: reuse current results, research only the gaps.
+
+    This is the same ``AnalysisService`` and research queue used by the admin
+    endpoint; it is not a second scoring implementation. The existing per-run
+    cost/attempt limits and the active-job unique index prevent duplicate paid
+    work. Existing valid evaluations are reused without a provider call.
+    """
+    body = _product_analysis_request(payload, product_id, verify_catalog_inci=False)
+    return await _run_analysis(body, request, user, allow_research=True)
+
+
 @router.post("/products/{product_id}/research")
 async def product_research(
     product_id: int,

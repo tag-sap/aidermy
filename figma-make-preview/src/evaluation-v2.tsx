@@ -1,7 +1,7 @@
-// evaluation-v2.tsx — компактная панель Evaluation V2 внутри существующего drawer.
-// Ничего не заменяет: показывает независимую оценку по параметрам и честный статус
-// готовности. Включается флагом VITE_EVALUATION_V2=1 на сервере, где развёрнут V2.
-import { useCallback, useEffect, useMemo, useState } from "react"
+// evaluation-v2.tsx — пользовательская карточка оценки Evaluation V2.
+// До нажатия показывает только одно действие; после — реальные оценки,
+// шкалы и раскрываемые объяснения. Никаких демонстрационных баллов.
+import { useMemo, useState } from "react"
 import {
   api,
   ApiError,
@@ -9,144 +9,136 @@ import {
   type EvaluationAnalysis,
   type EvaluationCompositionState,
   type EvaluationEvidence,
-  type EvaluationProductStatus,
   type EvaluationReport,
 } from "./api"
 
-const STATUS_LABEL: Record<string, string> = {
-  complete: "Анализ завершён",
-  incomplete: "Анализ не завершён",
-  failed: "Техническая ошибка исследования",
-  blocked: "Нужен пригодный состав",
-}
-
-const GAP_LABEL: Record<string, string> = {
-  missing: "нет результата",
-  stale: "результат устарел",
-  insufficient: "недостаточно доказательств",
-  unsupported: "непригодный статус",
-}
-
 const SECTION_LABEL: Record<string, string> = {
   skin_type: "Тип кожи",
-  problem: "Проблема",
-  goal: "Цель",
+  problem: "Проблема кожи",
+  goal: "Цель ухода",
   intolerance: "Непереносимость",
-  therapy: "Терапия",
+  therapy: "Текущая терапия",
   procedure: "Процедура",
   ingredient: "Ингредиент",
   age: "Возраст",
 }
 
+const VALUE_LABEL: Record<string, string> = {
+  "skin_type:dry": "Сухая кожа",
+  "skin_type:oily": "Жирная кожа",
+  "skin_type:normal": "Нормальная кожа",
+  "skin_type:combination": "Комбинированная кожа",
+  "problem:dryness": "Сухость и обезвоженность",
+  "problem:acne_general": "Склонность к акне",
+  "problem:acne": "Склонность к акне",
+  "goal:hydration": "Цель: увлажнение",
+  "goal:acne": "Цель: уменьшить акне",
+  "intolerance:niacinamide_intolerance": "Непереносимость ниацинамида",
+  "intolerance:fragrance_intolerance": "Непереносимость отдушек",
+  "intolerance:alcohol_intolerance": "Непереносимость спирта",
+  "intolerance:acid_intolerance": "Непереносимость кислот",
+  "intolerance:retinoid_intolerance": "Непереносимость ретиноидов",
+  "therapy:adapalene": "Использование адапалена",
+  "therapy:antibiotic": "Антибактериальная терапия",
+  "therapy:benzoyl_peroxide": "Использование бензоилпероксида",
+  "therapy:tretinoin": "Использование третиноина",
+  "therapy:acid_therapy": "Кислотная терапия",
+  "procedure:recent_biorevitalization@<7": "Биоревитализация: первые 7 дней",
+  "procedure:recent_laser@<7": "Лазерная процедура: первые 7 дней",
+  "procedure:recent_peeling@<7": "Пилинг: первые 7 дней",
+}
+
+const GAP_LABEL: Record<string, string> = {
+  missing: "нужны данные",
+  stale: "результат устарел",
+  insufficient: "недостаточно доказательств",
+  unsupported: "нужна повторная проверка",
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  complete: "Готово",
+  incomplete: "Незавершённая оценка",
+  failed: "Не удалось завершить",
+  blocked: "Нужны данные о составе",
+}
+
 function parameterLabel(parameterId: string): string {
+  if (VALUE_LABEL[parameterId]) return VALUE_LABEL[parameterId]
   const [section, ...rest] = parameterId.split(":")
-  const title = SECTION_LABEL[section] || section
+  const title = SECTION_LABEL[section] || "Параметр профиля"
   const value = rest.join(":").replace(/_/g, " ").trim()
   return value ? `${title}: ${value}` : title
 }
 
-function shortText(text: string, limit = 220): string {
+function shortText(text: string, limit = 240): string {
   const clean = (text || "").replace(/\s+/g, " ").trim()
   return clean.length > limit ? `${clean.slice(0, limit)}…` : clean
 }
 
-function statusTone(status: string): string {
-  if (status === "complete") return "evalv2__badge--ok"
-  if (status === "failed") return "evalv2__badge--bad"
-  if (status === "blocked") return "evalv2__badge--muted"
-  return "evalv2__badge--warn"
+function formatDate(value?: string): string {
+  if (!value || Number.isNaN(Date.parse(value))) return ""
+  return new Date(value).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
+
 
 export function EvaluationV2Panel({
   productId,
   profile,
   enabled = true,
+  onStarted,
 }: {
   productId: number
   profile: Record<string, unknown>
   enabled?: boolean
+  onStarted?: () => void
 }) {
-  const [status, setStatus] = useState<EvaluationProductStatus | null>(null)
+  const [started, setStarted] = useState(false)
   const [report, setReport] = useState<EvaluationReport | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [compositionNotice, setCompositionNotice] = useState("")
+  const [compositionState, setCompositionState] =
+    useState<EvaluationCompositionState | null>(null)
+  const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
-  const [unavailable, setUnavailable] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [stage, setStage] = useState<"idle" | "composition" | "evaluation">("idle")
   const profileKey = useMemo(() => JSON.stringify(profile || {}), [profile])
 
-  const load = useCallback(async () => {
+  const start = async () => {
     if (!EVALUATION_V2_ENABLED || !enabled) return
+    setStarted(true)
+    onStarted?.()
     setLoading(true)
     setError("")
-    try {
-      const data = await api.evaluationProductStatus(productId, JSON.parse(profileKey))
-      setStatus(data)
-      setUnavailable(false)
-    } catch (e) {
-      const statusCode = e instanceof ApiError ? e.status : 0
-      if (statusCode === 401) {
-        setError("Войдите, чтобы увидеть оценку состава V2.")
-      } else if (statusCode === 404 || statusCode === 503) {
-        setUnavailable(true)
-      } else {
-        setError(e instanceof Error ? e.message : "Не удалось получить статус анализа V2.")
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [enabled, productId, profileKey])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  const [stage, setStage] = useState<"idle" | "composition" | "parameters" | "evaluating" | "done">("idle")
-
-  const checkProduct = async () => {
-    if (!EVALUATION_V2_ENABLED || !enabled) return
-    setLoading(true)
-    setError("")
-    setCompositionNotice("")
+    setNotice("")
     setReport(null)
+    setCompositionState(null)
     setStage("composition")
     try {
       const checked = await api.evaluationCompositionCheck(productId)
-      setCompositionNotice(checked.message || "")
-      setStatus((prev) =>
-        prev
-          ? {
-              ...prev,
-              composition: checked.composition,
-              composition_state: checked.composition_state,
-            }
-          : prev
-      )
+      setNotice(checked.message || "")
+      setCompositionState(checked.composition_state)
       if (!checked.composition_state?.usable) {
-        // Нет пригодного состава: не изображаем анализ и не запускаем LLM.
         setStage("idle")
         return
       }
-      setStage("parameters")
-      const data = await api.evaluationProductAnalyze(productId, JSON.parse(profileKey))
-      setStage("evaluating")
-      setReport(data)
-      setStatus((prev) =>
-        prev
-          ? {
-              ...prev,
-              analysis: data.analysis,
-              composition: data.composition,
-              composition_state: data.composition_state,
-            }
-          : prev
+      setStage("evaluation")
+      const data = await api.evaluationProductEvaluate(
+        productId,
+        JSON.parse(profileKey)
       )
-      setStage("done")
+      setReport(data)
+      setStage("idle")
     } catch (e) {
       const statusCode = e instanceof ApiError ? e.status : 0
       if (statusCode === 401) {
         setError("Войдите, чтобы проверить продукт.")
       } else if (statusCode === 503) {
-        setError("Проверка недоступна: сервер не настроен для анализа состава.")
+        setError("Проверка временно недоступна: сервер не готов к анализу.")
       } else {
         setError(e instanceof Error ? e.message : "Не удалось проверить продукт.")
       }
@@ -156,111 +148,87 @@ export function EvaluationV2Panel({
     }
   }
 
-  if (!EVALUATION_V2_ENABLED || !enabled || unavailable) return null
+  if (!EVALUATION_V2_ENABLED || !enabled) return null
 
-  const analysis: EvaluationAnalysis | null = report?.analysis ?? status?.analysis ?? null
-  const snapshot = report?.snapshot ?? status?.snapshot ?? null
-  const total = snapshot?.total ?? null
-  const parameters = snapshot?.parameters ?? []
-  const sources =
-    (analysis?.documents_fetched ?? 0) + (analysis?.documents_reused ?? 0)
+  if (!started) {
+    return (
+      <div className="evalv2 evalv2--intro">
+        <p className="eyebrow">Персональная оценка</p>
+        <p className="evalv2__hint">
+          Проверим состав по вашим ответам о коже и покажем, что подтверждено
+          источниками, а что осталось неизвестным.
+        </p>
+        <button type="button" className="evalv2__primary" onClick={() => void start()}>
+          Проверить для меня
+        </button>
+      </div>
+    )
+  }
+
+  const analysis: EvaluationAnalysis | null = report?.analysis ?? null
+  const total = report?.snapshot?.total ?? null
+  const parameters = report?.snapshot?.parameters ?? []
   const assessedCount = analysis?.assessed_parameters.length ?? 0
   const gapIds = new Set((analysis?.gaps ?? []).map((gap) => gap.parameter_id))
-  const failedOnly = (analysis?.failed_parameters ?? []).filter((pid) => !gapIds.has(pid))
-  const compositionState: EvaluationCompositionState | null =
-    report?.composition_state ?? status?.composition_state ?? null
-  const composition = report?.composition ?? status?.composition ?? null
-  const canEvaluate = compositionState ? compositionState.usable : true
-  const compositionBadge = compositionState?.usable
-    ? compositionState.reason === "trusted_catalog"
-      ? "состав пригоден · доверенный источник"
-      : "состав подтверждён"
-    : "нужна проверка состава"
-  const reportDate =
-    snapshot?.created_at && !Number.isNaN(Date.parse(snapshot.created_at))
-      ? new Date(snapshot.created_at).toLocaleString("ru-RU", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : ""
+  const failedOnly = (analysis?.failed_parameters ?? []).filter((id) => !gapIds.has(id))
   const evidenceFor = (parameterId: string): EvaluationEvidence[] =>
     report?.evidence?.[parameterId] ?? []
-
+  const reportDate = formatDate(report?.snapshot?.created_at)
 
   return (
     <div className="evalv2">
       <div className="evalv2__head">
         <div>
-          <p className="eyebrow">Оценка состава · V2</p>
+          <p className="eyebrow">Персональная оценка</p>
           <p className="evalv2__hint">
-            Независимая оценка по каждому пункту анкеты. Вердикт отключён до калибровки.
+            Оценка по применимым пунктам анкеты. Вердикт отключён до калибровки.
           </p>
         </div>
         <button
           type="button"
           className="evalv2__refresh"
-          onClick={() => void checkProduct()}
+          onClick={() => void start()}
           disabled={loading}
         >
-          {loading ? "Проверяем…" : report ? "Проверить снова" : "Проверить продукт"}
+          {loading ? "Проверяем…" : report ? "Проверить снова" : "Проверить для меня"}
         </button>
       </div>
 
       {loading && (
         <div className="evalv2__stages" aria-live="polite">
-          <span className={stage === "composition" ? "is-active" : stage === "idle" ? "" : "is-done"}>
+          <span className={stage === "composition" ? "is-active" : ""}>
             Проверка состава
           </span>
-          <span className={stage === "parameters" ? "is-active" : stage === "evaluating" || stage === "done" ? "is-done" : ""}>
-            Подготовка параметров
+          <span className={stage === "evaluation" ? "is-active" : ""}>
+            Исследование и оценка параметров
           </span>
-          <span className={stage === "evaluating" ? "is-active" : stage === "done" ? "is-done" : ""}>
-            Оценка параметров
-          </span>
-          <span className={stage === "done" ? "is-done" : ""}>Формирование результата</span>
         </div>
       )}
 
-      <div className="evalv2__composition">
-        <div className="evalv2__composition-head">
-          <span>Состав</span>
-          <span className={`evalv2__badge ${canEvaluate ? "evalv2__badge--ok" : "evalv2__badge--warn"}`}>
-            {compositionBadge}
-          </span>
-        </div>
-        {composition?.inci_raw ? (
-          <p className="evalv2__inci">{composition.inci_raw}</p>
-        ) : (
-          <p className="evalv2__empty">В карточке товара нет сохранённого состава.</p>
-        )}
-        <p className="evalv2__composition-note">
-          {compositionNotice || compositionState?.message || "Состав будет проверен по кнопке «Проверить продукт»."}
-        </p>
-        {composition?.source && (
-          <p className="evalv2__source">
-            Источник: {compositionState?.source_host || composition.source}
-          </p>
-        )}
-      </div>
+      {notice && !loading && !compositionState?.usable && (
+        <p className="evalv2__empty">{shortText(notice, 360)}</p>
+      )}
 
-      {(report || status?.snapshot) && (
-        <div className="evalv2__report-meta">
-          <strong>{report?.product.name || status?.product.name}</strong>
-          {reportDate && <span> · проверено {reportDate}</span>}
-        </div>
+      {error && (
+        <p className="evalv2__error" role="status">
+          {error}
+        </p>
       )}
 
       {analysis && (
         <>
           <div className="evalv2__status">
-            <span className={`evalv2__badge ${statusTone(analysis.status)}`}>
-              {STATUS_LABEL[analysis.status] || analysis.status}
+            <span className={`evalv2__badge ${
+              analysis.status === "complete"
+                ? "evalv2__badge--ok"
+                : analysis.status === "failed"
+                  ? "evalv2__badge--bad"
+                  : "evalv2__badge--warn"
+            }`}>
+              {STATUS_TEXT[analysis.status] || "Оценка"}
             </span>
             {total != null && <span className="evalv2__total">{total.toFixed(2)} / 100</span>}
-            {sources > 0 && <span className="evalv2__meta">источников: {sources}</span>}
+            {reportDate && <span className="evalv2__meta">проверено {reportDate}</span>}
           </div>
 
           {total != null && (
@@ -274,105 +242,94 @@ export function EvaluationV2Panel({
             Оценено: {assessedCount} · не оценено: {analysis.gaps.length + failedOnly.length}
           </p>
 
-          {total == null && analysis.status !== "blocked" && assessedCount === 0 && (
+          {total == null && assessedCount === 0 && (
             <p className="evalv2__empty">
-              Нет ни одной подтверждённой оценки: недостаток данных не заменяется баллом.
+              Нет ни одной подтверждённой оценки. Недостаток данных не заменяется баллом.
             </p>
           )}
 
-          {total == null && analysis.status !== "blocked" && assessedCount > 0 && (
-            <p className="evalv2__empty">
-              Оценки готовы. Нажмите «Проверить продукт», чтобы увидеть баллы и обоснования.
-            </p>
-          )}
 
-          {parameters.length > 0 && (
-            <ul className="evalv2__list">
-              {parameters.map((row) => {
-                const evidence = evidenceFor(row.parameter_id)
-                return (
-                  <li key={row.parameter_id} className="evalv2__item">
-                    <div className="evalv2__item-head">
-                      <span>{parameterLabel(row.parameter_id)}</span>
-                      <b>{row.value}</b>
+
+          {parameters.map((row) => {
+            const evidence = evidenceFor(row.parameter_id)
+            const score = Math.max(0, Math.min(100, Number(row.value)))
+            return (
+              <article className="evalv2__parameter-card" key={row.parameter_id}>
+                <div className="evalv2__parameter-head">
+                  <div>
+                    <strong>{parameterLabel(row.parameter_id)}</strong>
+                    <small>Оценка по вашему профилю</small>
+                  </div>
+                  <span className="evalv2__parameter-score">
+                    {Math.round(score)}<small>/100</small>
+                  </span>
+                </div>
+                <div className="evalv2__track" role="img" aria-label={`Оценка ${Math.round(score)} из 100`}>
+                  <div className="evalv2__fill" style={{ width: `${score}%` }} />
+                </div>
+                <div className="evalv2__ticks" aria-hidden="true">
+                  <span>0</span><span>25</span><span>50</span><span>75</span><span>100</span>
+                </div>
+                <details className="evalv2__explain">
+                  <summary>Почему такая оценка</summary>
+                  <p>{row.reason}</p>
+                  {evidence.length > 0 && (
+                    <div className="evalv2__evidence">
+                      <p className="evalv2__evidence-title">Что подтверждает оценку</p>
+                      <ul>
+                        {evidence.slice(0, 5).map((item) => (
+                          <li key={item.id}>
+                            <p>«{shortText(item.quote, 240)}»</p>
+                            {item.claim && <span>{item.claim}</span>}
+                            {item.source?.url && (
+                              <a href={item.source.url} target="_blank" rel="noreferrer">
+                                {item.source.url}
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <p>{shortText(row.reason)}</p>
-                    {evidence.length > 0 && (
-                      <details className="evalv2__evidence">
-                        <summary>Доказательства ({evidence.length})</summary>
-                        <ul>
-                          {evidence.slice(0, 5).map((item) => (
-                            <li key={item.id}>
-                              <p>«{shortText(item.quote, 180)}»</p>
-                              <span>{item.claim}</span>
-                              {item.source?.url && (
-                                <a href={item.source.url} target="_blank" rel="noreferrer">
-                                  {item.source.url}
-                                </a>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+                  )}
+                </details>
+              </article>
+            )
+          })}
 
-          {analysis.gaps.length > 0 && (
-            <div className="evalv2__gaps">
-              <p className="evalv2__gaps-title">Неоценённые параметры</p>
+          {(analysis.gaps.length > 0 || failedOnly.length > 0) && (
+            <div className="evalv2__unassessed">
+              <h4>Что осталось непроверенным</h4>
               <ul>
-                {analysis.gaps.slice(0, 6).map((gap) => (
+                {analysis.gaps.map((gap) => (
                   <li key={gap.parameter_id}>
                     <span>{parameterLabel(gap.parameter_id)}</span>
-                    <em>{GAP_LABEL[gap.reason] || gap.reason}</em>
+                    <em>{GAP_LABEL[gap.reason] || "требует проверки"}</em>
                   </li>
                 ))}
-              </ul>
-            </div>
-          )}
-
-          {failedOnly.length > 0 && (
-            <div className="evalv2__gaps">
-              <p className="evalv2__gaps-title">Неоценённые параметры: техническая ошибка</p>
-              <ul>
-                {failedOnly.slice(0, 6).map((parameterId) => (
-                  <li key={parameterId}>
+                {failedOnly.map((parameterId) => (
+                  <li key={`failed-${parameterId}`}>
                     <span>{parameterLabel(parameterId)}</span>
-                    <em>ошибка исследования</em>
+                    <em>техническая ошибка исследования</em>
                   </li>
                 ))}
               </ul>
+              <p className="evalv2__note">
+                {analysis.status === "incomplete"
+                  ? "Отчёт неполный: часть параметров пока не имеет подтверждённых данных."
+                  : "Эти пункты не участвуют в итоговой оценке."}
+              </p>
             </div>
-          )}
-
-          {analysis.status === "blocked" && (
-            <p className="evalv2__empty">
-              {compositionState?.message ||
-                "Состав не готов к оценке: проверьте его происхождение и полноту."}
-            </p>
           )}
 
           {analysis.notes.length > 0 && (
-            <p className="evalv2__note">
-              {shortText(analysis.notes[analysis.notes.length - 1], 260)}
-            </p>
+            <p className="evalv2__note">{shortText(analysis.notes[analysis.notes.length - 1], 320)}</p>
           )}
         </>
       )}
 
-      {!analysis && !loading && !error && (
-        <p className="evalv2__empty">Загружаем статус анализа…</p>
-      )}
-      {error && (
-        <p className="evalv2__error" role="status">
-          {error}
-        </p>
+      {!loading && !report && !error && !notice && (
+        <p className="evalv2__empty">Готовим оценку…</p>
       )}
     </div>
   )
 }
-

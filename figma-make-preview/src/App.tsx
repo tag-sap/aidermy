@@ -2089,6 +2089,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const [analysisId, setAnalysisId] = useState<number | undefined>(product.match?.analysis_id)
   const [reportData, setReportData] = useState<ReportResult | null>(null)
   const [showAnalysisExplainer, setShowAnalysisExplainer] = useState(false)
+  const [v2Started, setV2Started] = useState(false)
   const [reportError, setReportError] = useState("")
   const [reviews, setReviews] = useState<Review[]>([])
   const [rating, setRating] = useState(0)
@@ -2440,11 +2441,15 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
 
           {EVALUATION_V2_ENABLED && !!user && (phase === "idle" || phase === "match") && (
             <div className="drawer__body">
-              <EvaluationV2Panel productId={product.id} profile={buildProfile()} />
+              <EvaluationV2Panel
+                productId={product.id}
+                profile={buildProfile()}
+                onStarted={() => setV2Started(true)}
+              />
             </div>
           )}
 
-{(product.barcode || product.variant) && (
+{(!EVALUATION_V2_ENABLED || !user || v2Started) && (product.barcode || product.variant) && (
                 <section className="report-card">
                   <h4>Данные упаковки</h4>
                   {product.variant && <p className="drawer__report-summary">Вариант: {product.variant}</p>}
@@ -2452,7 +2457,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
                 </section>
               )}
 
-{!(EVALUATION_V2_ENABLED && !!user) && (
+{(!EVALUATION_V2_ENABLED || !user || v2Started) && (
               <section className="report-card drawer__inci">
                 <h4>Состав (INCI)</h4>
                 <p className="inci">
@@ -2463,7 +2468,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               </section>
               )}
 
-              {product.slug && (
+              {(!EVALUATION_V2_ENABLED || !user || v2Started) && product.slug && (
                 <section className="drawer__review">
                   <h3>Отзывы о продукте</h3>
 
