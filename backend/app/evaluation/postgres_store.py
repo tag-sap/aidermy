@@ -725,6 +725,37 @@ class PostgresStore:
             raise StoreError("snapshot was not persisted")
         return stored
 
+    def latest_snapshot(
+        self,
+        *,
+        product_id: int,
+        composition_hash: str,
+        user_id: int,
+        profile_fingerprint: Mapping[str, Any],
+    ) -> dict | None:
+        """Last saved result for this product/version/user/profile (no analysis)."""
+        row = self._fetchone(
+            f"""
+            select s.document
+            from {self._table('snapshots')} s
+            join {self._table('product_compositions')} c on c.id = s.composition_id
+            where s.product_id = %s
+              and c.composition_hash = %s
+              and s.user_id = %s
+              and s.profile_fingerprint = %s::jsonb
+            order by s.created_at desc
+            limit 1
+            """,
+            (
+                int(product_id),
+                str(composition_hash),
+                int(user_id),
+                _as_json(dict(profile_fingerprint)),
+            ),
+        )
+        document = row.get("document") if row else None
+        return dict(document) if isinstance(document, Mapping) else None
+
     def get_snapshot(self, snapshot_id: str) -> dict | None:
         row = self._fetchone(
             f"""

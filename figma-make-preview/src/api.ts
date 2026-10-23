@@ -238,6 +238,7 @@ export type EvaluationProductStatus = {
   analysis: EvaluationAnalysis
   current: Array<{ parameter_id: string; status: string; value: number | null; rationale: string }>
   source_urls: string[]
+  snapshot?: EvaluationSnapshot | null
 }
 
 export type EvaluationCompositionCheck = {

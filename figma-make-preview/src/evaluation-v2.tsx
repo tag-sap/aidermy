@@ -159,8 +159,9 @@ export function EvaluationV2Panel({
   if (!EVALUATION_V2_ENABLED || !enabled || unavailable) return null
 
   const analysis: EvaluationAnalysis | null = report?.analysis ?? status?.analysis ?? null
-  const total = report?.snapshot?.total ?? null
-  const parameters = report?.snapshot?.parameters ?? []
+  const snapshot = report?.snapshot ?? status?.snapshot ?? null
+  const total = snapshot?.total ?? null
+  const parameters = snapshot?.parameters ?? []
   const sources =
     (analysis?.documents_fetched ?? 0) + (analysis?.documents_reused ?? 0)
   const assessedCount = analysis?.assessed_parameters.length ?? 0
@@ -176,8 +177,8 @@ export function EvaluationV2Panel({
       : "состав подтверждён"
     : "нужна проверка состава"
   const reportDate =
-    report?.snapshot?.created_at && !Number.isNaN(Date.parse(report.snapshot.created_at))
-      ? new Date(report.snapshot.created_at).toLocaleString("ru-RU", {
+    snapshot?.created_at && !Number.isNaN(Date.parse(snapshot.created_at))
+      ? new Date(snapshot.created_at).toLocaleString("ru-RU", {
           day: "2-digit",
           month: "2-digit",
           year: "numeric",
@@ -245,9 +246,9 @@ export function EvaluationV2Panel({
         )}
       </div>
 
-      {report && (
+      {(report || status?.snapshot) && (
         <div className="evalv2__report-meta">
-          <strong>{report.product.name}</strong>
+          <strong>{report?.product.name || status?.product.name}</strong>
           {reportDate && <span> · проверено {reportDate}</span>}
         </div>
       )}

@@ -142,6 +142,19 @@ class CompositionApiTests(unittest.TestCase):
         self.assertEqual(body["composition_state"]["reason"], "missing")
         self.assertEqual(body["composition_state"]["action"], "provide_inci")
 
+    def test_status_returns_a_saved_snapshot_without_reanalysis(self):
+        client, store = make_client(url=TRUSTED)
+        store.latest_snapshot = lambda **kwargs: {
+            "total": 75,
+            "created_at": "2026-10-23T15:00:00+00:00",
+            "parameters": [{"parameter_id": "skin_type:dry", "value": 75}],
+        }
+        response = client.post(
+            "/api/v1/evaluation/products/5/status", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["snapshot"]["total"], 75)
+
     def test_changed_inci_creates_a_new_composition_hash(self):
         client, store = make_client(url=TRUSTED)
         first = client.post(

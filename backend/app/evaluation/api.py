@@ -47,6 +47,7 @@ from .parameters import PARAMETERS
 from .questionnaire import QUESTIONNAIRE_SOURCE, QUESTIONNAIRE_VERSION, SECTIONS
 from .rules import describe_rules, get_rules
 from .service import DEFAULT_METHOD_VERSION, EvaluationService
+from .snapshot import profile_fingerprint
 from .store import COMPOSITION_ACTIVE, StoreError
 
 router = APIRouter(prefix="/api/v1/evaluation", tags=["evaluation"])
@@ -496,7 +497,10 @@ class CompositionCheckRequest(BaseModel):
 
 
 def _product_status_sync(
-    product_id: int, payload: _ProductStatusRequest, request: Request
+    product_id: int,
+    payload: _ProductStatusRequest,
+    request: Request,
+    user_id: int | None = None,
 ) -> dict:
     store = _store(request)
     service = _service(request)
@@ -533,6 +537,17 @@ def _product_status_sync(
         blocked=blocked,
         extra_notes=tuple(knowledge.notes) + (readiness.message,),
     )
+    latest_snapshot = None
+    if user_id is not None and hasattr(store, "latest_snapshot"):
+        try:
+            latest_snapshot = store.latest_snapshot(
+                product_id=product_id,
+                composition_hash=str(record["composition_hash"]),
+                user_id=int(user_id),
+                profile_fingerprint=profile_fingerprint(payload.profile),
+            )
+        except Exception:  # noqa: BLE001 - a saved result must not break status
+            latest_snapshot = None
     return {
         "product": knowledge.product,
         "composition": {
@@ -546,6 +561,7 @@ def _product_status_sync(
         "analysis": state.as_dict(),
         "current": [item.as_dict() for item in scan.current],
         "source_urls": list(knowledge.source_urls),
+        "snapshot": latest_snapshot,
     }
 
 
@@ -557,7 +573,9 @@ async def product_status(
     user: dict = Depends(get_current_user),
 ) -> dict:
     """What is already known and what is missing (no writes to research, no spend)."""
-    return await run_in_threadpool(_product_status_sync, product_id, payload, request)
+    return await run_in_threadpool(
+        _product_status_sync, product_id, payload, request, int(user["id"])
+    )
 
 
 def _check_composition_sync(
