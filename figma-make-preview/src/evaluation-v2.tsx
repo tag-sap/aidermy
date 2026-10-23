@@ -231,7 +231,7 @@ export function EvaluationV2Panel({
           </span>
         </div>
         {composition?.inci_raw ? (
-          <p className="evalv2__inci">{shortText(composition.inci_raw, 260)}</p>
+          <p className="evalv2__inci">{composition.inci_raw}</p>
         ) : (
           <p className="evalv2__empty">В карточке товара нет сохранённого состава.</p>
         )}
