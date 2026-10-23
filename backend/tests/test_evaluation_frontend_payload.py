@@ -155,6 +155,22 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertNotIn("evaluationProductAnalyze", self.panel)
         self.assertIn("v2Started", self.app)
 
+    def test_v2_report_has_two_separate_sections_without_technical_header(self):
+        self.assertIn("Основная функция", self.panel)
+        self.assertIn("Персональная совместимость", self.panel)
+        for technical in (
+            "Среднее по",
+            "Оценено:",
+            "Незавершённая оценка",
+            "Что осталось непроверенным",
+            "Вердикт отключён",
+            "Проверить снова",
+            "snapshot?.total",
+            "analysis.gaps",
+        ):
+            self.assertNotIn(technical, self.panel, technical)
+        self.assertNotIn("total", self.panel)
+
     def test_api_exposes_composition_check(self):
         self.assertIn("evaluationCompositionCheck", self.api)
         self.assertIn("/composition/check", self.api)

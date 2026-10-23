@@ -268,6 +268,7 @@ class ParameterResult:
     status: str
     included: bool
     reason: str
+    summary: str = ""       # short user-facing answer; full reason stays in diagnostics
 
 
 @dataclass(frozen=True)
@@ -292,6 +293,7 @@ class EngineResult:
                     "status": p.status,
                     "included": p.included,
                     "reason": p.reason,
+                    "summary": p.summary,
                 }
                 for p in self.parameters
             ],

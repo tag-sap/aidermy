@@ -66,8 +66,16 @@ class RegistryTests(unittest.TestCase):
 
         for parameter in PARAMETERS.values():
             values = [value for value, _ in parameter.anchors]
-            self.assertIn(0, values, parameter.id)
-            self.assertIn(100, values, parameter.id)
+            self.assertEqual(values, [0, 25, 50, 75, 100], parameter.id)
+
+    def test_goal_zero_is_a_conflict_not_a_missing_special_purpose(self):
+        from app.evaluation import PARAMETERS
+
+        goal = PARAMETERS["goal:acne"]
+        anchors = dict(goal.anchors)
+        self.assertIn("прямо противоречит", anchors[0])
+        self.assertIn("отсутствие специального назначения", anchors[0])
+        self.assertIn("не «неизвестно»", anchors[50])
 
     def test_parameter_rejects_non_numeric_anchor(self):
         from app.evaluation import Parameter
@@ -236,6 +244,25 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(values["problem:dryness"], 100)
         self.assertEqual(values["skin_type:dry"], 75)
         self.assertEqual(values["goal:hydration"], 0)
+
+    def test_user_summary_is_short_and_drops_score_and_quotes(self):
+        result = evaluate(
+            {"goals": ["hydration"]},
+            [
+                ev(
+                    "goal:hydration",
+                    75,
+                    rationale=(
+                        "Увлажняющие компоненты поддерживают цель. "
+                        "Оценка 75/100. За требование: цитата — «Glycerin holds water»."
+                    ),
+                )
+            ],
+        )
+        row = next(item for item in result.parameters if item.parameter_id == "goal:hydration")
+        self.assertEqual(row.summary, "Увлажняющие компоненты поддерживают цель.")
+        self.assertNotIn("Оценка", row.summary)
+        self.assertNotIn("Glycerin", row.summary)
 
     def test_no_assessed_parameter_means_no_total(self):
         result = evaluate({"skin_type": "sensitive"}, [ev("problem:sensitivity", 100)])

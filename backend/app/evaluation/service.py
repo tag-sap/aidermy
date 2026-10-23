@@ -45,12 +45,17 @@ class EvaluationService:
         method_version: str = DEFAULT_METHOD_VERSION,
         max_age_days: int | None = None,
         review_after_days: int | None = DEFAULT_REVIEW_AFTER_DAYS,
+        aggregate: bool = True,
     ) -> None:
         self.store = store
         self.rules = rules or get_rules()
         self.method_version = method_version
         self.max_age_days = max_age_days
         self.review_after_days = review_after_days
+        # The product report has two independent scores and no overall average.
+        # AnalysisService disables aggregation; legacy snapshot callers may still
+        # request it explicitly for historical diagnostics.
+        self.aggregate = aggregate
 
     # -- composition --------------------------------------------------------
     def ensure_composition(self, product_id: int, composition: Mapping[str, Any]) -> dict:
@@ -98,7 +103,9 @@ class EvaluationService:
             max_age_days=self.max_age_days,
             review_after_days=self.review_after_days,
         )
-        result = evaluate(profile, scan.current, self.rules)
+        result = evaluate(
+            profile, scan.current, self.rules, aggregate=self.aggregate
+        )
         blocked = blocked or str(record.get("status") or "") != "active"
         state = analysis_state(scan=scan, research=research_summary, blocked=blocked)
         snapshot = build_snapshot(

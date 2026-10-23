@@ -200,11 +200,40 @@ export type EvaluationEvidence = {
 
 export type EvaluationParameterRow = {
   parameter_id: string
+  label?: string
   value: number
   status: string
   included: boolean
   weight: number
   reason: string
+  summary?: string
+}
+
+export type EvaluationPrimaryFunction = {
+  label: string
+  purpose: string
+  score: number | null
+  reason: string
+  basis?: Array<{
+    type?: string
+    label: string
+    value: string
+    source?: string
+  }>
+}
+
+export type EvaluationPersonalParameter = {
+  parameter_id: string
+  label: string
+  score: number
+  reason: string
+  evidence?: EvaluationEvidence[]
+}
+
+export type EvaluationUserReport = {
+  product_name: string
+  primary_function: EvaluationPrimaryFunction
+  personal_compatibility: EvaluationPersonalParameter[]
 }
 
 export type EvaluationSnapshot = {
@@ -227,6 +256,8 @@ export type EvaluationReport = {
   snapshot: EvaluationSnapshot
   analysis: EvaluationAnalysis
   evidence?: Record<string, EvaluationEvidence[]>
+  primary_function?: EvaluationPrimaryFunction
+  user_report?: EvaluationUserReport
   plan?: { needed: string[]; stale: string[]; gaps: EvaluationGap[]; blocked: boolean; notes: string[] }
   research?: { documents_fetched: number; documents_reused: number; cost_usd: number; failed: string[]; notes: string[] }
 }

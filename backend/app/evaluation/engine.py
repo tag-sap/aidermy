@@ -1,9 +1,14 @@
 """Deterministic Score Engine v3.
 
 Input:  user profile + stored parameter evaluations + one versioned rule set.
-Output: per-parameter results, total (plain arithmetic mean of assessed scores),
-verdict (only when the rule set is calibrated), limitations and a reproducible
-hash.
+Output: per-parameter results, optionally a legacy arithmetic mean, verdict
+(only when the rule set is calibrated), limitations and a reproducible hash.
+
+``aggregate=False`` is used by the product analysis: its user report has an
+independent primary-function score and personal parameter cards, so it must not
+calculate an overall mean across heterogeneous questionnaire parameters. The
+default remains ``True`` only for historical snapshot callers and direct engine
+checks.
 
 Guarantees:
   * pure function — no I/O, no randomness, no AI;
@@ -19,6 +24,7 @@ Guarantees:
 """
 from __future__ import annotations
 
+import re
 from typing import Mapping, Sequence
 
 from .contracts import (
@@ -60,10 +66,35 @@ def _verdict_for(total: float, rules: RuleSet) -> str | None:
     return None
 
 
+def _summary_from_rationale(label: str, question: str, rationale: str) -> str:
+    """Take only the model's short answer from the audit-ready rationale.
+
+    ``ParameterEvaluation.rationale`` intentionally contains the parameter,
+    score and source quotes for history. The user report must not repeat that
+    technical text: this helper retains at most the first two sentences of the
+    answer and drops the evidence appendix.
+    """
+    text = " ".join(str(rationale or "").split())
+    prefix = f"{label}. {question}"
+    if text.casefold().startswith(prefix.casefold()):
+        text = text[len(prefix):].strip()
+    for marker in ("Оценка ", "За требование", "Против требования", "Без отношения"):
+        index = text.find(marker)
+        if index > 0:
+            text = text[:index].strip()
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    result = " ".join(sentences[:2]).strip()
+    return result if len(result) <= 280 else result[:279].rstrip() + "…"
+
+
 def evaluate(
     profile: Mapping | None,
     evaluations: Sequence[ParameterEvaluation],
     rules: RuleSet | None = None,
+    *,
+    aggregate: bool = True,
 ) -> EngineResult:
     rules = rules or get_rules()
     assert_unique(evaluations)
@@ -163,6 +194,9 @@ def evaluate(
                 status=STATUS_ASSESSED,
                 included=True,
                 reason=evaluation.rationale or "оценка подтверждена сохранёнными доказательствами",
+                summary=_summary_from_rationale(
+                    parameter.label, parameter.question, evaluation.rationale
+                ),
             )
         )
 
@@ -177,7 +211,7 @@ def evaluate(
             "Нет ни одной оценённой оценки — итоговая совместимость не определена. "
             "Пропуски не заменяются нулём или нейтральным баллом."
         )
-    else:
+    elif aggregate:
         total = round(sum(assessed_scores) / len(assessed_scores), 2)
         verdict = _verdict_for(total, rules)
         if not rules.calibrated:

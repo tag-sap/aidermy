@@ -143,7 +143,7 @@ class SharedResearchTests(unittest.TestCase):
             for item in report.snapshot["parameters"]
         }
         self.assertEqual(values, {"problem:dryness": 75, "skin_type:dry": 100})
-        self.assertEqual(report.snapshot["total"], 87.5)
+        self.assertIsNone(report.snapshot["total"])
         self.assertEqual(report.analysis.status, "complete")
         self.assertTrue(report.analysis.is_final)
 
@@ -195,7 +195,7 @@ class HonestIncompletenessTests(unittest.TestCase):
         report = run(make_service(store, provider, FakeDocumentFetcher({URL: PAGE_TEXT})))
         self.assertEqual(report.analysis.status, "incomplete")
         self.assertFalse(report.analysis.is_final)
-        self.assertEqual(report.snapshot["total"], 75)
+        self.assertIsNone(report.snapshot["total"])
         self.assertEqual(
             [gap["parameter_id"] for gap in report.analysis.as_dict()["gaps"]],
             ["skin_type:dry"],

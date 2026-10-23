@@ -1,27 +1,17 @@
-// evaluation-v2.tsx — пользовательская карточка оценки Evaluation V2.
-// До нажатия показывает только одно действие; после — реальные оценки,
-// шкалы и раскрываемые объяснения. Никаких демонстрационных баллов.
+// evaluation-v2.tsx — пользовательский результат Evaluation V2.
+// Две независимые части: основная функция продукта и персональная совместимость.
+// Технические статусы, средние баллы и список непроверенных пунктов здесь не
+// показываются; они остаются в backend/snapshot для диагностики.
 import { useMemo, useState } from "react"
 import {
   api,
   ApiError,
   EVALUATION_V2_ENABLED,
-  type EvaluationAnalysis,
-  type EvaluationCompositionState,
   type EvaluationEvidence,
+  type EvaluationPersonalParameter,
+  type EvaluationPrimaryFunction,
   type EvaluationReport,
 } from "./api"
-
-const SECTION_LABEL: Record<string, string> = {
-  skin_type: "Тип кожи",
-  problem: "Проблема кожи",
-  goal: "Цель ухода",
-  intolerance: "Непереносимость",
-  therapy: "Текущая терапия",
-  procedure: "Процедура",
-  ingredient: "Ингредиент",
-  age: "Возраст",
-}
 
 const VALUE_LABEL: Record<string, string> = {
   "skin_type:dry": "Сухая кожа",
@@ -48,44 +38,117 @@ const VALUE_LABEL: Record<string, string> = {
   "procedure:recent_peeling@<7": "Пилинг: первые 7 дней",
 }
 
-const GAP_LABEL: Record<string, string> = {
-  missing: "нужны данные",
-  stale: "результат устарел",
-  insufficient: "недостаточно доказательств",
-  unsupported: "нужна повторная проверка",
-}
-
-const STATUS_TEXT: Record<string, string> = {
-  complete: "Готово",
-  incomplete: "Незавершённая оценка",
-  failed: "Не удалось завершить",
-  blocked: "Нужны данные о составе",
-}
-
 function parameterLabel(parameterId: string): string {
-  if (VALUE_LABEL[parameterId]) return VALUE_LABEL[parameterId]
-  const [section, ...rest] = parameterId.split(":")
-  const title = SECTION_LABEL[section] || "Параметр профиля"
-  const value = rest.join(":").replace(/_/g, " ").trim()
-  return value ? `${title}: ${value}` : title
+  // The backend snapshot now carries a normal Russian label. Never fall back to
+  // a machine id when an older snapshot is opened.
+  return VALUE_LABEL[parameterId] || "Параметр профиля"
 }
 
-function shortText(text: string, limit = 240): string {
+function shortText(text: string, limit = 300): string {
   const clean = (text || "").replace(/\s+/g, " ").trim()
-  return clean.length > limit ? `${clean.slice(0, limit)}…` : clean
+  return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean
 }
 
-function formatDate(value?: string): string {
-  if (!value || Number.isNaN(Date.parse(value))) return ""
-  return new Date(value).toLocaleString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+function cleanProductName(name: string): string {
+  return (name || "").replace(/\s+/g, " ").trim()
 }
 
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(Number(value))))
+}
+
+
+
+function ScoreBar({ score }: { score: number }) {
+  return (
+    <>
+      <div className="evalv2__track" role="img" aria-label={`Оценка ${score} из 100`}>
+        <div className="evalv2__fill" style={{ width: `${score}%` }} />
+      </div>
+      <div className="evalv2__ticks" aria-hidden="true">
+        <span>0</span><span>25</span><span>50</span><span>75</span><span>100</span>
+      </div>
+    </>
+  )
+}
+
+function PrimaryFunctionCard({ item }: { item: EvaluationPrimaryFunction }) {
+  const score = item.score == null ? null : clampScore(item.score)
+  return (
+    <article className="evalv2__function-card">
+      <div className="evalv2__function-head">
+        <div>
+          <strong>{item.label}</strong>
+          <p>{item.purpose}</p>
+        </div>
+        {score != null && (
+          <span className="evalv2__function-score">
+            {score}<small>/100</small>
+          </span>
+        )}
+      </div>
+      {score != null && <ScoreBar score={score} />}
+      {item.reason && <p className="evalv2__reason">{shortText(item.reason, 260)}</p>}
+      {(item.basis?.length ?? 0) > 0 && (
+        <details className="evalv2__explain">
+          <summary>Что учтено</summary>
+          <ul className="evalv2__basis">
+            {item.basis?.map((row) => (
+              <li key={`${row.label}-${row.value}`}>
+                <strong>{row.label}:</strong> {shortText(row.value, 180)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </article>
+  )
+}
+
+function PersonalParameterCard({
+  item,
+  evidence,
+}: {
+  item: EvaluationPersonalParameter
+  evidence: EvaluationEvidence[]
+}) {
+  const score = clampScore(item.score)
+  return (
+    <article className="evalv2__parameter-card">
+      <div className="evalv2__parameter-head">
+        <div>
+          <strong>{item.label || parameterLabel(item.parameter_id)}</strong>
+          <small>По вашему профилю</small>
+        </div>
+        <span className="evalv2__parameter-score">
+          {score}<small>/100</small>
+        </span>
+      </div>
+      <ScoreBar score={score} />
+      <p className="evalv2__reason">{shortText(item.reason, 260)}</p>
+      {evidence.length > 0 && (
+        <details className="evalv2__explain">
+          <summary>Источники</summary>
+          <div className="evalv2__evidence">
+            <ul>
+              {evidence.slice(0, 5).map((source) => (
+                <li key={source.id}>
+                  <p>«{shortText(source.quote, 220)}»</p>
+                  {source.claim && <span>{source.claim}</span>}
+                  {source.source?.url && (
+                    <a href={source.source.url} target="_blank" rel="noreferrer">
+                      {source.source.url}
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
+      )}
+    </article>
+  )
+}
 
 export function EvaluationV2Panel({
   productId,
@@ -100,12 +163,9 @@ export function EvaluationV2Panel({
 }) {
   const [started, setStarted] = useState(false)
   const [report, setReport] = useState<EvaluationReport | null>(null)
-  const [compositionState, setCompositionState] =
-    useState<EvaluationCompositionState | null>(null)
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
-  const [stage, setStage] = useState<"idle" | "composition" | "evaluation">("idle")
   const profileKey = useMemo(() => JSON.stringify(profile || {}), [profile])
 
   const start = async () => {
@@ -116,33 +176,26 @@ export function EvaluationV2Panel({
     setError("")
     setNotice("")
     setReport(null)
-    setCompositionState(null)
-    setStage("composition")
     try {
       const checked = await api.evaluationCompositionCheck(productId)
-      setNotice(checked.message || "")
-      setCompositionState(checked.composition_state)
       if (!checked.composition_state?.usable) {
-        setStage("idle")
+        setNotice(checked.message || "Не удалось подтвердить состав продукта.")
         return
       }
-      setStage("evaluation")
       const data = await api.evaluationProductEvaluate(
         productId,
         JSON.parse(profileKey)
       )
       setReport(data)
-      setStage("idle")
     } catch (e) {
       const statusCode = e instanceof ApiError ? e.status : 0
       if (statusCode === 401) {
         setError("Войдите, чтобы проверить продукт.")
       } else if (statusCode === 503) {
-        setError("Проверка временно недоступна: сервер не готов к анализу.")
+        setError("Проверка временно недоступна.")
       } else {
-        setError(e instanceof Error ? e.message : "Не удалось проверить продукт.")
+        setError("Не удалось проверить продукт. Попробуйте позже.")
       }
-      setStage("idle")
     } finally {
       setLoading(false)
     }
@@ -153,10 +206,9 @@ export function EvaluationV2Panel({
   if (!started) {
     return (
       <div className="evalv2 evalv2--intro">
-        <p className="eyebrow">Персональная оценка</p>
+        <p className="eyebrow">Оценка продукта</p>
         <p className="evalv2__hint">
-          Проверим состав по вашим ответам о коже и покажем, что подтверждено
-          источниками, а что осталось неизвестным.
+          Проверим основную функцию продукта и его совместимость с вашим профилем.
         </p>
         <button type="button" className="evalv2__primary" onClick={() => void start()}>
           Проверить для меня
@@ -165,48 +217,19 @@ export function EvaluationV2Panel({
     )
   }
 
-  const analysis: EvaluationAnalysis | null = report?.analysis ?? null
-  const total = report?.snapshot?.total ?? null
-  const parameters = report?.snapshot?.parameters ?? []
-  const assessedCount = analysis?.assessed_parameters.length ?? 0
-  const gapIds = new Set((analysis?.gaps ?? []).map((gap) => gap.parameter_id))
-  const failedOnly = (analysis?.failed_parameters ?? []).filter((id) => !gapIds.has(id))
-  const evidenceFor = (parameterId: string): EvaluationEvidence[] =>
-    report?.evidence?.[parameterId] ?? []
-  const reportDate = formatDate(report?.snapshot?.created_at)
+  const userReport = report?.user_report
+  const primary = userReport?.primary_function ?? report?.primary_function ?? null
+  const personal = userReport?.personal_compatibility ?? []
+  const productName = cleanProductName(
+    userReport?.product_name || report?.product?.name || ""
+  )
 
   return (
     <div className="evalv2">
-      <div className="evalv2__head">
-        <div>
-          <p className="eyebrow">Персональная оценка</p>
-          <p className="evalv2__hint">
-            Оценка по применимым пунктам анкеты. Вердикт отключён до калибровки.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="evalv2__refresh"
-          onClick={() => void start()}
-          disabled={loading}
-        >
-          {loading ? "Проверяем…" : report ? "Проверить снова" : "Проверить для меня"}
-        </button>
-      </div>
+      {loading && <p className="evalv2__empty">Проверяем продукт…</p>}
 
-      {loading && (
-        <div className="evalv2__stages" aria-live="polite">
-          <span className={stage === "composition" ? "is-active" : ""}>
-            Проверка состава
-          </span>
-          <span className={stage === "evaluation" ? "is-active" : ""}>
-            Исследование и оценка параметров
-          </span>
-        </div>
-      )}
-
-      {notice && !loading && !compositionState?.usable && (
-        <p className="evalv2__empty">{shortText(notice, 360)}</p>
+      {notice && !loading && !report && (
+        <p className="evalv2__empty">Не удалось подтвердить состав продукта.</p>
       )}
 
       {error && (
@@ -215,120 +238,39 @@ export function EvaluationV2Panel({
         </p>
       )}
 
-      {analysis && (
-        <>
-          <div className="evalv2__status">
-            <span className={`evalv2__badge ${
-              analysis.status === "complete"
-                ? "evalv2__badge--ok"
-                : analysis.status === "failed"
-                  ? "evalv2__badge--bad"
-                  : "evalv2__badge--warn"
-            }`}>
-              {STATUS_TEXT[analysis.status] || "Оценка"}
-            </span>
-            {total != null && <span className="evalv2__total">{total.toFixed(2)} / 100</span>}
-            {reportDate && <span className="evalv2__meta">проверено {reportDate}</span>}
+      {primary && (
+        <section className="evalv2__report">
+          <div className="evalv2__product-head">
+            <p className="eyebrow">Основная функция</p>
+            {productName && <h4 className="evalv2__product-name">{productName}</h4>}
           </div>
+          <PrimaryFunctionCard item={primary} />
 
-          {total != null && (
-            <p className="evalv2__score-note">
-              Среднее по {assessedCount} оценённым параметрам. Это не вероятность
-              эффективности и не медицинская рекомендация.
-            </p>
-          )}
-
-          <p className="evalv2__summary">
-            Оценено: {assessedCount} · не оценено: {analysis.gaps.length + failedOnly.length}
-          </p>
-
-          {total == null && assessedCount === 0 && (
-            <p className="evalv2__empty">
-              Нет ни одной подтверждённой оценки. Недостаток данных не заменяется баллом.
-            </p>
-          )}
-
-
-
-          {parameters.map((row) => {
-            const evidence = evidenceFor(row.parameter_id)
-            const score = Math.max(0, Math.min(100, Number(row.value)))
-            return (
-              <article className="evalv2__parameter-card" key={row.parameter_id}>
-                <div className="evalv2__parameter-head">
-                  <div>
-                    <strong>{parameterLabel(row.parameter_id)}</strong>
-                    <small>Оценка по вашему профилю</small>
-                  </div>
-                  <span className="evalv2__parameter-score">
-                    {Math.round(score)}<small>/100</small>
-                  </span>
-                </div>
-                <div className="evalv2__track" role="img" aria-label={`Оценка ${Math.round(score)} из 100`}>
-                  <div className="evalv2__fill" style={{ width: `${score}%` }} />
-                </div>
-                <div className="evalv2__ticks" aria-hidden="true">
-                  <span>0</span><span>25</span><span>50</span><span>75</span><span>100</span>
-                </div>
-                <details className="evalv2__explain">
-                  <summary>Почему такая оценка</summary>
-                  <p>{row.reason}</p>
-                  {evidence.length > 0 && (
-                    <div className="evalv2__evidence">
-                      <p className="evalv2__evidence-title">Что подтверждает оценку</p>
-                      <ul>
-                        {evidence.slice(0, 5).map((item) => (
-                          <li key={item.id}>
-                            <p>«{shortText(item.quote, 240)}»</p>
-                            {item.claim && <span>{item.claim}</span>}
-                            {item.source?.url && (
-                              <a href={item.source.url} target="_blank" rel="noreferrer">
-                                {item.source.url}
-                              </a>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </details>
-              </article>
-            )
-          })}
-
-          {(analysis.gaps.length > 0 || failedOnly.length > 0) && (
-            <div className="evalv2__unassessed">
-              <h4>Что осталось непроверенным</h4>
-              <ul>
-                {analysis.gaps.map((gap) => (
-                  <li key={gap.parameter_id}>
-                    <span>{parameterLabel(gap.parameter_id)}</span>
-                    <em>{GAP_LABEL[gap.reason] || "требует проверки"}</em>
-                  </li>
-                ))}
-                {failedOnly.map((parameterId) => (
-                  <li key={`failed-${parameterId}`}>
-                    <span>{parameterLabel(parameterId)}</span>
-                    <em>техническая ошибка исследования</em>
-                  </li>
-                ))}
-              </ul>
-              <p className="evalv2__note">
-                {analysis.status === "incomplete"
-                  ? "Отчёт неполный: часть параметров пока не имеет подтверждённых данных."
-                  : "Эти пункты не участвуют в итоговой оценке."}
+          <section className="evalv2__compatibility">
+            <h4>Персональная совместимость</h4>
+            {personal.length > 0 ? (
+              personal.map((item) => (
+                <PersonalParameterCard
+                  key={item.parameter_id}
+                  item={item}
+                  evidence={
+                    item.evidence?.length
+                      ? item.evidence
+                      : report?.evidence?.[item.parameter_id] ?? []
+                  }
+                />
+              ))
+            ) : (
+              <p className="evalv2__empty">
+                Для вашего профиля нет подтверждённых персональных оценок.
               </p>
-            </div>
-          )}
-
-          {analysis.notes.length > 0 && (
-            <p className="evalv2__note">{shortText(analysis.notes[analysis.notes.length - 1], 320)}</p>
-          )}
-        </>
+            )}
+          </section>
+        </section>
       )}
 
-      {!loading && !report && !error && !notice && (
-        <p className="evalv2__empty">Готовим оценку…</p>
+      {!loading && !primary && !error && !notice && (
+        <p className="evalv2__empty">Не удалось получить оценку продукта.</p>
       )}
     </div>
   )

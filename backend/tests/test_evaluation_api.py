@@ -504,7 +504,7 @@ class AnalyzeEndpointTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["analysis"]["status"], "complete")
         self.assertTrue(body["analysis"]["is_final"])
-        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertIsNone(body["snapshot"]["total"])
         self.assertEqual(body["research"]["documents_fetched"], 1)
         self.assertEqual(body["snapshot"]["analysis"]["status"], "complete")
 
@@ -637,7 +637,7 @@ class ProductEndpointTests(unittest.TestCase):
         self.assertEqual(body["composition"]["status"], "active")
         self.assertEqual(body["analysis"]["status"], "complete")
         self.assertTrue(body["analysis"]["is_final"])
-        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertIsNone(body["snapshot"]["total"])
         self.assertEqual(len(provider.calls), 2)
         self.assertTrue(search.queries)
 
@@ -679,7 +679,7 @@ class ProductEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertEqual(body["analysis"]["status"], "complete")
-        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertIsNone(body["snapshot"]["total"])
         self.assertTrue(body["analysis"]["is_final"])
 
     def test_user_evaluate_runs_all_missing_parameters_and_reuses_results(self):
@@ -696,7 +696,7 @@ class ProductEndpointTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["analysis"]["status"], "complete")
         self.assertEqual(sorted(body["analysis"]["assessed_parameters"]), ["problem:dryness", "skin_type:dry"])
-        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertIsNone(body["snapshot"]["total"])
         self.assertEqual(len(provider.calls), 2)
         first_query_count = len(search.queries)
 
@@ -775,7 +775,7 @@ class ProductEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertEqual(len(body["analysis"]["assessed_parameters"]), 8)
-        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertIsNone(body["snapshot"]["total"])
         self.assertEqual(len(body["analysis"]["gaps"]), 0)
 
     def test_research_after_status_upgrades_the_unverified_composition(self):

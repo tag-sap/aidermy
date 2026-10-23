@@ -37,7 +37,10 @@ from .documents import (
 from .evidence import Evidence, validate_candidates
 from .freshness import DEFAULT_REVIEW_AFTER_DAYS
 from .gaps import KnowledgeScan, ParameterGap, scan_parameters
+from ..catalog_taxonomy import classify_product
+from ..category_knowledge import get_category_knowledge
 from .parameters import PARAMETERS, resolve_parameters
+from .primary_function import build_primary_function
 from .research import (
     RESEARCH_INSUFFICIENT,
     RESEARCH_OK,
@@ -484,6 +487,14 @@ class ResearchService:
         documents: Sequence[SourceDocument] = (),
         source_urls: Sequence[str] = (),
     ) -> ResearchRequest:
+        classification = classify_product(dict(product))
+        canonical = str(classification.get("canonical_category") or "").strip()
+        category = get_category_knowledge(canonical)
+        primary = build_primary_function(
+            product,
+            {**composition, "inci_raw": composition.get("inci_raw") or ""},
+            composition_status=str(composition.get("status") or "active"),
+        )
         return ResearchRequest(
             product_id=int(product["id"]),
             product_name=str(product.get("name") or ""),
@@ -495,6 +506,10 @@ class ResearchService:
             scale_anchors=tuple(parameter.anchors),
             parameter_question=parameter.question,
             parameter_definition=parameter.definition,
+            product_type=canonical,
+            primary_function=str(primary.get("label") or ""),
+            category_purpose=str(category.get("intended_purpose") or ""),
+            category_guidance=str(category.get("report_guidance") or ""),
             documents=tuple(documents),
             source_urls=tuple(source_urls),
         )

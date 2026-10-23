@@ -6,7 +6,11 @@ import unittest
 
 from app.evaluation.documents import SourceDocument
 from app.evaluation.evidence import validate_candidates
-from app.evaluation.llm_research import LlmResearchProvider
+from app.evaluation.llm_research import (
+    LlmResearchProvider,
+    SYSTEM_PROMPT,
+    _build_user_prompt,
+)
 from app.evaluation.research import RESEARCH_PROVIDER_ERROR, RESEARCH_SOURCE_UNAVAILABLE, ResearchRequest
 
 URL = "https://brand.example/serum"
@@ -79,6 +83,43 @@ def fake_post(payload: dict, content: str | None = None, usage=(100, 50)):
 
 
 class LlmProviderTests(unittest.TestCase):
+    def test_prompt_contains_product_function_context_and_five_scale_levels(self):
+        item = ResearchRequest(
+            product_id=7,
+            product_name="Hydrating Cream",
+            composition_hash="a" * 64,
+            ingredients=("Aqua", "Glycerin"),
+            parameter_id="goal:acne",
+            parameter_label="Цель: уменьшить акне",
+            method_version="research-1.0.0-draft",
+            scale_anchors=(
+                (0, "подтверждённое противоречие"),
+                (25, "в основном не соответствует"),
+                (50, "смешанное соответствие"),
+                (75, "в основном соответствует"),
+                (100, "прямое соответствие"),
+            ),
+            parameter_question="Соответствует ли состав цели?",
+            parameter_definition="Оценить свойства состава.",
+            product_type="Кремы",
+            primary_function="Увлажнение",
+            category_purpose="Увлажнить и смягчить кожу.",
+            category_guidance="Опираться на подтверждённые свойства состава.",
+            documents=(document(),),
+        )
+        prompt = _build_user_prompt(item, item.documents, 2000)
+        for expected in (
+            "Тип продукта: Кремы",
+            "Основная функция: Увлажнение",
+            "Назначение категории:",
+            "0: подтверждённое противоречие",
+            "50: смешанное соответствие",
+            "100: прямое соответствие",
+        ):
+            self.assertIn(expected, prompt)
+        self.assertIn("предназначен лечить акне", SYSTEM_PROMPT)
+        self.assertIn("отсутствие специального назначения", SYSTEM_PROMPT)
+
     def test_without_documents_nothing_is_invented(self):
         outcome = LlmResearchProvider(post=fake_post(provider_response())).research(
             request(documents=[])

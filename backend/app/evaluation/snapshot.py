@@ -103,11 +103,13 @@ def build_snapshot(
         "parameters": [
             {
                 "parameter_id": item.parameter_id,
+                "label": item.label,
                 "value": item.value,
                 "status": item.status,
                 "included": item.included,
                 "weight": item.weight,
                 "reason": item.reason,
+                "summary": item.summary,
             }
             for item in result.parameters
             if item.included and item.value is not None

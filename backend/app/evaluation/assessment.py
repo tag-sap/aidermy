@@ -436,6 +436,17 @@ def assess(
         raise ContractError(
             f"{item.id}: score {score!r} is not allowed; expected one of {list(allowed)}"
         )
+    # The scale's zero means a confirmed contradiction, not missing evidence and
+    # not "the product does not have this special purpose". This guard prevents
+    # an ordinary cleanser/moisturiser from receiving 0 merely because it is not
+    # an acne treatment. A model that wants 0 must point to contradictory data.
+    if int(score) == 0 and not any(
+        entry.usable and entry.direction == "contradicts" for entry in confirmed
+    ):
+        raise ContractError(
+            f"{item.id}: score 0 requires confirmed contradictory evidence; "
+            "absence of a special purpose or missing data is not a contradiction"
+        )
     answer = str(proposal.rationale or "").strip()
     if len(answer) < MIN_RATIONALE_CHARS:
         raise ContractError(

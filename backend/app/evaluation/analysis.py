@@ -29,6 +29,7 @@ from .knowledge import (
     assess_composition,
     load_product_knowledge,
 )
+from .primary_function import build_primary_function, public_primary_function
 from .research import ResearchProvider
 from .research_service import (
     DEFAULT_MAX_ATTEMPTS,
@@ -59,10 +60,38 @@ class AnalysisReport:
     plan: ResearchPlan | None = None
     knowledge: ProductKnowledge | None = None
     evidence: dict[str, list[dict]] = field(default_factory=dict)
+    primary_function: dict = field(default_factory=dict)
 
     @property
     def is_final(self) -> bool:
         return self.analysis.is_final
+
+    def user_report(self) -> dict:
+        """The compact, non-technical result rendered in the product drawer.
+
+        Internal statuses, gaps, provider errors, the historical average and
+        source-quote audit material stay in ``snapshot``/``analysis``/``evidence``
+        for administrators and audit; this projection contains only the two
+        user-facing sections.
+        """
+        personal = []
+        for row in self.snapshot.get("parameters") or []:
+            if not row.get("included") or row.get("value") is None:
+                continue
+            parameter_id = str(row.get("parameter_id") or "")
+            personal.append({
+                "parameter_id": parameter_id,
+                "label": str(row.get("label") or ""),
+                "score": row.get("value"),
+                "reason": str(row.get("summary") or row.get("reason") or ""),
+                "evidence": list(self.evidence.get(parameter_id) or []),
+            })
+        name = " ".join(str(self.product.get("name") or "").replace("\n", " ").split())
+        return {
+            "product_name": name,
+            "primary_function": public_primary_function(self.primary_function),
+            "personal_compatibility": personal,
+        }
 
     def as_dict(self) -> dict:
         payload = {
@@ -76,6 +105,8 @@ class AnalysisReport:
             "snapshot": self.snapshot,
             "analysis": self.analysis.as_dict(),
             "evidence": self.evidence,
+            "primary_function": self.primary_function,
+            "user_report": self.user_report(),
         }
         if self.plan is not None:
             payload["plan"] = {
@@ -144,6 +175,10 @@ class AnalysisService:
             method_version=method_version,
             max_age_days=max_age_days,
             review_after_days=review_after_days,
+            # The user-facing analysis has a primary-function score and
+            # independent personal parameters; it must not calculate a mean
+            # across heterogeneous questionnaire parameters.
+            aggregate=False,
         )
 
     # -- public API ----------------------------------------------------------
@@ -258,6 +293,11 @@ class AnalysisService:
             if confirmed:
                 evidence_by_parameter[parameter_id] = confirmed
 
+        primary_function = build_primary_function(
+            product,
+            {**record, "inci_raw": record.get("inci_raw") or composition.get("inci_raw") or ""},
+            composition_status=str(record.get("status") or ""),
+        )
         return AnalysisReport(
             product={
                 "id": int(product_id),
@@ -276,6 +316,7 @@ class AnalysisService:
             plan=plan,
             knowledge=knowledge,
             evidence=evidence_by_parameter,
+            primary_function=primary_function,
         )
 
 

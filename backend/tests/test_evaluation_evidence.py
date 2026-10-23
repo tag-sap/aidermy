@@ -145,13 +145,26 @@ class AssessmentTests(unittest.TestCase):
         )
 
     def test_each_allowed_score_is_accepted(self):
-        evidence = confirmed(strength="strong", confidence=1.0)
         for score in (0, 25, 50, 75, 100):
+            # 0 is a confirmed contradiction; the other levels may be supported.
+            evidence = confirmed(
+                direction="contradicts" if score == 0 else "supports",
+                strength="strong",
+                confidence=1.0,
+            )
             result = self.evaluate(evidence, proposal=self.proposal(score=score))
             self.assertEqual(result.status, "assessed", score)
             self.assertEqual(result.value, score)
             self.assertTrue(result.evidence_ids)
             self.assertIn(f"Оценка {score}/100", result.rationale)
+
+    def test_zero_without_contradictory_evidence_is_rejected(self):
+        # "Not intended for this special purpose" / silence is not a conflict.
+        with self.assertRaises(ContractError):
+            self.evaluate(
+                confirmed(direction="supports"),
+                proposal=self.proposal(score=0),
+            )
 
     def test_scores_outside_the_five_levels_are_rejected(self):
         evidence = confirmed()

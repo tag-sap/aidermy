@@ -99,6 +99,13 @@ class ResearchRequest:
     scale_anchors: tuple[tuple[int, str], ...] = ()
     parameter_question: str = ""
     parameter_definition: str = ""
+    # Product-level context from the trusted catalogue. It helps the model
+    # separate "this product has another main purpose" from "this product is
+    # incompatible with the user's goal". It never contains profile answers.
+    product_type: str = ""
+    primary_function: str = ""
+    category_purpose: str = ""
+    category_guidance: str = ""
     # Shared product knowledge for this research session: the pages already
     # fetched for this composition. Every parameter is answered from the SAME
     # documents, so one download serves all unknown parameters.

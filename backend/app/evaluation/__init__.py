@@ -94,6 +94,11 @@ from .knowledge import (
     load_product_knowledge,
 )
 from .analysis import AnalysisReport, AnalysisService, AnalysisUnavailable
+from .primary_function import (
+    PRIMARY_FUNCTION_VERSION,
+    build_primary_function,
+    public_primary_function,
+)
 from .llm_research import LlmResearchProvider
 from .research_service import ResearchPlan, ResearchRunReport, ResearchService
 from .snapshot import (
@@ -143,6 +148,9 @@ __all__ = [
     "AnalysisReport",
     "AnalysisService",
     "AnalysisUnavailable",
+    "PRIMARY_FUNCTION_VERSION",
+    "build_primary_function",
+    "public_primary_function",
     "AnalysisState",
     "KnowledgeScan",
     "ParameterGap",
