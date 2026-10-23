@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
-import { api, ApiError, setToken, getToken, type ApiProduct, type ReportResult, type Review } from "./api"
+import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review } from "./api"
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import { PhotoScan } from "./photo-scan"
 import { ReportDetails } from "./report-details"
+import { EvaluationV2Panel } from "./evaluation-v2"
 import { AnimatedBorderWrapper } from "./components/ui/moving-border"
 import {
   products, skinProfile, shelfReport, CABINETS, FACE_TAXONOMY, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
@@ -2436,6 +2437,12 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
           </div>
 
+
+          {EVALUATION_V2_ENABLED && !!user && (phase === "idle" || phase === "match") && (
+            <div className="drawer__body">
+              <EvaluationV2Panel productId={product.id} profile={buildProfile()} />
+            </div>
+          )}
 
           {phase === "idle" && (
             <div className="drawer__body">

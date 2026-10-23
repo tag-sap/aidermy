@@ -144,6 +144,79 @@ export type Review = {
   created_at?: string
 }
 
+// ===== Evaluation V2 (per-parameter analysis) =====
+// Включается только на серверах, где развёрнут Evaluation V2 и задан
+// VITE_EVALUATION_V2=1. По умолчанию выключено: текущий отчёт продолжает работать.
+export const EVALUATION_V2_ENABLED = String(import.meta.env.VITE_EVALUATION_V2 ?? "") === "1"
+
+export type EvaluationGap = {
+  parameter_id: string
+  reason: "missing" | "stale" | "insufficient" | "unsupported" | string
+  detail?: string
+}
+
+export type EvaluationAnalysis = {
+  status: "complete" | "incomplete" | "failed" | "blocked" | string
+  is_final: boolean
+  assessed_parameters: string[]
+  not_applicable_parameters: string[]
+  gaps: EvaluationGap[]
+  failed_parameters: string[]
+  deferred_parameters: string[]
+  exhausted_parameters: string[]
+  documents_fetched: number
+  documents_reused: number
+  notes: string[]
+}
+
+export type EvaluationComposition = {
+  hash?: string
+  composition_hash?: string
+  source?: string
+  verified_at?: string
+  status?: string
+  inci_raw?: string
+}
+
+export type EvaluationParameterRow = {
+  parameter_id: string
+  value: number
+  status: string
+  included: boolean
+  weight: number
+  reason: string
+}
+
+export type EvaluationSnapshot = {
+  snapshot_id: string
+  product: { id: number; name: string }
+  composition: EvaluationComposition
+  parameters: EvaluationParameterRow[]
+  total: number | null
+  verdict: string | null
+  completeness: number
+  analysis: EvaluationAnalysis
+  limitations: string[]
+  created_at: string
+}
+
+export type EvaluationReport = {
+  product: { id: number; name: string; brand?: string }
+  composition: EvaluationComposition
+  snapshot: EvaluationSnapshot
+  analysis: EvaluationAnalysis
+  plan?: { needed: string[]; stale: string[]; gaps: EvaluationGap[]; blocked: boolean; notes: string[] }
+  research?: { documents_fetched: number; documents_reused: number; cost_usd: number; failed: string[]; notes: string[] }
+}
+
+export type EvaluationProductStatus = {
+  product: { id: number; name: string; brand?: string; url?: string; has_reliable_inci?: boolean }
+  composition: EvaluationComposition
+  analysis: EvaluationAnalysis
+  current: Array<{ parameter_id: string; status: string; value: number | null; rationale: string }>
+  source_urls: string[]
+}
+
 export type ShelfItem = {
   id: number
   shelf_id: number
@@ -499,6 +572,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ slug, analysis_id: analysisId ?? null }),
     })
+  },
+
+  // ===== evaluation v2 =====
+  // Статус/анализ не тратят деньги на исследование: /research — только админ.
+  async evaluationHealth() {
+    return request<{ storage?: { configured?: boolean }; research?: Record<string, string>; schema?: Record<string, unknown> }>(
+      "/v1/evaluation/health"
+    )
+  },
+  async evaluationProductStatus(productId: number, profile: Record<string, unknown>) {
+    return request<EvaluationProductStatus>(`/v1/evaluation/products/${productId}/status`, {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    })
+  },
+  async evaluationProductAnalyze(productId: number, profile: Record<string, unknown>) {
+    return request<EvaluationReport>(`/v1/evaluation/products/${productId}/analyze`, {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    })
+  },
+  async evaluationSnapshot(snapshotId: string) {
+    return request<{ snapshot: EvaluationSnapshot }>(
+      `/v1/evaluation/snapshots/${encodeURIComponent(snapshotId)}`
+    )
   },
 
   // ===== отзывы =====

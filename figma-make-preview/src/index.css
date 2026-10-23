@@ -3490,3 +3490,29 @@ select:focus-visible,
 .moving-border__dot { position: absolute; left: 0; top: 0; width: 54px; height: 54px; border-radius: 50%; background: radial-gradient(circle, rgba(155, 255, 87, .95) 0%, rgba(155, 255, 87, .35) 35%, transparent 70%); filter: blur(1px); will-change: transform; }
 @media (min-width: 768px) { .moving-border__layer { display: none; } }
 @media (prefers-reduced-motion: reduce) { .moving-border__layer { display: none; } }
+
+/* Evaluation V2 panel (feature flag VITE_EVALUATION_V2=1) */
+.evalv2 { margin: 0 0 14px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.evalv2__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.evalv2__hint { margin: 2px 0 0; font-size: 12px; color: var(--ink-soft); }
+.evalv2__refresh { border: 1px solid var(--border-strong); background: var(--paper); border-radius: 999px; padding: 6px 12px; font-size: 12px; cursor: pointer; color: var(--ink); }
+.evalv2__refresh:disabled { opacity: .6; cursor: default; }
+.evalv2__status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.evalv2__badge { font-size: 11px; padding: 3px 8px; border-radius: 999px; }
+.evalv2__badge--ok { background: var(--good-bg); color: var(--good); }
+.evalv2__badge--warn { background: var(--warn-bg); color: var(--warn); }
+.evalv2__badge--bad { background: var(--bad-bg); color: var(--bad); }
+.evalv2__badge--muted { background: var(--surface); color: var(--ink-soft); border: 1px solid var(--border); }
+.evalv2__total { font-weight: 600; }
+.evalv2__meta { font-size: 12px; color: var(--ink-soft); }
+.evalv2__list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.evalv2__item { background: var(--paper); border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; }
+.evalv2__item-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.evalv2__item p { margin: 4px 0 0; font-size: 12px; color: var(--ink-soft); }
+.evalv2__gaps { margin-top: 10px; font-size: 12px; }
+.evalv2__gaps-title { margin: 0 0 4px; font-weight: 600; }
+.evalv2__gaps ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.evalv2__gaps li { display: flex; justify-content: space-between; gap: 8px; }
+.evalv2__gaps em { color: var(--warn); font-style: normal; }
+.evalv2__empty, .evalv2__note { margin: 8px 0 0; font-size: 12px; color: var(--ink-soft); }
+.evalv2__error { margin: 8px 0 0; font-size: 12px; color: var(--bad); }
