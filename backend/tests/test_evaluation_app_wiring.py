@@ -54,5 +54,35 @@ class AppWiringTests(unittest.TestCase):
         self.assertIn("build_store_from_env", runtime)
 
 
+class MigrationDiscoveryTests(unittest.TestCase):
+    def test_finds_migrations_in_both_layouts_and_dedupes(self):
+        import importlib.util
+        import tempfile
+
+        script = BACKEND / "scripts" / "apply_evaluation_migrations.py"
+        spec = importlib.util.spec_from_file_location("apply_eval_migrations", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            first = root / "migrations"
+            second = root / "sql"
+            first.mkdir()
+            second.mkdir()
+            (first / "20261023_evaluation_v2.sql").write_text("select 1")
+            (second / "20261023_evaluation_v2.sql").write_text("select 1")
+            (second / "20261024_evaluation_v2_statuses.sql").write_text("select 2")
+            module.MIGRATION_DIRS = (first, second)
+            names = [path.name for path in module.migration_files()]
+            self.assertEqual(
+                names,
+                [
+                    "20261023_evaluation_v2.sql",
+                    "20261024_evaluation_v2_statuses.sql",
+                ],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,12 +29,21 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from evaluation_test_env import guard_local_test_dsn  # noqa: E402
 
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
-MIGRATIONS = BACKEND / "migrations"
+# In this repository migrations live in backend/migrations; the production working
+# copy keeps them in backend/sql. Both layouts are supported, files are deduped by
+# name and applied in date order.
+MIGRATION_DIRS = (BACKEND / "migrations", BACKEND / "sql")
 
 
 def migration_files() -> list[pathlib.Path]:
     """Evaluation V2 migrations in filename (date) order."""
-    return sorted(MIGRATIONS.glob("*evaluation_v2*.sql"))
+    found: dict[str, pathlib.Path] = {}
+    for directory in MIGRATION_DIRS:
+        if not directory.is_dir():
+            continue
+        for path in directory.glob("*evaluation_v2*.sql"):
+            found.setdefault(path.name, path)
+    return [found[name] for name in sorted(found)]
 
 
 def apply(dsn: str, *, dry_run: bool = False) -> dict:
