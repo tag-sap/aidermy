@@ -27,3 +27,7 @@ calibration/
 *.backup
 *.bak-*
 *.db.*
+
+# local deployment scratch (never commit)
+_deploy_tmp/
+wip_manifest.json
