@@ -5,12 +5,17 @@ scores. This module does NOT derive a score from quotes: it validates the
 proposal and stores exactly one of three outcomes.
 
   * ``not_applicable``      — the parameter does not apply to this product
-    (only when the proposal gives a reason and cites at least one confirmed
-    source; never for safety-relevant sections);
+    (only when the proposal gives a reason and cites at least one confirmed,
+    fetched source for *this* parameter: applicability is checked against the
+    evidence, not against the name of the section);
   * ``insufficient_evidence``— applicable, but the evidence does not support a
     score (never mapped to 0/50, never treated as harm);
   * ``assessed``            — an allowed score plus an explanation plus references
     to confirmed, stored evidence.
+
+Intolerance parameters additionally pass a deterministic INCI check
+(``evaluation/inci.py``): an unverifiable composition never yields a score or an
+exclusion, and a present ingredient contradicts "not applicable" / 100.
 
 Structural violations (a score outside 0/25/50/75/100, a score without a
 sufficient-evidence decision, missing explanation, references to rejected or
@@ -23,7 +28,7 @@ the model's cosmetological reasoning.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from .contracts import (
     SCORE_LEVELS,
@@ -35,16 +40,12 @@ from .contracts import (
     ParameterEvaluation,
 )
 from .evidence import Evidence
+from .inci import NOT_LISTED, PRESENT, UNVERIFIABLE, InciCheck, check_intolerance
 from .parameters import PARAMETERS
 from .research import APPLICABLE, APPLICABILITY, NOT_APPLICABLE, AssessmentProposal
 
-ASSESS_RULE_VERSION = "assessment-3.0.0"
+ASSESS_RULE_VERSION = "assessment-3.1.0"
 MIN_RATIONALE_CHARS = 30
-
-# Sections where a "not applicable" decision could silently exclude a safety
-# question (allergy, active therapy, recent procedure). Such parameters are
-# always assessed or marked insufficient, never inapplicable.
-SAFETY_SECTIONS = ("intolerance", "therapy", "procedure")
 
 # Model text must not assert clinical outcomes. Source quotes are exempt: they
 # are verbatim source text, not our conclusion.
@@ -195,18 +196,26 @@ def assess(
     method_version: str,
     evaluated_at: str,
     evidence_ids: Sequence[str] = (),
+    composition: Mapping | None = None,
     allowed_scores: Sequence[int] = SCORE_LEVELS,
     rule_version: str = ASSESS_RULE_VERSION,
+    allow_synthetic_evidence: bool = False,
 ) -> ParameterEvaluation:
     """Validate the model's proposal and store exactly one outcome.
 
     ``proposal is None`` means the provider found no sources: the parameter is
     applicable but has no evidence, so it is stored as ``insufficient_evidence``
     (never as ``not_applicable`` and never with a score).
+
+    ``composition`` is the verified composition record used for a deterministic
+    INCI check of intolerance parameters. ``allow_synthetic_evidence`` is an
+    explicit test-only opt-in: without it, evidence whose provenance is not
+    ``fetched`` cannot produce a score or an exclusion.
     """
     item = as_parameter(parameter)
     evidence = list(evidence)
     allowed = tuple(int(level) for level in allowed_scores)
+    checked: InciCheck | None = check_intolerance(item, composition)
 
     base = dict(
         composition_hash=composition_hash,
@@ -215,6 +224,13 @@ def assess(
     )
 
     if proposal is None:
+        initial = [
+            "Параметр применим, но доказательств недостаточно — оценка не выставляется.",
+            "Отсутствие подтверждений пользы не является доказательством вреда.",
+            f"Правила оценки: {rule_version} (не откалиброваны).",
+        ]
+        if checked is not None:
+            initial.append(f"INCI: {checked.reason}.")
         return _evaluation(
             item,
             status=STATUS_INSUFFICIENT,
@@ -226,11 +242,7 @@ def assess(
                 "Провайдер не вернул ни источников, ни оценки: подтверждённых данных "
                 "нет, поэтому балл не выставляется.",
             ),
-            limitations=(
-                "Параметр применим, но доказательств недостаточно — оценка не выставляется.",
-                "Отсутствие подтверждений пользы не является доказательством вреда.",
-                f"Правила оценки: {rule_version} (не откалиброваны).",
-            ),
+            limitations=initial,
             **base,
         )
 
@@ -246,6 +258,8 @@ def assess(
     if proposal.evidence_refs:
         used, used_ids = _resolve_refs(item, proposal, evidence, evidence_ids)
     confirmed = [entry for entry in used if entry.usable]
+    fetched = [entry for entry in confirmed if entry.fetched]
+    provenance_ok = allow_synthetic_evidence or bool(fetched)
 
     limitations: list[str] = [
         f"Правила оценки: {rule_version}; допустимые баллы {list(allowed)} "
@@ -261,16 +275,39 @@ def assess(
         f"Неизвестно: {text}" for text in proposal.important_unknowns if str(text).strip()
     )
 
-    # A. Applicability. "Not applicable" is a claim about the product, so it must
-    # be grounded in a confirmed source; safety questions are never excluded.
-    if proposal.applicability == NOT_APPLICABLE:
-        if proposal.score is not None:
-            raise ContractError(f"{item.id}: not_applicable must not carry a score")
-        reason = str(proposal.applicability_reason or "").strip()
-        if item.direction == "risk" or item.section in SAFETY_SECTIONS:
+    # Deterministic INCI gate for intolerance parameters. It can only constrain
+    # the model: an unverifiable composition never yields a score or an exclusion,
+    # and a present ingredient forbids "not applicable" / "100".
+    if checked is not None:
+        limitations.append(f"INCI: {checked.reason}.")
+        if checked.status == NOT_LISTED:
             limitations.append(
-                "Неприменимость параметра, связанного с безопасностью, не принимается: "
-                "параметр остаётся в оценке."
+                "Отсутствие компонента в заявленном INCI не гарантирует отсутствие "
+                "риска: список состава может быть неполным."
+            )
+        if checked.status == UNVERIFIABLE:
+            return _evaluation(
+                item,
+                status=STATUS_INSUFFICIENT,
+                value=None,
+                confidence=None,
+                evidence_ids=used_ids,
+                rationale=explain(
+                    item,
+                    f"Надёжно проверить состав не удалось: {checked.reason}.",
+                    used,
+                ),
+                limitations=limitations
+                + [
+                    "Параметр применим, но состав нельзя проверить надёжно — "
+                    "балл не выставляется."
+                ],
+                **base,
+            )
+        if proposal.applicability == NOT_APPLICABLE:
+            limitations.append(
+                "Неприменимость не принимается: наличие компонента проверяется по "
+                "подтверждённому составу, поэтому параметр остаётся применимым."
             )
             return _evaluation(
                 item,
@@ -280,12 +317,21 @@ def assess(
                 evidence_ids=used_ids,
                 rationale=explain(
                     item,
-                    reason or "Модель не привела обоснования применимости.",
+                    str(proposal.applicability_reason or "").strip()
+                    or "Модель не привела обоснования неприменимости.",
                     used,
                 ),
                 limitations=limitations,
                 **base,
             )
+
+    # A. Applicability. "Not applicable" is a claim about the product, so it must
+    # be grounded in a confirmed source. There is deliberately no category-level
+    # ban: the decision is checked against the evidence for this parameter.
+    if proposal.applicability == NOT_APPLICABLE:
+        if proposal.score is not None:
+            raise ContractError(f"{item.id}: not_applicable must not carry a score")
+        reason = str(proposal.applicability_reason or "").strip()
         if not reason:
             limitations.append("Неприменимость без обоснования не принимается.")
             return _evaluation(
@@ -304,6 +350,22 @@ def assess(
             limitations.append(
                 "Неприменимость нельзя обосновать отсутствием данных: подтверждённых "
                 "источников нет, поэтому фиксируется недостаток доказательств."
+            )
+            return _evaluation(
+                item,
+                status=STATUS_INSUFFICIENT,
+                value=None,
+                confidence=None,
+                evidence_ids=used_ids,
+                rationale=explain(item, reason, used),
+                limitations=limitations,
+                **base,
+            )
+        if not provenance_ok:
+            sources = ", ".join(sorted({entry.provenance for entry in confirmed}))
+            limitations.append(
+                f"Источник не подтверждён как загруженный (provenance={sources}): "
+                "неприменимость на его основании не принимается."
             )
             return _evaluation(
                 item,
@@ -383,6 +445,35 @@ def assess(
             f"{item.id}: an assessed parameter requires references to confirmed evidence"
         )
 
+    # A verified composition contradicts "the component is absent".
+    if checked is not None and checked.status == PRESENT and int(score) == 100:
+        raise ContractError(
+            f"{item.id}: score 100 contradicts the verified composition "
+            f"(found: {', '.join(checked.matched)})"
+        )
+
+    # Only a source the provider declared as fetched may back a production score.
+    if not provenance_ok:
+        sources = ", ".join(sorted({entry.provenance for entry in confirmed}))
+        limitations.append(
+            f"Источник не подтверждён как загруженный (provenance={sources}): "
+            "в production такой источник не может обосновать балл."
+        )
+        return _evaluation(
+            item,
+            status=STATUS_INSUFFICIENT,
+            value=None,
+            confidence=None,
+            evidence_ids=used_ids,
+            rationale=explain(item, answer, used),
+            limitations=limitations,
+            **base,
+        )
+
+    limitations.append(
+        "Проверено: цитата найдена в тексте, переданном провайдером; независимая "
+        "загрузка страницы системой не выполнялась."
+    )
     confidence = round(
         sum(float(entry.confidence) for entry in confirmed) / len(confirmed), 3
     )

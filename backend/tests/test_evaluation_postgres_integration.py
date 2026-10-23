@@ -41,6 +41,7 @@ MIGRATIONS_DIR = os.path.join(
 MIGRATION_PATHS = [
     os.path.join(MIGRATIONS_DIR, "20261023_evaluation_v2.sql"),
     os.path.join(MIGRATIONS_DIR, "20261024_evaluation_v2_statuses.sql"),
+    os.path.join(MIGRATIONS_DIR, "20261025_evaluation_v2_provenance.sql"),
 ]
 COMPOSITION = "e" * 64
 OTHER_COMPOSITION = "f" * 64
@@ -681,6 +682,7 @@ class EvidenceStorageTests(SchemaTestBase):
     def _evidence(self, *, parameter_id: str = "problem:dryness", verification: str = "confirmed", **kwargs):
         from app.evaluation import Evidence, Source
 
+        provenance = kwargs.get("provenance", "unknown")
         return Evidence(
             parameter_id=parameter_id,
             claim=kwargs.get("claim", "Glycerin удерживает влагу"),
@@ -693,6 +695,7 @@ class EvidenceStorageTests(SchemaTestBase):
                 title="Brand page",
                 source_type="official",
                 retrieved_at="2026-10-01T00:00:00+00:00",
+                provenance=provenance,
             ),
             verification=verification,
             product_id=PRODUCT["id"],
@@ -700,6 +703,7 @@ class EvidenceStorageTests(SchemaTestBase):
             extraction_method="quote_extraction_v1",
             retrieved_at="2026-10-01T00:00:00+00:00",
             rejection_reason=kwargs.get("rejection_reason", ""),
+            provenance=provenance,
         )
 
     def test_evidence_roundtrip_is_bound_to_composition_and_parameter(self):
@@ -724,7 +728,13 @@ class EvidenceStorageTests(SchemaTestBase):
         second = self.store.save_evidence(composition["id"], [self._evidence()])
         self.assertEqual(first, second)
         self.assertEqual(len(self.store.evidence_for(composition["id"], "problem:dryness")), 1)
-        self.assertEqual(sql("select count(*) as n from evaluation.sources")[0]["n"], 1)
+        self.assertEqual(
+            sql(
+                "select count(*) as n from evaluation.sources where url = %s",
+                ("https://brand.example/serum",),
+            )[0]["n"],
+            1,
+        )
 
     def test_rejected_evidence_is_kept_for_audit(self):
         composition = self.make_composition()
@@ -739,6 +749,49 @@ class EvidenceStorageTests(SchemaTestBase):
     def test_evidence_requires_known_composition(self):
         with self.assertRaises(psycopg.errors.ForeignKeyViolation):
             self.store.save_evidence(999_999, [self._evidence()])
+
+    def test_provenance_roundtrips_and_is_exposed_by_evidence_ref(self):
+        composition = self.make_composition()
+        ids = self.store.save_evidence(
+            composition["id"],
+            [
+                self._evidence(provenance="fetched"),
+                self._evidence(
+                    provenance="synthetic",
+                    parameter_id="skin_type:dry",
+                    quote="Synthetic quote for the dry skin parameter",
+                ),
+            ],
+        )
+        rows = self.store.evidence_for(composition["id"], "problem:dryness")
+        self.assertEqual(rows[0]["provenance"], "fetched")
+        self.assertTrue(self.store.evidence_ref(ids[0])["provenance"] == "fetched")
+
+        reference = self.store.evidence_ref(ids[0])
+        self.assertEqual(reference["composition_hash"], COMPOSITION)
+        self.assertEqual(reference["verification"], "confirmed")
+        self.assertEqual(reference["parameter_id"], "problem:dryness")
+
+        synthetic = self.store.evidence_ref(ids[1])
+        self.assertEqual(synthetic["provenance"], "synthetic")
+
+    def test_unknown_evidence_ref_returns_none(self):
+        self.assertIsNone(self.store.evidence_ref(999_999))
+
+    def test_provenance_check_accepts_only_known_values(self):
+        composition = self.make_composition()
+        source_id = sql(
+            "insert into evaluation.sources (url) values ('https://schema.example') returning id"
+        )[0]["id"]
+        with self.assertRaises(psycopg.errors.CheckViolation):
+            sql(
+                "insert into evaluation.evidence "
+                "(source_id, composition_id, parameter_id, claim, quote, direction, "
+                " strength, confidence, provenance) "
+                "values (%s, %s, 'problem:dryness', 'claim', 'quote', 'supports', "
+                " 'moderate', 0.5, 'made_up')",
+                (source_id, composition["id"]),
+            )
 
 
 class JobClaimTests(SchemaTestBase):
@@ -834,7 +887,7 @@ class ResearchIntegrationTests(SchemaTestBase):
                 ),
             }
         )
-        service = ResearchService(self.store, provider)
+        service = ResearchService(self.store, provider, allow_synthetic_evidence=True)
         report = service.research_missing(
             product=PRODUCT, composition=self.make_composition(), profile=PROFILE
         )

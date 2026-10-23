@@ -205,8 +205,14 @@ def candidate(
     source_type: str = "official",
     title: str = "Product page",
     extraction_method: str = "quote_extraction_v1",
+    provenance: str = "synthetic",
 ) -> EvidenceCandidate:
-    """Convenience builder for tests (source text defaults to the quote itself)."""
+    """Convenience builder for tests.
+
+    ``source_text`` defaults to the quote itself and ``provenance`` defaults to
+    ``synthetic``: this helper never pretends that a page was fetched. A real
+    provider must build ``Source(provenance="fetched", ...)`` itself.
+    """
     return EvidenceCandidate(
         parameter_id=parameter_id,
         claim=claim,
@@ -216,6 +222,7 @@ def candidate(
             title=title,
             source_type=source_type,
             retrieved_at=retrieved_at,
+            provenance=provenance,
         ),
         source_text=quote if source_text is None else source_text,
         direction=direction,

@@ -223,7 +223,7 @@ class KnowledgeReuseTests(unittest.TestCase):
         self.provider = FakeResearchProvider(
             default=lambda request: evidence_ok(request.parameter_id)
         )
-        self.service = ResearchService(self.store, self.provider)
+        self.service = ResearchService(self.store, self.provider, allow_synthetic_evidence=True)
 
     def _run(self, profile=PAYLOAD, composition=COMPOSITION, **kwargs):
         return self.service.research_missing(
@@ -287,7 +287,7 @@ class KnowledgeReuseTests(unittest.TestCase):
 
     def test_method_version_change_triggers_new_research(self):
         self._run()
-        newer = ResearchService(self.store, self.provider, method_version="research-2.0.0")
+        newer = ResearchService(self.store, self.provider, method_version="research-2.0.0", allow_synthetic_evidence=True)
         report = newer.research_missing(
             product=PRODUCT, composition=COMPOSITION, profile=PAYLOAD
         )
@@ -323,7 +323,7 @@ class SnapshotReuseTests(unittest.TestCase):
         self.provider = FakeResearchProvider(
             default=lambda request: evidence_ok(request.parameter_id)
         )
-        ResearchService(self.store, self.provider).research_missing(
+        ResearchService(self.store, self.provider, allow_synthetic_evidence=True).research_missing(
             product=PRODUCT, composition=COMPOSITION, profile=PAYLOAD
         )
 
@@ -365,7 +365,7 @@ class CompositionVerificationTests(unittest.TestCase):
         provider = FakeResearchProvider(
             default=lambda request: evidence_ok(request.parameter_id)
         )
-        service = ResearchService(store, provider)
+        service = ResearchService(store, provider, allow_synthetic_evidence=True)
         unverified = {"composition_hash": HASH_A, "inci_raw": "Aqua"}
 
         report = service.research_missing(
@@ -383,14 +383,16 @@ class CompositionVerificationTests(unittest.TestCase):
         service = ResearchService(
             store,
             FakeResearchProvider(default=lambda request: evidence_ok(request.parameter_id)),
+            allow_synthetic_evidence=True,
         )
+        inci = "Aqua, Glycerin, Niacinamide"
         record = store.upsert_composition(
-            {"product_id": PRODUCT["id"], "composition_hash": HASH_A, "inci_raw": "Aqua"}
+            {"product_id": PRODUCT["id"], "composition_hash": HASH_A, "inci_raw": inci}
         )
         store.verify_composition(record["id"], "2026-10-23T00:00:00+00:00", "manual-review")
         report = service.research_missing(
             product=PRODUCT,
-            composition={"composition_hash": HASH_A, "inci_raw": "Aqua"},
+            composition={"composition_hash": HASH_A, "inci_raw": inci},
             profile=PAYLOAD,
         )
         self.assertFalse(report.blocked)
@@ -477,7 +479,7 @@ class ExplanationQualityTests(unittest.TestCase):
                 )
             }
         )
-        report = ResearchService(store, provider).research_missing(
+        report = ResearchService(store, provider, allow_synthetic_evidence=True).research_missing(
             product=PRODUCT,
             composition=COMPOSITION,
             profile={"concerns": ["Сухость / обезвоженность"]},
@@ -513,7 +515,7 @@ class ExplanationQualityTests(unittest.TestCase):
                 )
             }
         )
-        report = ResearchService(store, provider).research_missing(
+        report = ResearchService(store, provider, allow_synthetic_evidence=True).research_missing(
             product=PRODUCT,
             composition=COMPOSITION,
             profile={"concerns": ["Сухость / обезвоженность"]},

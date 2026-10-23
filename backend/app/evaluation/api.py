@@ -20,7 +20,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
 from ..auth import get_current_user, get_current_user_optional
-from .contracts import SCORE_LEVEL_CRITERIA, ContractError, ParameterEvaluation
+from .contracts import SCORE_LEVEL_CRITERIA, STATUS_ASSESSED, ContractError, ParameterEvaluation
 from .engine import evaluate
 from .parameters import PARAMETERS
 from .questionnaire import QUESTIONNAIRE_SOURCE, QUESTIONNAIRE_VERSION, SECTIONS
@@ -45,9 +45,9 @@ class ProductInput(BaseModel):
 
 class EvaluationInput(BaseModel):
     parameter_id: str
-    # ``assessed`` requires value/reason/evidence_ids; the other statuses carry
-    # no value (enforced by the domain contract).
-    status: str = "assessed"
+    # Required on purpose: a caller must state the status of the result. There is
+    # no default "assessed" — an evaluation is never born scored by omission.
+    status: str
     value: float | None = None
     confidence: float | None = None
     evidence_ids: list[str] = []
@@ -143,12 +143,87 @@ async def list_parameters() -> dict:
     }
 
 
+def _require_verified_preview_evidence(
+    item: EvaluationInput,
+    *,
+    composition_hash: str,
+    store,
+    user: dict | None,
+) -> None:
+    """An ``assessed`` preview must point at real, fetched, confirmed evidence.
+
+    ``/preview`` is a public calculation endpoint, so it cannot invent scores:
+    the caller has to be authenticated and reference evidence that already exists
+    in the store for this composition and parameter.
+    """
+    if user is None:
+        raise HTTPException(
+            status_code=403, detail="assessed preview requires authentication"
+        )
+    if not composition_hash:
+        raise HTTPException(
+            status_code=422, detail="assessed preview requires composition_hash"
+        )
+    if store is None:
+        raise HTTPException(
+            status_code=503, detail="evaluation storage is not configured"
+        )
+    if not item.evidence_ids:
+        raise HTTPException(
+            status_code=422, detail="assessed preview requires evidence_ids"
+        )
+    for raw in item.evidence_ids:
+        try:
+            evidence_id = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=422, detail=f"invalid evidence_id: {raw!r}"
+            ) from exc
+        record = store.evidence_ref(evidence_id)
+        if record is None:
+            raise HTTPException(
+                status_code=422, detail=f"evidence {evidence_id} is not stored"
+            )
+        if record.get("verification") != "confirmed":
+            raise HTTPException(
+                status_code=422, detail=f"evidence {evidence_id} is not confirmed"
+            )
+        if record.get("provenance") != "fetched":
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"evidence {evidence_id} is not fetched "
+                    f"(provenance={record.get('provenance') or 'unknown'})"
+                ),
+            )
+        if record.get("parameter_id") != item.parameter_id:
+            raise HTTPException(
+                status_code=422,
+                detail=f"evidence {evidence_id} belongs to another parameter",
+            )
+        if str(record.get("composition_hash") or "") != composition_hash:
+            raise HTTPException(
+                status_code=422,
+                detail=f"evidence {evidence_id} belongs to another composition",
+            )
+
+
 @router.post("/preview")
 async def preview(
     payload: PreviewRequest,
-    _user: dict | None = Depends(get_current_user_optional),
+    request: Request,
+    user: dict | None = Depends(get_current_user_optional),
 ) -> dict:
-    composition_hash = payload.composition.composition_hash if payload.composition else "preview"
+    composition_hash = payload.composition.composition_hash if payload.composition else ""
+    store = getattr(request.app.state, "evaluation_store", None)
+    for item in payload.evaluations:
+        if item.status == STATUS_ASSESSED:
+            _require_verified_preview_evidence(
+                item,
+                composition_hash=composition_hash,
+                store=store,
+                user=user,
+            )
     try:
         evaluations = [
             ParameterEvaluation(
@@ -156,7 +231,7 @@ async def preview(
                 status=item.status,
                 value=item.value,
                 confidence=item.confidence,
-                composition_hash=composition_hash,
+                composition_hash=composition_hash or "preview",
                 method_version=DEFAULT_METHOD_VERSION,
                 evidence_ids=tuple(item.evidence_ids),
                 rationale=item.rationale,

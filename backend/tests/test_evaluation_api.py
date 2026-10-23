@@ -7,26 +7,78 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user, get_current_user_optional
-from app.evaluation import ParameterEvaluation
+from app.evaluation import ParameterEvaluation, candidate, validate_candidate
 from app.evaluation.api import require_admin, setup_evaluation_routes
 from app.evaluation.service import DEFAULT_METHOD_VERSION, EvaluationService
 from app.evaluation.store import InMemoryStore
 
 HASH = "a" * 64
+OTHER_HASH = "b" * 64
 PRODUCT = {"id": 7, "name": "Test Cream"}
 COMPOSITION = {"composition_hash": HASH, "source": "catalog", "verified_at": "2026-10-20"}
 PROFILE = {"skin_type": "dry", "concerns": ["dryness"]}
+INCI = "Aqua, Glycerin, Niacinamide"
 
 
-def make_client(store: InMemoryStore | None = None, user_id: int = 1, admin: bool = True):
+def make_client(
+    store: InMemoryStore | None = None,
+    user_id: int = 1,
+    admin: bool = True,
+    optional_user: dict | None = None,
+):
     store = store or InMemoryStore()
     app = FastAPI()
     setup_evaluation_routes(app, store=store)
     app.dependency_overrides[get_current_user] = lambda: {"id": user_id}
-    app.dependency_overrides[get_current_user_optional] = lambda: None
+    app.dependency_overrides[get_current_user_optional] = lambda: optional_user
     if admin:
         app.dependency_overrides[require_admin] = lambda: None
     return TestClient(app), store, app
+
+
+def seed_evidence(
+    store: InMemoryStore,
+    parameter_id: str,
+    *,
+    provenance: str = "fetched",
+    composition_hash: str = HASH,
+    product_id: int = 7,
+) -> tuple[dict, list[int]]:
+    record = store.upsert_composition(
+        {
+            "product_id": product_id,
+            "composition_hash": composition_hash,
+            "inci_raw": INCI,
+            "source": "catalog",
+            "verified_at": "2026-10-20",
+        }
+    )
+    evidence = validate_candidate(
+        candidate(
+            parameter_id=parameter_id,
+            claim="Источник описывает состав продукта",
+            quote="Full ingredients are listed on this page",
+            source_text="Full ingredients are listed on this page",
+            provenance=provenance,
+            confidence=1.0,
+        ),
+        product_id=product_id,
+        composition_hash=composition_hash,
+        parameter_id=parameter_id,
+    )
+    return record, store.save_evidence(record["id"], [evidence])
+
+
+def preview_payload(
+    evaluations: list[dict],
+    *,
+    composition_hash: str = HASH,
+    with_composition: bool = True,
+) -> dict:
+    payload: dict = {"profile": PROFILE, "evaluations": evaluations}
+    if with_composition:
+        payload["composition"] = {"composition_hash": composition_hash, "inci_raw": INCI}
+    return payload
 
 
 class ParametersEndpointTests(unittest.TestCase):
@@ -67,8 +119,18 @@ class ParametersEndpointTests(unittest.TestCase):
 
 
 class PreviewEndpointTests(unittest.TestCase):
-    def test_preview_returns_total_without_persistence(self):
-        client, store, _ = make_client()
+    def _assessed(self, parameter_id: str, evidence_id: int, *, value=75, rationale=None):
+        return {
+            "parameter_id": parameter_id,
+            "status": "assessed",
+            "value": value,
+            "rationale": rationale
+            or "Подтверждённые источники соответствуют требованию пункта.",
+            "evidence_ids": [str(evidence_id)],
+        }
+
+    def test_preview_requires_explicit_status(self):
+        client, _, _ = make_client()
         response = client.post(
             "/api/v1/evaluation/preview",
             json={
@@ -76,47 +138,123 @@ class PreviewEndpointTests(unittest.TestCase):
                 "evaluations": [
                     {
                         "parameter_id": "problem:dryness",
-                        "value": 100,
-                        "rationale": "Подтверждённые источники соответствуют требованию.",
+                        "value": 75,
+                        "rationale": "Подтверждённые источники соответствуют.",
                         "evidence_ids": ["1"],
-                    },
-                    {
-                        "parameter_id": "skin_type:dry",
-                        "value": 50,
-                        "rationale": "Источники частично соответствуют требованию пункта.",
-                        "evidence_ids": ["2"],
-                    },
+                    }
                 ],
             },
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 422)
+
+    def test_assessed_preview_requires_authentication(self):
+        client, store, _ = make_client(optional_user=None)
+        _, ids = seed_evidence(store, "problem:dryness")
+        response = client.post(
+            "/api/v1/evaluation/preview",
+            json=preview_payload([self._assessed("problem:dryness", ids[0])]),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_assessed_preview_requires_stored_evidence(self):
+        client, store, _ = make_client(optional_user={"id": 1})
+        seed_evidence(store, "problem:dryness")
+        response = client.post(
+            "/api/v1/evaluation/preview",
+            json=preview_payload([self._assessed("problem:dryness", 999999)]),
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("not stored", response.json()["detail"])
+
+    def test_assessed_preview_rejects_synthetic_evidence(self):
+        client, store, _ = make_client(optional_user={"id": 1})
+        _, ids = seed_evidence(store, "problem:dryness", provenance="synthetic")
+        response = client.post(
+            "/api/v1/evaluation/preview",
+            json=preview_payload([self._assessed("problem:dryness", ids[0])]),
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("not fetched", response.json()["detail"])
+
+    def test_assessed_preview_rejects_evidence_of_another_parameter(self):
+        client, store, _ = make_client(optional_user={"id": 1})
+        _, ids = seed_evidence(store, "skin_type:dry")
+        response = client.post(
+            "/api/v1/evaluation/preview",
+            json=preview_payload([self._assessed("problem:dryness", ids[0])]),
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("another parameter", response.json()["detail"])
+
+    def test_assessed_preview_rejects_evidence_of_another_composition(self):
+        client, store, _ = make_client(optional_user={"id": 1})
+        _, ids = seed_evidence(store, "problem:dryness", composition_hash=HASH)
+        response = client.post(
+            "/api/v1/evaluation/preview",
+            json=preview_payload(
+                [self._assessed("problem:dryness", ids[0])],
+                composition_hash=OTHER_HASH,
+            ),
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("another composition", response.json()["detail"])
+
+    def test_preview_returns_total_without_persistence(self):
+        client, store, _ = make_client(optional_user={"id": 1})
+        _, dryness_ids = seed_evidence(store, "problem:dryness")
+        _, dry_ids = seed_evidence(store, "skin_type:dry")
+        response = client.post(
+            "/api/v1/evaluation/preview",
+            json=preview_payload(
+                [
+                    self._assessed("problem:dryness", dryness_ids[0], value=100),
+                    self._assessed("skin_type:dry", dry_ids[0], value=50),
+                ]
+            ),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
         result = response.json()["result"]
         self.assertEqual(result["total"], 75)
         self.assertIsNone(result["verdict"])
         self.assertEqual(store.snapshot_count(), 0)
 
     def test_preview_rejects_out_of_scale_value(self):
-        client, _, _ = make_client()
+        client, store, _ = make_client(optional_user={"id": 1})
+        _, ids = seed_evidence(store, "problem:dryness")
         for value in (150, 30):
             response = client.post(
                 "/api/v1/evaluation/preview",
-                json={
-                    "profile": PROFILE,
-                    "evaluations": [{"parameter_id": "problem:dryness", "value": value}],
-                },
+                json=preview_payload([self._assessed("problem:dryness", ids[0], value=value)]),
             )
             self.assertEqual(response.status_code, 422, value)
 
-    def test_preview_rejects_assessed_without_reason_or_evidence(self):
-        client, _, _ = make_client()
+    def test_preview_rejects_assessed_without_reason(self):
+        client, store, _ = make_client(optional_user={"id": 1})
+        _, ids = seed_evidence(store, "problem:dryness")
+        payload = self._assessed("problem:dryness", ids[0])
+        payload["rationale"] = ""
         response = client.post(
-            "/api/v1/evaluation/preview",
-            json={
-                "profile": PROFILE,
-                "evaluations": [{"parameter_id": "problem:dryness", "value": 75}],
-            },
+            "/api/v1/evaluation/preview", json=preview_payload([payload])
         )
         self.assertEqual(response.status_code, 422)
+
+    def test_non_scoring_preview_needs_no_evidence(self):
+        client, _, _ = make_client(optional_user=None)
+        response = client.post(
+            "/api/v1/evaluation/preview",
+            json=preview_payload(
+                [
+                    {
+                        "parameter_id": "problem:dryness",
+                        "status": "insufficient_evidence",
+                        "rationale": "Источников нет.",
+                    }
+                ],
+                with_composition=False,
+            ),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(response.json()["result"]["total"])
 
 
 class SnapshotEndpointTests(unittest.TestCase):

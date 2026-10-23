@@ -140,6 +140,8 @@ class AssessmentTests(unittest.TestCase):
             method_version=METHOD,
             evaluated_at=NOW.isoformat(),
             evidence_ids=evidence_ids,
+            # Tests use synthetic candidates by default; production cannot.
+            allow_synthetic_evidence=True,
         )
 
     def test_each_allowed_score_is_accepted(self):
@@ -240,8 +242,30 @@ class AssessmentTests(unittest.TestCase):
                 for text in ungrounded.limitations)
         )
 
-    def test_safety_parameter_cannot_be_marked_not_applicable(self):
-        evidence = confirmed(parameter_id="therapy:tretinoin")
+    def test_not_applicable_is_allowed_for_safety_sections_with_a_source(self):
+        # There is no category-level ban: the decision is checked per parameter.
+        for section in ("therapy:tretinoin", "procedure:recent_laser@<7"):
+            evidence = confirmed(parameter_id=section)
+            result = assess(
+                section,
+                self.proposal(
+                    parameter_id=section,
+                    applicability=NOT_APPLICABLE,
+                    sufficient=False,
+                    score=None,
+                    applicability_reason="Продукт не наносится на обрабатываемую зону.",
+                ),
+                [evidence],
+                composition_hash=COMPOSITION,
+                method_version=METHOD,
+                evaluated_at=NOW.isoformat(),
+                evidence_ids=["1"],
+                allow_synthetic_evidence=True,
+            )
+            self.assertEqual(result.status, "not_applicable", section)
+            self.assertIsNone(result.value)
+
+    def test_not_applicable_for_safety_section_without_a_source_is_insufficient(self):
         result = assess(
             "therapy:tretinoin",
             self.proposal(
@@ -250,17 +274,18 @@ class AssessmentTests(unittest.TestCase):
                 sufficient=False,
                 score=None,
                 applicability_reason="Не нашли информации о совместимости.",
+                evidence_refs=(),
             ),
-            [evidence],
+            [],
             composition_hash=COMPOSITION,
             method_version=METHOD,
             evaluated_at=NOW.isoformat(),
-            evidence_ids=["1"],
+            allow_synthetic_evidence=True,
         )
         self.assertEqual(result.status, "insufficient_evidence")
         self.assertIsNone(result.value)
         self.assertTrue(
-            any("связанного с безопасностью" in text for text in result.limitations)
+            any("отсутствием данных" in text for text in result.limitations)
         )
 
     def test_provider_without_sources_is_insufficient_not_not_applicable(self):
@@ -318,6 +343,108 @@ class AssessmentTests(unittest.TestCase):
             ids=["11", "22"],
         )
         self.assertEqual(result.evidence_ids, ("22",))
+
+
+class ProvenanceTests(unittest.TestCase):
+    """Only evidence declared as fetched may back a score or an exclusion."""
+
+    def _assess(self, evidence, proposal, **kwargs):
+        return assess(
+            "goal:hydration",
+            proposal,
+            [evidence],
+            composition_hash=COMPOSITION,
+            method_version=METHOD,
+            evaluated_at=NOW.isoformat(),
+            evidence_ids=["1"],
+            **kwargs,
+        )
+
+    def proposal(self, **overrides) -> AssessmentProposal:
+        defaults = dict(
+            parameter_id="goal:hydration",
+            applicability=APPLICABLE,
+            sufficient=True,
+            score=75,
+            rationale=(
+                "Подтверждённые источники описывают свойство, соответствующее "
+                "требованию пункта."
+            ),
+            evidence_refs=(0,),
+        )
+        defaults.update(overrides)
+        return AssessmentProposal(**defaults)
+
+    def test_synthetic_evidence_cannot_back_a_score_by_default(self):
+        result = self._assess(confirmed(), self.proposal())
+        self.assertEqual(result.status, "insufficient_evidence")
+        self.assertIsNone(result.value)
+        self.assertTrue(
+            any("provenance=synthetic" in text for text in result.limitations)
+        )
+
+    def test_unknown_provenance_cannot_back_a_score_by_default(self):
+        evidence = confirmed(provenance="unknown")
+        result = self._assess(evidence, self.proposal())
+        self.assertEqual(result.status, "insufficient_evidence")
+        self.assertIsNone(result.value)
+
+    def test_fetched_evidence_can_back_a_score(self):
+        evidence = confirmed(provenance="fetched")
+        result = self._assess(evidence, self.proposal())
+        self.assertEqual(result.status, "assessed")
+        self.assertEqual(result.value, 75)
+        self.assertTrue(
+            any("загрузка страницы системой не выполнялась" in text
+                for text in result.limitations)
+        )
+
+    def test_synthetic_evidence_cannot_back_not_applicable(self):
+        result = self._assess(
+            confirmed(),
+            self.proposal(
+                applicability=NOT_APPLICABLE,
+                sufficient=False,
+                score=None,
+                applicability_reason="Продукт смывается.",
+            ),
+        )
+        self.assertEqual(result.status, "insufficient_evidence")
+        self.assertIsNone(result.value)
+
+    def test_explicit_test_opt_in_allows_synthetic_evidence(self):
+        result = self._assess(
+            confirmed(), self.proposal(), allow_synthetic_evidence=True
+        )
+        self.assertEqual(result.status, "assessed")
+        self.assertEqual(result.value, 75)
+
+    def test_unknown_provenance_value_is_rejected(self):
+        from app.evaluation.evidence import Evidence, EvidenceError
+
+        with self.assertRaises(EvidenceError):
+            confirmed(provenance="guessed")
+        with self.assertRaises(EvidenceError):
+            Evidence(
+                parameter_id="goal:hydration",
+                claim="claim",
+                quote="quote",
+                direction="supports",
+                strength="moderate",
+                confidence=0.5,
+                source=confirmed().source,
+                verification="confirmed",
+                product_id=PRODUCT_ID,
+                composition_hash=COMPOSITION,
+                extraction_method="quote_extraction_v1",
+                retrieved_at=NOW.isoformat(),
+                provenance="guessed",
+            )
+
+    def test_fetched_property_reflects_declared_provenance(self):
+        self.assertTrue(confirmed(provenance="fetched").fetched)
+        self.assertFalse(confirmed().fetched)
+        self.assertFalse(confirmed(provenance="unknown").fetched)
 
 
 if __name__ == "__main__":

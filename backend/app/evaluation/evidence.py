@@ -23,6 +23,10 @@ DIRECTIONS = ("supports", "contradicts", "neutral")
 STRENGTHS = ("weak", "moderate", "strong")
 SOURCE_TYPES = ("official", "regulator", "peer_reviewed", "database", "retailer", "unknown")
 VERIFICATIONS = ("confirmed", "unverified", "rejected")
+# How the source text reached the provider. ``synthetic`` is test-only data,
+# ``unknown`` means the provider did not declare it. Only ``fetched`` may back a
+# production score (see assessment.assess).
+PROVENANCES = ("fetched", "synthetic", "unknown")
 
 MIN_QUOTE_CHARS = 8
 _NORMALIZE_RE = re.compile(r"[^\w\s]+", re.UNICODE)
@@ -58,6 +62,9 @@ class Source:
     source_type: str = "unknown"
     retrieved_at: str = ""
     content_hash: str = ""
+    # ``fetched`` — provider declares it downloaded the page; ``synthetic`` —
+    # test fixture; ``unknown`` — not declared. Validation cannot verify the claim.
+    provenance: str = "unknown"
 
     def __post_init__(self) -> None:
         parsed = urlparse(str(self.url or ""))
@@ -65,6 +72,8 @@ class Source:
             raise EvidenceError(f"source url must be http(s): {self.url!r}")
         if self.source_type not in SOURCE_TYPES:
             raise EvidenceError(f"unknown source_type: {self.source_type}")
+        if self.provenance not in PROVENANCES:
+            raise EvidenceError(f"unknown provenance: {self.provenance}")
 
     @property
     def host(self) -> str:
@@ -113,10 +122,20 @@ class Evidence:
     extraction_method: str
     retrieved_at: str
     rejection_reason: str = ""
+    provenance: str = "unknown"
+
+    def __post_init__(self) -> None:
+        if self.provenance not in PROVENANCES:
+            raise EvidenceError(f"unknown provenance: {self.provenance}")
 
     @property
     def usable(self) -> bool:
         return self.verification == "confirmed"
+
+    @property
+    def fetched(self) -> bool:
+        """True only when the provider explicitly declared a page download."""
+        return self.provenance == "fetched"
 
     def as_dict(self) -> dict:
         return {
@@ -133,6 +152,7 @@ class Evidence:
                 "source_type": self.source.source_type,
                 "retrieved_at": self.source.retrieved_at,
                 "content_hash": self.source.content_hash,
+                "provenance": self.source.provenance,
             },
             "verification": self.verification,
             "product_id": self.product_id,
@@ -140,6 +160,7 @@ class Evidence:
             "extraction_method": self.extraction_method,
             "retrieved_at": self.retrieved_at,
             "rejection_reason": self.rejection_reason,
+            "provenance": self.provenance,
         }
 
 
@@ -164,6 +185,7 @@ def _reject(
         extraction_method=candidate.extraction_method,
         retrieved_at=candidate.source.retrieved_at,
         rejection_reason=reason,
+        provenance=candidate.source.provenance,
     )
 
 
@@ -229,6 +251,7 @@ def validate_candidate(
         composition_hash=composition_hash,
         extraction_method=candidate.extraction_method,
         retrieved_at=candidate.source.retrieved_at,
+        provenance=candidate.source.provenance,
     )
 
 

@@ -435,6 +435,82 @@ class FreshnessTests(unittest.TestCase):
         reason = stale_reason(evaluation, composition_hash=COMPOSITION, method_version=METHOD)
         self.assertIn("valid_until", reason)
 
+    def test_fresh_non_scoring_result_is_reused(self):
+        recent = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+        for status in ("insufficient_evidence", "not_applicable"):
+            evaluation = ev(
+                "problem:dryness",
+                None,
+                status=status,
+                rationale="Источников недостаточно.",
+                evaluated_at=recent,
+            )
+            self.assertIsNone(
+                stale_reason(evaluation, composition_hash=COMPOSITION, method_version=METHOD),
+                status,
+            )
+
+    def test_non_scoring_result_expires_after_review_window(self):
+        old = (datetime.now(timezone.utc) - timedelta(days=31)).isoformat()
+        for status in ("insufficient_evidence", "not_applicable"):
+            evaluation = ev(
+                "problem:dryness",
+                None,
+                status=status,
+                rationale="Источников недостаточно.",
+                evaluated_at=old,
+            )
+            reason = stale_reason(
+                evaluation, composition_hash=COMPOSITION, method_version=METHOD
+            )
+            self.assertIn("повторная проверка", reason, status)
+            self.assertFalse(
+                is_current(evaluation, composition_hash=COMPOSITION, method_version=METHOD),
+                status,
+            )
+
+    def test_review_window_is_configurable(self):
+        old = (datetime.now(timezone.utc) - timedelta(days=31)).isoformat()
+        evaluation = ev(
+            "problem:dryness",
+            None,
+            status="insufficient_evidence",
+            rationale="Источников недостаточно.",
+            evaluated_at=old,
+        )
+        self.assertIn(
+            "повторная проверка",
+            stale_reason(
+                evaluation,
+                composition_hash=COMPOSITION,
+                method_version=METHOD,
+                review_after_days=10,
+            ),
+        )
+        self.assertIsNone(
+            stale_reason(
+                evaluation,
+                composition_hash=COMPOSITION,
+                method_version=METHOD,
+                review_after_days=60,
+            )
+        )
+        self.assertIsNone(
+            stale_reason(
+                evaluation,
+                composition_hash=COMPOSITION,
+                method_version=METHOD,
+                review_after_days=None,
+            )
+        )
+
+    def test_scored_result_is_not_invalidated_by_review_window(self):
+        old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+        evaluation = ev("problem:dryness", 75, evaluated_at=old)
+        self.assertIsNone(
+            stale_reason(evaluation, composition_hash=COMPOSITION, method_version=METHOD)
+        )
+
 
 class SnapshotTests(unittest.TestCase):
     def _snapshot(self):

@@ -350,12 +350,13 @@ class PostgresStore:
                 insert into {self._table('evidence')}
                     (source_id, composition_id, parameter_id, claim, quote, direction,
                      strength, confidence, extraction_method, verification,
-                     rejection_reason, retrieved_at)
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     rejection_reason, retrieved_at, provenance)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 on conflict (composition_id, parameter_id, source_id, md5(quote)) do update
                     set verification = excluded.verification,
                         rejection_reason = excluded.rejection_reason,
-                        confidence = excluded.confidence
+                        confidence = excluded.confidence,
+                        provenance = excluded.provenance
                 returning id
                 """,
                 (
@@ -371,6 +372,7 @@ class PostgresStore:
                     item.verification,
                     item.rejection_reason,
                     item.retrieved_at or None,
+                    item.provenance,
                 ),
             )
             if evidence_row is None:
@@ -385,7 +387,7 @@ class PostgresStore:
                     f"""
                     select e.id, e.composition_id, e.parameter_id, e.claim, e.quote,
                            e.direction, e.strength, e.confidence, e.extraction_method,
-                           e.verification, e.rejection_reason, e.retrieved_at,
+                           e.verification, e.rejection_reason, e.retrieved_at, e.provenance,
                            s.url, s.title, s.publisher, s.source_type,
                            s.retrieved_at as source_retrieved_at, s.content_hash
                     from {self._table('evidence')} e
@@ -410,6 +412,7 @@ class PostgresStore:
                 "rejection_reason": row["rejection_reason"],
                 "extraction_method": row["extraction_method"],
                 "retrieved_at": str(row["retrieved_at"] or ""),
+                "provenance": row.get("provenance") or "unknown",
                 "source": {
                     "url": row["url"],
                     "title": row["title"],
@@ -417,12 +420,26 @@ class PostgresStore:
                     "source_type": row["source_type"],
                     "retrieved_at": str(row["source_retrieved_at"] or ""),
                     "content_hash": row["content_hash"],
+                    "provenance": row.get("provenance") or "unknown",
                 },
             }
             for row in rows
         ]
 
     # -- research job claiming ---------------------------------------------
+    def evidence_ref(self, evidence_id: int) -> dict | None:
+        row = self._fetchone(
+            f"""
+            select e.id, e.composition_id, e.parameter_id, e.verification,
+                   e.provenance, c.composition_hash
+            from {self._table('evidence')} e
+            join {self._table('product_compositions')} c on c.id = e.composition_id
+            where e.id = %s
+            """,
+            (int(evidence_id),),
+        )
+        return dict(row) if row else None
+
     def claim_job(
         self, worker_id: str, *, composition_id: int | None = None, lock_seconds: int = 120
     ) -> dict | None:

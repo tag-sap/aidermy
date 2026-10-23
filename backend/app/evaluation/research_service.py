@@ -23,7 +23,7 @@ from .contracts import (
     ParameterEvaluation,
 )
 from .evidence import Evidence, validate_candidates
-from .freshness import select_current
+from .freshness import DEFAULT_REVIEW_AFTER_DAYS, select_current
 from .parameters import PARAMETERS, resolve_parameters
 from .research import (
     RESEARCH_INSUFFICIENT,
@@ -92,6 +92,8 @@ class ResearchService:
         max_cost_per_job: float = DEFAULT_MAX_COST_PER_JOB,
         max_cost_per_run: float = DEFAULT_MAX_COST_PER_RUN,
         max_age_days: int | None = None,
+        review_after_days: int | None = DEFAULT_REVIEW_AFTER_DAYS,
+        allow_synthetic_evidence: bool = False,
     ) -> None:
         self.store = store
         self.provider = provider
@@ -100,6 +102,8 @@ class ResearchService:
         self.max_cost_per_job = max_cost_per_job
         self.max_cost_per_run = max_cost_per_run
         self.max_age_days = max_age_days
+        self.review_after_days = review_after_days
+        self.allow_synthetic_evidence = allow_synthetic_evidence
 
     # -- planning -----------------------------------------------------------
     def plan(
@@ -133,6 +137,7 @@ class ResearchService:
             method_version=self.method_version,
             now=now,
             max_age_days=self.max_age_days,
+            review_after_days=self.review_after_days,
         )
         notes = list(resolved.notes)
 
@@ -355,6 +360,8 @@ class ResearchService:
                 composition_hash=composition_hash,
                 method_version=self.method_version,
                 evaluated_at=_now_iso(),
+                composition=composition,
+                allow_synthetic_evidence=self.allow_synthetic_evidence,
             )
             self.store.save_evaluation(composition_id, evaluation)
             self.store.complete_job(
@@ -386,6 +393,8 @@ class ResearchService:
                 method_version=self.method_version,
                 evaluated_at=_now_iso(),
                 evidence_ids=ids,
+                composition=composition,
+                allow_synthetic_evidence=self.allow_synthetic_evidence,
             )
         except ContractError as exc:
             # A protocol/validation error is NOT "not applicable" and NOT

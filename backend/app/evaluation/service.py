@@ -16,7 +16,7 @@ from .contracts import (
     sha256_of,
 )
 from .engine import evaluate
-from .freshness import select_current
+from .freshness import DEFAULT_REVIEW_AFTER_DAYS, select_current
 from .parameters import resolve_relevance
 from .rules import get_rules
 from .snapshot import build_snapshot, verify_snapshot
@@ -41,11 +41,13 @@ class EvaluationService:
         rules: RuleSet | None = None,
         method_version: str = DEFAULT_METHOD_VERSION,
         max_age_days: int | None = None,
+        review_after_days: int | None = DEFAULT_REVIEW_AFTER_DAYS,
     ) -> None:
         self.store = store
         self.rules = rules or get_rules()
         self.method_version = method_version
         self.max_age_days = max_age_days
+        self.review_after_days = review_after_days
 
     # -- composition --------------------------------------------------------
     def ensure_composition(self, product_id: int, composition: Mapping[str, Any]) -> dict:
@@ -88,6 +90,7 @@ class EvaluationService:
             method_version=self.method_version,
             now=now,
             max_age_days=self.max_age_days,
+            review_after_days=self.review_after_days,
         )
         result = evaluate(profile, current, self.rules)
         snapshot = build_snapshot(

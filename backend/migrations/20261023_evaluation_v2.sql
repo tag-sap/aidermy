@@ -89,6 +89,10 @@ create table if not exists evaluation.evidence (
     extraction_method text       not null default '',
     verification     text        not null default 'unverified'
                      check (verification in ('confirmed', 'unverified', 'rejected')),
+    -- How the source text reached the provider: 'fetched' (declared download),
+    -- 'synthetic' (test fixture) or 'unknown'. Only 'fetched' may back a score.
+    provenance       text        not null default 'unknown'
+                     check (provenance in ('fetched', 'synthetic', 'unknown')),
     rejection_reason text        not null default '',
     retrieved_at     timestamptz,
     created_at       timestamptz not null default now()

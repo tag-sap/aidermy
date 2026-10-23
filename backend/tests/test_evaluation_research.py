@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from app.evaluation import (
     NOT_APPLICABLE,
@@ -68,7 +69,7 @@ class ResearchFlowTests(unittest.TestCase):
                 "skin_type:dry": evidence_ok("skin_type:dry", strength="moderate"),
             }
         )
-        self.service = ResearchService(self.store, self.provider)
+        self.service = ResearchService(self.store, self.provider, allow_synthetic_evidence=True)
 
     def _run(self, comp: str = COMP_A, profile=PROFILE, **kwargs):
         return self.service.research_missing(
@@ -143,7 +144,7 @@ class ResearchFailureTests(unittest.TestCase):
         self.store = InMemoryStore()
 
     def _service(self, provider, **kwargs):
-        return ResearchService(self.store, provider, **kwargs)
+        return ResearchService(self.store, provider, allow_synthetic_evidence=True, **kwargs)
 
     def _run(self, service, **kwargs):
         return service.research_missing(
@@ -224,7 +225,7 @@ class ResearchBudgetTests(unittest.TestCase):
             cost_usd=1.0,
         )
         provider = FakeResearchProvider(default=expensive)
-        service = ResearchService(self.store, provider, max_cost_per_job=0.1)
+        service = ResearchService(self.store, provider, max_cost_per_job=0.1, allow_synthetic_evidence=True)
         report = self._run(service)
         self.assertEqual(report.failed, ("problem:dryness", "skin_type:dry"))
         self.assertEqual(report.cost_usd, 2.0)
@@ -243,7 +244,8 @@ class ResearchBudgetTests(unittest.TestCase):
             }
         )
         service = ResearchService(
-            self.store, provider, max_cost_per_job=1.0, max_cost_per_run=0.3
+            self.store, provider, max_cost_per_job=1.0, max_cost_per_run=0.3,
+            allow_synthetic_evidence=True,
         )
         report = self._run(service)
         self.assertEqual(report.researched, ("problem:dryness",))
@@ -254,7 +256,7 @@ class ResearchBudgetTests(unittest.TestCase):
 
     def test_max_attempts_stops_retries(self):
         provider = FakeResearchProvider(default=provider_error("timeout"))
-        service = ResearchService(self.store, provider, max_attempts=1)
+        service = ResearchService(self.store, provider, max_attempts=1, allow_synthetic_evidence=True)
         self._run(service)
         calls = provider.call_count()
         report = self._run(service)
@@ -269,7 +271,7 @@ class ResearchFreshnessTests(unittest.TestCase):
         self.provider = FakeResearchProvider(
             {"problem:dryness": evidence_ok("problem:dryness"), "skin_type:dry": evidence_ok("skin_type:dry")}
         )
-        self.service = ResearchService(self.store, self.provider)
+        self.service = ResearchService(self.store, self.provider, allow_synthetic_evidence=True)
 
     def test_composition_change_requires_new_research(self):
         self.service.research_missing(
@@ -313,7 +315,7 @@ class ResearchConcurrencyTests(unittest.TestCase):
         provider = FakeResearchProvider(
             {"problem:dryness": evidence_ok("problem:dryness"), "skin_type:dry": evidence_ok("skin_type:dry")}
         )
-        service = ResearchService(store, provider)
+        service = ResearchService(store, provider, allow_synthetic_evidence=True)
         barrier = threading.Barrier(2)
         reports = []
 
@@ -352,7 +354,7 @@ class ResearchEngineIntegrationTests(unittest.TestCase):
                 "skin_type:dry": evidence_ok("skin_type:dry", strength="moderate"),
             }
         )
-        ResearchService(store, provider).research_missing(
+        ResearchService(store, provider, allow_synthetic_evidence=True).research_missing(
             product=PRODUCT, composition=composition(), profile=PROFILE
         )
         record = store.get_composition(PRODUCT["id"], COMP_A)
@@ -382,7 +384,7 @@ class ResearchStatusTests(unittest.TestCase):
 
     def _run(self, responses, profile=PROFILE):
         provider = FakeResearchProvider(responses)
-        service = ResearchService(self.store, provider)
+        service = ResearchService(self.store, provider, allow_synthetic_evidence=True)
         return service, provider, service.research_missing(
             product=PRODUCT, composition=composition(), profile=profile
         )
@@ -475,6 +477,81 @@ class ResearchStatusTests(unittest.TestCase):
         self.assertEqual(provider.call_count(), calls)
         self.assertEqual(report.researched, ())
         self.assertEqual(report.not_applicable, ())
+
+
+class ResearchReviewWindowTests(unittest.TestCase):
+    """Non-scoring results are only cached for the review window."""
+
+    OLD = (datetime.now(timezone.utc) - timedelta(days=31)).isoformat()
+    RECENT = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+
+    def _store(self, status: str, age: str) -> InMemoryStore:
+        store = InMemoryStore()
+        record = store.upsert_composition({**composition(), "product_id": PRODUCT["id"]})
+        value = 75 if status == "assessed" else None
+        for parameter_id in ("problem:dryness", "skin_type:dry"):
+            store.save_evaluation(
+                int(record["id"]),
+                ParameterEvaluation(
+                    parameter_id=parameter_id,
+                    status=status,
+                    value=value,
+                    composition_hash=COMP_A,
+                    method_version=DEFAULT_METHOD_VERSION,
+                    rationale="Сохранённый результат предыдущего запуска.",
+                    evidence_ids=("1",) if status == "assessed" else (),
+                    evaluated_at=age,
+                ),
+            )
+        return store
+
+    def _run(self, store: InMemoryStore):
+        provider = FakeResearchProvider(
+            {
+                "problem:dryness": insufficient(),
+                "skin_type:dry": insufficient(),
+            }
+        )
+        service = ResearchService(store, provider, allow_synthetic_evidence=True)
+        report = service.research_missing(
+            product=PRODUCT, composition=composition(), profile=PROFILE
+        )
+        return provider, report
+
+    def test_old_insufficient_results_are_researched_again(self):
+        provider, report = self._run(self._store("insufficient_evidence", self.OLD))
+        self.assertEqual(report.insufficient, ("problem:dryness", "skin_type:dry"))
+        self.assertEqual(provider.call_count(), 2)
+
+    def test_old_not_applicable_results_are_researched_again(self):
+        provider, report = self._run(self._store("not_applicable", self.OLD))
+        self.assertEqual(report.insufficient, ("problem:dryness", "skin_type:dry"))
+        self.assertEqual(provider.call_count(), 2)
+
+    def test_recent_non_scoring_results_are_reused(self):
+        provider, report = self._run(self._store("insufficient_evidence", self.RECENT))
+        self.assertEqual(report.researched, ())
+        self.assertEqual(provider.call_count(), 0)
+
+    def test_assessed_result_is_reused_regardless_of_age(self):
+        old = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+        provider, report = self._run(self._store("assessed", old))
+        self.assertEqual(report.researched, ())
+        self.assertEqual(provider.call_count(), 0)
+
+    def test_window_can_be_disabled_explicitly(self):
+        store = self._store("insufficient_evidence", self.OLD)
+        provider = FakeResearchProvider(
+            {"problem:dryness": insufficient(), "skin_type:dry": insufficient()}
+        )
+        service = ResearchService(
+            store, provider, allow_synthetic_evidence=True, review_after_days=None
+        )
+        report = service.research_missing(
+            product=PRODUCT, composition=composition(), profile=PROFILE
+        )
+        self.assertEqual(report.researched, ())
+        self.assertEqual(provider.call_count(), 0)
 
 
 if __name__ == "__main__":

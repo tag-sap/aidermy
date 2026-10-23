@@ -154,7 +154,7 @@ CHECK расширен до `('weighted_mean', 'arithmetic_mean')`.
 | кто выбирает балл | детерминированный пересчёт баланса цитат (`net_score`, полосы 20…80) | модель исследования выбирает один из `0/25/50/75/100`, детерминированная часть только валидирует |
 | количество цитат | влияло на значение | не влияет: две цитаты с баллом 25 и одна с баллом 100 дают 25 и 100 соответственно (тест `test_score_is_not_derived_from_quote_count`) |
 | статусы | `evaluated`, `insufficient_evidence`, `contradictory_evidence`, `not_researched`, `stale` | `assessed`, `not_applicable`, `insufficient_evidence`, `pending`, `stale` (+ legacy-значения только для чтения истории) |
-| применимость | не рассматривалась | отдельное решение модели; без обоснования и подтверждённого источника понижается до `insufficient_evidence`; для `intolerance`/`therapy`/`procedure` неприменимость отклоняется всегда |
+| применимость | не рассматривалась | отдельное решение модели; без обоснования и подтверждённого источника понижается до `insufficient_evidence`; категориальный запрет по разделам снят на этапе 3 (см. ниже) |
 | достаточность | выводилась из полос | отдельное решение модели; `sufficient=false` не может содержать балл, `sufficient=true` без балла отклоняется |
 | балл 50 | «нейтрально/неизвестно» | допустим только как осознанный уровень «частично соответствует», с обоснованием и доказательствами |
 | порог полноты | `completeness < 0.5` отключал итог | порога нет: считается среднее по любым ≥1 `assessed`; нет оценок — `total = null` |
@@ -175,7 +175,31 @@ CHECK расширен до `('weighted_mean', 'arithmetic_mean')`.
 Остаются непроверенными: реальный провайдер поиска/загрузки, калибровка критериев
 пяти уровней, staging Supabase. Роутер по-прежнему не зарегистрирован в `main.py`.
 
+## Аудит этапа 3 (2026-10-25): безопасность `/preview`, INCI, `not_applicable`, provenance
+
+Проверены четыре заявленных требования. Все четыре при предыдущей реализации не
+выполнялись; исправлено в коде и покрыто тестами.
+
+| ID | Место | Дефект | Как исправлено |
+|---|---|---|---|
+| S1 | `api.preview` | `EvaluationInput.status` имел значение по умолчанию `assessed`: запрос без полей вообще возвращал «оценённый» балл, доказательства не проверялись, эндпоинт был публичным. | `status` обязателен (422 без него). `assessed` требует авторизации, непустого `composition_hash` и сохранённых доказательств этого же параметра и состава с `verification=confirmed` и `provenance=fetched` (`_require_verified_preview_evidence`). Нет хранилища — 503. Пустой `composition_hash` — 422. Тесты: `test_preview_requires_explicit_status`, `test_assessed_preview_requires_authentication`, `test_assessed_preview_requires_stored_evidence`, `..._rejects_synthetic_evidence`, `..._rejects_evidence_of_another_parameter`, `..._rejects_evidence_of_another_composition`. |
+| S2 | `assessment.py` | Непереносимости проверялись по цитатам, а не по составу: «отдушки нет» могло следовать из маркетингового текста. | Новый `evaluation/inci.py`: закрытые категории (fragrance, alcohol, niacinamide) при отсутствии в полном подтверждённом INCI дают `not_applicable`; открытые (эфирные масла, ретиноиды, кислоты) — `unverifiable`; пустой/неподтверждённый/обрезанный/однотокенный INCI — `unverifiable`. `unverifiable` всегда понижает до `insufficient_evidence`; найденный ингредиент запрещает `not_applicable` (понижение) и балл 100 (`ContractError`). 22 теста в `test_evaluation_inci.py`. |
+| S3 | `assessment.SAFETY_SECTIONS` | Запрет `not_applicable` по названию раздела был одновременно слишком широким (терапия/процедуры) и не связанным с доказательствами. | Запрет удалён; вместо него `not_applicable` требует обоснования и подтверждённого источника **этого** параметра + `provenance=fetched`. Неприменимость без источника остаётся `insufficient_evidence`. |
+| S4 | `evidence.py` / `research.py` / `assessment.py` / миграции | Провенанс не фиксировался: fake-источник и реально загруженная страница были неразличимы, `/preview` принимал любые `evidence_ids`. | Поле `provenance` (`fetched`/`synthetic`/`unknown`) у `Source` и `Evidence`, `Evidence.fetched`; `candidate()` по умолчанию `synthetic`; валидатор и `assess()` не принимают не-`fetched` доказательства без явного `allow_synthetic_evidence=True` (только тесты); `evidence_ref()` в обоих хранилищах; миграция `20261025_evaluation_v2_provenance.sql` (CHECK `NOT VALID`, идемпотентна). |
+| S5 | `freshness.py` | `insufficient_evidence` и `not_applicable` кэшировались бессрочно: новые источники не детектируются, значит «данных нет» могло остаться навсегда. | `review_after_days` (по умолчанию 30) инвалидирует только эти два статуса; `assessed` живёт по `valid_until`/`max_age_days`; `None` отключает окно явно. Тесты свежести в `test_evaluation_engine.py` и сквозные — `ResearchReviewWindowTests` в `test_evaluation_research.py`. |
+
+Ограничения, которые аудит не устраняет (задокументированы в `EVALUATION_V2.md`):
+`provenance=fetched` — заявление провайдера, а не проверенный факт; полного
+справочника INCI нет (открытые категории принципиально `unverifiable`); детекции
+новых источников нет, только окно пересмотра; миграции не применены к staging.
+
+Проверено на локальном PostgreSQL 16.2 (`aidermy_eval_test`): 225 модульных/контрактных
+теста + 48 интеграционных, все проходят. Полный `unittest discover` — 992 теста,
+8 failures / 49 errors / 4 skipped; 53 уникальных имени падений — подмножество базового
+набора из 67, в `test_evaluation_*` падений нет (новых регрессий не добавлено).
+
 ## Вывод
+
 
 Ветка пригодна к слиянию **только после** staging-проверки миграции и `PostgresStore`.
 До этого она безопасна: роутер не зарегистрирован, миграция не применена, production

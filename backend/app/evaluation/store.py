@@ -61,6 +61,7 @@ class EvaluationStore(Protocol):
     def pending_parameters(self, composition_id: int, method_version: str) -> list[str]: ...
     def save_evidence(self, composition_id: int, evidence: Sequence[Evidence]) -> list[int]: ...
     def evidence_for(self, composition_id: int, parameter_id: str) -> list[dict]: ...
+    def evidence_ref(self, evidence_id: int) -> dict | None: ...
     def claim_job(
         self, worker_id: str, *, composition_id: int | None = None, lock_seconds: int = 120
     ) -> dict | None: ...
@@ -226,6 +227,18 @@ class InMemoryStore:
             for row in self._evidence
             if row["composition_id"] == composition_id and row["parameter_id"] == parameter_id
         ]
+
+    def evidence_ref(self, evidence_id: int) -> dict | None:
+        record = next(
+            (row for row in self._evidence if int(row["id"]) == int(evidence_id)), None
+        )
+        if record is None:
+            return None
+        composition = self.get_composition_by_id(record["composition_id"]) or {}
+        return {
+            **dict(record),
+            "composition_hash": str(composition.get("composition_hash") or ""),
+        }
 
     # -- research jobs ------------------------------------------------------
     def enqueue_research(self, composition_id: int, parameter_id: str, method_version: str) -> bool:
