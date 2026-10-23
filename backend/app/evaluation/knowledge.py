@@ -11,11 +11,18 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping
+from urllib.parse import urlparse
 
 from .contracts import sha256_of
 from .documents import collect_source_urls
+from .inci import looks_truncated, split_inci
 
 _WS_RE = re.compile(r"\s+")
+
+# Provenance that is strong enough to use an existing catalog INCI without asking
+# an administrator to re-type it. This is deliberately narrow: a dedicated INCI
+# database is a different class of source from an arbitrary product page.
+TRUSTED_INCI_HOSTS = ("incidecoder.com",)
 
 
 class KnowledgeUnavailable(RuntimeError):
@@ -46,6 +53,144 @@ class ProductKnowledge:
             "source_urls": list(self.source_urls),
             "notes": list(self.notes),
         }
+
+
+@dataclass(frozen=True)
+class CompositionReadiness:
+    """Whether the catalog INCI may be used, and what the user must do next.
+
+    ``usable`` describes the data, not the status of a previous evaluation:
+    a complete INCI from a trusted provenance can be used immediately even when
+    the composition row has not been explicitly verified yet (``auto_verify``).
+    """
+
+    usable: bool
+    reason: str
+    action: str
+    trust: str
+    message: str
+    source_host: str = ""
+    auto_verify: bool = False
+
+    def as_dict(self) -> dict:
+        return {
+            "usable": self.usable,
+            "reason": self.reason,
+            "action": self.action,
+            "trust": self.trust,
+            "message": self.message,
+            "source_host": self.source_host,
+            "auto_verify": self.auto_verify,
+        }
+
+
+def _trusted_inci_host(source: str) -> str:
+    try:
+        host = (urlparse(str(source or "").strip()).hostname or "").lower()
+    except ValueError:
+        return ""
+    if not host:
+        return ""
+    for trusted in TRUSTED_INCI_HOSTS:
+        if host == trusted or host.endswith("." + trusted):
+            return host
+    return ""
+
+
+def assess_composition(
+    product: Mapping | None,
+    composition: Mapping | None,
+    *,
+    status: str = "",
+) -> CompositionReadiness:
+    """Split "INCI exists" from "INCI is trustworthy enough to analyse".
+
+    Rules:
+      * empty or single-token INCI is never usable;
+      * truncated lists are not usable;
+      * an already ``active`` composition is usable (it was explicitly verified);
+      * a complete INCI from a trusted INCI database is usable automatically and
+        should be recorded as verified;
+      * a complete INCI from any other source stays unverified until its source
+        is checked — a non-empty string alone never proves the formula.
+    """
+    product = product or {}
+    composition = composition or {}
+    inci_raw = str(composition.get("inci_raw") or product.get("ingredients") or "").strip()
+    tokens = split_inci(inci_raw)
+    source = str(composition.get("source") or product.get("url") or "").strip()
+    host = _trusted_inci_host(source)
+
+    if not inci_raw:
+        return CompositionReadiness(
+            usable=False,
+            reason="missing",
+            action="provide_inci",
+            trust="none",
+            message=(
+                "В карточке нет состава, поэтому оценка невозможна. "
+                "Добавьте INCI или укажите источник состава."
+            ),
+        )
+    if len(tokens) < 2 or looks_truncated(inci_raw):
+        return CompositionReadiness(
+            usable=False,
+            reason="incomplete",
+            action="provide_inci",
+            trust="incomplete",
+            source_host=host,
+            message=(
+                f"Состав в карточке неполный: найдено {len(tokens)} ингредиент(а). "
+                "Нужен полный INCI, иначе оценка будет недостоверной."
+            ),
+        )
+    if str(status or "") == "active":
+        return CompositionReadiness(
+            usable=True,
+            reason="confirmed",
+            action="none",
+            trust="confirmed",
+            source_host=host,
+            message="Состав подтверждён и пригоден для оценки.",
+        )
+    if str(status or "") == "superseded":
+        return CompositionReadiness(
+            usable=False,
+            reason="superseded",
+            action="check_source",
+            trust="unverified",
+            source_host=host,
+            message=(
+                "Эта версия состава помечена как устаревшая. Проверьте актуальный состав "
+                "по источнику, прежде чем оценивать продукт."
+            ),
+        )
+    if host:
+        return CompositionReadiness(
+            usable=True,
+            reason="trusted_catalog",
+            action="none",
+            trust="trusted_catalog",
+            source_host=host,
+            auto_verify=True,
+            message=(
+                f"Состав взят из карточки каталога, источник — доверенная база INCI "
+                f"{host}. Его можно использовать без повторного подтверждения."
+            ),
+        )
+    return CompositionReadiness(
+        usable=False,
+        reason="untrusted_source" if source else "source_missing",
+        action="check_source",
+        trust="unverified",
+        source_host=host,
+        message=(
+            "Состав есть, но его происхождение не подтверждено. "
+            "Проверьте состав по источнику, прежде чем запускать оценку."
+            if source
+            else "Состав есть, но у карточки нет источника. Укажите источник и проверьте состав."
+        ),
+    )
 
 
 def normalize_inci(inci_raw: str) -> str:

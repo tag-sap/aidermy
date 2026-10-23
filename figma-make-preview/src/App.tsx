@@ -2444,124 +2444,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
           )}
 
-          {phase === "idle" && (
-            <div className="drawer__body">
-              <div className="drawer__cta"><Button icon="sparkle" className="w-full" onClick={check}>{product.needs_recheck ? "Перепроверить" : "Проверить совместимость"}</Button></div>
-            </div>
-          )}
-
-          {phase === "checking" && (
-            <div className="drawer__body drawer__body--center">
-              <span className="spin spin--lg" />
-              <h3>Проверяем совместимость…</h3>
-              <p>Сопоставляем состав с вашим профилем кожи и текущей полкой.</p>
-            </div>
-          )}
-
-          {!showAnalysisExplainer && phase === "match" && (
-            <AnimatedBorderWrapper active={reportLoading} className="drawer__report-wrap" borderRadius="18px">
-            <div className="drawer__body">
-              <div className="drawer__score">
-                {recommendationStatus === "Недостаточно данных" || recommendationStatus === "Не оценивается" ? (
-                  <p className="drawer__score-note">
-                    {recommendationStatus === "Не оценивается"
-                      ? "Для этой категории процент совместимости с кожей не рассчитывается."
-                      : "Недостаточно данных для достоверной оценки совместимости."}
-                  </p>
-                ) : (
-                  <>
-                    {(score != null || verdict != null || recommendationStatus === "Не рекомендовано") && (
-                      <div className="compat-result-identity">
-                        {score != null ? (
-                          <ScoreRing score={score} label={recommendationStatus === "Не рекомендовано" ? "негативная оценка" : "совместимость"} />
-                        ) : (
-                          <span className="drawer__score-note">
-                            {verdict || recommendationStatus || "Проверка завершена"}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    <div><p className="drawer__score-note"><button type="button" className="drawer__explain-link" onClick={() => setShowAnalysisExplainer(true)}>Как мы оцениваем совместимость?</button></p></div>
-                  </>
-                )}
-              </div>
-              
-
-              {phase === "match" && <div className="drawer__cta">
-                {reportError && <p className="drawer__report-error" role="alert">{reportError}</p>}
-                <div className="drawer__report-row">
-                  {!user ? (
-                    <Button icon="lock" className="w-full" onClick={handleShowReport}>Посмотреть отчёт — войдите</Button>
-                  ) : (
-                    <Button
-                      icon={reportData ? "close" : "file"}
-                      className="w-full"
-                      onClick={handleShowReport}
-                      disabled={reportLoading}
-                    >
-                      {reportLoading
-                        ? <><span className="spin spin--sm" /> Загружаем отчёт…</>
-                        : reportData
-                          ? "Скрыть отчёт"
-                          : reportError ? "Повторить" : "Посмотреть отчёт"}
-                    </Button>
-                  )}
-                  <span className="report-cost" title="Стоимость AI-отчёта">
-                    <Icon name="credits" size={14} /><b>1</b>
-                  </span>
-                </div>
-              </div>}
-
-            </div>
-            </AnimatedBorderWrapper>
-          )}
-
-          {!showAnalysisExplainer && !!reportData && (() => {
-            const sc = reportData?.score ?? score ?? 0
-            const resultTone = toneOf(
-              sc,
-              recommendationStatus === "Не рекомендовано"
-                ? "Не рекомендовано"
-                : ((reportData?.verdict as Verdict | null) ?? verdict)
-            )
-            const frag = (f: { text: string; sentiment: string }, i: number) => (
-              <span key={i}>{f.text}</span>
-            )
-            const goodEl = (reportData?.what_good && reportData.what_good.length > 0) ? (
-              <section className="report-card report-card--good"><h4>Что хорошо в составе</h4><p className="drawer__report-summary">{reportData.what_good.map(frag)}</p></section>
-            ) : null
-            const badEl = (reportData?.what_bad && reportData.what_bad.length > 0) ? (
-              <section className="report-card report-card--bad"><h4>Что плохого в составе</h4><p className="drawer__report-summary">{reportData.what_bad.map(frag)}</p></section>
-            ) : null
-            const first = sc < 60 ? badEl : goodEl
-            const second = sc < 60 ? goodEl : badEl
-            return (
-            <div className="drawer__body drawer__body--report">
-              <section className={`report-card report-card--result report-card--${resultTone}`}>
-              <div className="drawer__report-head"><p className="eyebrow">Результат</p></div>
- 
-              
-              {reportData?.review && reportData.review.length > 0 && <p className="drawer__report-summary">{reportData.review.map(frag)}</p>}
-              </section>
-              {first}
-              {second}
-              {reportData?.how_to_use && (
-                <section className="report-card"><h4>Как применять</h4>
-                  <p className="drawer__report-summary">{reportData.how_to_use.application || reportData.how_to_use.time || ""}</p>
-                </section>
-              )}
-              {reportData?.expectations?.normal && (
-                <section className="report-card"><h4>Чего ожидать</h4>
-                  <p className="drawer__report-summary">{reportData.expectations.normal}</p>
-                </section>
-              )}
-              {reportData?.details && <ReportDetails details={reportData.details} />}
-              
-            </div>
-            )
-          })()}
-
-              {!showAnalysisExplainer && (product.barcode || product.variant) && (
+{(product.barcode || product.variant) && (
                 <section className="report-card">
                   <h4>Данные упаковки</h4>
                   {product.variant && <p className="drawer__report-summary">Вариант: {product.variant}</p>}
@@ -2569,7 +2452,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
                 </section>
               )}
 
-{!showAnalysisExplainer && (
+{(
               <section className="report-card drawer__inci">
                 <h4>Состав (INCI)</h4>
                 <p className="inci">
@@ -2580,7 +2463,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               </section>
               )}
 
-              {!showAnalysisExplainer && product.slug && (
+              {product.slug && (
                 <section className="drawer__review">
                   <h3>Отзывы о продукте</h3>
 

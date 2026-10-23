@@ -15,6 +15,8 @@ from app.evaluation import resolve_parameters
 FRONTEND = Path(__file__).resolve().parents[2] / "figma-make-preview" / "src"
 APP_TSX = FRONTEND / "App.tsx"
 DATA_TS = FRONTEND / "data.ts"
+PANEL_TSX = FRONTEND / "evaluation-v2.tsx"
+API_TS = FRONTEND / "api.ts"
 
 
 def _save_block(source: str) -> str:
@@ -125,6 +127,34 @@ class FrontendPayloadTests(unittest.TestCase):
             {"age": "45_plus", "structured": {"age": "45_plus"}}
         )
         self.assertEqual(resolved.parameters, ())
+
+
+class EvaluationV2UiContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not APP_TSX.exists() or not PANEL_TSX.exists():  # pragma: no cover
+            raise unittest.SkipTest("frontend sources not found")
+        cls.app = APP_TSX.read_text(encoding="utf-8")
+        cls.panel = PANEL_TSX.read_text(encoding="utf-8")
+        cls.api = API_TS.read_text(encoding="utf-8")
+
+    def test_product_drawer_has_no_legacy_current_report(self):
+        drawer = self.app[self.app.index("function ProductDrawer") :]
+        for legacy in ("Скрыть отчёт", "drawer__report-wrap", "Проверить совместимость"):
+            self.assertNotIn(legacy, drawer, f"legacy drawer UI must not contain {legacy!r}")
+        self.assertIn("EvaluationV2Panel", drawer)
+        self.assertIn("<EvaluationV2Panel", drawer)
+
+    def test_v2_panel_has_two_distinct_actions(self):
+        self.assertIn("Проверить состав", self.panel)
+        self.assertIn("Оценить продукт", self.panel)
+        self.assertIn("evaluationCompositionCheck", self.panel)
+        self.assertIn("composition_state", self.panel)
+
+    def test_api_exposes_composition_check(self):
+        self.assertIn("evaluationCompositionCheck", self.api)
+        self.assertIn("/composition/check", self.api)
+        self.assertIn("EvaluationCompositionState", self.api)
 
 
 if __name__ == "__main__":

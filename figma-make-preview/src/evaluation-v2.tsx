@@ -7,6 +7,7 @@ import {
   ApiError,
   EVALUATION_V2_ENABLED,
   type EvaluationAnalysis,
+  type EvaluationCompositionState,
   type EvaluationProductStatus,
   type EvaluationReport,
 } from "./api"
@@ -15,7 +16,7 @@ const STATUS_LABEL: Record<string, string> = {
   complete: "Анализ завершён",
   incomplete: "Анализ не завершён",
   failed: "Техническая ошибка исследования",
-  blocked: "Нужен подтверждённый состав",
+  blocked: "Нужен пригодный состав",
 }
 
 const GAP_LABEL: Record<string, string> = {
@@ -67,6 +68,8 @@ export function EvaluationV2Panel({
   const [status, setStatus] = useState<EvaluationProductStatus | null>(null)
   const [report, setReport] = useState<EvaluationReport | null>(null)
   const [loading, setLoading] = useState(false)
+  const [checkingComposition, setCheckingComposition] = useState(false)
+  const [compositionNotice, setCompositionNotice] = useState("")
   const [error, setError] = useState("")
   const [unavailable, setUnavailable] = useState(false)
   const profileKey = useMemo(() => JSON.stringify(profile || {}), [profile])
@@ -97,8 +100,35 @@ export function EvaluationV2Panel({
     void load()
   }, [load])
 
+  const checkComposition = async () => {
+    if (!EVALUATION_V2_ENABLED || !enabled) return
+    setCheckingComposition(true)
+    setError("")
+    setCompositionNotice("")
+    try {
+      const data = await api.evaluationCompositionCheck(productId)
+      setCompositionNotice(data.message || "")
+      if (data.composition_state?.usable) {
+        await load()
+      }
+    } catch (e) {
+      const statusCode = e instanceof ApiError ? e.status : 0
+      if (statusCode === 503) {
+        setError("Проверка состава недоступна: сервер не настроен.")
+      } else {
+        setError(e instanceof Error ? e.message : "Не удалось проверить состав.")
+      }
+    } finally {
+      setCheckingComposition(false)
+    }
+  }
+
   const recalculate = async () => {
     if (!EVALUATION_V2_ENABLED || !enabled) return
+    if (status?.composition_state && !status.composition_state.usable) {
+      setError(status.composition_state.message || "Состав не готов к оценке.")
+      return
+    }
     setLoading(true)
     setError("")
     try {
@@ -127,6 +157,15 @@ export function EvaluationV2Panel({
   const sources =
     (analysis?.documents_fetched ?? 0) + (analysis?.documents_reused ?? 0)
   const assessedCount = analysis?.assessed_parameters.length ?? 0
+  const compositionState: EvaluationCompositionState | null =
+    report?.composition_state ?? status?.composition_state ?? null
+  const composition = report?.composition ?? status?.composition ?? null
+  const canEvaluate = compositionState ? compositionState.usable : true
+  const compositionBadge = compositionState?.usable
+    ? compositionState.reason === "trusted_catalog"
+      ? "состав пригоден · доверенный источник"
+      : "состав подтверждён"
+    : "нужна проверка состава"
 
 
   return (
@@ -142,10 +181,43 @@ export function EvaluationV2Panel({
           type="button"
           className="evalv2__refresh"
           onClick={() => void recalculate()}
-          disabled={loading}
+          disabled={loading || checkingComposition || !canEvaluate}
+          title={!canEvaluate ? compositionState?.message || "Сначала проверьте состав" : undefined}
         >
-          {loading ? "…" : "Обновить"}
+          {loading ? "…" : report ? "Обновить оценку" : "Оценить продукт"}
         </button>
+      </div>
+
+      <div className="evalv2__composition">
+        <div className="evalv2__composition-head">
+          <span>Состав</span>
+          <span className={`evalv2__badge ${canEvaluate ? "evalv2__badge--ok" : "evalv2__badge--warn"}`}>
+            {compositionBadge}
+          </span>
+        </div>
+        {composition?.inci_raw ? (
+          <p className="evalv2__inci">{shortText(composition.inci_raw, 260)}</p>
+        ) : (
+          <p className="evalv2__empty">В карточке товара нет сохранённого состава.</p>
+        )}
+        <p className="evalv2__composition-note">
+          {compositionNotice || compositionState?.message || "Проверяем данные о составе…"}
+        </p>
+        {composition?.source && (
+          <p className="evalv2__source">
+            Источник: {compositionState?.source_host || composition.source}
+          </p>
+        )}
+        {(
+          <button
+            type="button"
+            className="evalv2__action"
+            onClick={() => void checkComposition()}
+            disabled={checkingComposition || loading}
+          >
+            {checkingComposition ? "Проверяем состав…" : "Проверить состав"}
+          </button>
+        )}
       </div>
 
       {analysis && (
@@ -166,7 +238,7 @@ export function EvaluationV2Panel({
 
           {total == null && analysis.status !== "blocked" && assessedCount > 0 && (
             <p className="evalv2__empty">
-              Оценки готовы. Нажмите «Обновить», чтобы увидеть баллы и обоснования.
+              Оценки готовы. Нажмите «Оценить продукт», чтобы увидеть баллы и обоснования.
             </p>
           )}
 
@@ -200,8 +272,8 @@ export function EvaluationV2Panel({
 
           {analysis.status === "blocked" && (
             <p className="evalv2__empty">
-              Состав ещё не подтверждён: администратор должен подтвердить INCI, после этого
-              анализ запустится.
+              {compositionState?.message ||
+                "Состав не готов к оценке: проверьте его происхождение и полноту."}
             </p>
           )}
 

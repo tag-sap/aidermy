@@ -178,6 +178,16 @@ export type EvaluationComposition = {
   inci_raw?: string
 }
 
+export type EvaluationCompositionState = {
+  usable: boolean
+  reason: "confirmed" | "trusted_catalog" | "untrusted_source" | "source_missing" | "incomplete" | "missing" | string
+  action: "none" | "check_source" | "provide_inci" | string
+  trust: string
+  message: string
+  source_host?: string
+  auto_verify?: boolean
+}
+
 export type EvaluationParameterRow = {
   parameter_id: string
   value: number
@@ -203,6 +213,7 @@ export type EvaluationSnapshot = {
 export type EvaluationReport = {
   product: { id: number; name: string; brand?: string }
   composition: EvaluationComposition
+  composition_state?: EvaluationCompositionState
   snapshot: EvaluationSnapshot
   analysis: EvaluationAnalysis
   plan?: { needed: string[]; stale: string[]; gaps: EvaluationGap[]; blocked: boolean; notes: string[] }
@@ -212,9 +223,17 @@ export type EvaluationReport = {
 export type EvaluationProductStatus = {
   product: { id: number; name: string; brand?: string; url?: string; has_reliable_inci?: boolean }
   composition: EvaluationComposition
+  composition_state?: EvaluationCompositionState
   analysis: EvaluationAnalysis
   current: Array<{ parameter_id: string; status: string; value: number | null; rationale: string }>
   source_urls: string[]
+}
+
+export type EvaluationCompositionCheck = {
+  checked: boolean
+  composition: EvaluationComposition
+  composition_state: EvaluationCompositionState
+  message: string
 }
 
 export type ShelfItem = {
@@ -592,6 +611,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ profile }),
     })
+  },
+  async evaluationCompositionCheck(productId: number, sourceUrl?: string) {
+    return request<EvaluationCompositionCheck>(
+      `/v1/evaluation/products/${productId}/composition/check`,
+      {
+        method: "POST",
+        body: JSON.stringify({ source_url: sourceUrl || "" }),
+      }
+    )
   },
   async evaluationSnapshot(snapshotId: string) {
     return request<{ snapshot: EvaluationSnapshot }>(

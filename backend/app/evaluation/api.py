@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -32,7 +33,14 @@ from starlette.concurrency import run_in_threadpool
 from ..auth import get_current_user, get_current_user_optional
 from .analysis import AnalysisService, AnalysisUnavailable
 from .contracts import SCORE_LEVEL_CRITERIA, STATUS_ASSESSED, ContractError, ParameterEvaluation
-from .knowledge import ProductNotFound, KnowledgeUnavailable, load_product_knowledge
+from .documents import DocumentUnavailable
+from .knowledge import (
+    KnowledgeUnavailable,
+    ProductNotFound,
+    assess_composition,
+    load_product_knowledge,
+    normalize_inci,
+)
 from .gaps import analysis_state, scan_parameters
 from .engine import evaluate
 from .parameters import PARAMETERS
@@ -481,6 +489,12 @@ class _ProductStatusRequest(BaseModel):
     profile: dict[str, Any] = {}
 
 
+class CompositionCheckRequest(BaseModel):
+    """Optional source override; the catalog URL is used when omitted."""
+
+    source_url: str = ""
+
+
 def _product_status_sync(
     product_id: int, payload: _ProductStatusRequest, request: Request
 ) -> dict:
@@ -495,6 +509,17 @@ def _product_status_sync(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     record = service.ensure_composition(product_id, knowledge.composition)
+    readiness = assess_composition(
+        knowledge.product, knowledge.composition, status=str(record.get("status") or "")
+    )
+    if readiness.auto_verify and str(record.get("status") or "") != COMPOSITION_ACTIVE:
+        stamp = datetime.now(timezone.utc).isoformat()
+        record = store.verify_composition(
+            int(record["id"]), stamp, str(record.get("source") or "")
+        )
+        readiness = assess_composition(
+            knowledge.product, knowledge.composition, status=str(record.get("status") or "")
+        )
     stored = store.current_evaluations(record["id"], _method_version(request))
     scan = scan_parameters(
         evaluations=stored,
@@ -502,8 +527,12 @@ def _product_status_sync(
         composition_hash=str(record["composition_hash"]),
         method_version=_method_version(request),
     )
-    blocked = str(record.get("status") or "") != COMPOSITION_ACTIVE
-    state = analysis_state(scan=scan, blocked=blocked, extra_notes=knowledge.notes)
+    blocked = not readiness.usable
+    state = analysis_state(
+        scan=scan,
+        blocked=blocked,
+        extra_notes=tuple(knowledge.notes) + (readiness.message,),
+    )
     return {
         "product": knowledge.product,
         "composition": {
@@ -511,7 +540,9 @@ def _product_status_sync(
             "source": record.get("source") or "",
             "verified_at": str(record.get("verified_at") or ""),
             "status": record.get("status") or "",
+            "inci_raw": record.get("inci_raw") or knowledge.composition.get("inci_raw") or "",
         },
+        "composition_state": readiness.as_dict(),
         "analysis": state.as_dict(),
         "current": [item.as_dict() for item in scan.current],
         "source_urls": list(knowledge.source_urls),
@@ -527,6 +558,105 @@ async def product_status(
 ) -> dict:
     """What is already known and what is missing (no writes to research, no spend)."""
     return await run_in_threadpool(_product_status_sync, product_id, payload, request)
+
+
+def _check_composition_sync(
+    product_id: int, payload: CompositionCheckRequest, request: Request
+) -> dict:
+    """Check an existing INCI and verify it only with a real basis.
+
+    This is deliberately separate from ``/analyze``: it may download the declared
+    source and compare the INCI, but it never starts LLM research.
+    """
+    store = _store(request)
+    service = _service(request)
+    loader = getattr(request.app.state, "evaluation_product_loader", None)
+    source_override = (payload.source_url or "").strip() or None
+    try:
+        knowledge = load_product_knowledge(
+            product_id,
+            product_loader=loader,
+            composition_source=source_override,
+        )
+    except ProductNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KnowledgeUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    record = service.ensure_composition(product_id, knowledge.composition)
+    source = str(record.get("source") or knowledge.composition.get("source") or "")
+    inci = str(record.get("inci_raw") or knowledge.composition.get("inci_raw") or "")
+    readiness = assess_composition(
+        knowledge.product,
+        {**dict(knowledge.composition), "source": source, "inci_raw": inci},
+        status=str(record.get("status") or ""),
+    )
+    checked = readiness.usable
+    message = readiness.message
+
+    if readiness.auto_verify and str(record.get("status") or "") != COMPOSITION_ACTIVE:
+        stamp = datetime.now(timezone.utc).isoformat()
+        record = store.verify_composition(int(record["id"]), stamp, source)
+        readiness = assess_composition(
+            knowledge.product,
+            {**dict(knowledge.composition), "source": source, "inci_raw": inci},
+            status=str(record.get("status") or ""),
+        )
+        checked = True
+        message = readiness.message
+
+    if not checked and readiness.action == "check_source" and source.startswith(("http://", "https://")):
+        fetcher = getattr(request.app.state, "evaluation_document_fetcher", None)
+        if fetcher is None:
+            message = "Источник есть, но загрузчик страниц не настроен: проверка невозможна."
+        else:
+            try:
+                document = fetcher.fetch(source)
+                store.save_documents(int(record["id"]), [document])
+                declared = normalize_inci(inci).casefold()
+                if declared and declared in document.text.casefold():
+                    stamp = datetime.now(timezone.utc).isoformat()
+                    record = store.verify_composition(int(record["id"]), stamp, source)
+                    readiness = assess_composition(
+                        knowledge.product,
+                        {**dict(knowledge.composition), "source": source, "inci_raw": inci},
+                        status=str(record.get("status") or ""),
+                    )
+                    checked = True
+                    message = "Источник содержит заявленный INCI: состав проверен."
+                else:
+                    message = (
+                        "Источник загружен, но заявленный INCI в нём не найден. "
+                        "Состав не подтверждён."
+                    )
+            except DocumentUnavailable as exc:
+                message = f"Источник недоступен: {exc.reason}. Состав не подтверждён."
+            except Exception as exc:  # noqa: BLE001 - a check failure must stay a check failure
+                message = f"Не удалось проверить источник: {exc}. Состав не подтверждён."
+
+    return {
+        "checked": checked,
+        "composition": {
+            "composition_hash": record.get("composition_hash") or "",
+            "source": source,
+            "verified_at": str(record.get("verified_at") or ""),
+            "status": record.get("status") or "",
+            "inci_raw": inci,
+        },
+        "composition_state": readiness.as_dict(),
+        "message": message,
+    }
+
+
+@router.post("/products/{product_id}/composition/check")
+async def product_composition_check(
+    product_id: int,
+    payload: CompositionCheckRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Verify the existing catalog INCI without spending on research."""
+    return await run_in_threadpool(_check_composition_sync, product_id, payload, request)
 
 
 def _product_analysis_request(

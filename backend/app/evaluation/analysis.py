@@ -26,6 +26,7 @@ from .knowledge import (
     KnowledgeUnavailable,
     ProductKnowledge,
     ProductNotFound,
+    assess_composition,
     load_product_knowledge,
 )
 from .research import ResearchProvider
@@ -66,6 +67,11 @@ class AnalysisReport:
         payload = {
             "product": dict(self.product),
             "composition": dict(self.composition),
+            "composition_state": assess_composition(
+                self.product,
+                self.composition,
+                status=str(self.composition.get("status") or ""),
+            ).as_dict(),
             "snapshot": self.snapshot,
             "analysis": self.analysis.as_dict(),
         }
@@ -297,6 +303,13 @@ class AnalysisService:
 
         notes = list(knowledge.notes)
         composition = dict(knowledge.composition)
+        readiness = assess_composition(knowledge.product, composition)
+        if readiness.auto_verify and not composition.get("verified_at"):
+            stamp = (now or datetime.now(timezone.utc)).isoformat()
+            composition["verified_at"] = stamp
+            notes.append(
+                f"{readiness.message} Проверка происхождения зафиксирована в {stamp}."
+            )
         if verify_catalog_inci and not composition.get("verified_at"):
             source = str(composition.get("source") or "")
             if not knowledge.product.get("has_reliable_inci"):
