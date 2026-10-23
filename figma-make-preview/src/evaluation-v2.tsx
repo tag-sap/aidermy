@@ -126,6 +126,7 @@ export function EvaluationV2Panel({
   const parameters = report?.snapshot?.parameters ?? []
   const sources =
     (analysis?.documents_fetched ?? 0) + (analysis?.documents_reused ?? 0)
+  const assessedCount = analysis?.assessed_parameters.length ?? 0
 
 
   return (
@@ -154,12 +155,18 @@ export function EvaluationV2Panel({
               {STATUS_LABEL[analysis.status] || analysis.status}
             </span>
             {total != null && <span className="evalv2__total">{total.toFixed(2)} / 100</span>}
-            <span className="evalv2__meta">источников: {sources}</span>
+            {sources > 0 && <span className="evalv2__meta">источников: {sources}</span>}
           </div>
 
-          {total == null && analysis.status !== "blocked" && (
+          {total == null && analysis.status !== "blocked" && assessedCount === 0 && (
             <p className="evalv2__empty">
               Нет ни одной подтверждённой оценки: недостаток данных не заменяется баллом.
+            </p>
+          )}
+
+          {total == null && analysis.status !== "blocked" && assessedCount > 0 && (
+            <p className="evalv2__empty">
+              Оценки готовы. Нажмите «Обновить», чтобы увидеть баллы и обоснования.
             </p>
           )}
 
