@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user, get_current_user_optional
-from app.evaluation import ParameterEvaluation, candidate, validate_candidate
+from app.evaluation import ParameterEvaluation, candidate, ok, validate_candidate
 from app.evaluation.api import require_admin, setup_evaluation_routes
 from app.evaluation.service import DEFAULT_METHOD_VERSION, EvaluationService
 from app.evaluation.store import InMemoryStore
@@ -730,6 +730,53 @@ class ProductEndpointTests(unittest.TestCase):
         self.assertEqual(body["analysis"]["assessed_parameters"], [])
         self.assertIsNone(body["snapshot"]["total"])
         self.assertIn(body["analysis"]["status"], {"failed", "incomplete"})
+
+    def test_user_evaluate_processes_all_eight_profile_parameters(self):
+        client, store, app, provider, search = self._wired(admin=False)
+        checked = client.post(
+            "/api/v1/evaluation/products/1/composition/check", json={}
+        )
+        self.assertEqual(checked.status_code, 200, checked.text)
+
+        class AllParametersProvider:
+            name = "all-parameters"
+
+            def research(self, request):
+                return ok(
+                    candidate(
+                        parameter_id=request.parameter_id,
+                        claim="Подтверждённое свойство",
+                        quote="Glycerin helps keep the skin hydrated",
+                        url=ProductEndpointTests.URL,
+                        source_text="Formula. confirmed property.",
+                    ),
+                    score=75,
+                )
+
+        app.state.evaluation_research_provider = AllParametersProvider()
+        profile = {
+            "skin_type": "oily",
+            "structured": {
+                "skin_type": "oily",
+                "concerns": ["acne_general"],
+                "therapy": [
+                    {"id": "adapalene", "active": True},
+                    {"id": "antibiotic", "active": True},
+                    {"id": "benzoyl_peroxide", "active": True},
+                ],
+                "procedures": [{"id": "recent_biorevitalization", "period": "<7"}],
+                "intolerances": ["niacinamide_intolerance"],
+                "goals": ["acne"],
+            },
+        }
+        response = client.post(
+            "/api/v1/evaluation/products/1/evaluate", json={"profile": profile}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(len(body["analysis"]["assessed_parameters"]), 8)
+        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertEqual(len(body["analysis"]["gaps"]), 0)
 
     def test_research_after_status_upgrades_the_unverified_composition(self):
         client, store, _, provider, _ = self._wired()
