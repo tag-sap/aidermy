@@ -3524,3 +3524,16 @@ select:focus-visible,
 .evalv2__action { margin-top: 8px; border: 1px solid var(--border-strong); background: var(--surface-2); border-radius: 999px; padding: 6px 12px; font-size: 12px; cursor: pointer; color: var(--ink); }
 .evalv2__action:disabled { opacity: .6; cursor: default; }
 
+.evalv2__stages { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; font-size: 11px; color: var(--ink-soft); }
+.evalv2__stages span { padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.evalv2__stages .is-active { border-color: var(--border-strong); color: var(--ink); font-weight: 600; }
+.evalv2__stages .is-done { color: var(--good); }
+.evalv2__report-meta { margin-top: 8px; font-size: 11.5px; color: var(--ink-soft); }
+.evalv2__score-note, .evalv2__summary { margin: 6px 0 0; font-size: 11.5px; color: var(--ink-soft); }
+.evalv2__evidence { margin-top: 6px; font-size: 11px; color: var(--ink-soft); }
+.evalv2__evidence summary { cursor: pointer; }
+.evalv2__evidence ul { margin: 4px 0 0; padding-left: 16px; display: grid; gap: 5px; }
+.evalv2__evidence p { margin: 0; }
+.evalv2__evidence span { display: block; opacity: .85; }
+.evalv2__evidence a { color: inherit; word-break: break-all; }
+

@@ -2452,7 +2452,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
                 </section>
               )}
 
-{(
+{!(EVALUATION_V2_ENABLED && !!user) && (
               <section className="report-card drawer__inci">
                 <h4>Состав (INCI)</h4>
                 <p className="inci">

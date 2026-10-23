@@ -145,9 +145,10 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("EvaluationV2Panel", drawer)
         self.assertIn("<EvaluationV2Panel", drawer)
 
-    def test_v2_panel_has_two_distinct_actions(self):
-        self.assertIn("Проверить состав", self.panel)
-        self.assertIn("Оценить продукт", self.panel)
+    def test_v2_panel_has_one_check_product_action(self):
+        self.assertIn("Проверить продукт", self.panel)
+        self.assertNotIn("Оценить продукт", self.panel)
+        self.assertNotIn("Проверить состав", self.panel)
         self.assertIn("evaluationCompositionCheck", self.panel)
         self.assertIn("composition_state", self.panel)
 

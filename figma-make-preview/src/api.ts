@@ -188,6 +188,16 @@ export type EvaluationCompositionState = {
   auto_verify?: boolean
 }
 
+export type EvaluationEvidence = {
+  id: number
+  parameter_id: string
+  claim: string
+  quote: string
+  verification: string
+  provenance?: string
+  source: { url: string; title?: string; publisher?: string; source_type?: string }
+}
+
 export type EvaluationParameterRow = {
   parameter_id: string
   value: number
@@ -216,6 +226,7 @@ export type EvaluationReport = {
   composition_state?: EvaluationCompositionState
   snapshot: EvaluationSnapshot
   analysis: EvaluationAnalysis
+  evidence?: Record<string, EvaluationEvidence[]>
   plan?: { needed: string[]; stale: string[]; gaps: EvaluationGap[]; blocked: boolean; notes: string[] }
   research?: { documents_fetched: number; documents_reused: number; cost_usd: number; failed: string[]; notes: string[] }
 }

@@ -177,14 +177,24 @@ def _resolve_refs(
             refs.append(ref)
     used = [evidence[ref] for ref in refs]
     ids = [str(evidence_ids[ref]) for ref in refs]
-    rejected = [entry for entry in used if not entry.usable]
-    if rejected:
+    # A model may cite several candidates and get only some quotes right. The
+    # rejected ones stay in the audit table, but they must not poison the valid
+    # evidence for the same parameter: keep only confirmed entries. If every
+    # citation was rejected, used stays empty and assessment reports the same
+    # contract error as before (no score without confirmed evidence).
+    valid_pairs = [
+        (entry, evidence_id)
+        for entry, evidence_id in zip(used, ids)
+        if entry.usable
+    ]
+    if not valid_pairs:
+        rejected = [entry for entry in used if not entry.usable]
+        reason = rejected[0].rejection_reason if rejected else "без подтверждённых источников"
         raise ContractError(
             f"{parameter.id}: assessment references evidence rejected by validation "
-            f"({rejected[0].rejection_reason or 'без причины'})"
+            f"({reason})"
         )
-    return used, ids
-
+    return [entry for entry, _ in valid_pairs], [evidence_id for _, evidence_id in valid_pairs]
 
 
 def assess(

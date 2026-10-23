@@ -186,6 +186,40 @@ class ResearchFailureTests(unittest.TestCase):
         self.assertEqual(jobs[0]["status"], "failed")
         self.assertIn("источник недоступен", jobs[0]["last_error"])
 
+    def test_partial_invalid_quotes_do_not_discard_valid_evidence(self):
+        valid = candidate(
+            parameter_id="problem:dryness",
+            claim="Подтверждённое свойство",
+            quote="confirmed property",
+            source_text="Formula. confirmed property.",
+        )
+        invalid = candidate(
+            parameter_id="problem:dryness",
+            claim="Выдуманное свойство",
+            quote="this sentence is not in the source",
+            source_text="Formula. confirmed property.",
+        )
+        provider = FakeResearchProvider(
+            {
+                "problem:dryness": ok(
+                    valid, invalid, score=75, evidence_refs=(0, 1)
+                ),
+                "skin_type:dry": evidence_ok("skin_type:dry"),
+            }
+        )
+        service = self._service(provider)
+        report = self._run(service)
+        self.assertIn("problem:dryness", report.researched)
+        composition_id = self._composition_id()
+        current = {
+            item.parameter_id: item
+            for item in self.store.current_evaluations(composition_id, DEFAULT_METHOD_VERSION)
+        }
+        self.assertEqual(current["problem:dryness"].value, 75)
+        rows = self.store.evidence_for(composition_id, "problem:dryness")
+        self.assertEqual([row["verification"] for row in rows], ["confirmed", "rejected"])
+        self.assertEqual(len(current["problem:dryness"].evidence_ids), 1)
+
     def test_all_candidates_rejected_is_a_failure(self):
         bad = ok(
             candidate(

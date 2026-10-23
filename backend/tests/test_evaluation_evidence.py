@@ -176,6 +176,19 @@ class AssessmentTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             self.evaluate(rejected, proposal=self.proposal())
 
+    def test_mixed_valid_and_rejected_refs_keep_only_valid_evidence(self):
+        valid = confirmed()
+        rejected = confirmed(quote="cures eczema completely")
+        result = self.evaluate(
+            valid,
+            rejected,
+            proposal=self.proposal(evidence_refs=(0, 1)),
+        )
+        self.assertEqual(result.status, "assessed")
+        self.assertEqual(result.value, 75)
+        self.assertEqual(result.evidence_ids, ("1",))
+        self.assertNotIn("cures eczema", result.rationale)
+
     def test_reference_out_of_range_is_rejected(self):
         with self.assertRaises(ContractError):
             self.evaluate(confirmed(), proposal=self.proposal(evidence_refs=(5,)))

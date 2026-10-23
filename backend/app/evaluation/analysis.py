@@ -15,7 +15,7 @@ as a finished report: that decision belongs to ``gaps.analysis_state``.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
 
@@ -58,6 +58,7 @@ class AnalysisReport:
     research: ResearchRunReport | None = None
     plan: ResearchPlan | None = None
     knowledge: ProductKnowledge | None = None
+    evidence: dict[str, list[dict]] = field(default_factory=dict)
 
     @property
     def is_final(self) -> bool:
@@ -74,6 +75,7 @@ class AnalysisReport:
             ).as_dict(),
             "snapshot": self.snapshot,
             "analysis": self.analysis.as_dict(),
+            "evidence": self.evidence,
         }
         if self.plan is not None:
             payload["plan"] = {
@@ -245,6 +247,17 @@ class AnalysisService:
                 ", ".join(f"{gap.parameter_id}:{gap.reason}" for gap in state.gaps),
             )
 
+        evidence_by_parameter: dict[str, list[dict]] = {}
+        for parameter_id in (*state.assessed_parameters, *state.not_applicable_parameters):
+            rows = self.store.evidence_for(int(record["id"]), parameter_id)
+            confirmed = [
+                row
+                for row in rows
+                if str(row.get("verification") or "") == "confirmed"
+            ]
+            if confirmed:
+                evidence_by_parameter[parameter_id] = confirmed
+
         return AnalysisReport(
             product={
                 "id": int(product_id),
@@ -262,6 +275,7 @@ class AnalysisService:
             research=research,
             plan=plan,
             knowledge=knowledge,
+            evidence=evidence_by_parameter,
         )
 
 
