@@ -16,8 +16,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Iterable, Sequence
 from urllib.parse import urlparse
+
+from .documents import SourceDocument
 
 DIRECTIONS = ("supports", "contradicts", "neutral")
 STRENGTHS = ("weak", "moderate", "strong")
@@ -170,6 +172,7 @@ def _reject(
     product_id: int,
     composition_hash: str,
     reason: str,
+    provenance: str | None = None,
 ) -> Evidence:
     return Evidence(
         parameter_id=candidate.parameter_id,
@@ -185,7 +188,7 @@ def _reject(
         extraction_method=candidate.extraction_method,
         retrieved_at=candidate.source.retrieved_at,
         rejection_reason=reason,
-        provenance=candidate.source.provenance,
+        provenance=provenance or candidate.source.provenance,
     )
 
 
@@ -196,47 +199,73 @@ def validate_candidate(
     composition_hash: str,
     parameter_id: str,
     now: datetime | None = None,
+    documents: Sequence[SourceDocument] | None = None,
 ) -> Evidence:
     """Validate one candidate against the request it belongs to.
+
+    When ``documents`` is given (a research session with fetched pages), the
+    candidate's source must be one of those documents and the quote is checked
+    against the *stored page text*, not against text supplied by the provider.
+    Otherwise the provider's own ``source_text`` is used (test/fake providers).
 
     Returns ``Evidence`` with verification ``confirmed`` or ``rejected``; the
     latter is kept for audit but never used for scoring.
     """
+    document: SourceDocument | None = None
+    provenance = candidate.source.provenance
+    if documents:
+        document = next(
+            (item for item in documents if item.url == candidate.source.url), None
+        )
+        if document is None:
+            return _reject(
+                candidate,
+                product_id=product_id,
+                composition_hash=composition_hash,
+                reason="источник не входит в набор загруженных документов",
+            )
+        provenance = document.provenance
+    source_text = document.text if document is not None else candidate.source_text
+
     if candidate.parameter_id != parameter_id:
         return _reject(
             candidate,
             product_id=product_id,
             composition_hash=composition_hash,
             reason=f"параметр {candidate.parameter_id!r} не совпадает с запросом {parameter_id!r}",
+            provenance=provenance,
         )
     if not str(candidate.quote).strip():
         return _reject(candidate, product_id=product_id, composition_hash=composition_hash,
-                       reason="цитата отсутствует")
+                       reason="цитата отсутствует", provenance=provenance)
     if len(normalize_text(candidate.quote)) < MIN_QUOTE_CHARS:
         return _reject(candidate, product_id=product_id, composition_hash=composition_hash,
-                       reason="цитата слишком короткая для проверки")
-    if not str(candidate.source_text).strip():
+                       reason="цитата слишком короткая для проверки", provenance=provenance)
+    if not str(source_text).strip():
         return _reject(
             candidate,
             product_id=product_id,
             composition_hash=composition_hash,
             reason="источник недоступен: нет текста для проверки цитаты",
+            provenance=provenance,
         )
-    if normalize_text(candidate.quote) not in normalize_text(candidate.source_text):
+    if normalize_text(candidate.quote) not in normalize_text(source_text):
         return _reject(
             candidate,
             product_id=product_id,
             composition_hash=composition_hash,
             reason="цитата не найдена в тексте источника",
+            provenance=provenance,
         )
     retrieved = parse_timestamp(candidate.source.retrieved_at)
     if retrieved is None:
         return _reject(candidate, product_id=product_id, composition_hash=composition_hash,
-                       reason="не указана или некорректна дата получения источника")
+                       reason="не указана или некорректна дата получения источника",
+                       provenance=provenance)
     current = now or datetime.now(timezone.utc)
     if retrieved > current:
         return _reject(candidate, product_id=product_id, composition_hash=composition_hash,
-                       reason="дата получения источника в будущем")
+                       reason="дата получения источника в будущем", provenance=provenance)
 
     return Evidence(
         parameter_id=candidate.parameter_id,
@@ -251,7 +280,7 @@ def validate_candidate(
         composition_hash=composition_hash,
         extraction_method=candidate.extraction_method,
         retrieved_at=candidate.source.retrieved_at,
-        provenance=candidate.source.provenance,
+        provenance=provenance,
     )
 
 
@@ -262,6 +291,7 @@ def validate_candidates(
     composition_hash: str,
     parameter_id: str,
     now: datetime | None = None,
+    documents: Sequence[SourceDocument] | None = None,
 ) -> list[Evidence]:
     return [
         validate_candidate(
@@ -270,6 +300,7 @@ def validate_candidates(
             composition_hash=composition_hash,
             parameter_id=parameter_id,
             now=now,
+            documents=documents,
         )
         for candidate in candidates
     ]

@@ -106,6 +106,12 @@ class PostgresStore:
                     cur.execute(sql, tuple(params))
                     return cur.fetchone()
 
+    def _fetchall(self, sql: str, params: Iterable[Any] = ()) -> list[Mapping[str, Any]]:
+        with closing(self._connect()) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, tuple(params))
+                return list(cur.fetchall())
+
     def _execute(self, sql: str, params: Iterable[Any] = ()) -> None:
         with closing(self._connect()) as conn:
             with conn:
@@ -440,6 +446,83 @@ class PostgresStore:
         )
         return dict(row) if row else None
 
+    # -- shared product knowledge (documents) -------------------------------
+    def save_documents(self, composition_id: int, documents: Sequence[Any]) -> list[str]:
+        stored: list[str] = []
+        for document in documents:
+            record = document.as_dict() if hasattr(document, "as_dict") else dict(document)
+            url = str(record.get("url") or "")
+            text = str(record.get("text") or "")
+            if not url or not text:
+                raise StoreError("documents require url and text")
+            self._execute(
+                f"""
+                insert into {self._table('source_documents')}
+                    (composition_id, url, title, text, content_hash, retrieved_at, provenance)
+                values (%s, %s, %s, %s, %s, %s, %s)
+                on conflict (composition_id, url) do update
+                    set title = excluded.title,
+                        text = excluded.text,
+                        content_hash = excluded.content_hash,
+                        retrieved_at = excluded.retrieved_at,
+                        provenance = excluded.provenance
+                """,
+                (
+                    int(composition_id),
+                    url,
+                    str(record.get("title") or ""),
+                    text,
+                    str(record.get("content_hash") or ""),
+                    record.get("retrieved_at") or None,
+                    str(record.get("provenance") or "unknown"),
+                ),
+            )
+            stored.append(url)
+        return stored
+
+    def documents_for(self, composition_id: int) -> list[dict]:
+        rows = self._fetchall(
+            f"""
+            select url, title, text, content_hash, retrieved_at, provenance
+            from {self._table('source_documents')}
+            where composition_id = %s
+            order by url
+            """,
+            (int(composition_id),),
+        )
+        return [
+            {
+                "url": row["url"],
+                "title": row["title"] or "",
+                "text": row["text"],
+                "content_hash": row["content_hash"] or "",
+                "retrieved_at": str(row["retrieved_at"] or ""),
+                "provenance": row["provenance"] or "unknown",
+            }
+            for row in rows
+        ]
+
+    def document_for(self, composition_id: int, url: str) -> dict | None:
+        rows = self._fetchall(
+            f"""
+            select url, title, text, content_hash, retrieved_at, provenance
+            from {self._table('source_documents')}
+            where composition_id = %s and url = %s
+            """,
+            (int(composition_id), str(url)),
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "url": row["url"],
+            "title": row["title"] or "",
+            "text": row["text"],
+            "content_hash": row["content_hash"] or "",
+            "retrieved_at": str(row["retrieved_at"] or ""),
+            "provenance": row["provenance"] or "unknown",
+        }
+
     def claim_job(
         self, worker_id: str, *, composition_id: int | None = None, lock_seconds: int = 120
     ) -> dict | None:
@@ -591,7 +674,7 @@ class PostgresStore:
                 %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
                 %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s::jsonb
             )
-            on conflict (snapshot_id) do nothing
+            on conflict do nothing
             """,
             (
                 snapshot_id,
@@ -614,6 +697,30 @@ class PostgresStore:
             ),
         )
         stored = self.get_snapshot(snapshot_id)
+        if stored is None:
+            # A concurrent build may have stored the same input with a slightly
+            # different document (e.g. another report-state note). The unique input
+            # index makes that row canonical: return it instead of failing.
+            row = self._fetchone(
+                f"""
+                select snapshot_id
+                from {self._table('snapshots')}
+                where user_id is not distinct from %s
+                  and product_id = %s
+                  and composition_id = %s
+                  and rule_version = %s
+                  and engine_input_hash = %s
+                """,
+                (
+                    snapshot.get("user_id"),
+                    int(product_id),
+                    int(record["id"]),
+                    rule_version,
+                    str(snapshot.get("engine_input_hash") or ""),
+                ),
+            )
+            if row:
+                stored = self.get_snapshot(str(row["snapshot_id"]))
         if stored is None:
             raise StoreError("snapshot was not persisted")
         return stored

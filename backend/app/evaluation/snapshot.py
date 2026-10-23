@@ -60,6 +60,7 @@ def build_snapshot(
     rules: RuleSet,
     created_at: datetime | None = None,
     user_id: int | None = None,
+    analysis: Mapping[str, Any] | None = None,
 ) -> dict:
     composition_hash = str(composition.get("composition_hash") or "")
     if not composition_hash:
@@ -114,6 +115,10 @@ def build_snapshot(
         "total": result.total,
         "verdict": result.verdict,
         "completeness": round(result.completeness, 6),
+        # Report completeness is part of the document and of its hash: an
+        # unfinished analysis cannot be mistaken for a finished report, and a
+        # later completed run produces a NEW snapshot instead of rewriting this one.
+        "analysis": dict(analysis or {}),
         "limitations": limitations,
         "created_at": created,
     }
@@ -140,6 +145,8 @@ def snapshot_summary(snapshot: Mapping[str, Any]) -> dict:
         "total": snapshot.get("total"),
         "verdict": snapshot.get("verdict"),
         "completeness": snapshot.get("completeness"),
+        "analysis_status": (snapshot.get("analysis") or {}).get("status"),
+        "is_final": (snapshot.get("analysis") or {}).get("is_final"),
         "rule_version": snapshot.get("rule_version"),
         "created_at": snapshot.get("created_at"),
     }

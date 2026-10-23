@@ -42,6 +42,7 @@ MIGRATION_PATHS = [
     os.path.join(MIGRATIONS_DIR, "20261023_evaluation_v2.sql"),
     os.path.join(MIGRATIONS_DIR, "20261024_evaluation_v2_statuses.sql"),
     os.path.join(MIGRATIONS_DIR, "20261025_evaluation_v2_provenance.sql"),
+    os.path.join(MIGRATIONS_DIR, "20261026_evaluation_v2_documents.sql"),
 ]
 COMPOSITION = "e" * 64
 OTHER_COMPOSITION = "f" * 64
@@ -793,6 +794,61 @@ class EvidenceStorageTests(SchemaTestBase):
                 (source_id, composition["id"]),
             )
 
+class SourceDocumentStorageTests(SchemaTestBase):
+    def _document(self, url: str = "https://brand.example/serum", text: str | None = None):
+        from app.evaluation.documents import SourceDocument
+
+        return SourceDocument(
+            url=url,
+            title="Brand page",
+            text=text
+            or "Glycerin helps keep the skin hydrated and supports the skin barrier.",
+            retrieved_at="2026-10-01T00:00:00+00:00",
+            provenance="fetched",
+        )
+
+    def test_document_roundtrip(self):
+        composition = self.make_composition()
+        self.store.save_documents(composition["id"], [self._document()])
+        rows = self.store.documents_for(composition["id"])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["url"], "https://brand.example/serum")
+        self.assertEqual(rows[0]["provenance"], "fetched")
+        self.assertIn("Glycerin helps keep", rows[0]["text"])
+        self.assertTrue(rows[0]["content_hash"])
+
+    def test_same_url_is_updated_not_duplicated(self):
+        composition = self.make_composition()
+        self.store.save_documents(composition["id"], [self._document(text="First text " + "x" * 40)])
+        self.store.save_documents(
+            composition["id"], [self._document(text="Second text " + "y" * 40)]
+        )
+        rows = self.store.documents_for(composition["id"])
+        self.assertEqual(len(rows), 1)
+        self.assertIn("Second text", rows[0]["text"])
+
+    def test_document_for_returns_one_document_or_none(self):
+        composition = self.make_composition()
+        self.store.save_documents(composition["id"], [self._document()])
+        found = self.store.document_for(composition["id"], "https://brand.example/serum")
+        self.assertEqual(found["title"], "Brand page")
+        self.assertIsNone(self.store.document_for(composition["id"], "https://other.example"))
+
+    def test_documents_require_known_composition(self):
+        with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+            self.store.save_documents(999_999, [self._document()])
+
+    def test_provenance_check_accepts_only_known_values(self):
+        composition = self.make_composition()
+        with self.assertRaises(psycopg.errors.CheckViolation):
+            sql(
+                "insert into evaluation.source_documents "
+                "(composition_id, url, text, provenance) values (%s, %s, %s, 'made_up')",
+                (composition["id"], "https://schema.example", "text " * 20),
+            )
+
+
+
 
 class JobClaimTests(SchemaTestBase):
     def _enqueue(self, parameter_id: str = "problem:dryness") -> dict:
@@ -930,7 +986,7 @@ class MigrationIdempotencyTests(SchemaTestBase):
                     cur.execute(migration)
                 conn.commit()
         rows = sql("select count(*) as n from information_schema.tables where table_schema = 'evaluation'")
-        self.assertEqual(rows[0]["n"], 8)
+        self.assertEqual(rows[0]["n"], 9)
         self.assertEqual(
             len(self.store.evaluation_history(composition["id"], "problem:dryness")), 1
         )

@@ -20,7 +20,9 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
 from ..auth import get_current_user, get_current_user_optional
+from .analysis import AnalysisService, AnalysisUnavailable
 from .contracts import SCORE_LEVEL_CRITERIA, STATUS_ASSESSED, ContractError, ParameterEvaluation
+from .knowledge import ProductNotFound
 from .engine import evaluate
 from .parameters import PARAMETERS
 from .questionnaire import QUESTIONNAIRE_SOURCE, QUESTIONNAIRE_VERSION, SECTIONS
@@ -75,6 +77,17 @@ class ResearchRequest(BaseModel):
     parameters: list[str] = []
 
 
+class AnalyzeRequest(BaseModel):
+    """Either ``product_id`` (load from the Aidermy catalog) or explicit fields."""
+
+    product_id: int | None = None
+    product: ProductInput | None = None
+    composition: CompositionInput | None = None
+    profile: dict[str, Any] = {}
+    source_urls: list[str] = []
+    verified_at: str | None = None
+
+
 def _store(request: Request):
     store = getattr(request.app.state, "evaluation_store", None)
     if store is None:
@@ -91,6 +104,19 @@ def _service(request: Request) -> EvaluationService:
         _store(request),
         rules=get_rules(getattr(request.app.state, "evaluation_rule_version", None)),
         method_version=_method_version(request),
+    )
+
+
+def _analysis_service(request: Request) -> AnalysisService:
+    return AnalysisService(
+        _store(request),
+        provider=getattr(request.app.state, "evaluation_research_provider", None),
+        fetcher=getattr(request.app.state, "evaluation_document_fetcher", None),
+        rules=get_rules(getattr(request.app.state, "evaluation_rule_version", None)),
+        method_version=_method_version(request),
+        allow_synthetic_evidence=bool(
+            getattr(request.app.state, "evaluation_allow_synthetic_evidence", False)
+        ),
     )
 
 
@@ -267,6 +293,7 @@ async def create_snapshot(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
         "snapshot": built.snapshot,
+        "analysis": built.analysis.as_dict(),
         "pending_parameters": list(built.pending_parameters),
         "stale_parameters": list(built.stale_parameters),
         "reused": built.reused,
@@ -292,6 +319,70 @@ async def read_snapshot(
     return {"snapshot": snapshot}
 
 
+def _run_analysis(
+    payload: AnalyzeRequest,
+    request: Request,
+    user: dict,
+    *,
+    allow_research: bool,
+) -> dict:
+    service = _analysis_service(request)
+    try:
+        if payload.product_id is not None:
+            report = service.analyze_product(
+                payload.product_id,
+                profile=payload.profile,
+                verified_at=payload.verified_at,
+                extra_sources=tuple(payload.source_urls),
+                allow_research=allow_research,
+                user_id=int(user["id"]),
+            )
+        elif payload.product is not None and payload.composition is not None:
+            report = service.analyze(
+                product=payload.product.model_dump(),
+                composition=payload.composition.model_dump(),
+                profile=payload.profile,
+                source_urls=tuple(payload.source_urls),
+                allow_research=allow_research,
+                user_id=int(user["id"]),
+            )
+        else:
+            raise HTTPException(
+                status_code=422, detail="provide product_id or product+composition"
+            )
+    except ProductNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AnalysisUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except StoreError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ContractError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return report.as_dict()
+
+
+@router.post("/analyze")
+async def analyze(
+    payload: AnalyzeRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Scan all parameters and assemble the report without spending on research."""
+    return _run_analysis(payload, request, user, allow_research=False)
+
+
+@router.post("/analyze/research")
+async def analyze_with_research(
+    payload: AnalyzeRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    _admin: None = Depends(require_admin),
+) -> dict:
+    """Same, but research the gaps first (shared downloads, per-parameter results)."""
+    return _run_analysis(payload, request, user, allow_research=True)
+
+
+
 @router.post("/research-jobs")
 async def create_research_jobs(
     payload: ResearchRequest,
@@ -315,10 +406,26 @@ async def create_research_jobs(
     return {"created": created, "composition_id": record["id"]}
 
 
-def setup_evaluation_routes(app, *, store=None, method_version: str | None = None) -> None:
+def setup_evaluation_routes(
+    app,
+    *,
+    store=None,
+    method_version: str | None = None,
+    rule_version: str | None = None,
+    provider=None,
+    fetcher=None,
+    allow_synthetic_evidence: bool = False,
+) -> None:
     """Register the router. Call only after the migration is approved."""
     if store is not None:
         app.state.evaluation_store = store
     if method_version:
         app.state.evaluation_method_version = method_version
+    if rule_version:
+        app.state.evaluation_rule_version = rule_version
+    if provider is not None:
+        app.state.evaluation_research_provider = provider
+    if fetcher is not None:
+        app.state.evaluation_document_fetcher = fetcher
+    app.state.evaluation_allow_synthetic_evidence = allow_synthetic_evidence
     app.include_router(router)

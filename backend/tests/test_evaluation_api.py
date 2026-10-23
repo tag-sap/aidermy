@@ -414,5 +414,148 @@ class ResearchEndpointTests(unittest.TestCase):
         self.assertEqual(second.json()["created"], [])
 
 
+class AnalyzeEndpointTests(unittest.TestCase):
+    """The end-to-end endpoint: scan, optional shared research, honest report."""
+
+    URL = "https://brand.example/serum"
+    PAGE = (
+        "Ingredient list: Aqua, Glycerin, Niacinamide. Glycerin helps keep the skin "
+        "hydrated and supports the skin barrier. The formula is suitable for dry skin."
+    )
+    QUOTES = {
+        "problem:dryness": "Glycerin helps keep the skin hydrated",
+        "skin_type:dry": "suitable for dry skin",
+    }
+
+    def _payload(self, **overrides):
+        payload = {
+            "product": PRODUCT,
+            "composition": {**COMPOSITION, "inci_raw": INCI},
+            "profile": PROFILE,
+            "source_urls": [self.URL],
+        }
+        payload.update(overrides)
+        return payload
+
+    def _provider(self):
+        from app.evaluation.research import candidate, ok
+
+        class Provider:
+            name = "fake-documents"
+
+            def __init__(self):
+                self.calls = []
+
+            def research(self, request):
+                self.calls.append(request)
+                document = request.documents[0]
+                return ok(
+                    candidate(
+                        parameter_id=request.parameter_id,
+                        claim="Подтверждено источником",
+                        quote=self_quotes[request.parameter_id],
+                        url=document.url,
+                        source_text=document.text,
+                        retrieved_at=document.retrieved_at,
+                        provenance=document.provenance,
+                    ),
+                    score=75,
+                )
+
+        self_quotes = dict(self.QUOTES)
+        return Provider()
+
+    def _fetcher(self):
+        from app.evaluation.documents import FakeDocumentFetcher
+
+        return FakeDocumentFetcher({self.URL: self.PAGE})
+
+    def test_analyze_reports_gaps_without_research(self):
+        client, _, _ = make_client()
+        response = client.post("/api/v1/evaluation/analyze", json=self._payload())
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["analysis"]["status"], "incomplete")
+        self.assertFalse(body["analysis"]["is_final"])
+        self.assertEqual(len(body["analysis"]["gaps"]), 2)
+        self.assertIsNone(body["snapshot"]["total"])
+
+    def test_analyze_requires_product_or_composition(self):
+        client, _, _ = make_client()
+        response = client.post(
+            "/api/v1/evaluation/analyze", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_analyze_research_without_provider_is_503(self):
+        client, _, _ = make_client()
+        response = client.post("/api/v1/evaluation/analyze/research", json=self._payload())
+        self.assertEqual(response.status_code, 503, response.text)
+
+    def test_analyze_research_completes_the_report(self):
+        client, store, app = make_client()
+        app.state.evaluation_research_provider = self._provider()
+        app.state.evaluation_document_fetcher = self._fetcher()
+        app.state.evaluation_allow_synthetic_evidence = True
+
+        response = client.post("/api/v1/evaluation/analyze/research", json=self._payload())
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["analysis"]["status"], "complete")
+        self.assertTrue(body["analysis"]["is_final"])
+        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertEqual(body["research"]["documents_fetched"], 1)
+        self.assertEqual(body["snapshot"]["analysis"]["status"], "complete")
+
+    def test_analyze_research_requires_admin(self):
+        client, _, app = make_client(admin=False)
+        app.state.evaluation_research_provider = self._provider()
+        response = client.post("/api/v1/evaluation/analyze/research", json=self._payload())
+        self.assertEqual(response.status_code, 401)
+
+    def test_analyze_unverified_composition_is_blocked(self):
+        client, _, _ = make_client()
+        payload = self._payload(
+            composition={"composition_hash": OTHER_HASH, "source": "catalog"}
+        )
+        response = client.post("/api/v1/evaluation/analyze", json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["analysis"]["status"], "blocked")
+
+
+class RuntimeWiringTests(unittest.TestCase):
+    def test_provider_is_absent_without_a_key(self):
+        from app.evaluation.runtime import build_research_provider
+
+        self.assertIsNone(build_research_provider(api_key=""))
+
+    def test_provider_is_built_with_a_key(self):
+        from app.evaluation.runtime import build_research_provider
+
+        provider = build_research_provider(api_key="test-key")
+        self.assertEqual(provider.name, "llm")
+        self.assertEqual(provider.api_key, "test-key")
+
+    def test_fetcher_can_be_disabled(self):
+        from app.evaluation.runtime import build_document_fetcher
+
+        self.assertIsNone(build_document_fetcher(enabled=False))
+        self.assertEqual(build_document_fetcher().name, "http")
+
+    def test_configure_evaluation_attaches_everything_and_registers_routes(self):
+        from app.evaluation.runtime import configure_evaluation
+
+        app = FastAPI()
+        store = InMemoryStore()
+        configure_evaluation(app, store=store, provider=None, fetcher=None)
+        self.assertIs(app.state.evaluation_store, store)
+        self.assertFalse(app.state.evaluation_allow_synthetic_evidence)
+        app.dependency_overrides[get_current_user] = lambda: {"id": 1}
+        response = TestClient(app).post(
+            "/api/v1/evaluation/analyze", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 422)
+
+
 if __name__ == "__main__":
     unittest.main()

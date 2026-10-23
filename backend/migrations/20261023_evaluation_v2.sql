@@ -103,6 +103,27 @@ create index if not exists idx_evidence_lookup
 create unique index if not exists uq_evidence_dedupe
     on evaluation.evidence (composition_id, parameter_id, source_id, md5(quote));
 
+-- 4b. Downloaded source documents (shared product knowledge)
+-- One row per (composition, url): the text of the page that was fetched. Evidence
+-- quotes are validated against this text, and the same page grounds several
+-- parameters, so research downloads it once and later runs reuse it.
+create table if not exists evaluation.source_documents (
+    id             bigserial primary key,
+    composition_id bigint      not null references evaluation.product_compositions (id) on delete cascade,
+    url            text        not null,
+    title          text        not null default '',
+    text           text        not null,
+    content_hash   text        not null default '',
+    retrieved_at   timestamptz,
+    provenance     text        not null default 'fetched'
+                   check (provenance in ('fetched', 'synthetic', 'unknown')),
+    created_at     timestamptz not null default now(),
+    unique (composition_id, url)
+);
+create index if not exists idx_source_documents_composition
+    on evaluation.source_documents (composition_id);
+
+
 -- 5. Parameter evaluations (current row + append-only history)
 create table if not exists evaluation.parameter_evaluations (
     id               bigserial primary key,
@@ -203,6 +224,7 @@ alter table evaluation.snapshots enable row level security;
 alter table evaluation.parameter_evaluations enable row level security;
 alter table evaluation.product_compositions enable row level security;
 alter table evaluation.research_jobs enable row level security;
+alter table evaluation.source_documents enable row level security;
 
 drop policy if exists snapshots_owner_read on evaluation.snapshots;
 create policy snapshots_owner_read on evaluation.snapshots

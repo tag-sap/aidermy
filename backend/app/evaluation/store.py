@@ -62,6 +62,9 @@ class EvaluationStore(Protocol):
     def save_evidence(self, composition_id: int, evidence: Sequence[Evidence]) -> list[int]: ...
     def evidence_for(self, composition_id: int, parameter_id: str) -> list[dict]: ...
     def evidence_ref(self, evidence_id: int) -> dict | None: ...
+    def save_documents(self, composition_id: int, documents: Sequence[Any]) -> list[str]: ...
+    def documents_for(self, composition_id: int) -> list[dict]: ...
+    def document_for(self, composition_id: int, url: str) -> dict | None: ...
     def claim_job(
         self, worker_id: str, *, composition_id: int | None = None, lock_seconds: int = 120
     ) -> dict | None: ...
@@ -88,6 +91,7 @@ class InMemoryStore:
         self._next_job_id = 1
         self._evidence: list[dict] = []
         self._next_evidence_id = 1
+        self._documents: dict[int, dict[str, dict]] = {}
         self._lock = threading.RLock()
 
     # -- compositions -------------------------------------------------------
@@ -239,6 +243,29 @@ class InMemoryStore:
             **dict(record),
             "composition_hash": str(composition.get("composition_hash") or ""),
         }
+
+    # -- shared product knowledge (documents) -------------------------------
+    def save_documents(self, composition_id: int, documents: Sequence[Any]) -> list[str]:
+        if self.get_composition_by_id(composition_id) is None:
+            raise StoreError(f"unknown composition_id: {composition_id}")
+        with self._lock:
+            bucket = self._documents.setdefault(composition_id, {})
+            stored: list[str] = []
+            for document in documents:
+                record = document.as_dict() if hasattr(document, "as_dict") else dict(document)
+                url = str(record.get("url") or "")
+                if not url:
+                    raise StoreError("documents require a url")
+                bucket[url] = record
+                stored.append(url)
+            return stored
+
+    def documents_for(self, composition_id: int) -> list[dict]:
+        return [dict(row) for row in self._documents.get(composition_id, {}).values()]
+
+    def document_for(self, composition_id: int, url: str) -> dict | None:
+        record = self._documents.get(composition_id, {}).get(str(url))
+        return dict(record) if record else None
 
     # -- research jobs ------------------------------------------------------
     def enqueue_research(self, composition_id: int, parameter_id: str, method_version: str) -> bool:

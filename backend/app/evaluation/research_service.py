@@ -1,11 +1,15 @@
 """Research orchestration: plan -> deduplicated jobs -> provider -> evidence -> evaluation.
 
 Design boundaries:
-  * the provider only supplies candidates (claim + quote + source text);
+  * the provider only supplies candidates (claim + quote + source reference);
+  * pages are downloaded once per run (``documents.py``) and shared by all
+    parameters of that run; stored documents are reused by later runs;
   * validation (evidence.py) and value mapping (assessment.py) are deterministic;
   * a job is processed at most once per attempt, guarded by a DB-level claim;
-  * an existing *current* evaluation means no provider call happens at all;
-  * a stale evaluation (composition/method/TTL) triggers a new research;
+  * an existing *confirmed* evaluation (``assessed`` / ``not_applicable``) means
+    no provider call happens at all;
+  * missing / stale / insufficient results become research gaps; repeated attempts
+    are bounded by ``max_attempts``;
   * provider failures never leave a "success" state behind.
 """
 from __future__ import annotations
@@ -22,8 +26,17 @@ from .contracts import (
     Parameter,
     ParameterEvaluation,
 )
+from .documents import (
+    MAX_DOCUMENTS_PER_SESSION,
+    DocumentFetcher,
+    DocumentLibrary,
+    DocumentUnavailable,
+    SourceDocument,
+    collect_source_urls,
+)
 from .evidence import Evidence, validate_candidates
-from .freshness import DEFAULT_REVIEW_AFTER_DAYS, select_current
+from .freshness import DEFAULT_REVIEW_AFTER_DAYS
+from .gaps import KnowledgeScan, ParameterGap, scan_parameters
 from .parameters import PARAMETERS, resolve_parameters
 from .research import (
     RESEARCH_INSUFFICIENT,
@@ -51,6 +64,8 @@ class ResearchPlan:
     needed: tuple[str, ...]
     stale: tuple[str, ...]
     parameters: tuple[Parameter, ...] = ()
+    gaps: tuple[ParameterGap, ...] = ()
+    source_urls: tuple[str, ...] = ()
     blocked: bool = False
     notes: tuple[str, ...] = ()
 
@@ -65,11 +80,24 @@ class ResearchRunReport:
     skipped: tuple[str, ...] = ()
     exhausted: tuple[str, ...] = ()
     deferred: tuple[str, ...] = ()
+    documents_fetched: int = 0
+    documents_reused: int = 0
     cost_usd: float = 0.0
     tokens_in: int = 0
     tokens_out: int = 0
     blocked: bool = False
     notes: tuple[str, ...] = ()
+
+    def summary(self) -> dict:
+        """Machine-readable view used by the analysis status (no secrets)."""
+        return {
+            "failed": list(self.failed),
+            "deferred": list(self.deferred),
+            "exhausted": list(self.exhausted),
+            "documents_fetched": self.documents_fetched,
+            "documents_reused": self.documents_reused,
+            "notes": list(self.notes),
+        }
 
 
 def _now_iso() -> str:
@@ -94,6 +122,8 @@ class ResearchService:
         max_age_days: int | None = None,
         review_after_days: int | None = DEFAULT_REVIEW_AFTER_DAYS,
         allow_synthetic_evidence: bool = False,
+        fetcher: DocumentFetcher | None = None,
+        max_documents: int = MAX_DOCUMENTS_PER_SESSION,
     ) -> None:
         self.store = store
         self.provider = provider
@@ -104,6 +134,8 @@ class ResearchService:
         self.max_age_days = max_age_days
         self.review_after_days = review_after_days
         self.allow_synthetic_evidence = allow_synthetic_evidence
+        self.fetcher = fetcher
+        self.max_documents = max_documents
 
     # -- planning -----------------------------------------------------------
     def plan(
@@ -113,6 +145,7 @@ class ResearchService:
         composition: Mapping,
         profile: Mapping | None,
         now: datetime | None = None,
+        source_urls: Sequence[str] = (),
     ) -> ResearchPlan:
         composition_hash = str(composition.get("composition_hash") or "")
         if not composition_hash:
@@ -131,15 +164,21 @@ class ResearchService:
 
         resolved = resolve_parameters(profile)
         stored = self.store.current_evaluations(record["id"], self.method_version)
-        current, stale = select_current(
-            stored,
+        # ONE pass over every relevant parameter: the whole gap set is known
+        # before a single research job is created.
+        scan: KnowledgeScan = scan_parameters(
+            evaluations=stored,
+            profile=profile,
             composition_hash=composition_hash,
             method_version=self.method_version,
             now=now,
             max_age_days=self.max_age_days,
             review_after_days=self.review_after_days,
         )
-        notes = list(resolved.notes)
+        notes = list(scan.notes)
+        urls = collect_source_urls(
+            product, composition, extra=tuple(source_urls)
+        )
 
         status = str(record.get("status") or "unverified")
         if status != COMPOSITION_ACTIVE:
@@ -151,22 +190,24 @@ class ResearchService:
             )
             return ResearchPlan(
                 composition=record,
-                current=tuple(current),
+                current=scan.current,
                 needed=(),
-                stale=tuple(sorted(stale)),
+                stale=scan.stale,
                 parameters=resolved.parameters,
+                gaps=scan.gaps,
+                source_urls=urls,
                 blocked=True,
                 notes=tuple(notes),
             )
 
-        researched = {item.parameter_id for item in current}
-        needed = tuple(sorted(item.id for item in resolved.parameters if item.id not in researched))
         return ResearchPlan(
             composition=record,
-            current=tuple(current),
-            needed=needed,
-            stale=tuple(sorted(stale)),
+            current=scan.current,
+            needed=scan.needed,
+            stale=scan.stale,
             parameters=resolved.parameters,
+            gaps=scan.gaps,
+            source_urls=urls,
             notes=tuple(notes),
         )
 
@@ -180,8 +221,15 @@ class ResearchService:
         worker_id: str = "worker",
         process: bool = True,
         now: datetime | None = None,
+        source_urls: Sequence[str] = (),
     ) -> ResearchRunReport:
-        plan = self.plan(product=product, composition=composition, profile=profile, now=now)
+        plan = self.plan(
+            product=product,
+            composition=composition,
+            profile=profile,
+            now=now,
+            source_urls=source_urls,
+        )
         if plan.blocked:
             return ResearchRunReport(blocked=True, notes=plan.notes)
         composition_id = int(plan.composition["id"])
@@ -194,14 +242,15 @@ class ResearchService:
         enqueued: list[str] = []
         skipped: list[str] = []
         exhausted: list[str] = []
-        notes: list[str] = []
+        notes: list[str] = list(plan.notes)
 
         for parameter_id in plan.needed:
             attempts = self._max_attempts_used(composition_id, parameter_id)
             if attempts >= self.max_attempts:
                 exhausted.append(parameter_id)
                 notes.append(
-                    f"{parameter_id}: достигнут лимит попыток ({attempts}/{self.max_attempts})"
+                    f"{parameter_id}: достигнут лимит попыток ({attempts}/{self.max_attempts}); "
+                    "сохранённый результат переиспользуется"
                 )
                 continue
             if self.store.enqueue_research(composition_id, parameter_id, self.method_version):
@@ -216,6 +265,36 @@ class ResearchService:
                 exhausted=tuple(exhausted),
                 notes=tuple(notes),
             )
+
+        if not plan.needed:
+            # Nothing to research: do not download pages for an empty plan.
+            return ResearchRunReport(
+                enqueued=tuple(enqueued),
+                skipped=tuple(skipped),
+                exhausted=tuple(exhausted),
+                notes=tuple(notes),
+            )
+
+        if not enqueued and not self._pending_parameters(composition_id):
+            # Every gap already exhausted its attempts: reuse stored results and
+            # do not spend money on downloads.
+            return ResearchRunReport(
+                enqueued=(),
+                skipped=tuple(skipped),
+                exhausted=tuple(exhausted),
+                notes=tuple(notes),
+            )
+
+        # Shared research session: fetch every candidate page ONCE, then answer
+        # every unknown parameter from the same documents. Documents stored by an
+        # earlier run are reused instead of being downloaded again.
+        library, documents_fetched, documents_reused, document_notes = self._prepare_documents(
+            composition_id=composition_id,
+            product=product,
+            composition=plan.composition,
+            source_urls=plan.source_urls,
+        )
+        notes.extend(document_notes)
 
         researched: list[str] = []
         insufficient: list[str] = []
@@ -242,9 +321,21 @@ class ResearchService:
                 )
                 failed.append(job["parameter_id"])
                 continue
-            outcome, cost, tin, tout = self._process_job(
-                job, product=product, composition=plan.composition, parameter=parameter
+            outcome, cost, tin, tout, new_documents = self._process_job(
+                job,
+                product=product,
+                composition=plan.composition,
+                parameter=parameter,
+                documents=library.documents(),
             )
+            if new_documents:
+                stored = self.store.save_documents(composition_id, new_documents)
+                added = library.extend(new_documents)
+                documents_fetched += added
+                notes.append(
+                    f"провайдер вернул {len(stored)} документ(ов): они доступны "
+                    "остальным параметрам этой сессии"
+                )
             run_cost += cost
             tokens_in += tin
             tokens_out += tout
@@ -266,6 +357,8 @@ class ResearchService:
             skipped=tuple(skipped),
             exhausted=tuple(exhausted),
             deferred=tuple(deferred),
+            documents_fetched=documents_fetched,
+            documents_reused=documents_reused,
             cost_usd=round(run_cost, 6),
             tokens_in=tokens_in,
             tokens_out=tokens_out,
@@ -280,6 +373,56 @@ class ResearchService:
     def _pending_parameters(self, composition_id: int) -> list[str]:
         return list(self.store.pending_parameters(composition_id, self.method_version))
 
+    def _prepare_documents(
+        self,
+        *,
+        composition_id: int,
+        product: Mapping,
+        composition: Mapping,
+        source_urls: Sequence[str] = (),
+    ) -> tuple[DocumentLibrary, int, int, list[str]]:
+        """Load stored documents and fetch missing candidate pages once per run."""
+        notes: list[str] = []
+        stored = self.store.documents_for(composition_id)
+        library = DocumentLibrary(
+            [
+                SourceDocument(
+                    url=str(row["url"]),
+                    text=str(row["text"]),
+                    title=str(row.get("title") or ""),
+                    retrieved_at=str(row.get("retrieved_at") or ""),
+                    provenance=str(row.get("provenance") or "unknown"),
+                    content_hash=str(row.get("content_hash") or ""),
+                )
+                for row in stored
+            ]
+        )
+        reused = len(library)
+        if reused:
+            notes.append(f"переиспользовано сохранённых источников: {reused}")
+        if self.fetcher is None or len(library) >= self.max_documents:
+            return library, 0, reused, notes
+
+        fetched = 0
+        for url in collect_source_urls(product, composition, extra=tuple(source_urls)):
+            if url in library:
+                continue
+            if len(library) >= self.max_documents:
+                notes.append(f"достигнут лимит источников на сессию ({self.max_documents})")
+                break
+            try:
+                document = self.fetcher.fetch(url)
+            except DocumentUnavailable as exc:
+                notes.append(f"источник недоступен: {exc.reason}")
+                continue
+            except Exception as exc:  # noqa: BLE001 - a fetcher failure is data
+                notes.append(f"источник не загружен ({type(exc).__name__})")
+                continue
+            self.store.save_documents(composition_id, [document])
+            library.add(document)
+            fetched += 1
+        return library, fetched, reused, notes
+
     def _request(
         self,
         job: Mapping,
@@ -287,6 +430,8 @@ class ResearchService:
         product: Mapping,
         composition: Mapping,
         parameter: Parameter,
+        documents: Sequence[SourceDocument] = (),
+        source_urls: Sequence[str] = (),
     ) -> ResearchRequest:
         return ResearchRequest(
             product_id=int(product["id"]),
@@ -299,6 +444,8 @@ class ResearchService:
             scale_anchors=tuple(parameter.anchors),
             parameter_question=parameter.question,
             parameter_definition=parameter.definition,
+            documents=tuple(documents),
+            source_urls=tuple(source_urls),
         )
 
     def _process_job(
@@ -308,16 +455,22 @@ class ResearchService:
         product: Mapping,
         composition: Mapping,
         parameter: Parameter,
-    ) -> tuple[str, float, int, int]:
+        documents: Sequence[SourceDocument] = (),
+    ) -> tuple[str, float, int, int, tuple[SourceDocument, ...]]:
         parameter_id = str(job["parameter_id"])
         request = self._request(
-            job, product=product, composition=composition, parameter=parameter
+            job,
+            product=product,
+            composition=composition,
+            parameter=parameter,
+            documents=documents,
+            source_urls=(),
         )
         try:
             outcome: ResearchOutcome = self.provider.research(request)
         except Exception as exc:  # noqa: BLE001 - provider failures are data, not crashes
             self.store.fail_job(job["id"], f"provider exception: {exc!r}")
-            return "failed", 0.0, 0, 0
+            return "failed", 0.0, 0, 0, ()
 
         cost = float(outcome.cost_usd)
         if cost > self.max_cost_per_job:
@@ -328,7 +481,7 @@ class ResearchService:
                 tokens_out=outcome.tokens_out,
                 cost_usd=cost,
             )
-            return "failed", cost, outcome.tokens_in, outcome.tokens_out
+            return "failed", cost, outcome.tokens_in, outcome.tokens_out, ()
 
         if outcome.status == RESEARCH_PROVIDER_ERROR:
             self.store.fail_job(
@@ -338,7 +491,7 @@ class ResearchService:
                 tokens_out=outcome.tokens_out,
                 cost_usd=cost,
             )
-            return "failed", cost, outcome.tokens_in, outcome.tokens_out
+            return "failed", cost, outcome.tokens_in, outcome.tokens_out, ()
 
         if outcome.status == RESEARCH_SOURCE_UNAVAILABLE:
             self.store.fail_job(
@@ -348,7 +501,7 @@ class ResearchService:
                 tokens_out=outcome.tokens_out,
                 cost_usd=cost,
             )
-            return "failed", cost, outcome.tokens_in, outcome.tokens_out
+            return "failed", cost, outcome.tokens_in, outcome.tokens_out, ()
 
         composition_id = int(job["composition_id"])
         composition_hash = str(composition["composition_hash"])
@@ -370,17 +523,18 @@ class ResearchService:
                 tokens_out=outcome.tokens_out,
                 cost_usd=cost,
             )
-            return "insufficient", cost, outcome.tokens_in, outcome.tokens_out
+            return "insufficient", cost, outcome.tokens_in, outcome.tokens_out, ()
 
         if outcome.status != RESEARCH_OK:
             self.store.fail_job(job["id"], f"неизвестный статус провайдера: {outcome.status}")
-            return "failed", cost, outcome.tokens_in, outcome.tokens_out
+            return "failed", cost, outcome.tokens_in, outcome.tokens_out, ()
 
         evidence: list[Evidence] = validate_candidates(
             outcome.candidates,
             product_id=int(product["id"]),
             composition_hash=composition_hash,
             parameter_id=parameter_id,
+            documents=tuple(documents) or None,
         )
         ids = self.store.save_evidence(composition_id, evidence)
 
@@ -410,7 +564,7 @@ class ResearchService:
                 tokens_out=outcome.tokens_out,
                 cost_usd=cost,
             )
-            return "failed", cost, outcome.tokens_in, outcome.tokens_out
+            return "failed", cost, outcome.tokens_in, outcome.tokens_out, ()
 
         self.store.save_evaluation(composition_id, evaluation)
         self.store.complete_job(
@@ -420,7 +574,7 @@ class ResearchService:
             cost_usd=cost,
         )
         if evaluation.status == STATUS_ASSESSED:
-            return "researched", cost, outcome.tokens_in, outcome.tokens_out
+            return "researched", cost, outcome.tokens_in, outcome.tokens_out, outcome.documents
         if evaluation.status == STATUS_NOT_APPLICABLE:
-            return "not_applicable", cost, outcome.tokens_in, outcome.tokens_out
-        return "insufficient", cost, outcome.tokens_in, outcome.tokens_out
+            return "not_applicable", cost, outcome.tokens_in, outcome.tokens_out, outcome.documents
+        return "insufficient", cost, outcome.tokens_in, outcome.tokens_out, ()

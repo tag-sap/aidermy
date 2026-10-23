@@ -108,9 +108,9 @@ class ServiceTests(unittest.TestCase):
         result = service.build(
             product=PRODUCT, composition=self._composition(), profile=PROFILE
         )
-        # The stored insufficient result is reused: no new research is requested,
-        # and it never becomes a score (the remaining assessed parameter is used).
-        self.assertEqual(result.pending_parameters, ())
+        # A stored insufficient result is NOT reused as knowledge: the parameter
+        # stays a research candidate until a result is actually confirmed.
+        self.assertEqual(result.pending_parameters, ("problem:dryness",))
         self.assertEqual(result.snapshot["total"], 50)
         self.assertEqual(
             [item["parameter_id"] for item in result.snapshot["parameters"]],

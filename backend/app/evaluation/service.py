@@ -16,7 +16,8 @@ from .contracts import (
     sha256_of,
 )
 from .engine import evaluate
-from .freshness import DEFAULT_REVIEW_AFTER_DAYS, select_current
+from .freshness import DEFAULT_REVIEW_AFTER_DAYS
+from .gaps import AnalysisState, KnowledgeScan, analysis_state, scan_parameters
 from .parameters import resolve_relevance
 from .rules import get_rules
 from .snapshot import build_snapshot, verify_snapshot
@@ -31,6 +32,8 @@ class BuildResult:
     pending_parameters: tuple[str, ...]
     stale_parameters: tuple[str, ...]
     reused: bool
+    analysis: AnalysisState
+    scan: KnowledgeScan
 
 
 class EvaluationService:
@@ -76,6 +79,8 @@ class EvaluationService:
         profile: Mapping[str, Any] | None,
         now: datetime | None = None,
         user_id: int | None = None,
+        research_summary: Mapping[str, Any] | None = None,
+        blocked: bool = False,
     ) -> BuildResult:
         product_id = product.get("id")
         if product_id is None:
@@ -84,24 +89,28 @@ class EvaluationService:
         composition_hash = str(record["composition_hash"])
 
         stored = self.store.current_evaluations(record["id"], self.method_version)
-        current, stale = select_current(
-            stored,
+        scan = scan_parameters(
+            evaluations=stored,
+            profile=profile,
             composition_hash=composition_hash,
             method_version=self.method_version,
             now=now,
             max_age_days=self.max_age_days,
             review_after_days=self.review_after_days,
         )
-        result = evaluate(profile, current, self.rules)
+        result = evaluate(profile, scan.current, self.rules)
+        blocked = blocked or str(record.get("status") or "") != "active"
+        state = analysis_state(scan=scan, research=research_summary, blocked=blocked)
         snapshot = build_snapshot(
             product=product,
             composition=record,
             profile=profile,
-            evaluations=current,
+            evaluations=scan.current,
             result=result,
             rules=self.rules,
             created_at=now,
             user_id=user_id,
+            analysis=state.as_dict(),
         )
         existing = self.store.get_snapshot(str(snapshot.get("snapshot_id") or ""))
         if existing is not None:
@@ -109,15 +118,13 @@ class EvaluationService:
         else:
             saved, reused = self.store.save_snapshot(snapshot), False
 
-        researched = {item.parameter_id for item in current}
-        relevant = {item.parameter_id for item in result.parameters}
-        pending = tuple(sorted(pid for pid in relevant if pid not in researched))
-
         return BuildResult(
             snapshot=saved,
-            pending_parameters=pending,
-            stale_parameters=tuple(sorted(stale)),
+            pending_parameters=scan.needed,
+            stale_parameters=scan.stale,
             reused=reused,
+            analysis=state,
+            scan=scan,
         )
 
     # -- research bookkeeping ----------------------------------------------

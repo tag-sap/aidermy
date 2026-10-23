@@ -528,8 +528,14 @@ class ResearchReviewWindowTests(unittest.TestCase):
         self.assertEqual(report.insufficient, ("problem:dryness", "skin_type:dry"))
         self.assertEqual(provider.call_count(), 2)
 
-    def test_recent_non_scoring_results_are_reused(self):
+    def test_recent_insufficient_is_still_a_gap(self):
+        # "Not enough evidence" is not knowledge to reuse, even inside the review
+        # window: the parameter stays a research candidate.
         provider, report = self._run(self._store("insufficient_evidence", self.RECENT))
+        self.assertEqual(provider.call_count(), 2)
+
+    def test_recent_not_applicable_is_reused(self):
+        provider, report = self._run(self._store("not_applicable", self.RECENT))
         self.assertEqual(report.researched, ())
         self.assertEqual(provider.call_count(), 0)
 
@@ -540,7 +546,7 @@ class ResearchReviewWindowTests(unittest.TestCase):
         self.assertEqual(provider.call_count(), 0)
 
     def test_window_can_be_disabled_explicitly(self):
-        store = self._store("insufficient_evidence", self.OLD)
+        store = self._store("not_applicable", self.OLD)
         provider = FakeResearchProvider(
             {"problem:dryness": insufficient(), "skin_type:dry": insufficient()}
         )

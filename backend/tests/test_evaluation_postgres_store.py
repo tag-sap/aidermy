@@ -278,7 +278,7 @@ class SnapshotTests(unittest.TestCase):
         stored = store_for(db).save_snapshot(self._snapshot())
         self.assertEqual(stored["snapshot_id"], "abc123")
         self.assertEqual(stored["product"]["name"], "Test")
-        self.assertIn("on conflict (snapshot_id) do nothing", sql_text(db))
+        self.assertIn("on conflict do nothing", sql_text(db))
         self.assertEqual(calls["selects"], 2)
 
     def test_existing_snapshot_is_returned_without_insert(self):
