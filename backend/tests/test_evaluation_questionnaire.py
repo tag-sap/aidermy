@@ -177,7 +177,7 @@ class QuestionnaireParityTests(unittest.TestCase):
 
 
 
-def evidence_ok(parameter_id: str, strength: str = "moderate"):
+def evidence_ok(parameter_id: str, strength: str = "moderate", score: int = 100):
     return ok(
         candidate(
             parameter_id=parameter_id,
@@ -186,7 +186,8 @@ def evidence_ok(parameter_id: str, strength: str = "moderate"):
             source_text=f"Formula. {parameter_id} confirmed property. End.",
             strength=strength,
             confidence=1.0,
-        )
+        ),
+        score=score,
     )
 
 
@@ -408,36 +409,45 @@ class CompositionVerificationTests(unittest.TestCase):
 
 
 class AggregationInvariantTests(unittest.TestCase):
-    def test_total_is_plain_arithmetic_mean_of_available_parameters(self):
+    def test_total_is_plain_arithmetic_mean_of_assessed_parameters(self):
         from app.evaluation import ParameterEvaluation
 
         profile = {"skin_type": "dry", "concerns": ["dryness"], "goals": ["hydration"]}
         evaluations = [
-            ParameterEvaluation("goal:hydration", "evaluated", value=80,
+            ParameterEvaluation("goal:hydration", "assessed", value=100,
+                                rationale="подтверждено источниками",
+                                evidence_ids=("1",),
                                 composition_hash=HASH_A, method_version="m"),
-            ParameterEvaluation("problem:dryness", "evaluated", value=60,
+            ParameterEvaluation("problem:dryness", "assessed", value=50,
+                                rationale="подтверждено источниками",
+                                evidence_ids=("2",),
                                 composition_hash=HASH_A, method_version="m"),
-            ParameterEvaluation("skin_type:dry", "evaluated", value=70,
+            ParameterEvaluation("skin_type:dry", "assessed", value=75,
+                                rationale="подтверждено источниками",
+                                evidence_ids=("3",),
                                 composition_hash=HASH_A, method_version="m"),
         ]
         result = evaluate(profile, evaluations)
-        self.assertEqual(result.total, 70)  # (80 + 60 + 70) / 3
+        self.assertAlmostEqual(result.total, (100 + 50 + 75) / 3, places=2)
         self.assertAlmostEqual(result.completeness, 1.0, places=6)
         self.assertIsNone(result.verdict, "verdict stays off until calibration")
 
-    def test_contradictory_parameter_is_excluded_not_zeroed(self):
+    def test_insufficient_parameter_is_excluded_not_zeroed(self):
         from app.evaluation import ParameterEvaluation
 
         profile = {"skin_type": "dry", "concerns": ["dryness"]}
         evaluations = [
-            ParameterEvaluation("problem:dryness", "evaluated", value=80,
+            ParameterEvaluation("problem:dryness", "assessed", value=100,
+                                rationale="подтверждено источниками",
+                                evidence_ids=("1",),
                                 composition_hash=HASH_A, method_version="m"),
-            ParameterEvaluation("skin_type:dry", "contradictory_evidence",
+            ParameterEvaluation("skin_type:dry", "insufficient_evidence",
+                                rationale="источников недостаточно",
                                 composition_hash=HASH_A, method_version="m",
                                 limitations=("источники противоречат",)),
         ]
         result = evaluate(profile, evaluations)
-        self.assertEqual(result.total, 80)
+        self.assertEqual(result.total, 100)
         self.assertAlmostEqual(result.completeness, 0.5, places=6)
         self.assertTrue(
             any("источники противоречат" in text for text in result.limitations)
@@ -461,7 +471,9 @@ class ExplanationQualityTests(unittest.TestCase):
                         source_text="Formula: Aqua, Glycerin. Glycerin helps keep the skin hydrated.",
                         strength="strong",
                         confidence=1.0,
-                    )
+                    ),
+                    score=75,
+                    rationale="Источник подтверждает влагоудерживающее свойство состава.",
                 )
             }
         )
@@ -480,6 +492,7 @@ class ExplanationQualityTests(unittest.TestCase):
         self.assertIn("Соответствует ли состав задаче", evaluation.rationale)
         self.assertIn("Глицерин удерживает влагу", evaluation.rationale)
         self.assertIn("Glycerin helps keep the skin hydrated", evaluation.rationale)
+        self.assertIn("Оценка 75/100", evaluation.rationale)
         self.assertNotIn("лечит", evaluation.rationale.lower())
 
     def test_fabricated_quote_never_reaches_the_score(self):
@@ -494,7 +507,9 @@ class ExplanationQualityTests(unittest.TestCase):
                         source_text="Formula: Aqua, Glycerin.",
                         strength="strong",
                         confidence=1.0,
-                    )
+                    ),
+                    score=75,
+                    rationale="Источник подтверждает свойство состава.",
                 )
             }
         )
@@ -512,7 +527,7 @@ class ExplanationQualityTests(unittest.TestCase):
         result = evaluate({"concerns": ["Сухость / обезвоженность"]}, [])
         self.assertIsNone(result.total)
         self.assertIsNone(result.parameters[0].value)
-        self.assertEqual(result.parameters[0].status, "not_researched")
+        self.assertEqual(result.parameters[0].status, "pending")
 
         # The rejected candidate is kept for audit, with an explicit reason.
         rows = store.evidence_for(record["id"], "problem:dryness")

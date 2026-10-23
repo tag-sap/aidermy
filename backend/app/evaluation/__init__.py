@@ -5,10 +5,15 @@ decision_engine, phase1, profile_matrix). It can be tested without a database.
 """
 from .contracts import (
     ENGINE_VERSION,
-    STATUS_CONTRADICTORY,
-    STATUS_EVALUATED,
+    LEGACY_STATUS_CONTRADICTORY,
+    LEGACY_STATUS_EVALUATED,
+    LEGACY_STATUS_NOT_RESEARCHED,
+    SCORE_LEVELS,
+    SCORE_LEVEL_CRITERIA,
+    STATUS_ASSESSED,
     STATUS_INSUFFICIENT,
-    STATUS_NOT_RESEARCHED,
+    STATUS_NOT_APPLICABLE,
+    STATUS_PENDING,
     STATUS_STALE,
     ContractError,
     EngineResult,
@@ -17,11 +22,9 @@ from .contracts import (
     RuleSet,
 )
 from .assessment import (
-    EVIDENCE_RULE_VERSION,
+    ASSESS_RULE_VERSION,
     assess,
     explain,
-    net_score,
-    value_for_net,
 )
 from .engine import evaluate
 from .evidence import (
@@ -49,6 +52,9 @@ from .parameters import (
 from .questionnaire import QUESTIONNAIRE_VERSION, SECTIONS, Option, Section
 from .rules import DEFAULT_RULE_VERSION, RULE_SETS, describe_rules, get_rules
 from .research import (
+    APPLICABLE,
+    NOT_APPLICABLE,
+    AssessmentProposal,
     FakeResearchProvider,
     ResearchOutcome,
     ResearchProvider,
@@ -70,20 +76,28 @@ from .snapshot import (
 
 __all__ = [
     "ENGINE_VERSION",
-    "EVIDENCE_RULE_VERSION",
+    "ASSESS_RULE_VERSION",
     "SNAPSHOT_SCHEMA_VERSION",
     "QUESTIONNAIRE_VERSION",
-    "STATUS_EVALUATED",
+    "SCORE_LEVELS",
+    "SCORE_LEVEL_CRITERIA",
+    "STATUS_ASSESSED",
     "STATUS_INSUFFICIENT",
-    "STATUS_CONTRADICTORY",
-    "STATUS_NOT_RESEARCHED",
+    "STATUS_NOT_APPLICABLE",
+    "STATUS_PENDING",
     "STATUS_STALE",
+    "LEGACY_STATUS_EVALUATED",
+    "LEGACY_STATUS_NOT_RESEARCHED",
+    "LEGACY_STATUS_CONTRADICTORY",
     "ContractError",
     "EngineResult",
     "Evidence",
     "EvidenceCandidate",
     "EvidenceError",
     "FakeResearchProvider",
+    "AssessmentProposal",
+    "APPLICABLE",
+    "NOT_APPLICABLE",
     "Option",
     "Parameter",
     "ParameterEvaluation",
@@ -106,11 +120,9 @@ __all__ = [
     "catalog_parameters",
     "explain",
     "insufficient",
-    "net_score",
     "ok",
     "provider_error",
     "source_unavailable",
-    "value_for_net",
     "normalize_text",
     "validate_candidate",
     "validate_candidates",

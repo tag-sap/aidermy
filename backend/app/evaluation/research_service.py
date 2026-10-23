@@ -15,7 +15,13 @@ from datetime import datetime, timezone
 from typing import Mapping, Sequence
 
 from .assessment import assess
-from .contracts import Parameter, ParameterEvaluation
+from .contracts import (
+    STATUS_ASSESSED,
+    STATUS_NOT_APPLICABLE,
+    ContractError,
+    Parameter,
+    ParameterEvaluation,
+)
 from .evidence import Evidence, validate_candidates
 from .freshness import select_current
 from .parameters import PARAMETERS, resolve_parameters
@@ -54,6 +60,7 @@ class ResearchRunReport:
     enqueued: tuple[str, ...] = ()
     researched: tuple[str, ...] = ()
     insufficient: tuple[str, ...] = ()
+    not_applicable: tuple[str, ...] = ()
     failed: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
     exhausted: tuple[str, ...] = ()
@@ -207,6 +214,7 @@ class ResearchService:
 
         researched: list[str] = []
         insufficient: list[str] = []
+        not_applicable: list[str] = []
         failed: list[str] = []
         deferred: list[str] = []
         run_cost = 0.0
@@ -237,6 +245,8 @@ class ResearchService:
             tokens_out += tout
             if outcome == "researched":
                 researched.append(job["parameter_id"])
+            elif outcome == "not_applicable":
+                not_applicable.append(job["parameter_id"])
             elif outcome == "insufficient":
                 insufficient.append(job["parameter_id"])
             else:
@@ -246,6 +256,7 @@ class ResearchService:
             enqueued=tuple(enqueued),
             researched=tuple(researched),
             insufficient=tuple(insufficient),
+            not_applicable=tuple(not_applicable),
             failed=tuple(failed),
             skipped=tuple(skipped),
             exhausted=tuple(exhausted),
@@ -340,7 +351,7 @@ class ResearchService:
         if outcome.status == RESEARCH_INSUFFICIENT:
             evaluation = assess(
                 parameter,
-                [],
+                None,
                 composition_hash=composition_hash,
                 method_version=self.method_version,
                 evaluated_at=_now_iso(),
@@ -365,31 +376,33 @@ class ResearchService:
             parameter_id=parameter_id,
         )
         ids = self.store.save_evidence(composition_id, evidence)
-        usable_ids = [
-            evidence_id
-            for item, evidence_id in zip(evidence, ids)
-            if item.usable and item.parameter_id == parameter_id
-        ]
-        if not usable_ids:
-            reasons = sorted({item.rejection_reason for item in evidence if item.rejection_reason})
+
+        try:
+            evaluation = assess(
+                parameter,
+                outcome.proposal,
+                evidence,
+                composition_hash=composition_hash,
+                method_version=self.method_version,
+                evaluated_at=_now_iso(),
+                evidence_ids=ids,
+            )
+        except ContractError as exc:
+            # A protocol/validation error is NOT "not applicable" and NOT
+            # "insufficient evidence": the job fails and can be retried.
+            reasons = sorted(
+                {item.rejection_reason for item in evidence if item.rejection_reason}
+            )
             self.store.fail_job(
                 job["id"],
-                "все кандидаты отклонены валидацией"
-                + (f": {'; '.join(reasons[:3])}" if reasons else ""),
+                f"некорректный результат оценки: {exc}"
+                + (f" (отклонено: {'; '.join(reasons[:3])})" if reasons else ""),
                 tokens_in=outcome.tokens_in,
                 tokens_out=outcome.tokens_out,
                 cost_usd=cost,
             )
             return "failed", cost, outcome.tokens_in, outcome.tokens_out
 
-        evaluation = assess(
-            parameter,
-            evidence,
-            composition_hash=composition_hash,
-            method_version=self.method_version,
-            evaluated_at=_now_iso(),
-            evidence_ids=usable_ids,
-        )
         self.store.save_evaluation(composition_id, evaluation)
         self.store.complete_job(
             job["id"],
@@ -397,9 +410,8 @@ class ResearchService:
             tokens_out=outcome.tokens_out,
             cost_usd=cost,
         )
-        return (
-            "researched" if evaluation.status == "evaluated" else "insufficient",
-            cost,
-            outcome.tokens_in,
-            outcome.tokens_out,
-        )
+        if evaluation.status == STATUS_ASSESSED:
+            return "researched", cost, outcome.tokens_in, outcome.tokens_out
+        if evaluation.status == STATUS_NOT_APPLICABLE:
+            return "not_applicable", cost, outcome.tokens_in, outcome.tokens_out
+        return "insufficient", cost, outcome.tokens_in, outcome.tokens_out

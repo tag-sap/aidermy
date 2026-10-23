@@ -5,6 +5,7 @@ import threading
 import unittest
 
 from app.evaluation import (
+    NOT_APPLICABLE,
     FakeResearchProvider,
     ParameterEvaluation,
     ResearchService,
@@ -36,7 +37,14 @@ def composition(comp_hash: str = COMP_A) -> dict:
     }
 
 
-def evidence_ok(parameter_id: str, *, strength: str = "moderate", cost: float = 0.0, **kwargs):
+def evidence_ok(
+    parameter_id: str,
+    *,
+    strength: str = "moderate",
+    cost: float = 0.0,
+    score: int | None = 75,
+    **kwargs,
+):
     kwargs.setdefault("confidence", 1.0)
     return ok(
         candidate(
@@ -47,6 +55,7 @@ def evidence_ok(parameter_id: str, *, strength: str = "moderate", cost: float = 
             strength=strength,
             **kwargs,
         ),
+        score=score,
         cost_usd=cost,
     )
 
@@ -84,8 +93,8 @@ class ResearchFlowTests(unittest.TestCase):
             item.parameter_id: item
             for item in self.store.current_evaluations(composition_id, DEFAULT_METHOD_VERSION)
         }
-        self.assertEqual(current["problem:dryness"].value, 80)
-        self.assertEqual(current["skin_type:dry"].value, 70)
+        self.assertEqual(current["problem:dryness"].value, 75)
+        self.assertEqual(current["skin_type:dry"].value, 75)
         self.assertTrue(current["problem:dryness"].evidence_ids)
 
         rows = self.store.evidence_for(composition_id, "problem:dryness")
@@ -363,6 +372,109 @@ class ResearchEngineIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(snapshot["total"], 75)
         self.assertIsNone(snapshot["verdict"])
+
+
+class ResearchStatusTests(unittest.TestCase):
+    """Applicability / sufficiency / technical failures are distinct."""
+
+    def setUp(self):
+        self.store = InMemoryStore()
+
+    def _run(self, responses, profile=PROFILE):
+        provider = FakeResearchProvider(responses)
+        service = ResearchService(self.store, provider)
+        return service, provider, service.research_missing(
+            product=PRODUCT, composition=composition(), profile=profile
+        )
+
+    def _evaluations(self, comp: str = COMP_A) -> dict:
+        record = self.store.get_composition(PRODUCT["id"], comp)
+        return {
+            item.parameter_id: item
+            for item in self.store.current_evaluations(record["id"], DEFAULT_METHOD_VERSION)
+        }
+
+    def test_provider_without_sources_is_stored_as_insufficient_without_score(self):
+        _, _, report = self._run(
+            {
+                "problem:dryness": insufficient(),
+                "skin_type:dry": insufficient(),
+            }
+        )
+        self.assertEqual(report.insufficient, ("problem:dryness", "skin_type:dry"))
+        evaluations = self._evaluations()
+        for evaluation in evaluations.values():
+            self.assertEqual(evaluation.status, "insufficient_evidence")
+            self.assertIsNone(evaluation.value)
+
+    def test_not_applicable_is_stored_without_score(self):
+        _, _, report = self._run(
+            {
+                "problem:dryness": ok(
+                    candidate(
+                        parameter_id="problem:dryness",
+                        claim="Продукт смывается водой",
+                        quote="rinse-off cleanser",
+                        source_text="This is a rinse-off cleanser.",
+                    ),
+                    applicability=NOT_APPLICABLE,
+                    applicability_reason="Средство смывается и не остаётся на коже.",
+                ),
+                "skin_type:dry": evidence_ok("skin_type:dry", score=100),
+            }
+        )
+        self.assertEqual(report.not_applicable, ("problem:dryness",))
+        self.assertEqual(report.researched, ("skin_type:dry",))
+        evaluations = self._evaluations()
+        self.assertEqual(evaluations["problem:dryness"].status, "not_applicable")
+        self.assertIsNone(evaluations["problem:dryness"].value)
+
+        result = evaluate(PROFILE, list(evaluations.values()))
+        self.assertEqual(result.total, 100)  # not_applicable does not lower the mean
+        self.assertAlmostEqual(result.completeness, 0.5, places=6)
+
+    def test_invalid_score_fails_the_job_instead_of_being_stored(self):
+        provider_response = evidence_ok("problem:dryness", score=30)
+        _, provider, report = self._run(
+            {"problem:dryness": provider_response, "skin_type:dry": insufficient()}
+        )
+        self.assertIn("problem:dryness", report.failed)
+        self.assertEqual(self._evaluations().get("problem:dryness"), None)
+        record = self.store.get_composition(PRODUCT["id"], COMP_A)
+        jobs = self.store.jobs_for(record["id"], "problem:dryness", DEFAULT_METHOD_VERSION)
+        self.assertEqual(jobs[0]["status"], "failed")
+        self.assertIn("некорректный результат оценки", jobs[0]["last_error"])
+
+    def test_provider_error_is_not_masked_as_not_applicable(self):
+        _, _, report = self._run(
+            {"problem:dryness": provider_error(), "skin_type:dry": evidence_ok("skin_type:dry")}
+        )
+        self.assertEqual(report.failed, ("problem:dryness",))
+        self.assertEqual(report.not_applicable, ())
+        self.assertNotIn("problem:dryness", self._evaluations())
+
+    def test_not_applicable_is_revisited_only_when_stale(self):
+        responses = {
+            "problem:dryness": ok(
+                candidate(
+                    parameter_id="problem:dryness",
+                    claim="Продукт смывается водой",
+                    quote="rinse-off cleanser",
+                    source_text="This is a rinse-off cleanser.",
+                ),
+                applicability=NOT_APPLICABLE,
+                applicability_reason="Средство смывается.",
+            ),
+            "skin_type:dry": evidence_ok("skin_type:dry"),
+        }
+        service, provider, _ = self._run(responses)
+        calls = provider.call_count()
+        report = service.research_missing(
+            product=PRODUCT, composition=composition(), profile=PROFILE
+        )
+        self.assertEqual(provider.call_count(), calls)
+        self.assertEqual(report.researched, ())
+        self.assertEqual(report.not_applicable, ())
 
 
 if __name__ == "__main__":

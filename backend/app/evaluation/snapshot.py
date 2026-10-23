@@ -96,6 +96,9 @@ def build_snapshot(
             "status": status,
         },
         "profile": profile_fingerprint(profile),
+        # User-facing list: only parameters with an actual, validated score.
+        # pending / not_applicable / insufficient_evidence stay in storage
+        # (evaluation.parameter_evaluations) and never enter this list or the average.
         "parameters": [
             {
                 "parameter_id": item.parameter_id,
@@ -106,6 +109,7 @@ def build_snapshot(
                 "reason": item.reason,
             }
             for item in result.parameters
+            if item.included and item.value is not None
         ],
         "total": result.total,
         "verdict": result.verdict,

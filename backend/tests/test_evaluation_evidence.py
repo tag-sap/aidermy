@@ -5,15 +5,17 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from app.evaluation import (
+    APPLICABLE,
+    NOT_APPLICABLE,
     PARAMETERS,
+    AssessmentProposal,
+    ContractError,
     EvidenceError,
     Source,
     assess,
     candidate,
-    net_score,
     normalize_text,
     validate_candidate,
-    value_for_net,
 )
 
 COMPOSITION = "a" * 64
@@ -108,113 +110,214 @@ class EvidenceContractTests(unittest.TestCase):
 
 
 class AssessmentTests(unittest.TestCase):
-    def _evaluate(self, *evidence):
+    """The model chooses the score; the deterministic layer validates it."""
+
+    def proposal(self, **overrides) -> AssessmentProposal:
+        defaults = dict(
+            parameter_id="goal:hydration",
+            applicability=APPLICABLE,
+            sufficient=True,
+            score=75,
+            rationale=(
+                "Подтверждённые источники описывают влагоудерживающие компоненты, "
+                "соответствующие требованию пункта."
+            ),
+            evidence_refs=(0,),
+        )
+        defaults.update(overrides)
+        return AssessmentProposal(**defaults)
+
+    def evaluate(self, *evidence, proposal=None, parameter="goal:hydration", ids=None):
+        items = list(evidence)
+        evidence_ids = list(ids) if ids is not None else [
+            str(index + 1) for index in range(len(items))
+        ]
         return assess(
-            "goal:hydration",
-            list(evidence),
+            parameter,
+            self.proposal() if proposal is None else proposal,
+            items,
             composition_hash=COMPOSITION,
             method_version=METHOD,
             evaluated_at=NOW.isoformat(),
-            evidence_ids=(1, 2),
+            evidence_ids=evidence_ids,
         )
 
-    def test_no_evidence_means_insufficient_not_zero(self):
-        result = self._evaluate()
+    def test_each_allowed_score_is_accepted(self):
+        evidence = confirmed(strength="strong", confidence=1.0)
+        for score in (0, 25, 50, 75, 100):
+            result = self.evaluate(evidence, proposal=self.proposal(score=score))
+            self.assertEqual(result.status, "assessed", score)
+            self.assertEqual(result.value, score)
+            self.assertTrue(result.evidence_ids)
+            self.assertIn(f"Оценка {score}/100", result.rationale)
+
+    def test_scores_outside_the_five_levels_are_rejected(self):
+        evidence = confirmed()
+        for score in (1, 30, 62, 101, -25):
+            with self.assertRaises(ContractError, msg=f"score {score}"):
+                self.evaluate(evidence, proposal=self.proposal(score=score))
+
+    def test_assessed_without_explanation_is_rejected(self):
+        evidence = confirmed()
+        with self.assertRaises(ContractError):
+            self.evaluate(evidence, proposal=self.proposal(rationale=""))
+        with self.assertRaises(ContractError):
+            self.evaluate(evidence, proposal=self.proposal(rationale="ок"))
+
+    def test_assessed_without_evidence_reference_is_rejected(self):
+        with self.assertRaises(ContractError):
+            self.evaluate(confirmed(), proposal=self.proposal(evidence_refs=()))
+
+    def test_reference_to_rejected_evidence_is_rejected(self):
+        rejected = confirmed(quote="cures eczema completely")  # quote not in source
+        self.assertFalse(rejected.usable)
+        with self.assertRaises(ContractError):
+            self.evaluate(rejected, proposal=self.proposal())
+
+    def test_reference_out_of_range_is_rejected(self):
+        with self.assertRaises(ContractError):
+            self.evaluate(confirmed(), proposal=self.proposal(evidence_refs=(5,)))
+
+    def test_parameter_mismatch_is_rejected(self):
+        with self.assertRaises(ContractError):
+            self.evaluate(
+                confirmed(), proposal=self.proposal(parameter_id="problem:dryness")
+            )
+
+    def test_unknown_applicability_is_rejected(self):
+        with self.assertRaises(ContractError):
+            self.evaluate(confirmed(), proposal=self.proposal(applicability="maybe"))
+
+    def test_score_requires_sufficient_decision(self):
+        with self.assertRaises(ContractError):
+            self.evaluate(confirmed(), proposal=self.proposal(sufficient=False))
+        with self.assertRaises(ContractError):
+            self.evaluate(confirmed(), proposal=self.proposal(sufficient=True, score=None))
+
+
+
+    def test_insufficient_has_no_score_and_no_harm_conclusion(self):
+        result = self.evaluate(
+            confirmed(direction="neutral"),
+            proposal=self.proposal(
+                sufficient=False,
+                score=None,
+                rationale="Источники не описывают эффект по этому пункту.",
+            ),
+        )
         self.assertEqual(result.status, "insufficient_evidence")
         self.assertIsNone(result.value)
-        self.assertTrue(any("Подтверждённых доказательств нет" in t for t in result.limitations))
+        self.assertTrue(
+            any("не является доказательством вреда" in text for text in result.limitations)
+        )
 
-    def test_neutral_only_is_insufficient_not_harm(self):
-        result = self._evaluate(confirmed(direction="neutral"))
+    def test_not_applicable_requires_reason_and_confirmed_source(self):
+        grounded = self.evaluate(
+            confirmed(),
+            proposal=self.proposal(
+                applicability=NOT_APPLICABLE,
+                sufficient=False,
+                score=None,
+                applicability_reason="Продукт смывается и не остаётся на коже.",
+            ),
+        )
+        self.assertEqual(grounded.status, "not_applicable")
+        self.assertIsNone(grounded.value)
+
+        ungrounded = self.evaluate(
+            proposal=self.proposal(
+                applicability=NOT_APPLICABLE,
+                sufficient=False,
+                score=None,
+                applicability_reason="Информации о параметре не нашлось.",
+                evidence_refs=(),
+            )
+        )
+        self.assertEqual(ungrounded.status, "insufficient_evidence")
+        self.assertIsNone(ungrounded.value)
+        self.assertTrue(
+            any("нельзя обосновать отсутствием данных" in text
+                for text in ungrounded.limitations)
+        )
+
+    def test_safety_parameter_cannot_be_marked_not_applicable(self):
+        evidence = confirmed(parameter_id="therapy:tretinoin")
+        result = assess(
+            "therapy:tretinoin",
+            self.proposal(
+                parameter_id="therapy:tretinoin",
+                applicability=NOT_APPLICABLE,
+                sufficient=False,
+                score=None,
+                applicability_reason="Не нашли информации о совместимости.",
+            ),
+            [evidence],
+            composition_hash=COMPOSITION,
+            method_version=METHOD,
+            evaluated_at=NOW.isoformat(),
+            evidence_ids=["1"],
+        )
         self.assertEqual(result.status, "insufficient_evidence")
         self.assertIsNone(result.value)
-        self.assertTrue(any("отсутствия эффекта" in t for t in result.limitations))
-
-    def test_strong_support_gives_high_band(self):
-        result = self._evaluate(confirmed(strength="strong", confidence=1.0))
-        self.assertEqual(result.status, "evaluated")
-        self.assertEqual(result.value, 80)
-
-    def test_moderate_support_gives_middle_band(self):
-        result = self._evaluate(confirmed(strength="moderate", confidence=1.0))
-        self.assertEqual(result.value, 70)
-
-    def test_weak_support_gives_lower_band(self):
-        result = self._evaluate(confirmed(strength="weak", confidence=0.8))
-        self.assertEqual(result.value, 60)
-
-    def test_strong_contradiction_gives_low_band(self):
-        result = self._evaluate(
-            confirmed(direction="contradicts", strength="strong", confidence=1.0)
+        self.assertTrue(
+            any("связанного с безопасностью" in text for text in result.limitations)
         )
-        self.assertEqual(result.value, 20)
 
-    def test_balanced_evidence_is_contradictory_not_midpoint(self):
-        # A midpoint would hide the contradiction and pretend the value is known.
-        result = self._evaluate(
-            confirmed(direction="supports", strength="strong", confidence=1.0),
-            confirmed(direction="contradicts", strength="strong", confidence=1.0),
+    def test_provider_without_sources_is_insufficient_not_not_applicable(self):
+        result = assess(
+            "goal:hydration",
+            None,
+            [],
+            composition_hash=COMPOSITION,
+            method_version=METHOD,
+            evaluated_at=NOW.isoformat(),
         )
-        self.assertEqual(result.status, "contradictory_evidence")
+        self.assertEqual(result.status, "insufficient_evidence")
         self.assertIsNone(result.value)
-        self.assertTrue(any("сопоставимы" in t for t in result.limitations))
-        self.assertIn("противоречат", result.rationale)
+        self.assertIn("балл не выставляется", result.rationale)
+
+    def test_treatment_claim_in_reasoning_is_rejected(self):
+        with self.assertRaises(ContractError):
+            self.evaluate(
+                confirmed(),
+                proposal=self.proposal(
+                    rationale="Средство лечит сухость и гарантирует результат."
+                ),
+            )
+
+    def test_treatment_claim_in_evidence_claim_is_rejected(self):
+        claim = confirmed(claim="Продукт лечит экзему")
+        with self.assertRaises(ContractError):
+            self.evaluate(claim, proposal=self.proposal())
 
     def test_explanation_answers_the_parameter_question(self):
-        result = self._evaluate(confirmed(strength="strong", confidence=1.0))
+        result = self.evaluate(confirmed(claim="Глицерин удерживает влагу"))
         parameter = PARAMETERS["goal:hydration"]
         self.assertIn(parameter.label, result.rationale)
         self.assertIn(parameter.question, result.rationale)
-        self.assertIn("Оценка 80/100", result.rationale)
-        # Only confirmed claim + quote, never the model's rejected text.
-        self.assertIn("Glycerin удерживает влагу", result.rationale)
+        self.assertIn("Оценка 75/100", result.rationale)
+        self.assertIn("Глицерин удерживает влагу", result.rationale)
         self.assertIn("brand.example", result.rationale)
         self.assertNotIn("https://", result.rationale)
 
-    def test_explanation_has_no_unsupported_medical_claims(self):
-        result = self._evaluate(confirmed(strength="strong", confidence=1.0))
-        generated = result.rationale.replace(confirmed().claim, "")
-        for forbidden in ("лечит", "гарантирует", "безопасен", "вреден", "излечивает"):
-            self.assertNotIn(forbidden, generated.lower())
-        self.assertIn("не клиническую пригодность", " ".join(result.limitations))
-
-    def test_explanation_distinguishes_absence_from_harm(self):
-        absent = self._evaluate()
-        harmful = self._evaluate(
-            confirmed(direction="contradicts", strength="strong", confidence=1.0)
+    def test_score_is_not_derived_from_quote_count(self):
+        one = self.evaluate(
+            confirmed(), proposal=self.proposal(score=100, evidence_refs=(0,))
         )
-        self.assertIsNone(absent.value)
-        self.assertEqual(absent.status, "insufficient_evidence")
-        self.assertIn("не является доказательством вреда", " ".join(absent.limitations))
-        self.assertEqual(harmful.value, 20)
-        self.assertIn("против требования", harmful.rationale.lower())
-
-    def test_confidence_changes_weight_not_direction(self):
-        low = net_score([confirmed(direction="supports", strength="strong", confidence=0.2)])
-        high = net_score([confirmed(direction="supports", strength="strong", confidence=1.0)])
-        self.assertLess(low, high)
-        self.assertEqual(value_for_net(high), 80)
-
-    def test_rationale_uses_only_confirmed_claims(self):
-        good = confirmed(claim="Глицерин удерживает влагу")
-        bad = confirmed(
-            claim="Продукт лечит экзему",
-            quote="cures eczema",
-            source_text="Formula: Aqua, Glycerin.",
+        many = self.evaluate(
+            confirmed(), confirmed(), confirmed(),
+            proposal=self.proposal(score=25, evidence_refs=(0, 1, 2)),
         )
-        result = self._evaluate(good, bad)
-        self.assertIn("Глицерин удерживает влагу", result.rationale)
-        self.assertNotIn("лечит экзему", result.rationale)
-        self.assertTrue(any("Отклонено кандидатов" in t for t in result.limitations))
+        self.assertEqual(one.value, 100)
+        self.assertEqual(many.value, 25)
 
-    def test_evidence_ids_are_attached(self):
-        result = self._evaluate(confirmed())
-        self.assertEqual(result.evidence_ids, ("1", "2"))
-
-    def test_rejected_evidence_alone_gives_no_value(self):
-        result = self._evaluate(confirmed(quote="cures eczema"))
-        self.assertEqual(result.status, "insufficient_evidence")
-        self.assertIsNone(result.value)
+    def test_evidence_ids_referenced_by_the_assessment_are_stored(self):
+        result = self.evaluate(
+            confirmed(), confirmed(),
+            proposal=self.proposal(evidence_refs=(1,)),
+            ids=["11", "22"],
+        )
+        self.assertEqual(result.evidence_ids, ("22",))
 
 
 if __name__ == "__main__":

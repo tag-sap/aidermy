@@ -20,7 +20,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
 from ..auth import get_current_user, get_current_user_optional
-from .contracts import ContractError, ParameterEvaluation
+from .contracts import SCORE_LEVEL_CRITERIA, ContractError, ParameterEvaluation
 from .engine import evaluate
 from .parameters import PARAMETERS
 from .questionnaire import QUESTIONNAIRE_SOURCE, QUESTIONNAIRE_VERSION, SECTIONS
@@ -45,7 +45,9 @@ class ProductInput(BaseModel):
 
 class EvaluationInput(BaseModel):
     parameter_id: str
-    status: str = "evaluated"
+    # ``assessed`` requires value/reason/evidence_ids; the other statuses carry
+    # no value (enforced by the domain contract).
+    status: str = "assessed"
     value: float | None = None
     confidence: float | None = None
     evidence_ids: list[str] = []
@@ -127,6 +129,16 @@ async def list_parameters() -> dict:
             ],
         },
         "parameters": [parameter.as_dict() for parameter in PARAMETERS.values()],
+        "statuses": {
+            "assessed": "выставлен балл и объяснение по подтверждённым доказательствам",
+            "not_applicable": "параметр неприменим к продукту (не влияет на среднее)",
+            "insufficient_evidence": "параметр применим, доказательств недостаточно",
+            "pending": "ещё не исследован",
+        },
+        "score_levels": list(get_rules().score_levels),
+        "score_criteria": {
+            str(level): criterion for level, criterion in SCORE_LEVEL_CRITERIA.items()
+        },
         "rules": describe_rules(rules),
     }
 

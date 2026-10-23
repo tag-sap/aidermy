@@ -3,12 +3,20 @@
 Pure domain layer: no database, no network, no AI. Everything is immutable so a
 result can be reproduced from its inputs and versions.
 
-Scale convention (identical for every parameter):
-    100 — best possible match to the user's requirement for this parameter
-     50 — no net effect / not confirmed either way (NOT a default for missing data)
-      0 — worst match the evidence can support
-A missing evaluation is never mapped to 0/50; it is excluded and lowers
-completeness instead (see engine.py).
+Score scale (chosen by the research model, validated here):
+
+    0   — product conflicts with the parameter's requirement
+    25  — mostly conflicts
+    50  — the requirement is partly met / mixed, explicitly justified
+    75  — mostly corresponds
+    100 — fully corresponds
+
+Only these five values are accepted. The deterministic layer never derives a
+score from the amount or balance of quotes: it validates the model's result
+(allowed value, mandatory explanation, references to confirmed evidence) and
+stores it. A parameter without a score has a non-scoring status
+(``pending`` / ``not_applicable`` / ``insufficient_evidence``) and is excluded
+from the average — never replaced by 0 or 50.
 """
 from __future__ import annotations
 
@@ -17,19 +25,45 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence, Tuple
 
-ENGINE_VERSION = "2.0.0-draft"
+ENGINE_VERSION = "3.0.0-draft"
 
-STATUS_EVALUATED = "evaluated"
-STATUS_INSUFFICIENT = "insufficient_evidence"
-STATUS_CONTRADICTORY = "contradictory_evidence"
-STATUS_NOT_RESEARCHED = "not_researched"
-STATUS_STALE = "stale"
+# Scores the research model may choose. Nothing else is accepted.
+SCORE_LEVELS: Tuple[int, ...] = (0, 25, 50, 75, 100)
+
+# Unified meaning of each level (provisional wording, not clinically validated).
+# ``50`` means "partly corresponds / mixed and explicitly justified", never
+# "unknown": an unknown outcome must be stored without a score.
+SCORE_LEVEL_CRITERIA: dict[int, str] = {
+    0: "подтверждённые данные по пункту прямо противоречат требованию пользователя",
+    25: "подтверждённые данные в основном не соответствуют требованию, есть отдельные совпадения",
+    50: "данные частично соответствуют и частично противоречат требованию; уровень выбран "
+        "осознанно и обоснован, а не как «неизвестно»",
+    75: "подтверждённые данные в основном соответствуют требованию, есть второстепенные ограничения",
+    100: "подтверждённые данные прямо соответствуют требованию, существенных возражений нет",
+}
+
+STATUS_PENDING = "pending"                     # not researched yet
+STATUS_ASSESSED = "assessed"                   # allowed score + explanation + evidence
+STATUS_NOT_APPLICABLE = "not_applicable"       # parameter does not apply to the product
+STATUS_INSUFFICIENT = "insufficient_evidence"  # applicable, but evidence is not enough
+STATUS_STALE = "stale"                         # valid for another composition/method
+
+# Values written by earlier drafts. They are readable for audit/history but are
+# never scored by the engine and never migrated as authoritative results.
+LEGACY_STATUS_EVALUATED = "evaluated"
+LEGACY_STATUS_NOT_RESEARCHED = "not_researched"
+LEGACY_STATUS_CONTRADICTORY = "contradictory_evidence"
+
+SCORING_STATUSES = (STATUS_ASSESSED,)
 STATUSES = (
-    STATUS_EVALUATED,
+    STATUS_PENDING,
+    STATUS_ASSESSED,
+    STATUS_NOT_APPLICABLE,
     STATUS_INSUFFICIENT,
-    STATUS_CONTRADICTORY,
-    STATUS_NOT_RESEARCHED,
     STATUS_STALE,
+    LEGACY_STATUS_EVALUATED,
+    LEGACY_STATUS_NOT_RESEARCHED,
+    LEGACY_STATUS_CONTRADICTORY,
 )
 
 
@@ -114,15 +148,30 @@ class ParameterEvaluation:
     def __post_init__(self) -> None:
         if self.status not in STATUSES:
             raise ContractError(f"unknown status: {self.status}")
-        if self.value is not None:
+        if self.status == STATUS_ASSESSED:
+            if self.value is None:
+                raise ContractError(f"{self.parameter_id}: status=assessed requires a value")
+            if int(float(self.value)) not in SCORE_LEVELS or float(self.value) != int(float(self.value)):
+                raise ContractError(
+                    f"{self.parameter_id}: score {self.value!r} is not one of {SCORE_LEVELS}"
+                )
+            if not str(self.rationale).strip():
+                raise ContractError(
+                    f"{self.parameter_id}: status=assessed requires an explanation"
+                )
+            if not self.evidence_ids:
+                raise ContractError(
+                    f"{self.parameter_id}: status=assessed requires references to stored evidence"
+                )
+        elif self.value is not None:
+            # Only the legacy "evaluated" rows keep a historical number; they are
+            # readable for audit but are never scored.
+            if self.status != LEGACY_STATUS_EVALUATED:
+                raise ContractError(
+                    f"{self.parameter_id}: value is only allowed with status={STATUS_ASSESSED}"
+                )
             if not 0 <= float(self.value) <= 100:
                 raise ContractError(f"value out of 0..100 for {self.parameter_id}: {self.value}")
-            if self.status != STATUS_EVALUATED:
-                raise ContractError(
-                    f"{self.parameter_id}: value is only allowed with status={STATUS_EVALUATED}"
-                )
-        if self.status == STATUS_EVALUATED and self.value is None:
-            raise ContractError(f"{self.parameter_id}: status=evaluated requires a value")
         if self.confidence is not None and not 0 <= float(self.confidence) <= 1:
             raise ContractError(f"confidence out of 0..1 for {self.parameter_id}")
         if not self.composition_hash:
@@ -132,7 +181,8 @@ class ParameterEvaluation:
 
     @property
     def usable(self) -> bool:
-        return self.status == STATUS_EVALUATED and self.value is not None
+        """Only an ``assessed`` result may enter the average."""
+        return self.status == STATUS_ASSESSED and self.value is not None
 
     def as_dict(self) -> dict:
         return {
@@ -154,11 +204,12 @@ class RuleSet:
 
     version: str
     aggregation: str
-    completeness_threshold: float
+    completeness_threshold: float      # legacy field; the engine no longer gates on it
     verdict_bands: Tuple[Tuple[int, str], ...]
     calibrated: bool
     missing_policy: str = "exclude_and_reduce_completeness"
     min_confidence: float = 0.0
+    score_levels: Tuple[int, ...] = SCORE_LEVELS
 
     def __post_init__(self) -> None:
         if self.aggregation not in {"weighted_mean", "arithmetic_mean"}:
@@ -171,6 +222,14 @@ class RuleSet:
             raise ContractError(f"unsupported missing policy: {self.missing_policy}")
         if self.calibrated and not self.verdict_bands:
             raise ContractError("calibrated rules require verdict bands")
+        levels = tuple(int(level) for level in self.score_levels)
+        if not levels:
+            raise ContractError("score_levels must not be empty")
+        if list(levels) != sorted(set(levels)):
+            raise ContractError("score_levels must be unique and sorted ascending")
+        for level in levels:
+            if not 0 <= level <= 100:
+                raise ContractError(f"score level out of 0..100: {level}")
         thresholds = []
         for threshold, label in self.verdict_bands:
             if not 0 <= int(threshold) <= 100:
@@ -192,6 +251,7 @@ class RuleSet:
             "calibrated": self.calibrated,
             "missing_policy": self.missing_policy,
             "min_confidence": self.min_confidence,
+            "score_levels": list(self.score_levels),
         }
 
     @property
@@ -213,7 +273,7 @@ class ParameterResult:
 @dataclass(frozen=True)
 class EngineResult:
     parameters: Tuple[ParameterResult, ...]
-    total: int | None
+    total: float | None
     verdict: str | None
     completeness: float
     limitations: Tuple[str, ...]

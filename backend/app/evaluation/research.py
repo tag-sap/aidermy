@@ -31,6 +31,52 @@ RESEARCH_STATUSES = (
     RESEARCH_PROVIDER_ERROR,
 )
 
+APPLICABLE = "applicable"
+NOT_APPLICABLE = "not_applicable"
+APPLICABILITY = (APPLICABLE, NOT_APPLICABLE)
+
+
+@dataclass(frozen=True)
+class AssessmentProposal:
+    """The research model's structured answer for ONE questionnaire parameter.
+
+    The model makes three decisions: is the parameter applicable, is the evidence
+    sufficient, and (only then) which of the five allowed scores applies. This
+    object is a *proposal*: the deterministic layer validates it and may reject or
+    downgrade it (never invent a score on its behalf).
+    """
+
+    parameter_id: str
+    applicability: str = APPLICABLE
+    applicability_reason: str = ""
+    sufficient: bool = False
+    score: int | None = None
+    rationale: str = ""
+    limitations: tuple[str, ...] = ()
+    contradictions: tuple[str, ...] = ()
+    important_unknowns: tuple[str, ...] = ()
+    evidence_refs: tuple[int, ...] = ()   # indices into ResearchOutcome.candidates
+
+    def __post_init__(self) -> None:
+        if not str(self.parameter_id).strip():
+            raise EvidenceError("assessment proposal requires parameter_id")
+        if self.score is not None and not isinstance(self.score, int):
+            raise EvidenceError(f"proposal score must be an integer or null: {self.score!r}")
+
+    def as_dict(self) -> dict:
+        return {
+            "parameter_id": self.parameter_id,
+            "applicability": self.applicability,
+            "applicability_reason": self.applicability_reason,
+            "sufficient": self.sufficient,
+            "score": self.score,
+            "rationale": self.rationale,
+            "limitations": list(self.limitations),
+            "contradictions": list(self.contradictions),
+            "important_unknowns": list(self.important_unknowns),
+            "evidence_refs": list(self.evidence_refs),
+        }
+
 
 @dataclass(frozen=True)
 class ResearchRequest:
@@ -70,6 +116,7 @@ class ResearchRequest:
 class ResearchOutcome:
     status: str
     candidates: tuple[EvidenceCandidate, ...] = ()
+    proposal: AssessmentProposal | None = None
     error: str = ""
     provider: str = ""
     tokens_in: int = 0
@@ -83,6 +130,8 @@ class ResearchOutcome:
             raise EvidenceError("cost_usd must not be negative")
         if self.status == RESEARCH_OK and not self.candidates:
             raise EvidenceError("status=ok requires at least one candidate")
+        if self.status == RESEARCH_OK and self.proposal is None:
+            raise EvidenceError("status=ok requires an assessment proposal")
 
 
 class ResearchProvider(Protocol):
@@ -178,12 +227,52 @@ def candidate(
 
 def ok(
     *candidates: EvidenceCandidate,
+    score: int | None = None,
+    rationale: str = "",
+    proposal: AssessmentProposal | None = None,
+    applicability: str = APPLICABLE,
+    applicability_reason: str = "",
+    sufficient: bool | None = None,
+    limitations: tuple[str, ...] = (),
+    contradictions: tuple[str, ...] = (),
+    important_unknowns: tuple[str, ...] = (),
+    evidence_refs: tuple[int, ...] | None = None,
     cost_usd: float = 0.0,
     tokens: tuple[int, int] = (0, 0),
 ) -> ResearchOutcome:
+    """Build a successful provider outcome with a structured proposal.
+
+    ``score`` is the model's chosen level; when it is ``None`` the proposal says
+    "applicable, but not enough evidence", which the assessor stores without a
+    number. Test-only helper: no network, no cost.
+    """
+    if proposal is None:
+        if not candidates:
+            raise EvidenceError("ok() needs candidates to bind the proposal")
+        if not rationale:
+            rationale = (
+                f"Модель оценила соответствие требованию пункта как {score}/100."
+                if score is not None
+                else "Проверяемых данных недостаточно для обоснованной оценки."
+            )
+        proposal = AssessmentProposal(
+            parameter_id=candidates[0].parameter_id,
+            applicability=applicability,
+            applicability_reason=applicability_reason,
+            sufficient=(score is not None) if sufficient is None else sufficient,
+            score=score,
+            rationale=rationale,
+            limitations=tuple(limitations),
+            contradictions=tuple(contradictions),
+            important_unknowns=tuple(important_unknowns),
+            evidence_refs=(
+                tuple(range(len(candidates))) if evidence_refs is None else evidence_refs
+            ),
+        )
     return ResearchOutcome(
         status=RESEARCH_OK,
         candidates=tuple(candidates),
+        proposal=proposal,
         provider="fake",
         tokens_in=tokens[0],
         tokens_out=tokens[1],

@@ -1,51 +1,57 @@
-"""Deterministic Score Engine v2 (aggregation variant A).
+"""Deterministic Score Engine v3.
 
 Input:  user profile + stored parameter evaluations + one versioned rule set.
-Output: per-parameter results, total (if enough data), verdict (only when the
-rule set is calibrated), completeness, limitations and a reproducible hash.
+Output: per-parameter results, total (plain arithmetic mean of assessed scores),
+verdict (only when the rule set is calibrated), limitations and a reproducible
+hash.
 
 Guarantees:
   * pure function — no I/O, no randomness, no AI;
   * identical input + identical rule version => identical output and hash;
   * the relevant set is exactly the questionnaire options the user selected
     (``parameters.resolve_parameters``), never a universal product scorecard;
-  * a missing evaluation is never replaced by 0/50/"neutral": it is excluded
-    and reduces completeness;
-  * every relevant parameter has the same share (plain arithmetic mean);
-    missing parameters do not dilute the total;
-  * the total is computed only when completeness >= rule threshold.
+  * only ``assessed`` results enter the average; ``pending``, ``not_applicable``
+    and ``insufficient_evidence`` are excluded and never replaced by 0/50;
+  * no weights, coverage gates, penalties or confidence bonuses;
+  * the total is a plain arithmetic mean and may be fractional (e.g. 62.5);
+    it is rounded only for display of the average, never the sub-scores;
+  * the verdict stays disabled while ``calibrated=false``.
 """
 from __future__ import annotations
 
-import math
 from typing import Mapping, Sequence
 
 from .contracts import (
-    STATUS_CONTRADICTORY,
-    STATUS_EVALUATED,
+    LEGACY_STATUS_CONTRADICTORY,
+    LEGACY_STATUS_EVALUATED,
+    LEGACY_STATUS_NOT_RESEARCHED,
+    STATUS_ASSESSED,
     STATUS_INSUFFICIENT,
-    STATUS_NOT_RESEARCHED,
+    STATUS_NOT_APPLICABLE,
+    STATUS_PENDING,
     STATUS_STALE,
     EngineResult,
     ParameterEvaluation,
     ParameterResult,
     RuleSet,
     assert_unique,
-    normalized_weights,
     sha256_of,
 )
 from .parameters import resolve_parameters
 from .rules import get_rules
 
 _STATUS_REASON = {
+    STATUS_PENDING: "оценка ещё не рассчитана",
+    STATUS_NOT_APPLICABLE: "параметр неприменим к продукту",
     STATUS_INSUFFICIENT: "недостаточно доказательств для оценки",
-    STATUS_CONTRADICTORY: "источники противоречат друг другу",
     STATUS_STALE: "оценка устарела относительно текущего состава или методики",
-    STATUS_NOT_RESEARCHED: "оценка ещё не рассчитана",
+    LEGACY_STATUS_EVALUATED: "оценка по прежней методике не используется",
+    LEGACY_STATUS_NOT_RESEARCHED: "оценка ещё не рассчитана",
+    LEGACY_STATUS_CONTRADICTORY: "прежняя методика зафиксировала противоречие",
 }
 
 
-def _verdict_for(total: int, rules: RuleSet) -> str | None:
+def _verdict_for(total: float, rules: RuleSet) -> str | None:
     if not rules.calibrated:
         return None
     for threshold, label in sorted(rules.verdict_bands, reverse=True):
@@ -65,18 +71,10 @@ def evaluate(
     resolved = resolve_parameters(profile)
     limitations: list[str] = list(resolved.notes)
 
-    weights: dict[str, float] = {}
-    if resolved.parameters:
-        if rules.aggregation == "arithmetic_mean":
-            # Questionnaire answers only select WHICH parameters matter. Every
-            # selected parameter gets the same share, so the total is a plain
-            # arithmetic mean: no importance weights, no blockers, no penalties.
-            share = 1.0 / len(resolved.parameters)
-            weights = {parameter.id: share for parameter in resolved.parameters}
-        else:
-            weights = normalized_weights(
-                {parameter.id: 1.0 for parameter in resolved.parameters}
-            )
+    # Questionnaire answers only select WHICH parameters matter. Every selected
+    # parameter gets the same share: no importance weights, no blockers.
+    share = 1.0 / len(resolved.parameters) if resolved.parameters else 0.0
+    weights = {parameter.id: share for parameter in resolved.parameters}
     by_id = {parameter.id: parameter for parameter in resolved.parameters}
 
     if not weights:
@@ -114,14 +112,14 @@ def evaluate(
                     label=parameter.label,
                     weight=weight,
                     value=None,
-                    status=STATUS_NOT_RESEARCHED,
+                    status=STATUS_PENDING,
                     included=False,
-                    reason=_STATUS_REASON[STATUS_NOT_RESEARCHED],
+                    reason=_STATUS_REASON[STATUS_PENDING],
                 )
             )
             continue
 
-        if evaluation.status != STATUS_EVALUATED:
+        if evaluation.status != STATUS_ASSESSED:
             results.append(
                 ParameterResult(
                     parameter_id=parameter_id,
@@ -162,27 +160,25 @@ def evaluate(
                 label=parameter.label,
                 weight=weight,
                 value=float(evaluation.value),
-                status=STATUS_EVALUATED,
+                status=STATUS_ASSESSED,
                 included=True,
                 reason=evaluation.rationale or "оценка подтверждена сохранёнными доказательствами",
             )
         )
 
-    completeness = round(covered_weight, 6)
-    total: int | None = None
+    completeness = round(covered_weight, 6)   # diagnostics only; never affects the total
+    assessed_scores = [float(r.value) for r in results if r.included and r.value is not None]
+    total: float | None = None
     verdict: str | None = None
 
-    if completeness < rules.completeness_threshold:
+    if not assessed_scores:
+        # No score exists. It is not 0 and not 50: the compatibility is unknown.
         limitations.append(
-            "Полнота данных ниже порога правил "
-            f"({completeness:.2f} < {rules.completeness_threshold:.2f}): "
-            "общий балл не рассчитывается."
+            "Нет ни одной оценённой оценки — итоговая совместимость не определена. "
+            "Пропуски не заменяются нулём или нейтральным баллом."
         )
     else:
-        weighted_sum = sum(
-            r.weight * float(r.value) for r in results if r.included and r.value is not None
-        )
-        total = int(math.floor(weighted_sum / covered_weight + 0.5))
+        total = round(sum(assessed_scores) / len(assessed_scores), 2)
         verdict = _verdict_for(total, rules)
         if not rules.calibrated:
             limitations.append(

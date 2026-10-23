@@ -106,8 +106,11 @@ create table if not exists evaluation.parameter_evaluations (
     parameter_id     text        not null,
     method_version   text        not null,
     status           text        not null
-                     check (status in ('evaluated', 'insufficient_evidence',
-                                       'contradictory_evidence', 'not_researched', 'stale')),
+                     check (status in ('pending', 'assessed', 'not_applicable',
+                                       'insufficient_evidence', 'stale',
+                                       -- legacy values from earlier drafts:
+                                       'evaluated', 'not_researched',
+                                       'contradictory_evidence')),
     value            numeric(5, 2)
                      check (value is null or (value >= 0 and value <= 100)),
     confidence       numeric(4, 3)
@@ -120,9 +123,15 @@ create table if not exists evaluation.parameter_evaluations (
     valid_until      timestamptz,
     superseded_by    bigint      references evaluation.parameter_evaluations (id)
                      deferrable initially deferred,
-    constraint evaluated_requires_value check (
-        (status = 'evaluated' and value is not null)
-        or (status <> 'evaluated' and value is null)
+    constraint assessed_requires_value check (
+        (status = 'assessed' and value is not null and value in (0, 25, 50, 75, 100))
+        -- legacy rows keep their historical number; they are never scored
+        or (status = 'evaluated' and value is not null)
+        or (status not in ('assessed', 'evaluated') and value is null)
+    ),
+    constraint assessed_requires_explanation check (
+        status <> 'assessed'
+        or (length(btrim(rationale)) > 0 and jsonb_array_length(evidence_ids) > 0)
     )
 );
 create unique index if not exists uq_parameter_evaluations_current
@@ -160,7 +169,7 @@ create table if not exists evaluation.snapshots (
     engine_input_hash   text        not null,
     document            jsonb       not null default '{}'::jsonb,
     parameters          jsonb       not null,
-    total               int         check (total is null or (total >= 0 and total <= 100)),
+    total               numeric(5, 2) check (total is null or (total >= 0 and total <= 100)),
     verdict             text,
     completeness        numeric(4, 3) not null check (completeness >= 0 and completeness <= 1),
     limitations         jsonb       not null default '[]'::jsonb,

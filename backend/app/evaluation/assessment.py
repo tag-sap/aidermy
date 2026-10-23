@@ -1,68 +1,62 @@
-"""Deterministic mapping: validated evidence → parameter evaluation + explanation.
+"""Deterministic validation of the research model's assessment.
 
-The model never chooses the number. It supplies claims with verbatim quotes and a
-direction; this module turns the weight of *confirmed* evidence into a value using
-fixed bands and writes the user-facing explanation for ONE questionnaire parameter.
+The model makes the cosmetological judgement and chooses one of the five allowed
+scores. This module does NOT derive a score from quotes: it validates the
+proposal and stores exactly one of three outcomes.
 
-Guarantees:
-  * no confirmed evidence          → ``insufficient_evidence``, value None;
-  * neutral-only evidence          → ``insufficient_evidence`` (absence of effect
-    is not a measured value and never treated as harm);
-  * balanced support/contradiction → ``contradictory_evidence``, value None
-    (a midpoint would hide the contradiction; 50 is never a default);
-  * a value always carries the ids of the evidence it was derived from;
-  * the explanation answers the parameter's own question, quotes confirmed claims
-    only, and never asserts treatment, safety or harm beyond the quotes.
+  * ``not_applicable``      — the parameter does not apply to this product
+    (only when the proposal gives a reason and cites at least one confirmed
+    source; never for safety-relevant sections);
+  * ``insufficient_evidence``— applicable, but the evidence does not support a
+    score (never mapped to 0/50, never treated as harm);
+  * ``assessed``            — an allowed score plus an explanation plus references
+    to confirmed, stored evidence.
+
+Structural violations (a score outside 0/25/50/75/100, a score without a
+sufficient-evidence decision, missing explanation, references to rejected or
+missing evidence, treatment claims) raise ``ContractError``. The research
+service turns that into a failed job — a technical/protocol error is never
+disguised as ``not_applicable`` or ``insufficient_evidence``.
+
+Limitation: this layer verifies structure and grounding, not the correctness of
+the model's cosmetological reasoning.
 """
 from __future__ import annotations
 
 from typing import Sequence
 
 from .contracts import (
-    STATUS_CONTRADICTORY,
-    STATUS_EVALUATED,
+    SCORE_LEVELS,
+    STATUS_ASSESSED,
     STATUS_INSUFFICIENT,
+    STATUS_NOT_APPLICABLE,
     ContractError,
     Parameter,
     ParameterEvaluation,
 )
 from .evidence import Evidence
 from .parameters import PARAMETERS
+from .research import APPLICABLE, APPLICABILITY, NOT_APPLICABLE, AssessmentProposal
 
-EVIDENCE_RULE_VERSION = "evidence-bands-1.0.0"
+ASSESS_RULE_VERSION = "assessment-3.0.0"
+MIN_RATIONALE_CHARS = 30
 
-STRENGTH_WEIGHT = {"weak": 0.3, "moderate": 0.6, "strong": 1.0}
+# Sections where a "not applicable" decision could silently exclude a safety
+# question (allergy, active therapy, recent procedure). Such parameters are
+# always assessed or marked insufficient, never inapplicable.
+SAFETY_SECTIONS = ("intolerance", "therapy", "procedure")
 
-# (minimum net score, value). Net score lies in [-1, 1].
-_BANDS = (
-    (0.60, 80),
-    (0.30, 70),
-    (0.001, 60),
+# Model text must not assert clinical outcomes. Source quotes are exempt: they
+# are verbatim source text, not our conclusion.
+FORBIDDEN_CLAIMS = (
+    "лечит",
+    "вылеч",
+    "излеч",
+    "гарантиру",
+    "безопасен",
+    "безвреден",
 )
-_HARM_BANDS = (
-    (-0.60, 20),
-    (-0.30, 30),
-    (-0.001, 40),
-)
-BALANCE_EPSILON = 0.05
-# "Not enough evidence" prior: without it a single weak claim would look as
-# decisive as a strong one, because the ratio alone ignores evidence amount.
-EVIDENCE_BASELINE = 0.6
-
-# Neutral, non-medical wording: the value describes the balance of quotes for the
-# parameter's requirement, not a clinical outcome.
-BAND_TEXT = {
-    80: "подтверждённые данные соответствуют требованию пункта",
-    70: "подтверждённые данные скорее соответствуют требованию пункта",
-    60: "есть только слабые подтверждения соответствия требованию",
-    40: "есть слабые подтверждения несоответствия требованию",
-    30: "подтверждённые данные скорее не соответствуют требованию пункта",
-    20: "подтверждённые данные не соответствуют требованию пункта",
-}
-
-DIRECTION_LABEL = {"supports": "За требование", "contradicts": "Против требования",
-                   "neutral": "Без эффекта"}
-
+INSUFFICIENT_MARKERS = ("недостаточно данных", "нет данных", "данных нет")
 
 
 def as_parameter(parameter: Parameter | str) -> Parameter:
@@ -75,54 +69,46 @@ def as_parameter(parameter: Parameter | str) -> Parameter:
     return item
 
 
-def evidence_weight(evidence: Evidence) -> float:
-    return STRENGTH_WEIGHT[evidence.strength] * float(evidence.confidence)
-
-
-def net_score(evidence: Sequence[Evidence]) -> float:
-    support = sum(evidence_weight(item) for item in evidence if item.direction == "supports")
-    harm = sum(evidence_weight(item) for item in evidence if item.direction == "contradicts")
-    denominator = support + harm + EVIDENCE_BASELINE
-    if denominator <= 0:
-        return 0.0
-    return (support - harm) / denominator
-
-
-def value_for_net(net: float) -> int:
-    if net >= 0:
-        for threshold, value in _BANDS:
-            if net >= threshold:
-                return value
-        return 50
-    for threshold, value in _HARM_BANDS:
-        if net <= threshold:
-            return value
-    return 50
-
-
-def _short(text: str, limit: int = 140) -> str:
+def _short(text: str, limit: int = 180) -> str:
     text = " ".join(str(text or "").split())
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def _check_model_text(parameter: Parameter, text: str, *, field: str) -> None:
+    lowered = str(text or "").casefold()
+    for marker in FORBIDDEN_CLAIMS:
+        if marker in lowered:
+            raise ContractError(
+                f"{parameter.id}: {field} contains an unverified clinical claim "
+                f"({marker!r}); the model must describe correspondence, not treatment"
+            )
+
+
+DIRECTION_LABEL = {
+    "supports": "За требование",
+    "contradicts": "Против требования",
+    "neutral": "Без отношения к требованию",
+}
+
+
 def explain(
     parameter: Parameter | str,
-    evidence: Sequence[Evidence],
+    answer: str,
+    evidence: Sequence[Evidence] = (),
     *,
-    value: int | None = None,
-    conclusion: str = "",
+    value: int | float | None = None,
 ) -> str:
-    """Explanation bound to one questionnaire parameter.
+    """Assemble the user-facing explanation from the model's answer and quotes.
 
-    Only confirmed claims/quotes are quoted back; the conclusion sentence is
-    produced by fixed rules, never by a model.
+    The model's ``answer`` is the human-readable reasoning produced in the same
+    research cycle; quotes are appended verbatim so the user can check it.
     """
     item = as_parameter(parameter)
     parts: list[str] = [f"{item.label}. {item.question}"]
-    if conclusion:
-        parts.append(conclusion)
+    if answer:
+        parts.append(answer.strip())
     if value is not None:
-        parts.append(f"Оценка {value}/100.")
+        parts.append(f"Оценка {int(value)}/100.")
     for entry in evidence:
         if not entry.usable:
             continue
@@ -132,8 +118,8 @@ def explain(
         )
     if any(entry.usable for entry in evidence):
         parts.append(
-            "Учтены только цитаты, найденные в тексте источника; утверждения без "
-            "цитат не использованы."
+            "Цитаты приведены дословно из указанных источников; выводы сверх них "
+            "не делаются."
         )
     return " ".join(parts)
 
@@ -147,7 +133,7 @@ def _evaluation(
     composition_hash: str,
     method_version: str,
     evaluated_at: str,
-    evidence_ids: Sequence[int],
+    evidence_ids: Sequence[str],
     rationale: str,
     limitations: Sequence[str],
 ) -> ParameterEvaluation:
@@ -160,139 +146,254 @@ def _evaluation(
         method_version=method_version,
         evidence_ids=tuple(str(item) for item in evidence_ids),
         rationale=rationale,
-        limitations=tuple(limitations),
+        limitations=tuple(dict.fromkeys(limitations)),
         evaluated_at=evaluated_at,
     )
+
+
+def _resolve_refs(
+    parameter: Parameter,
+    proposal: AssessmentProposal,
+    evidence: Sequence[Evidence],
+    evidence_ids: Sequence[str],
+) -> tuple[list[Evidence], list[str]]:
+    if len(evidence_ids) != len(evidence):
+        raise ContractError(
+            f"{parameter.id}: evidence and evidence ids must be aligned"
+        )
+    refs: list[int] = []
+    for raw in proposal.evidence_refs:
+        try:
+            ref = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise ContractError(f"{parameter.id}: evidence ref is not an index: {raw!r}") from exc
+        if not 0 <= ref < len(evidence):
+            raise ContractError(
+                f"{parameter.id}: evidence ref {ref} is out of range "
+                f"(0..{len(evidence) - 1})"
+            )
+        if ref not in refs:
+            refs.append(ref)
+    used = [evidence[ref] for ref in refs]
+    ids = [str(evidence_ids[ref]) for ref in refs]
+    rejected = [entry for entry in used if not entry.usable]
+    if rejected:
+        raise ContractError(
+            f"{parameter.id}: assessment references evidence rejected by validation "
+            f"({rejected[0].rejection_reason or 'без причины'})"
+        )
+    return used, ids
+
 
 
 def assess(
     parameter: Parameter | str,
-    evidence: Sequence[Evidence],
+    proposal: AssessmentProposal | None,
+    evidence: Sequence[Evidence] = (),
     *,
     composition_hash: str,
     method_version: str,
     evaluated_at: str,
-    evidence_ids: Sequence[int] = (),
-    rule_version: str = EVIDENCE_RULE_VERSION,
+    evidence_ids: Sequence[str] = (),
+    allowed_scores: Sequence[int] = SCORE_LEVELS,
+    rule_version: str = ASSESS_RULE_VERSION,
 ) -> ParameterEvaluation:
-    """Turn validated evidence into a stored evaluation (no invented numbers)."""
+    """Validate the model's proposal and store exactly one outcome.
+
+    ``proposal is None`` means the provider found no sources: the parameter is
+    applicable but has no evidence, so it is stored as ``insufficient_evidence``
+    (never as ``not_applicable`` and never with a score).
+    """
     item = as_parameter(parameter)
-    usable = [entry for entry in evidence if entry.usable and entry.parameter_id == item.id]
-    rejected = [entry for entry in evidence if not entry.usable]
-    limitations: list[str] = []
+    evidence = list(evidence)
+    allowed = tuple(int(level) for level in allowed_scores)
 
-    if rejected:
-        reasons = sorted({entry.rejection_reason for entry in rejected if entry.rejection_reason})
-        limitations.append(
-            f"Отклонено кандидатов: {len(rejected)}"
-            + (f" ({'; '.join(reasons[:3])})" if reasons else "")
-        )
-
-    common = dict(
+    base = dict(
         composition_hash=composition_hash,
         method_version=method_version,
         evaluated_at=evaluated_at,
-        evidence_ids=evidence_ids,
-        limitations=limitations,
     )
 
-    if not usable:
-        limitations.append("Подтверждённых доказательств нет — значение не вычисляется.")
+    if proposal is None:
+        return _evaluation(
+            item,
+            status=STATUS_INSUFFICIENT,
+            value=None,
+            confidence=None,
+            evidence_ids=(),
+            rationale=explain(
+                item,
+                "Провайдер не вернул ни источников, ни оценки: подтверждённых данных "
+                "нет, поэтому балл не выставляется.",
+            ),
+            limitations=(
+                "Параметр применим, но доказательств недостаточно — оценка не выставляется.",
+                "Отсутствие подтверждений пользы не является доказательством вреда.",
+                f"Правила оценки: {rule_version} (не откалиброваны).",
+            ),
+            **base,
+        )
+
+    if proposal.parameter_id != item.id:
+        raise ContractError(
+            f"proposal parameter_id {proposal.parameter_id!r} does not match {item.id!r}"
+        )
+    if proposal.applicability not in APPLICABILITY:
+        raise ContractError(f"{item.id}: unknown applicability {proposal.applicability!r}")
+
+    used: list[Evidence] = []
+    used_ids: list[str] = []
+    if proposal.evidence_refs:
+        used, used_ids = _resolve_refs(item, proposal, evidence, evidence_ids)
+    confirmed = [entry for entry in used if entry.usable]
+
+    limitations: list[str] = [
+        f"Правила оценки: {rule_version}; допустимые баллы {list(allowed)} "
+        "(не откалиброваны).",
+        "Балл выбран моделью по критериям уровня; детерминированная часть проверила "
+        "структуру, допустимость балла и ссылки на подтверждённые доказательства.",
+    ]
+    limitations.extend(str(text) for text in proposal.limitations if str(text).strip())
+    limitations.extend(
+        f"Противоречие: {text}" for text in proposal.contradictions if str(text).strip()
+    )
+    limitations.extend(
+        f"Неизвестно: {text}" for text in proposal.important_unknowns if str(text).strip()
+    )
+
+    # A. Applicability. "Not applicable" is a claim about the product, so it must
+    # be grounded in a confirmed source; safety questions are never excluded.
+    if proposal.applicability == NOT_APPLICABLE:
+        if proposal.score is not None:
+            raise ContractError(f"{item.id}: not_applicable must not carry a score")
+        reason = str(proposal.applicability_reason or "").strip()
+        if item.direction == "risk" or item.section in SAFETY_SECTIONS:
+            limitations.append(
+                "Неприменимость параметра, связанного с безопасностью, не принимается: "
+                "параметр остаётся в оценке."
+            )
+            return _evaluation(
+                item,
+                status=STATUS_INSUFFICIENT,
+                value=None,
+                confidence=None,
+                evidence_ids=used_ids,
+                rationale=explain(
+                    item,
+                    reason or "Модель не привела обоснования применимости.",
+                    used,
+                ),
+                limitations=limitations,
+                **base,
+            )
+        if not reason:
+            limitations.append("Неприменимость без обоснования не принимается.")
+            return _evaluation(
+                item,
+                status=STATUS_INSUFFICIENT,
+                value=None,
+                confidence=None,
+                evidence_ids=used_ids,
+                rationale=explain(
+                    item, "Модель не привела обоснования неприменимости.", used
+                ),
+                limitations=limitations,
+                **base,
+            )
+        if not confirmed:
+            limitations.append(
+                "Неприменимость нельзя обосновать отсутствием данных: подтверждённых "
+                "источников нет, поэтому фиксируется недостаток доказательств."
+            )
+            return _evaluation(
+                item,
+                status=STATUS_INSUFFICIENT,
+                value=None,
+                confidence=None,
+                evidence_ids=used_ids,
+                rationale=explain(item, reason, used),
+                limitations=limitations,
+                **base,
+            )
+        return _evaluation(
+            item,
+            status=STATUS_NOT_APPLICABLE,
+            value=None,
+            confidence=None,
+            evidence_ids=used_ids,
+            rationale=explain(
+                item, f"Параметр не применяется к этому продукту: {reason}", used
+            ),
+            limitations=limitations,
+            **base,
+        )
+
+
+    # B. Sufficiency / score.
+    if not proposal.sufficient:
+        if proposal.score is not None:
+            raise ContractError(
+                f"{item.id}: a score is only allowed when the evidence is sufficient"
+            )
+        answer = str(proposal.rationale or "").strip() or (
+            "Проверяемых данных недостаточно для обоснованной оценки."
+        )
         limitations.append(
-            "Отсутствие подтверждений пользы не является доказательством вреда."
+            "Параметр применим, но доказательств недостаточно — балл не выставляется."
+        )
+        limitations.append(
+            "Отсутствие подтверждений соответствия не является доказательством вреда."
         )
         return _evaluation(
             item,
             status=STATUS_INSUFFICIENT,
             value=None,
             confidence=None,
-            rationale=explain(
-                item,
-                (),
-                conclusion=(
-                    "Подтверждённых данных по этому пункту нет, поэтому числовая "
-                    "оценка не рассчитывается."
-                ),
-            ),
-            **common,
+            evidence_ids=used_ids,
+            rationale=explain(item, answer, used),
+            limitations=limitations,
+            **base,
         )
 
-    if all(entry.direction == "neutral" for entry in usable):
-        limitations.append(
-            "Есть только свидетельства отсутствия эффекта; это не измеренное значение "
-            "и не доказательство вреда."
+    score = proposal.score
+    if score is None:
+        raise ContractError(
+            f"{item.id}: a sufficient assessment must contain one of {list(allowed)}"
         )
-        return _evaluation(
-            item,
-            status=STATUS_INSUFFICIENT,
-            value=None,
-            confidence=None,
-            rationale=explain(
-                item,
-                usable,
-                conclusion=(
-                    "Подтверждено только отсутствие эффекта — этого недостаточно для "
-                    "числовой оценки."
-                ),
-            ),
-            **common,
+    if int(score) not in allowed:
+        raise ContractError(
+            f"{item.id}: score {score!r} is not allowed; expected one of {list(allowed)}"
         )
-
-    net = net_score(usable)
-    has_support = any(entry.direction == "supports" for entry in usable)
-    has_harm = any(entry.direction == "contradicts" for entry in usable)
-
-    if has_support and has_harm and abs(net) <= BALANCE_EPSILON:
-        limitations.append(
-            "Доказательства «за» и «против» сопоставимы: числовая оценка не выводится, "
-            "пока противоречие не разрешено."
+    answer = str(proposal.rationale or "").strip()
+    if len(answer) < MIN_RATIONALE_CHARS:
+        raise ContractError(
+            f"{item.id}: a score requires a meaningful explanation "
+            f"(>= {MIN_RATIONALE_CHARS} characters)"
         )
-        limitations.append(
-            f"Правила сопоставления доказательств: {rule_version} "
-            "(не откалиброваны по независимым эталонам)."
+    _check_model_text(item, answer, field="rationale")
+    for entry in confirmed:
+        _check_model_text(item, entry.claim, field="claim")
+    if any(marker in answer.casefold() for marker in INSUFFICIENT_MARKERS):
+        raise ContractError(
+            f"{item.id}: the explanation says there is not enough data but a score "
+            "was provided — the sufficiency decision is inconsistent"
         )
-        return _evaluation(
-            item,
-            status=STATUS_CONTRADICTORY,
-            value=None,
-            confidence=None,
-            rationale=explain(
-                item,
-                usable,
-                conclusion=(
-                    "Источники противоречат друг другу по этому пункту; оценка не "
-                    "рассчитывается, противоречие указано в ограничениях."
-                ),
-            ),
-            **common,
+    if not confirmed or not used_ids:
+        raise ContractError(
+            f"{item.id}: an assessed parameter requires references to confirmed evidence"
         )
 
-    value = value_for_net(net)
-    limitations.append(
-        f"Значение получено из доказательств по фиксированным полосам ({rule_version}); "
-        "полосы не откалиброваны по независимым эталонам."
+    confidence = round(
+        sum(float(entry.confidence) for entry in confirmed) / len(confirmed), 3
     )
-    limitations.append(
-        "Значение отражает баланс подтверждающих и противоречащих цитат по этому "
-        "пункту, а не клиническую пригодность продукта."
-    )
-    if has_support and has_harm:
-        limitations.append(
-            "В источниках есть и подтверждения, и возражения по пункту: итог отражает "
-            "их соотношение."
-        )
-
-    confidence = round(sum(float(entry.confidence) for entry in usable) / len(usable), 3)
     return _evaluation(
         item,
-        status=STATUS_EVALUATED,
-        value=float(value),
+        status=STATUS_ASSESSED,
+        value=float(int(score)),
         confidence=confidence,
-        rationale=explain(
-            item,
-            usable,
-            value=value,
-            conclusion=BAND_TEXT.get(value, "данных недостаточно для вывода") + ".",
-        ),
-        **common,
+        evidence_ids=used_ids,
+        rationale=explain(item, answer, used, value=int(score)),
+        limitations=limitations,
+        **base,
     )
+

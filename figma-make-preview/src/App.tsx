@@ -1986,9 +1986,14 @@ function Questionnaire({ onDone }: { onDone: (p: { skinType: string; age?: strin
             for (const t of therapy) if (!["topical_retinoid", "acid_therapy", "none"].includes(t)) structuredTherapy.push({ id: t, active: true })
             const structured = {
               skin_type: skinType ?? "normal",
+              age: age ?? undefined,
               concerns: cards,
               therapy: structuredTherapy,
               procedures: Object.entries(procedures).map(([id, period]) => ({ id, period })),
+              // Stable questionnaire ids: Evaluation V2 keys knowledge by these,
+              // not by the human-readable labels below (kept for the legacy API).
+              intolerances,
+              goals,
             }
             onDone({
               skinType: skinType ?? "normal",

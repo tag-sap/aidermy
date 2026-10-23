@@ -1,0 +1,131 @@
+"""Frontend payload contract for Evaluation V2.
+
+The quiz in ``figma-make-preview`` must send every questionnaire section with
+stable ids (labels are kept only for the legacy API). These tests read the real
+``App.tsx``/``data.ts`` sources — no browser, no network.
+"""
+from __future__ import annotations
+
+import re
+import unittest
+from pathlib import Path
+
+from app.evaluation import resolve_parameters
+
+FRONTEND = Path(__file__).resolve().parents[2] / "figma-make-preview" / "src"
+APP_TSX = FRONTEND / "App.tsx"
+DATA_TS = FRONTEND / "data.ts"
+
+
+def _save_block(source: str) -> str:
+    start = source.index("const structured = {")
+    depth = 0
+    for index in range(start, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start: index + 1]
+    raise AssertionError("structured block is not closed")
+
+
+class FrontendPayloadTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not APP_TSX.exists():  # pragma: no cover - repository layout guard
+            raise unittest.SkipTest(f"frontend source not found: {APP_TSX}")
+        cls.source = APP_TSX.read_text(encoding="utf-8")
+        cls.block = _save_block(cls.source)
+
+    def test_structured_payload_has_all_sections_with_stable_ids(self):
+        for key in (
+            "skin_type",
+            "age",
+            "concerns",
+            "therapy",
+            "procedures",
+            "intolerances",
+            "goals",
+        ):
+            self.assertRegex(
+                self.block,
+                rf"(?m)^\s+{key}(,|:)",
+                f"structured payload must contain {key!r} with stable ids",
+            )
+
+    def test_intolerances_and_goals_are_sent_as_ids_not_labels(self):
+        # The raw id arrays are sent; labels stay only in the legacy fields.
+        self.assertRegex(self.block, r"(?m)^\s+intolerances,$")
+        self.assertRegex(self.block, r"(?m)^\s+goals,$")
+        self.assertIn(
+            "allergies: intolerances.map((i) => INTOLERANCE_OPTIONS.find((o) => o.id === i)?.label ?? i)",
+            self.source,
+        )
+
+    def test_concerns_are_sent_as_ids_and_labels(self):
+        self.assertRegex(self.block, r"(?m)^\s+concerns: cards,$")
+        self.assertIn(
+            "concerns: cards.map((c) => CONCERN_CARDS.find((b) => b.id === c)?.label ?? c)",
+            self.source,
+        )
+
+    def test_therapy_and_procedures_use_stable_ids(self):
+        self.assertRegex(self.block, r"(?m)^\s+therapy: structuredTherapy,$")
+        self.assertRegex(
+            self.block,
+            r"procedures: Object\.entries\(procedures\)\.map\(\(\[id, period\]\) => \(\{ id, period \}\)\)",
+        )
+
+    def test_ids_declared_in_the_payload_exist_in_the_questionnaire(self):
+        data = DATA_TS.read_text(encoding="utf-8")
+        ids = set(re.findall(r'id: "([^"]+)"', data))
+        for required in (
+            "dry",
+            "acne_general",
+            "tretinoin",
+            "recent_laser",
+            "fragrance_intolerance",
+            "hydration",
+        ):
+            self.assertIn(required, ids)
+
+    def test_frontend_shaped_payload_resolves_to_expected_parameters(self):
+        payload = {
+            "skin_type": "dry",
+            "age": "25_35",
+            "concerns": ["Высыпания"],
+            "allergies": ["Отдушки"],
+            "structured": {
+                "skin_type": "dry",
+                "age": "25_35",
+                "concerns": ["acne_general"],
+                "therapy": [{"id": "tretinoin", "active": True}],
+                "procedures": [{"id": "recent_laser", "period": "<7"}],
+                "intolerances": ["fragrance_intolerance"],
+                "goals": ["hydration"],
+            },
+        }
+        resolved = resolve_parameters(payload)
+        self.assertEqual(
+            tuple(item.id for item in resolved.parameters),
+            (
+                "goal:hydration",
+                "intolerance:fragrance_intolerance",
+                "problem:acne_general",
+                "procedure:recent_laser@<7",
+                "skin_type:dry",
+                "therapy:tretinoin",
+            ),
+        )
+        self.assertEqual(resolved.unresolved, ())
+
+    def test_age_stays_context_and_never_becomes_a_parameter(self):
+        resolved = resolve_parameters(
+            {"age": "45_plus", "structured": {"age": "45_plus"}}
+        )
+        self.assertEqual(resolved.parameters, ())
+
+
+if __name__ == "__main__":
+    unittest.main()

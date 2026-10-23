@@ -22,7 +22,16 @@ COMPOSITION = "a" * 64
 METHOD = "research-1.0.0"
 
 
-def ev(parameter_id: str, value: float | None, status: str = "evaluated", **kwargs) -> ParameterEvaluation:
+def ev(
+    parameter_id: str,
+    value: float | None,
+    status: str = "assessed",
+    **kwargs,
+) -> ParameterEvaluation:
+    """Build a stored evaluation; ``assessed`` gets the mandatory fields."""
+    if status == "assessed":
+        kwargs.setdefault("rationale", f"{parameter_id}: оценка по подтверждённым источникам")
+        kwargs.setdefault("evidence_ids", ("1",))
     return ParameterEvaluation(
         parameter_id=parameter_id,
         status=status,
@@ -41,6 +50,16 @@ def dry_profile() -> dict:
 class RegistryTests(unittest.TestCase):
     def test_registry_mapping_is_consistent(self):
         validate_registry()
+
+    def test_score_criteria_cover_exactly_the_allowed_levels(self):
+        from app.evaluation import SCORE_LEVELS, SCORE_LEVEL_CRITERIA, get_rules
+
+        self.assertEqual(tuple(sorted(SCORE_LEVEL_CRITERIA)), tuple(sorted(SCORE_LEVELS)))
+        self.assertEqual(tuple(sorted(get_rules().score_levels)), tuple(sorted(SCORE_LEVELS)))
+        for level, criterion in SCORE_LEVEL_CRITERIA.items():
+            self.assertTrue(criterion.strip(), level)
+        self.assertIn("частично", SCORE_LEVEL_CRITERIA[50])
+        self.assertIn("не как «неизвестно»", SCORE_LEVEL_CRITERIA[50])
 
     def test_scale_anchors_are_defined_for_every_parameter(self):
         from app.evaluation import PARAMETERS
@@ -180,64 +199,119 @@ class RelevanceTests(unittest.TestCase):
 
 
 class EngineTests(unittest.TestCase):
-    def test_total_is_not_diluted_by_missing_parameters(self):
+    def test_pending_parameter_is_excluded_not_zeroed(self):
         result = evaluate(
             dry_profile(),
-            [ev("problem:dryness", 80), ev("skin_type:dry", None, status="not_researched")],
+            [ev("problem:dryness", 100), ev("skin_type:dry", None, status="pending")],
         )
-        self.assertEqual(result.total, 80)
+        self.assertEqual(result.total, 100)
         self.assertAlmostEqual(result.completeness, 0.5, places=6)
+        pending = next(item for item in result.parameters if item.parameter_id == "skin_type:dry")
+        self.assertIsNone(pending.value)
+        self.assertFalse(pending.included)
+        self.assertEqual(pending.status, "pending")
 
     def test_arithmetic_mean_uses_equal_shares(self):
         result = evaluate(
             dry_profile(),
-            [ev("problem:dryness", 80), ev("skin_type:dry", 50)],
+            [ev("problem:dryness", 100), ev("skin_type:dry", 50)],
         )
-        self.assertEqual(result.total, 65)
+        self.assertEqual(result.total, 75)
         weights = {item.parameter_id: item.weight for item in result.parameters}
         self.assertAlmostEqual(weights["problem:dryness"], 0.5, places=6)
         self.assertAlmostEqual(weights["skin_type:dry"], 0.5, places=6)
 
-    def test_insufficient_completeness_produces_no_total(self):
-        result = evaluate({"skin_type": "sensitive"}, [ev("problem:sensitivity", 90)])
+    def test_fractional_mean_keeps_sub_scores_unchanged(self):
+        profile = {"skin_type": "dry", "concerns": ["dryness"], "goals": ["hydration"]}
+        result = evaluate(
+            profile,
+            [
+                ev("problem:dryness", 100),
+                ev("skin_type:dry", 75),
+                ev("goal:hydration", 0),
+            ],
+        )
+        self.assertAlmostEqual(result.total, 175 / 3, places=2)
+        values = {item.parameter_id: item.value for item in result.parameters}
+        self.assertEqual(values["problem:dryness"], 100)
+        self.assertEqual(values["skin_type:dry"], 75)
+        self.assertEqual(values["goal:hydration"], 0)
+
+    def test_no_assessed_parameter_means_no_total(self):
+        result = evaluate({"skin_type": "sensitive"}, [ev("problem:sensitivity", 100)])
         self.assertIsNone(result.total)
         self.assertIsNone(result.verdict)
-        self.assertLess(result.completeness, get_rules().completeness_threshold)
-        self.assertTrue(any("Полнота" in text for text in result.limitations))
+        self.assertTrue(any("итоговая совместимость не определена" in text
+                            for text in result.limitations))
 
-    def test_missing_evaluation_is_never_zero_or_fifty(self):
+    def test_missing_evaluation_is_pending_not_zero_or_fifty(self):
         result = evaluate(dry_profile(), [])
         self.assertIsNone(result.total)
         for item in result.parameters:
             self.assertIsNone(item.value)
             self.assertFalse(item.included)
-            self.assertEqual(item.status, "not_researched")
+            self.assertEqual(item.status, "pending")
 
     def test_insufficient_status_is_excluded_with_reason(self):
         result = evaluate(
             dry_profile(),
             [
-                ev("problem:dryness", 70),
+                ev("problem:dryness", 75),
                 ev("skin_type:dry", None, status="insufficient_evidence", limitations=("нет источников",)),
             ],
         )
+        self.assertEqual(result.total, 75)
         barrier = next(item for item in result.parameters if item.parameter_id == "skin_type:dry")
         self.assertFalse(barrier.included)
         self.assertEqual(barrier.status, "insufficient_evidence")
         self.assertIn("недостаточно доказательств", barrier.reason)
         self.assertTrue(any("нет источников" in text for text in result.limitations))
 
-    def test_contradictory_evidence_is_excluded(self):
+    def test_not_applicable_is_excluded_and_does_not_change_the_mean(self):
         result = evaluate(
             dry_profile(),
-            [ev("problem:dryness", 70), ev("skin_type:dry", None, status="contradictory_evidence")],
+            [
+                ev("problem:dryness", 100),
+                ev(
+                    "skin_type:dry",
+                    None,
+                    status="not_applicable",
+                    rationale="Параметр не применяется: продукт смывается.",
+                ),
+            ],
+        )
+        self.assertEqual(result.total, 100)
+        excluded = next(item for item in result.parameters if item.parameter_id == "skin_type:dry")
+        self.assertFalse(excluded.included)
+        self.assertIsNone(excluded.value)
+        self.assertEqual(excluded.status, "not_applicable")
+        self.assertIn("неприменим", excluded.reason)
+
+    def test_legacy_evaluated_rows_are_never_scored(self):
+        legacy = ParameterEvaluation(
+            parameter_id="problem:dryness",
+            status="evaluated",
+            value=80,
+            composition_hash=COMPOSITION,
+            method_version=METHOD,
+        )
+        result = evaluate(dry_profile(), [legacy])
+        self.assertIsNone(result.total)
+        excluded = next(item for item in result.parameters if item.parameter_id == "problem:dryness")
+        self.assertFalse(excluded.included)
+        self.assertIn("прежней методике", excluded.reason)
+
+    def test_legacy_contradictory_status_is_excluded(self):
+        result = evaluate(
+            dry_profile(),
+            [ev("problem:dryness", 75), ev("skin_type:dry", None, status="contradictory_evidence")],
         )
         barrier = next(item for item in result.parameters if item.parameter_id == "skin_type:dry")
         self.assertFalse(barrier.included)
-        self.assertIn("противоречат", barrier.reason)
+        self.assertIn("противоречие", barrier.reason)
 
     def test_verdict_is_suppressed_until_rules_are_calibrated(self):
-        full = [ev("problem:dryness", 90), ev("skin_type:dry", 90)]
+        full = [ev("problem:dryness", 100), ev("skin_type:dry", 100)]
         result = evaluate(dry_profile(), full)
         self.assertIsNotNone(result.total)
         self.assertIsNone(result.verdict)
@@ -251,33 +325,62 @@ class EngineTests(unittest.TestCase):
             verdict_bands=((80, "high"), (50, "medium"), (0, "low")),
             calibrated=True,
         )
-        result = evaluate(dry_profile(), [ev("problem:dryness", 90), ev("skin_type:dry", 90)], rules)
+        result = evaluate(dry_profile(), [ev("problem:dryness", 100), ev("skin_type:dry", 100)], rules)
         self.assertEqual(result.verdict, "high")
         self.assertEqual(result.rule_version, "9.9.9-test")
 
     def test_same_input_same_hash_regardless_of_order(self):
-        evaluations = [ev("problem:dryness", 70), ev("skin_type:dry", 60)]
+        evaluations = [ev("problem:dryness", 75), ev("skin_type:dry", 75)]
         first = evaluate(dry_profile(), evaluations)
         second = evaluate(dry_profile(), list(reversed(evaluations)))
         self.assertEqual(first.input_hash, second.input_hash)
         self.assertEqual(first.as_dict(), second.as_dict())
 
     def test_different_values_change_hash(self):
-        first = evaluate(dry_profile(), [ev("problem:dryness", 70), ev("skin_type:dry", 60)])
-        second = evaluate(dry_profile(), [ev("problem:dryness", 71), ev("skin_type:dry", 60)])
+        first = evaluate(dry_profile(), [ev("problem:dryness", 75), ev("skin_type:dry", 75)])
+        second = evaluate(dry_profile(), [ev("problem:dryness", 50), ev("skin_type:dry", 75)])
         self.assertNotEqual(first.input_hash, second.input_hash)
 
     def test_duplicate_evaluations_are_rejected(self):
         with self.assertRaises(ContractError):
-            evaluate(dry_profile(), [ev("problem:dryness", 70), ev("problem:dryness", 80)])
+            evaluate(dry_profile(), [ev("problem:dryness", 75), ev("problem:dryness", 100)])
 
-    def test_value_outside_scale_is_rejected(self):
-        with self.assertRaises(ContractError):
-            ev("problem:dryness", 101)
+    def test_score_outside_allowed_levels_is_rejected(self):
+        for value in (101, 30, 62, -25):
+            with self.assertRaises(ContractError, msg=f"value {value}"):
+                ev("problem:dryness", value)
 
-    def test_value_requires_evaluated_status(self):
+    def test_value_requires_assessed_status(self):
         with self.assertRaises(ContractError):
             ev("problem:dryness", 50, status="stale")
+
+    def test_assessed_requires_explanation_and_evidence(self):
+        with self.assertRaises(ContractError):
+            ParameterEvaluation(
+                parameter_id="problem:dryness",
+                status="assessed",
+                value=75,
+                composition_hash=COMPOSITION,
+                method_version=METHOD,
+                evidence_ids=("1",),
+            )
+        with self.assertRaises(ContractError):
+            ParameterEvaluation(
+                parameter_id="problem:dryness",
+                status="assessed",
+                value=75,
+                composition_hash=COMPOSITION,
+                method_version=METHOD,
+                rationale="объяснение",
+            )
+
+    def test_completeness_does_not_gate_the_total(self):
+        # One assessed parameter out of three is enough: no coverage penalty.
+        profile = {"skin_type": "dry", "concerns": ["dryness"], "goals": ["hydration"]}
+        result = evaluate(profile, [ev("problem:dryness", 75)])
+        self.assertEqual(result.total, 75)
+        self.assertAlmostEqual(result.completeness, 1 / 3, places=6)
+        self.assertFalse(any("порог" in text for text in result.limitations))
 
     def test_min_confidence_excludes_unknown_confidence(self):
         rules = RuleSet(
@@ -291,8 +394,8 @@ class EngineTests(unittest.TestCase):
         result = evaluate(
             dry_profile(),
             [
-                ev("problem:dryness", 80),  # confidence is None
-                ev("skin_type:dry", 60, confidence=0.9),
+                ev("problem:dryness", 100),  # confidence is None
+                ev("skin_type:dry", 75, confidence=0.9),
             ],
             rules,
         )
@@ -302,19 +405,19 @@ class EngineTests(unittest.TestCase):
 
 class FreshnessTests(unittest.TestCase):
     def test_composition_change_invalidates(self):
-        evaluation = ev("problem:dryness", 70)
+        evaluation = ev("problem:dryness", 75)
         reason = stale_reason(evaluation, composition_hash="b" * 64, method_version=METHOD)
         self.assertIn("состав", reason)
         self.assertFalse(is_current(evaluation, composition_hash="b" * 64, method_version=METHOD))
 
     def test_method_version_change_invalidates(self):
-        evaluation = ev("problem:dryness", 70)
+        evaluation = ev("problem:dryness", 75)
         reason = stale_reason(evaluation, composition_hash=COMPOSITION, method_version="research-2.0.0")
         self.assertIn("методик", reason)
 
     def test_expired_valid_until_invalidates(self):
         past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-        evaluation = ev("problem:dryness", 70, valid_until=past)
+        evaluation = ev("problem:dryness", 75, valid_until=past)
         self.assertIn(
             "valid_until",
             stale_reason(evaluation, composition_hash=COMPOSITION, method_version=METHOD),
@@ -322,20 +425,20 @@ class FreshnessTests(unittest.TestCase):
 
     def test_future_valid_until_stays_current(self):
         future = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-        evaluation = ev("problem:dryness", 70, valid_until=future)
+        evaluation = ev("problem:dryness", 75, valid_until=future)
         self.assertIsNone(
             stale_reason(evaluation, composition_hash=COMPOSITION, method_version=METHOD)
         )
 
     def test_invalid_valid_until_is_treated_as_stale(self):
-        evaluation = ev("problem:dryness", 70, valid_until="not-a-date")
+        evaluation = ev("problem:dryness", 75, valid_until="not-a-date")
         reason = stale_reason(evaluation, composition_hash=COMPOSITION, method_version=METHOD)
         self.assertIn("valid_until", reason)
 
 
 class SnapshotTests(unittest.TestCase):
     def _snapshot(self):
-        evaluations = [ev("problem:dryness", 80), ev("skin_type:dry", 60)]
+        evaluations = [ev("problem:dryness", 100), ev("skin_type:dry", 75)]
         result = evaluate(dry_profile(), evaluations)
         return build_snapshot(
             product={"id": 42, "name": "Test Cream"},
@@ -368,7 +471,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertFalse(verify_snapshot(snapshot))
 
     def test_snapshot_rejects_foreign_composition(self):
-        evaluations = [ev("problem:dryness", 80, composition_hash="c" * 64)]
+        evaluations = [ev("problem:dryness", 100, composition_hash="c" * 64)]
         result = evaluate(dry_profile(), evaluations)
         with self.assertRaises(ContractError):
             build_snapshot(

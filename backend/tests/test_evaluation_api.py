@@ -60,6 +60,10 @@ class ParametersEndpointTests(unittest.TestCase):
         )
         self.assertEqual(parameter["section"], "goal")
         self.assertTrue(parameter["question"])
+        self.assertEqual(body["score_levels"], [0, 25, 50, 75, 100])
+        self.assertEqual(set(body["score_criteria"]), {"0", "25", "50", "75", "100"})
+        self.assertIn("частично", body["score_criteria"]["50"])
+        self.assertIn("not_applicable", body["statuses"])
 
 
 class PreviewEndpointTests(unittest.TestCase):
@@ -70,24 +74,46 @@ class PreviewEndpointTests(unittest.TestCase):
             json={
                 "profile": PROFILE,
                 "evaluations": [
-                    {"parameter_id": "problem:dryness", "value": 80},
-                    {"parameter_id": "skin_type:dry", "value": 60},
+                    {
+                        "parameter_id": "problem:dryness",
+                        "value": 100,
+                        "rationale": "Подтверждённые источники соответствуют требованию.",
+                        "evidence_ids": ["1"],
+                    },
+                    {
+                        "parameter_id": "skin_type:dry",
+                        "value": 50,
+                        "rationale": "Источники частично соответствуют требованию пункта.",
+                        "evidence_ids": ["2"],
+                    },
                 ],
             },
         )
         self.assertEqual(response.status_code, 200)
         result = response.json()["result"]
-        self.assertEqual(result["total"], 70)
+        self.assertEqual(result["total"], 75)
         self.assertIsNone(result["verdict"])
         self.assertEqual(store.snapshot_count(), 0)
 
     def test_preview_rejects_out_of_scale_value(self):
         client, _, _ = make_client()
+        for value in (150, 30):
+            response = client.post(
+                "/api/v1/evaluation/preview",
+                json={
+                    "profile": PROFILE,
+                    "evaluations": [{"parameter_id": "problem:dryness", "value": value}],
+                },
+            )
+            self.assertEqual(response.status_code, 422, value)
+
+    def test_preview_rejects_assessed_without_reason_or_evidence(self):
+        client, _, _ = make_client()
         response = client.post(
             "/api/v1/evaluation/preview",
             json={
                 "profile": PROFILE,
-                "evaluations": [{"parameter_id": "problem:dryness", "value": 150}],
+                "evaluations": [{"parameter_id": "problem:dryness", "value": 75}],
             },
         )
         self.assertEqual(response.status_code, 422)
@@ -123,19 +149,53 @@ class SnapshotEndpointTests(unittest.TestCase):
         client, store, _ = make_client()
         service = EvaluationService(store)
         record = service.ensure_composition(7, COMPOSITION)
-        for parameter_id, value in (("problem:dryness", 80), ("skin_type:dry", 60)):
+        for parameter_id, value in (("problem:dryness", 100), ("skin_type:dry", 50)):
             service.record_evaluation(
                 record["id"],
                 ParameterEvaluation(
                     parameter_id=parameter_id,
-                    status="evaluated",
+                    status="assessed",
                     value=value,
+                    rationale=f"{parameter_id}: подтверждённые источники.",
+                    evidence_ids=("1",),
                     composition_hash=HASH,
                     method_version=DEFAULT_METHOD_VERSION,
                 ),
             )
         body = self._create(client).json()
-        self.assertEqual(body["snapshot"]["total"], 70)
+        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertEqual(body["pending_parameters"], [])
+
+    def test_non_assessed_results_are_not_reported_as_scores(self):
+        client, store, _ = make_client()
+        service = EvaluationService(store)
+        record = service.ensure_composition(7, COMPOSITION)
+        service.record_evaluation(
+            record["id"],
+            ParameterEvaluation(
+                parameter_id="problem:dryness",
+                status="assessed",
+                value=100,
+                rationale="problem:dryness: подтверждённые источники.",
+                evidence_ids=("1",),
+                composition_hash=HASH,
+                method_version=DEFAULT_METHOD_VERSION,
+            ),
+        )
+        service.record_evaluation(
+            record["id"],
+            ParameterEvaluation(
+                parameter_id="skin_type:dry",
+                status="not_applicable",
+                rationale="Параметр не применяется к этому формату продукта.",
+                composition_hash=HASH,
+                method_version=DEFAULT_METHOD_VERSION,
+            ),
+        )
+        body = self._create(client).json()
+        reported = [item["parameter_id"] for item in body["snapshot"]["parameters"]]
+        self.assertEqual(reported, ["problem:dryness"])
+        self.assertEqual(body["snapshot"]["total"], 100)
         self.assertEqual(body["pending_parameters"], [])
 
 class SnapshotReadTests(unittest.TestCase):
