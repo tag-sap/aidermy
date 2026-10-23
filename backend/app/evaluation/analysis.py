@@ -233,6 +233,7 @@ class AnalysisService:
                     profile=profile,
                     now=now,
                     source_urls=source_urls,
+                    composition_record=record,
                 )
             blocked = plan.blocked
             if plan.needed and allow_research:
@@ -262,6 +263,8 @@ class AnalysisService:
                 user_id=user_id,
                 research_summary=research.summary() if research is not None else None,
                 blocked=blocked,
+                composition_record=record,
+                stored_evaluations=plan.current if plan is not None and research is None else None,
             )
 
         extra_notes = list(knowledge.notes) if knowledge is not None else []

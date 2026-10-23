@@ -169,11 +169,14 @@ class ResearchService:
         profile: Mapping | None,
         now: datetime | None = None,
         source_urls: Sequence[str] = (),
+        composition_record: Mapping | None = None,
     ) -> ResearchPlan:
         composition_hash = str(composition.get("composition_hash") or "")
         if not composition_hash:
             raise StoreError("composition_hash is required")
-        record = self.store.get_composition(int(product["id"]), composition_hash)
+        record = composition_record or self.store.get_composition(
+            int(product["id"]), composition_hash
+        )
         if record is None:
             record = self.store.upsert_composition(
                 {

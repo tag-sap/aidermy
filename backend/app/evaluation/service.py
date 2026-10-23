@@ -114,14 +114,20 @@ class EvaluationService:
         user_id: int | None = None,
         research_summary: Mapping[str, Any] | None = None,
         blocked: bool = False,
+        composition_record: Mapping[str, Any] | None = None,
+        stored_evaluations: Sequence[ParameterEvaluation] | None = None,
     ) -> BuildResult:
         product_id = product.get("id")
         if product_id is None:
             raise StoreError("product.id is required")
-        record = self.ensure_composition(int(product_id), composition)
+        record = composition_record or self.ensure_composition(int(product_id), composition)
         composition_hash = str(record["composition_hash"])
 
-        stored = self.store.current_evaluations(record["id"], self.method_version)
+        stored = (
+            list(stored_evaluations)
+            if stored_evaluations is not None
+            else self.store.current_evaluations(record["id"], self.method_version)
+        )
         scan = scan_parameters(
             evaluations=stored,
             profile=profile,
@@ -147,22 +153,25 @@ class EvaluationService:
             user_id=user_id,
             analysis=state.as_dict(),
         )
-        existing = self.store.get_snapshot(str(snapshot.get("snapshot_id") or ""))
-        if existing is not None:
-            saved, reused = existing, True
+        latest = None
+        if user_id is not None and hasattr(self.store, "latest_snapshot"):
+            latest = self.store.latest_snapshot(
+                product_id=int(product_id),
+                composition_hash=composition_hash,
+                user_id=user_id,
+                profile_fingerprint=snapshot.get("profile") or {},
+            )
+        if latest is not None and (
+            str(latest.get("snapshot_id") or "") == str(snapshot.get("snapshot_id") or "")
+            or _same_snapshot_result(latest, snapshot)
+        ):
+            # Same result, only transient diagnostics differ. Reuse the
+            # append-only snapshot instead of growing history on refresh.
+            saved, reused = latest, True
         else:
-            latest = None
-            if user_id is not None and hasattr(self.store, "latest_snapshot"):
-                latest = self.store.latest_snapshot(
-                    product_id=int(product_id),
-                    composition_hash=composition_hash,
-                    user_id=user_id,
-                    profile_fingerprint=snapshot.get("profile") or {},
-                )
-            if latest is not None and _same_snapshot_result(latest, snapshot):
-                # Same result, only transient diagnostics differ. Reuse the
-                # append-only snapshot instead of growing history on refresh.
-                saved, reused = latest, True
+            existing = self.store.get_snapshot(str(snapshot.get("snapshot_id") or ""))
+            if existing is not None:
+                saved, reused = existing, True
             else:
                 saved, reused = self.store.save_snapshot(snapshot), False
 
