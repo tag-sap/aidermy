@@ -19,24 +19,35 @@ TEST_DB_PREFIX = "aidermy_eval_test"
 FORBIDDEN_HOST_PARTS = ("supabase.co", "supabase.com", "138.124.231.42", "eclectusgames.ru")
 
 
+def guard_local_test_dsn(dsn: str) -> dict:
+    """Refuse anything that is not an isolated local test database.
+
+    Returns the parsed conninfo on success; raises ``SystemExit`` with a clear
+    message otherwise. Used by the migration and live-check scripts so they
+    cannot touch production by accident.
+    """
+    if not dsn:
+        raise SystemExit("DSN is not set (use EVALUATION_TEST_DSN or --dsn)")
+    info = conninfo.conninfo_to_dict(dsn)
+    host = str(info.get("host") or "")
+    dbname = str(info.get("dbname") or "")
+    for part in FORBIDDEN_HOST_PARTS:
+        if part in host:
+            raise SystemExit(f"REFUSED: production host detected ({host})")
+    if host not in {"127.0.0.1", "localhost"} or not dbname.startswith(TEST_DB_PREFIX):
+        raise SystemExit(
+            f"REFUSED: not a local test database (host={host!r}, db={dbname!r})"
+        )
+    return dict(info)
+
+
 def main() -> int:
     dsn = os.environ.get("EVALUATION_TEST_DSN", "").strip()
-    if not dsn:
-        print("EVALUATION_TEST_DSN is not set")
-        return 2
-    info = conninfo.conninfo_to_dict(dsn)
+    info = guard_local_test_dsn(dsn)
     host = str(info.get("host") or "")
     port = str(info.get("port") or "")
     dbname = str(info.get("dbname") or "")
     user = str(info.get("user") or "")
-
-    for part in FORBIDDEN_HOST_PARTS:
-        if part in host:
-            print(f"REFUSED: production host detected ({host})")
-            return 3
-    if host not in {"127.0.0.1", "localhost"} or not dbname.startswith(TEST_DB_PREFIX):
-        print(f"REFUSED: not a local test database (host={host!r}, db={dbname!r})")
-        return 3
 
     print("environment : isolated local PostgreSQL")
     print("host        :", host)

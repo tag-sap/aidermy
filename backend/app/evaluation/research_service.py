@@ -49,6 +49,12 @@ from .research import (
 )
 from .service import DEFAULT_METHOD_VERSION
 from .store import EvaluationStore, StoreError
+from .websearch import (
+    RESULTS_PER_QUERY,
+    SourceSearch,
+    build_research_queries,
+    prioritize_candidates,
+)
 
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_MAX_COST_PER_JOB = 0.50
@@ -124,6 +130,9 @@ class ResearchService:
         allow_synthetic_evidence: bool = False,
         fetcher: DocumentFetcher | None = None,
         max_documents: int = MAX_DOCUMENTS_PER_SESSION,
+        search: SourceSearch | None = None,
+        max_queries: int = 4,
+        results_per_query: int = RESULTS_PER_QUERY,
     ) -> None:
         self.store = store
         self.provider = provider
@@ -136,6 +145,9 @@ class ResearchService:
         self.allow_synthetic_evidence = allow_synthetic_evidence
         self.fetcher = fetcher
         self.max_documents = max_documents
+        self.search = search
+        self.max_queries = max_queries
+        self.results_per_query = results_per_query
 
     # -- planning -----------------------------------------------------------
     def plan(
@@ -293,6 +305,11 @@ class ResearchService:
             product=product,
             composition=plan.composition,
             source_urls=plan.source_urls,
+            parameter_labels=tuple(
+                parameters[pid].label
+                for pid in plan.needed
+                if pid in parameters
+            )[: self.max_queries],
         )
         notes.extend(document_notes)
 
@@ -380,8 +397,9 @@ class ResearchService:
         product: Mapping,
         composition: Mapping,
         source_urls: Sequence[str] = (),
+        parameter_labels: Sequence[str] = (),
     ) -> tuple[DocumentLibrary, int, int, list[str]]:
-        """Load stored documents and fetch missing candidate pages once per run."""
+        """Load stored documents, discover missing pages, fetch each page once."""
         notes: list[str] = []
         stored = self.store.documents_for(composition_id)
         library = DocumentLibrary(
@@ -403,13 +421,46 @@ class ResearchService:
         if self.fetcher is None or len(library) >= self.max_documents:
             return library, 0, reused, notes
 
+        candidates: list[str] = list(
+            collect_source_urls(product, composition, extra=tuple(source_urls))
+        )
+
+        # Discover additional pages with the project's existing search, only when
+        # the known URLs are not enough to cover the gap set.
+        if self.search is not None and len(library) < self.max_documents:
+            queries = build_research_queries(
+                product=product,
+                composition=composition,
+                parameter_labels=parameter_labels,
+                limit=self.max_queries,
+            )
+            discovered: list[str] = []
+            for query in queries:
+                if len(library) + len(discovered) >= self.max_documents:
+                    break
+                try:
+                    found = self.search.search(query, limit=self.results_per_query)
+                except Exception as exc:  # noqa: BLE001 - search failures are data
+                    notes.append(f"поиск «{query}» не выполнен ({type(exc).__name__})")
+                    continue
+                if found:
+                    notes.append(f"поиск «{query}»: найдено {len(found)} URL")
+                discovered.extend(found)
+            candidates.extend(prioritize_candidates(discovered, product))
+
         fetched = 0
-        for url in collect_source_urls(product, composition, extra=tuple(source_urls)):
+        attempts = 0
+        max_attempts = max(1, self.max_documents * 2)
+        for url in dict.fromkeys(candidates):
             if url in library:
                 continue
             if len(library) >= self.max_documents:
                 notes.append(f"достигнут лимит источников на сессию ({self.max_documents})")
                 break
+            if attempts >= max_attempts:
+                notes.append(f"достигнут лимит попыток загрузки ({max_attempts})")
+                break
+            attempts += 1
             try:
                 document = self.fetcher.fetch(url)
             except DocumentUnavailable as exc:

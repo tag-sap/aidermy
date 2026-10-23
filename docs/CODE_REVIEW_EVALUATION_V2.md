@@ -228,6 +228,53 @@ LLM не проверялся на живом ключе, калибровка �
 staging, роутер не зарегистрирован в `main.py`.
 
 
+## Этап 5 (2026-10-25): интеграция в приложение, реальный поиск, Supabase
+
+Проверено, что уже есть в проекте, и что из этого действительно подходит V2.
+
+| Возможность | Проверенный контракт | Решение |
+|---|---|---|
+| DeepSeek | env `DEEPSEEK_API_KEY` / `DEEPSEEK_API_URL`, модели `deepseek-chat`, `deepseek-v4-flash`, `deepseek-flash`, прямые httpx-вызовы в `services.py` | Переиспользованы ключ, endpoint и модели; отдельного общего клиента в проекте нет, поэтому V2-провайдер остаётся тонким клиентом в `llm_research.py` (без копирования логики отчётов) |
+| Поиск источников | `product_identification._search_product_urls` (DuckDuckGo HTML, UA, retry/backoff, фильтр рекламы) | Вынесен публичный `search_web_urls(query, limit)`; `evaluation/websearch.py` вызывает его, второго поискового клиента нет |
+| Загрузка страниц | `scraper.service` (Scrapling, тяжёлый, антибот), `httpx` в requirements | Для V2 используется httpx-загрузчик с SSRF-проверкой каждого редиректа: Scrapling не нужен для текста и недоступен в тестовой среде |
+| Продукт и INCI | `database.get_product_by_id` (в PG-режиме читает `public.products` Supabase) | `knowledge.py` использует этот загрузчик; ничего не дублируется |
+| Supabase | `postgres_connection.get_postgres_connection`, `SUPABASE_DATABASE_URL` | `PostgresStore`; миграции проверены на изолированном PostgreSQL 16.2 |
+| Роуты/аутентификация | `app.main`, JWT `get_current_user`, admin basic | V2-роутер зарегистрирован в `main.py`; продуктовые эндпоинты используют те же зависимости |
+| Логи | `logging.basicConfig` в `main.py` | `[EVALUATION]` строки: статус, пробелы, источники, ошибки |
+
+Реализовано в этом этапе:
+
+1. **Поиск новых источников** — `evaluation/websearch.py` (адаптер + построение
+   запросов + приоритет URL) и интеграция в `ResearchService`: найденные URL
+   дедуплицируются с известными, ограничены `max_documents`, сбой поиска не ломает
+   анализ.
+2. **Регистрация в приложении** — `app/main.py` → `configure_evaluation(app)`;
+   kill-switch `AIDERMY_EVALUATION_ENABLED=0`; readiness-проверка схемы без миграций.
+3. **Продуктовые эндпоинты** — `POST /products/{id}/status|analyze|research`;
+   админ явно подтверждает INCI каталога (`verify_catalog_inci`), обычный анализ
+   никогда не подтверждает состав сам.
+4. **Health** — `GET /api/v1/evaluation/health`: хранилище, таблицы, провайдер,
+   загрузчик, поиск.
+5. **Безопасность выполнения** — анализ в worker-thread (не блокирует event loop),
+   лимиты `AIDERMY_MAX_DOCUMENTS/COST_PER_JOB/COST_PER_RUN/MAX_ATTEMPTS`,
+   модель-фолбэк DeepSeek с логированием.
+6. **Скрипты эксплуатации** — `apply_evaluation_migrations.py` (guard: только
+   локальная тестовая БД, remote — с двумя подтверждениями) и
+   `evaluation_live_check.py` (один платный запрос, только с `--yes`).
+7. **Инструкция** — `docs/EVALUATION_V2_DEPLOY.md`.
+
+Проверки: 309 модульных/контрактных + 56 интеграционных на PostgreSQL (включая
+полный цикл V2 через `AnalysisService` → документы → доказательства → оценки →
+snapshot, возобновление незавершённого анализа, ошибки провайдера и повтор).
+`unittest discover` — 1081 тест, новых падений V2 нет. Отдельно установлено, что
+`tests/test_yandex_identity.py` (3 ошибки: в таблице `users` нет `is_verified`) —
+**предсуществующая** проблема legacy-авторизации, ранее скрытая отсутствием
+`authlib`; к V2 отношения не имеет и не отключалась.
+
+Не выполнено по ограничениям: живой платный вызов DeepSeek (нет ключа в этой среде),
+живой вызов DuckDuckGo, применение миграций к staging/production, деплой.
+
+
 ## Вывод
 
 

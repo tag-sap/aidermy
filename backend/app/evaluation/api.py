@@ -1,15 +1,22 @@
 """HTTP API for evaluation v2 (`/api/v1/evaluation`).
 
-The router is intentionally NOT registered in app/main.py yet. Registration is a
-one-line call (`setup_evaluation_routes(app, store=...)`) after the migration and
-staging checks are approved.
+Registered in the real application by ``evaluation.runtime.configure_evaluation``
+(called from ``app.main``). Endpoints:
 
-Contract:
-  GET  /api/v1/evaluation/parameters        public: registry + rule description
-  POST /api/v1/evaluation/preview           pure calculation, nothing is stored
-  POST /api/v1/evaluation/snapshots         build & persist a snapshot (auth)
-  GET  /api/v1/evaluation/snapshots/{id}    read a snapshot (owner only)
-  POST /api/v1/evaluation/research-jobs     enqueue missing parameters (auth)
+  GET  /parameters                     public: registry + rule description
+  GET  /health                         public: storage/schema/research readiness
+  POST /preview                        pure calculation, nothing is stored
+  POST /snapshots                      build & persist a snapshot (auth)
+  GET  /snapshots/{id}                 read a snapshot (owner only)
+  POST /analyze                        scan all parameters, no spend (auth)
+  POST /analyze/research               scan + shared research (admin)
+  POST /products/{id}/status           current gaps of a catalog product (auth)
+  POST /products/{id}/analyze          analyze a catalog product, no spend (auth)
+  POST /products/{id}/research         analyze + research a catalog product (admin)
+  POST /research-jobs                  enqueue missing parameters (admin)
+
+All analysis endpoints run the synchronous service in a worker thread: page
+downloads, search and LLM calls must not block the event loop.
 """
 from __future__ import annotations
 
@@ -18,11 +25,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from ..auth import get_current_user, get_current_user_optional
 from .analysis import AnalysisService, AnalysisUnavailable
 from .contracts import SCORE_LEVEL_CRITERIA, STATUS_ASSESSED, ContractError, ParameterEvaluation
-from .knowledge import ProductNotFound
+from .knowledge import ProductNotFound, KnowledgeUnavailable, load_product_knowledge
+from .gaps import analysis_state, scan_parameters
 from .engine import evaluate
 from .parameters import PARAMETERS
 from .questionnaire import QUESTIONNAIRE_SOURCE, QUESTIONNAIRE_VERSION, SECTIONS
@@ -86,6 +95,17 @@ class AnalyzeRequest(BaseModel):
     profile: dict[str, Any] = {}
     source_urls: list[str] = []
     verified_at: str | None = None
+    # Admin-only explicit confirmation of a catalog INCI (never implied).
+    verify_catalog_inci: bool = False
+
+
+class ProductAnalysisRequest(BaseModel):
+    """Profile + explicit options for the catalog-product endpoints."""
+
+    profile: dict[str, Any] = {}
+    source_urls: list[str] = []
+    verified_at: str | None = None
+    verify_catalog_inci: bool = True
 
 
 def _store(request: Request):
@@ -108,15 +128,19 @@ def _service(request: Request) -> EvaluationService:
 
 
 def _analysis_service(request: Request) -> AnalysisService:
+    from .runtime import analysis_limits_from_env
+
     return AnalysisService(
         _store(request),
         provider=getattr(request.app.state, "evaluation_research_provider", None),
         fetcher=getattr(request.app.state, "evaluation_document_fetcher", None),
+        search=getattr(request.app.state, "evaluation_source_search", None),
         rules=get_rules(getattr(request.app.state, "evaluation_rule_version", None)),
         method_version=_method_version(request),
         allow_synthetic_evidence=bool(
             getattr(request.app.state, "evaluation_allow_synthetic_evidence", False)
         ),
+        **analysis_limits_from_env(),
     )
 
 
@@ -319,14 +343,16 @@ async def read_snapshot(
     return {"snapshot": snapshot}
 
 
-def _run_analysis(
+def _analyze_sync(
     payload: AnalyzeRequest,
     request: Request,
     user: dict,
     *,
     allow_research: bool,
 ) -> dict:
+    """Blocking analysis (runs in a worker thread, never on the event loop)."""
     service = _analysis_service(request)
+    product_loader = getattr(request.app.state, "evaluation_product_loader", None)
     try:
         if payload.product_id is not None:
             report = service.analyze_product(
@@ -336,6 +362,8 @@ def _run_analysis(
                 extra_sources=tuple(payload.source_urls),
                 allow_research=allow_research,
                 user_id=int(user["id"]),
+                product_loader=product_loader,
+                verify_catalog_inci=payload.verify_catalog_inci and allow_research,
             )
         elif payload.product is not None and payload.composition is not None:
             report = service.analyze(
@@ -361,6 +389,18 @@ def _run_analysis(
     return report.as_dict()
 
 
+async def _run_analysis(
+    payload: AnalyzeRequest,
+    request: Request,
+    user: dict,
+    *,
+    allow_research: bool,
+) -> dict:
+    return await run_in_threadpool(
+        _analyze_sync, payload, request, user, allow_research=allow_research
+    )
+
+
 @router.post("/analyze")
 async def analyze(
     payload: AnalyzeRequest,
@@ -368,7 +408,7 @@ async def analyze(
     user: dict = Depends(get_current_user),
 ) -> dict:
     """Scan all parameters and assemble the report without spending on research."""
-    return _run_analysis(payload, request, user, allow_research=False)
+    return await _run_analysis(payload, request, user, allow_research=False)
 
 
 @router.post("/analyze/research")
@@ -379,8 +419,120 @@ async def analyze_with_research(
     _admin: None = Depends(require_admin),
 ) -> dict:
     """Same, but research the gaps first (shared downloads, per-parameter results)."""
-    return _run_analysis(payload, request, user, allow_research=True)
+    return await _run_analysis(payload, request, user, allow_research=True)
 
+
+
+@router.get("/health")
+async def evaluation_health(request: Request) -> dict:
+    """Readiness of the V2 wiring (booleans only, no secrets)."""
+    from .runtime import evaluation_schema_status
+
+    store = getattr(request.app.state, "evaluation_store", None)
+    provider = getattr(request.app.state, "evaluation_research_provider", None)
+    fetcher = getattr(request.app.state, "evaluation_document_fetcher", None)
+    search = getattr(request.app.state, "evaluation_source_search", None)
+    schema = await run_in_threadpool(evaluation_schema_status)
+    return {
+        "storage": {"configured": store is not None},
+        "research": {
+            "provider": getattr(provider, "name", None) or "missing",
+            "fetcher": getattr(fetcher, "name", None) or "missing",
+            "search": getattr(search, "name", None) or "missing",
+        },
+        "schema": schema,
+    }
+
+
+class _ProductStatusRequest(BaseModel):
+    profile: dict[str, Any] = {}
+
+
+def _product_status_sync(
+    product_id: int, payload: _ProductStatusRequest, request: Request
+) -> dict:
+    store = _store(request)
+    service = _service(request)
+    loader = getattr(request.app.state, "evaluation_product_loader", None)
+    try:
+        knowledge = load_product_knowledge(product_id, product_loader=loader)
+    except ProductNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KnowledgeUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    record = service.ensure_composition(product_id, knowledge.composition)
+    stored = store.current_evaluations(record["id"], _method_version(request))
+    scan = scan_parameters(
+        evaluations=stored,
+        profile=payload.profile,
+        composition_hash=str(record["composition_hash"]),
+        method_version=_method_version(request),
+    )
+    blocked = str(record.get("status") or "") != COMPOSITION_ACTIVE
+    state = analysis_state(scan=scan, blocked=blocked, extra_notes=knowledge.notes)
+    return {
+        "product": knowledge.product,
+        "composition": {
+            "composition_hash": record["composition_hash"],
+            "source": record.get("source") or "",
+            "verified_at": str(record.get("verified_at") or ""),
+            "status": record.get("status") or "",
+        },
+        "analysis": state.as_dict(),
+        "current": [item.as_dict() for item in scan.current],
+        "source_urls": list(knowledge.source_urls),
+    }
+
+
+@router.post("/products/{product_id}/status")
+async def product_status(
+    product_id: int,
+    payload: _ProductStatusRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """What is already known and what is missing (no writes to research, no spend)."""
+    return await run_in_threadpool(_product_status_sync, product_id, payload, request)
+
+
+def _product_analysis_request(
+    payload: ProductAnalysisRequest, product_id: int, *, verify_catalog_inci: bool
+) -> AnalyzeRequest:
+    return AnalyzeRequest(
+        product_id=product_id,
+        profile=payload.profile,
+        source_urls=payload.source_urls,
+        verified_at=payload.verified_at,
+        verify_catalog_inci=verify_catalog_inci,
+    )
+
+
+@router.post("/products/{product_id}/analyze")
+async def product_analyze(
+    product_id: int,
+    payload: ProductAnalysisRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Analyze a catalog product: scan + report, no research spending."""
+    body = _product_analysis_request(payload, product_id, verify_catalog_inci=False)
+    return await _run_analysis(body, request, user, allow_research=False)
+
+
+@router.post("/products/{product_id}/research")
+async def product_research(
+    product_id: int,
+    payload: ProductAnalysisRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+    _admin: None = Depends(require_admin),
+) -> dict:
+    """Analyze + research a catalog product (admin; shared downloads)."""
+    body = _product_analysis_request(
+        payload, product_id, verify_catalog_inci=bool(payload.verify_catalog_inci)
+    )
+    return await _run_analysis(body, request, user, allow_research=True)
 
 
 @router.post("/research-jobs")
@@ -414,18 +566,17 @@ def setup_evaluation_routes(
     rule_version: str | None = None,
     provider=None,
     fetcher=None,
+    search=None,
     allow_synthetic_evidence: bool = False,
 ) -> None:
-    """Register the router. Call only after the migration is approved."""
-    if store is not None:
-        app.state.evaluation_store = store
+    """Register the router and attach the optional dependencies to app.state."""
+    app.state.evaluation_store = store
     if method_version:
         app.state.evaluation_method_version = method_version
     if rule_version:
         app.state.evaluation_rule_version = rule_version
-    if provider is not None:
-        app.state.evaluation_research_provider = provider
-    if fetcher is not None:
-        app.state.evaluation_document_fetcher = fetcher
+    app.state.evaluation_research_provider = provider
+    app.state.evaluation_document_fetcher = fetcher
+    app.state.evaluation_source_search = search
     app.state.evaluation_allow_synthetic_evidence = allow_synthetic_evidence
     app.include_router(router)

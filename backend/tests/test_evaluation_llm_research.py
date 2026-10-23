@@ -170,6 +170,48 @@ class LlmProviderTests(unittest.TestCase):
         self.assertEqual(outcome.status, RESEARCH_PROVIDER_ERROR)
         self.assertIn("timeout", outcome.error)
 
+    def test_model_fallback_uses_the_next_configured_model(self):
+        seen: list[str] = []
+
+        def post(payload: dict) -> dict:
+            seen.append(payload["model"])
+            if payload["model"] == "deepseek-chat":
+                raise RuntimeError("HTTP 503")
+            return {
+                "choices": [{"message": {"content": json.dumps(provider_response())}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            }
+
+        outcome = LlmResearchProvider(
+            post=post, models=("deepseek-chat", "deepseek-v4-flash")
+        ).research(request())
+        self.assertEqual(outcome.status, "ok")
+        self.assertEqual(seen, ["deepseek-chat", "deepseek-v4-flash"])
+
+    def test_all_models_failing_is_a_provider_error(self):
+        def post(_: dict) -> dict:
+            raise RuntimeError("HTTP 500")
+
+        outcome = LlmResearchProvider(post=post, models=("a", "b")).research(request())
+        self.assertEqual(outcome.status, RESEARCH_PROVIDER_ERROR)
+        self.assertIn("модели недоступны", outcome.error)
+
+    def test_request_payload_is_strict_json_mode(self):
+        captured: dict = {}
+
+        def post(payload: dict) -> dict:
+            captured.update(payload)
+            return {
+                "choices": [{"message": {"content": json.dumps(provider_response())}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            }
+
+        LlmResearchProvider(post=post).research(request())
+        self.assertEqual(captured["temperature"], 0.0)
+        self.assertEqual(captured["response_format"], {"type": "json_object"})
+        self.assertEqual(captured["model"], "deepseek-chat")
+        self.assertEqual(len(captured["messages"]), 2)
+
     def test_usage_is_charged_at_the_configured_price(self):
         provider = LlmResearchProvider(
             post=fake_post(provider_response()), price_per_1k_tokens=0.002

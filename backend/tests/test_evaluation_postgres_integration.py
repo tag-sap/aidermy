@@ -974,6 +974,138 @@ class ResearchIntegrationTests(SchemaTestBase):
         self.assertEqual(provider.call_count(), calls, "second run must not call the provider")
 
 
+PAGE_URL = "https://brand.example/integration"
+PAGE_TEXT = (
+    "Ingredient list: Aqua, Glycerin. Glycerin helps keep the skin hydrated. "
+    "The formula is suitable for dry skin."
+)
+
+
+class AnalysisWithPostgresTests(SchemaTestBase):
+    """The whole V2 mechanic on real PostgreSQL storage (no network, no AI)."""
+
+    QUOTES = {
+        "problem:dryness": "Glycerin helps keep the skin hydrated",
+        "skin_type:dry": "suitable for dry skin",
+    }
+
+    def _fetcher(self):
+        from app.evaluation.documents import FakeDocumentFetcher
+
+        return FakeDocumentFetcher({PAGE_URL: PAGE_TEXT})
+
+    def _provider(self, *, fail_for=(), insufficient_for=()):
+        from app.evaluation import (
+            FakeResearchProvider,
+            candidate,
+            insufficient,
+            ok,
+            provider_error,
+        )
+
+        responses = {}
+        for parameter_id, quote in self.QUOTES.items():
+            if parameter_id in fail_for:
+                responses[parameter_id] = provider_error("timeout")
+            elif parameter_id in insufficient_for:
+                responses[parameter_id] = insufficient("в источнике нет ответа")
+            else:
+                responses[parameter_id] = ok(
+                    candidate(
+                        parameter_id=parameter_id,
+                        claim=f"{parameter_id}: подтверждено источником",
+                        quote=quote,
+                        url=PAGE_URL,
+                        source_text=PAGE_TEXT,
+                        confidence=1.0,
+                    ),
+                    score=75,
+                )
+        return FakeResearchProvider(responses)
+
+    def _service(self, provider):
+        from app.evaluation.analysis import AnalysisService
+
+        return AnalysisService(
+            self.store,
+            provider=provider,
+            fetcher=self._fetcher(),
+            allow_synthetic_evidence=True,
+        )
+
+    def _run(self, service):
+        return service.analyze(
+            product=PRODUCT,
+            composition=self.make_composition(),
+            profile=PROFILE,
+            source_urls=(PAGE_URL,),
+        )
+
+    def test_full_cycle_persists_documents_evidence_and_snapshot(self):
+        provider = self._provider()
+        report = self._run(self._service(provider))
+
+        self.assertEqual(report.analysis.status, "complete")
+        self.assertTrue(report.analysis.is_final)
+        self.assertEqual(report.snapshot["total"], 75.0)
+        self.assertIsNone(report.snapshot["verdict"])
+
+        stored = self.store.get_snapshot(str(report.snapshot["snapshot_id"]))
+        self.assertIsNotNone(stored)
+        self.assertTrue(verify_snapshot(stored))
+        self.assertEqual(stored["analysis"]["status"], "complete")
+
+        composition = self.store.get_composition(PRODUCT["id"], COMPOSITION)
+        self.assertEqual(len(self.store.documents_for(composition["id"])), 1)
+        self.assertEqual(
+            sql("select count(*) as n from evaluation.source_documents")[0]["n"], 1
+        )
+        self.assertEqual(sql("select count(*) as n from evaluation.evidence")[0]["n"], 2)
+
+        calls = provider.call_count()
+        second = self._run(self._service(provider))
+        self.assertEqual(provider.call_count(), calls, "knowledge must be reused")
+        self.assertEqual(second.analysis.status, "complete")
+        self.assertEqual(
+            sql("select count(*) as n from evaluation.source_documents")[0]["n"], 1
+        )
+
+    def test_unfinished_analysis_is_not_final_and_can_be_resumed(self):
+        first = self._run(
+            self._service(self._provider(insufficient_for={"skin_type:dry"}))
+        )
+        self.assertEqual(first.analysis.status, "incomplete")
+        self.assertFalse(first.analysis.is_final)
+        self.assertEqual(first.snapshot["total"], 75.0)
+        self.assertFalse(first.snapshot["analysis"]["is_final"])
+
+        resumed = self._run(self._service(self._provider()))
+        self.assertEqual(resumed.analysis.status, "complete")
+        self.assertTrue(resumed.analysis.is_final)
+        self.assertNotEqual(
+            first.snapshot["snapshot_id"], resumed.snapshot["snapshot_id"]
+        )
+        self.assertEqual(sql("select count(*) as n from evaluation.snapshots")[0]["n"], 2)
+
+    def test_provider_failure_is_a_failed_job_not_a_business_result(self):
+        provider = self._provider(fail_for={"skin_type:dry"})
+        report = self._run(self._service(provider))
+        self.assertEqual(report.analysis.status, "incomplete")
+        self.assertFalse(report.analysis.is_final)
+        self.assertEqual(report.snapshot["total"], 75.0)
+        composition = self.store.get_composition(PRODUCT["id"], COMPOSITION)
+        jobs = self.store.jobs_for(
+            composition["id"], "skin_type:dry", DEFAULT_METHOD_VERSION
+        )
+        self.assertEqual(jobs[-1]["status"], "failed")
+        self.assertIn("timeout", jobs[-1]["last_error"])
+
+        retried = self._run(self._service(self._provider()))
+        self.assertEqual(retried.analysis.status, "complete")
+        self.assertTrue(retried.analysis.is_final)
+
+
+
 class MigrationIdempotencyTests(SchemaTestBase):
     def test_migrations_can_be_reapplied_without_losing_data(self):
         composition = self.make_composition()

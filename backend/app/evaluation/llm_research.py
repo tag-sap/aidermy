@@ -12,6 +12,7 @@ Without fetched documents, or without an API key, the provider reports an honest
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Callable, Mapping, Sequence
 
@@ -30,6 +31,8 @@ from .research import (
 
 DEFAULT_MODELS = ("deepseek-chat", "deepseek-v4-flash", "deepseek-flash")
 DEFAULT_API_URL = "https://api.deepseek.com/v1/chat/completions"
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "Ты — исследователь состава косметики. Тебе дан список скачанных страниц "
@@ -133,31 +136,28 @@ class LlmResearchProvider:
         return response.json()
 
     def _call(self, prompt: str) -> tuple[str, int, int]:
-        if self._post is not None:
-            data = self._post({"prompt": prompt})
+        if self._post is None and not self.api_key:
+            raise RuntimeError("LLM не настроен: нет DEEPSEEK_API_KEY")
+        last_error: Exception | None = None
+        data: Mapping = {}
+        for model in self.models:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.0,
+                "response_format": {"type": "json_object"},
+            }
+            try:
+                data = self._post(payload) if self._post is not None else self._http_post(payload)
+                break
+            except Exception as exc:  # noqa: BLE001 - try the next configured model
+                last_error = exc
+                logger.warning("[EVAL LLM] model=%s failed: %s", model, exc)
         else:
-            if not self.api_key:
-                raise RuntimeError("LLM не настроен: нет DEEPSEEK_API_KEY")
-            last_error: Exception | None = None
-            data = {}
-            for model in self.models:
-                try:
-                    data = self._http_post(
-                        {
-                            "model": model,
-                            "messages": [
-                                {"role": "system", "content": SYSTEM_PROMPT},
-                                {"role": "user", "content": prompt},
-                            ],
-                            "temperature": 0.0,
-                            "response_format": {"type": "json_object"},
-                        }
-                    )
-                    break
-                except Exception as exc:  # noqa: BLE001 - try the next model
-                    last_error = exc
-            else:
-                raise RuntimeError(f"модели недоступны: {last_error}")
+            raise RuntimeError(f"модели недоступны: {last_error}")
         try:
             content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:

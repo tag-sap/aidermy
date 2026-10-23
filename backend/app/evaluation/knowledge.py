@@ -151,10 +151,19 @@ def load_product_knowledge(
     source_urls = collect_source_urls(
         product, {"source": source}, extra=tuple(seeds) + tuple(extra_sources)
     )
+    raw_name = str(product.get("name") or "")
+    name_parts = [part.strip() for part in raw_name.split("\n") if part.strip()]
+    display_name = " ".join(name_parts[1:]) if len(name_parts) >= 2 else raw_name.strip()
+    brand = str(product.get("brand") or "").strip()
+    if not brand and len(name_parts) >= 2:
+        brand = name_parts[0]
     return ProductKnowledge(
         product={
             "id": int(product.get("id") or product_id),
-            "name": str(product.get("name") or ""),
+            "name": display_name,
+            "brand": brand,
+            "url": str(product.get("url") or product.get("incidecoder_url") or ""),
+            "has_reliable_inci": len(_inci_tokens(inci_raw)) >= 2,
         },
         composition=composition,
         source_urls=source_urls,

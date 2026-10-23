@@ -116,17 +116,17 @@ def has_reliable_inci(product: Optional[Dict[str, Any]]) -> bool:
     return len(ings) >= 2
 
 
-async def _search_product_urls(brand: str, name: str, variant: Optional[str] = None) -> list[str]:
-    """Ищет URL-кандидаты страницы продукта (best-effort, без API-ключа).
+async def search_web_urls(query: str, *, limit: int = 10) -> list[str]:
+    """Публичный органический поиск: возвращает только URL, без разбора INCI.
 
-    Возвращает список органических URL в порядке релевантности. INCI из поисковой
-    выдачи не извлекается — только URL. Пропускает рекламные результаты.
+    Использует тот же DuckDuckGo HTML-механизм (UA, retry/backoff, фильтр
+    рекламы), что и поиск карточки продукта. Нужен слою исследования Evaluation
+    V2, чтобы находить дополнительные страницы, а не только известные ссылки.
     """
-    query = " ".join(x for x in (brand, name, variant) if x and x.strip()).strip()
+    query = " ".join(str(query or "").split())
     if not query:
         return []
     found: list[str] = []
-    # DuckDuckGo периодически возвращает 202 (антибот) — пробуем несколько раз с backoff.
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=8.0), follow_redirects=True) as client:
@@ -149,6 +149,8 @@ async def _search_product_urls(brand: str, name: str, variant: Optional[str] = N
                     continue  # пропускаем рекламу
                 if url not in found:
                     found.append(url)
+                if len(found) >= limit:
+                    break
             if found:
                 break
             logger.warning("[WEBSEARCH] no organic URLs (attempt %d) query=%r", attempt + 1, query)
@@ -157,7 +159,19 @@ async def _search_product_urls(brand: str, name: str, variant: Optional[str] = N
         if attempt < 2:
             await asyncio.sleep(1.5 * (attempt + 1))
     logger.info("[WEBSEARCH] query=%r -> %d urls", query, len(found))
-    return found
+    return found[: max(0, int(limit))]
+
+
+async def _search_product_urls(brand: str, name: str, variant: Optional[str] = None) -> list[str]:
+    """Ищет URL-кандидаты страницы продукта (best-effort, без API-ключа).
+
+    Возвращает список органических URL в порядке релевантности. INCI из поисковой
+    выдачи не извлекается — только URL. Пропускает рекламные результаты.
+    """
+    query = " ".join(x for x in (brand, name, variant) if x and x.strip()).strip()
+    if not query:
+        return []
+    return await search_web_urls(query, limit=10)
 
 
 async def _search_product_url(brand: str, name: str, variant: Optional[str] = None) -> Optional[str]:
@@ -235,6 +249,11 @@ def _prioritize_product_urls(urls: list[str], brand: str) -> list[str]:
         return 3
 
     return sorted(urls, key=rank)
+
+
+def prioritize_urls(urls: list[str], brand: str) -> list[str]:
+    """Public alias for the existing product-URL ranking (brand → INCIDecoder → retail)."""
+    return _prioritize_product_urls(urls, brand)
 
 
 async def web_search_product(

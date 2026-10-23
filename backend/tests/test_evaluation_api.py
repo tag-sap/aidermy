@@ -523,6 +523,194 @@ class AnalyzeEndpointTests(unittest.TestCase):
         self.assertEqual(response.json()["analysis"]["status"], "blocked")
 
 
+class ProductEndpointTests(unittest.TestCase):
+    """Catalog product path: status -> analyze (no spend) -> admin research."""
+
+    URL = "https://brand.example/serum"
+    PAGE = (
+        "Ingredient list: Aqua, Glycerin, Niacinamide. Glycerin helps keep the skin "
+        "hydrated and supports the skin barrier. The formula is suitable for dry skin."
+    )
+    QUOTES = {
+        "problem:dryness": "Glycerin helps keep the skin hydrated",
+        "skin_type:dry": "suitable for dry skin",
+    }
+
+    def _loader(self, ingredients: str = "Aqua, Glycerin, Niacinamide"):
+        return lambda product_id: {
+            "id": product_id,
+            "name": "Brand\nSerum",
+            "brand": "Brand",
+            "ingredients": ingredients,
+            "url": self.URL,
+        }
+
+    def _provider(self):
+        from app.evaluation.research import candidate, ok
+
+        quotes = dict(self.QUOTES)
+
+        class Provider:
+            name = "fake-documents"
+
+            def __init__(self):
+                self.calls = []
+
+            def research(self, request):
+                self.calls.append(request)
+                document = request.documents[0]
+                return ok(
+                    candidate(
+                        parameter_id=request.parameter_id,
+                        claim="Подтверждено источником",
+                        quote=quotes[request.parameter_id],
+                        url=document.url,
+                        source_text=document.text,
+                        retrieved_at=document.retrieved_at,
+                        provenance=document.provenance,
+                    ),
+                    score=75,
+                )
+
+        return Provider()
+
+    def _search(self):
+        class Search:
+            name = "fake-search"
+
+            def __init__(self):
+                self.queries = []
+
+            def search(self, query, *, limit=5):
+                self.queries.append(query)
+                return ()
+
+        return Search()
+
+    def _wired(self, *, admin=True, ingredients="Aqua, Glycerin, Niacinamide"):
+        from app.evaluation.documents import FakeDocumentFetcher
+
+        client, store, app = make_client(admin=admin)
+        provider = self._provider()
+        search = self._search()
+        app.state.evaluation_product_loader = self._loader(ingredients)
+        app.state.evaluation_research_provider = provider
+        app.state.evaluation_document_fetcher = FakeDocumentFetcher({self.URL: self.PAGE})
+        app.state.evaluation_source_search = search
+        app.state.evaluation_allow_synthetic_evidence = True
+        return client, store, app, provider, search
+
+    def test_status_reports_known_and_missing_parameters(self):
+        client, store, _, provider, search = self._wired()
+        response = client.post("/api/v1/evaluation/products/1/status", json={"profile": PROFILE})
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["product"]["brand"], "Brand")
+        self.assertEqual(body["product"]["name"], "Serum")
+        self.assertEqual(body["analysis"]["status"], "blocked")
+        self.assertEqual(len(body["analysis"]["gaps"]), 2)
+        self.assertIn(self.URL, body["source_urls"])
+        self.assertEqual(provider.calls, [])
+        self.assertEqual(search.queries, [])
+
+    def test_analyze_does_not_verify_the_composition_or_spend(self):
+        client, store, _, provider, search = self._wired()
+        response = client.post(
+            "/api/v1/evaluation/products/1/analyze",
+            json={"profile": PROFILE, "verify_catalog_inci": True},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["analysis"]["status"], "blocked")
+        self.assertFalse(body["analysis"]["is_final"])
+        self.assertEqual(provider.calls, [])
+        self.assertEqual(search.queries, [])
+
+    def test_admin_research_verifies_catalog_inci_and_completes(self):
+        client, store, _, provider, search = self._wired()
+        response = client.post(
+            "/api/v1/evaluation/products/1/research", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["composition"]["status"], "active")
+        self.assertEqual(body["analysis"]["status"], "complete")
+        self.assertTrue(body["analysis"]["is_final"])
+        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertEqual(len(provider.calls), 2)
+        self.assertTrue(search.queries)
+
+    def test_admin_research_refuses_unreliable_inci(self):
+        client, store, _, provider, _ = self._wired(ingredients="Aqua")
+        response = client.post(
+            "/api/v1/evaluation/products/1/research", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(provider.calls, [])
+
+    def test_admin_research_requires_admin(self):
+        client, store, _, provider, _ = self._wired(admin=False)
+        response = client.post(
+            "/api/v1/evaluation/products/1/research", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(provider.calls, [])
+
+    def test_configure_evaluation_makes_the_http_path_work(self):
+        from app.evaluation.documents import FakeDocumentFetcher
+        from app.evaluation.runtime import configure_evaluation
+
+        app = FastAPI()
+        configure_evaluation(
+            app,
+            store=InMemoryStore(),
+            provider=self._provider(),
+            fetcher=FakeDocumentFetcher({self.URL: self.PAGE}),
+            search=self._search(),
+            allow_synthetic_evidence=True,
+        )
+        app.state.evaluation_product_loader = self._loader()
+        app.dependency_overrides[get_current_user] = lambda: {"id": 1}
+        app.dependency_overrides[require_admin] = lambda: None
+        response = TestClient(app).post(
+            "/api/v1/evaluation/products/1/research", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["analysis"]["status"], "complete")
+        self.assertEqual(body["snapshot"]["total"], 75)
+        self.assertTrue(body["analysis"]["is_final"])
+
+    def test_research_after_status_upgrades_the_unverified_composition(self):
+        client, store, _, provider, _ = self._wired()
+        status = client.post(
+            "/api/v1/evaluation/products/1/status", json={"profile": PROFILE}
+        )
+        self.assertEqual(status.status_code, 200, status.text)
+        self.assertEqual(status.json()["composition"]["status"], "unverified")
+
+        research = client.post(
+            "/api/v1/evaluation/products/1/research", json={"profile": PROFILE}
+        )
+        self.assertEqual(research.status_code, 200, research.text)
+        body = research.json()
+        self.assertEqual(body["composition"]["status"], "active")
+        self.assertEqual(body["analysis"]["status"], "complete")
+        self.assertTrue(body["analysis"]["is_final"])
+        self.assertEqual(len(provider.calls), 2)
+
+    def test_health_reports_wiring(self):
+        client, _, _, _, _ = self._wired()
+        response = client.get("/api/v1/evaluation/health")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["storage"]["configured"])
+        self.assertEqual(body["research"]["provider"], "fake-documents")
+        self.assertEqual(body["research"]["fetcher"], "fake")
+        self.assertEqual(body["research"]["search"], "fake-search")
+        self.assertIn("schema", body)
+
+
 class RuntimeWiringTests(unittest.TestCase):
     def test_provider_is_absent_without_a_key(self):
         from app.evaluation.runtime import build_research_provider
@@ -543,6 +731,18 @@ class RuntimeWiringTests(unittest.TestCase):
         self.assertEqual(build_document_fetcher().name, "http")
 
     def test_configure_evaluation_attaches_everything_and_registers_routes(self):
+        from app.evaluation.runtime import configure_evaluation
+
+        app = FastAPI()
+        store = InMemoryStore()
+        configure_evaluation(app, store=store, provider=None, fetcher=None)
+        self.assertIs(app.state.evaluation_store, store)
+        self.assertFalse(app.state.evaluation_allow_synthetic_evidence)
+        app.dependency_overrides[get_current_user] = lambda: {"id": 1}
+        response = TestClient(app).post(
+            "/api/v1/evaluation/analyze", json={"profile": PROFILE}
+        )
+        self.assertEqual(response.status_code, 422)
         from app.evaluation.runtime import configure_evaluation
 
         app = FastAPI()

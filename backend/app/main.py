@@ -123,6 +123,25 @@ setup_admin_routes(app)
 setup_calibration_routes(app)
 setup_report_prompt_routes(app)
 
+# Evaluation V2: новая механика анализа. Хранилище/провайдер/загрузчик подключаются
+# из окружения; отсутствие Supabase или ключа не роняет приложение — эндпоинты
+# честно отвечают 503, а схема БД только проверяется (миграции не применяются).
+try:
+    from .evaluation.runtime import configure_evaluation, evaluation_schema_status
+
+    if os.getenv("AIDERMY_EVALUATION_ENABLED", "1").strip().lower() in {"0", "false", "no"}:
+        logger.info("[EVALUATION] disabled by AIDERMY_EVALUATION_ENABLED")
+    else:
+        configure_evaluation(app)
+        _evaluation_schema = evaluation_schema_status()
+        if _evaluation_schema.get("configured") and not _evaluation_schema.get("ready"):
+            logger.warning(
+                "[EVALUATION] schema is not ready, missing tables: %s",
+                ", ".join(_evaluation_schema.get("missing_tables") or []),
+            )
+except Exception as exc:  # noqa: BLE001 - readiness must not break the app
+    logger.exception("[EVALUATION] setup failed: %s", exc)
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "deepseek": "connected" if DEEPSEEK_API_KEY else "missing"}

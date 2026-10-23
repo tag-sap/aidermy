@@ -4,8 +4,9 @@ This is the mechanic the product needs, in one place:
 
   1. load the product and its composition (optionally from the Aidermy catalog);
   2. scan EVERY questionnaire parameter and collect the full gap set;
-  3. research the gaps together: fetch pages once, answer each parameter from the
-     same documents, keep each parameter's own result;
+  3. research the gaps together: discover pages with the project's search, fetch
+     each page once, answer each parameter from the same documents, keep each
+     parameter's own result;
   4. assemble the report and state honestly whether it is final.
 
 The service never invents a score and never marks an unfinished or failed analysis
@@ -13,11 +14,13 @@ as a finished report: that decision belongs to ``gaps.analysis_state``.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
 
 from .gaps import AnalysisState, analysis_state
+from .documents import MAX_DOCUMENTS_PER_SESSION
 from .freshness import DEFAULT_REVIEW_AFTER_DAYS
 from .knowledge import (
     KnowledgeUnavailable,
@@ -35,6 +38,10 @@ from .research_service import (
 from .rules import RuleSet, get_rules
 from .service import DEFAULT_METHOD_VERSION, EvaluationService
 from .store import COMPOSITION_ACTIVE, EvaluationStore
+from .websearch import SourceSearch
+
+
+logger = logging.getLogger(__name__)
 
 
 class AnalysisUnavailable(RuntimeError):
@@ -99,21 +106,29 @@ class AnalysisService:
         *,
         provider: ResearchProvider | None = None,
         fetcher=None,
+        search: SourceSearch | None = None,
         rules: RuleSet | None = None,
         method_version: str = DEFAULT_METHOD_VERSION,
         max_age_days: int | None = None,
         review_after_days: int | None = DEFAULT_REVIEW_AFTER_DAYS,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        max_documents: int = MAX_DOCUMENTS_PER_SESSION,
+        max_cost_per_job: float = 0.50,
+        max_cost_per_run: float = 5.00,
         allow_synthetic_evidence: bool = False,
     ) -> None:
         self.store = store
         self.provider = provider
         self.fetcher = fetcher
+        self.search = search
         self.rules = rules or get_rules()
         self.method_version = method_version
         self.max_age_days = max_age_days
         self.review_after_days = review_after_days
         self.max_attempts = max_attempts
+        self.max_documents = max_documents
+        self.max_cost_per_job = max_cost_per_job
+        self.max_cost_per_run = max_cost_per_run
         self.allow_synthetic_evidence = allow_synthetic_evidence
         self._evaluation = EvaluationService(
             store,
@@ -143,6 +158,15 @@ class AnalysisService:
             raise AnalysisUnavailable("product.id is required")
 
         record = self._evaluation.ensure_composition(int(product_id), composition)
+        # An existing record may have been registered earlier as unverified (e.g.
+        # by /status). An explicit verification must upgrade it, otherwise the
+        # analysed composition stays blocked forever.
+        if composition.get("verified_at") and str(record.get("status") or "") != COMPOSITION_ACTIVE:
+            record = self.store.verify_composition(
+                int(record["id"]),
+                str(composition["verified_at"]),
+                str(composition.get("source") or ""),
+            )
         composition_hash = str(record["composition_hash"])
         blocked = str(record.get("status") or "") != COMPOSITION_ACTIVE
 
@@ -195,6 +219,26 @@ class AnalysisService:
                 extra_notes=extra_notes,
             )
 
+        logger.info(
+            "[EVALUATION] product=%s composition=%s status=%s final=%s assessed=%d "
+            "gaps=%d failed=%d docs_fetched=%d docs_reused=%d research=%s",
+            product_id,
+            composition_hash[:12],
+            state.status,
+            state.is_final,
+            len(state.assessed_parameters),
+            len(state.gaps),
+            len(state.failed_parameters),
+            state.documents_fetched,
+            state.documents_reused,
+            bool(research),
+        )
+        if state.gaps:
+            logger.info(
+                "[EVALUATION] gaps: %s",
+                ", ".join(f"{gap.parameter_id}:{gap.reason}" for gap in state.gaps),
+            )
+
         return AnalysisReport(
             product={
                 "id": int(product_id),
@@ -229,8 +273,14 @@ class AnalysisService:
         now: datetime | None = None,
         product_loader: Callable[[int], Mapping | None] | None = None,
         repository=None,
+        verify_catalog_inci: bool = False,
     ) -> AnalysisReport:
-        """Analyze an existing Aidermy product (catalog + INCI + known sources)."""
+        """Analyze an existing Aidermy product (catalog + INCI + known sources).
+
+        ``verify_catalog_inci`` is an explicit (admin) decision to treat the
+        catalog INCI as the confirmed formula. It is refused when the record has
+        no reliable INCI or no source URL, and it is recorded with its basis.
+        """
         try:
             knowledge = load_product_knowledge(
                 product_id,
@@ -244,6 +294,33 @@ class AnalysisService:
             raise
         except KnowledgeUnavailable as exc:
             raise AnalysisUnavailable(str(exc)) from exc
+
+        notes = list(knowledge.notes)
+        composition = dict(knowledge.composition)
+        if verify_catalog_inci and not composition.get("verified_at"):
+            source = str(composition.get("source") or "")
+            if not knowledge.product.get("has_reliable_inci"):
+                raise AnalysisUnavailable(
+                    "состав продукта нельзя подтвердить автоматически: в каталоге нет "
+                    "надёжного INCI (нужно минимум два ингредиента)"
+                )
+            if not source.startswith(("http://", "https://")):
+                raise AnalysisUnavailable(
+                    "состав продукта нельзя подтвердить автоматически: у карточки нет "
+                    "ссылки-источника состава"
+                )
+            stamp = (now or datetime.now(timezone.utc)).isoformat()
+            composition["verified_at"] = stamp
+            notes.append(
+                f"Состав подтверждён администратором по данным каталога Aidermy "
+                f"(источник: {source}) в {stamp}."
+            )
+        knowledge = ProductKnowledge(
+            product=dict(knowledge.product),
+            composition=composition,
+            source_urls=knowledge.source_urls,
+            notes=tuple(notes),
+        )
         return self.analyze(
             product=knowledge.product,
             composition=knowledge.composition,
@@ -267,5 +344,9 @@ class AnalysisService:
             review_after_days=self.review_after_days,
             allow_synthetic_evidence=self.allow_synthetic_evidence,
             fetcher=self.fetcher,
+            search=self.search,
+            max_documents=self.max_documents,
+            max_cost_per_job=self.max_cost_per_job,
+            max_cost_per_run=self.max_cost_per_run,
         )
 

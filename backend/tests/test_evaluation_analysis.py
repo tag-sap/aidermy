@@ -352,6 +352,115 @@ class SnapshotAnalysisTests(unittest.TestCase):
         self.assertIsNone(report.research)
 
 
+class FakeSearch:
+    """Deterministic search adapter: returns configured URLs per query."""
+
+    name = "fake-search"
+
+    def __init__(self, results, *, fail=False):
+        self.results = list(results)
+        self.fail = fail
+        self.queries: list[str] = []
+
+    def search(self, query, *, limit=5):
+        self.queries.append(query)
+        if self.fail:
+            raise RuntimeError("search unavailable")
+        return tuple(self.results[:limit])
+
+
+class SearchIntegrationTests(unittest.TestCase):
+    EXTRA_URL = "https://review.example/serum"
+    EXTRA_TEXT = (
+        "Review: the serum with Aqua, Glycerin and Niacinamide. Glycerin helps keep "
+        "the skin hydrated. It is suitable for dry skin."
+    )
+
+    def _service(self, search, *, max_documents=4):
+        store = InMemoryStore()
+        provider = DocumentProvider()
+        fetcher = FakeDocumentFetcher({URL: PAGE_TEXT, self.EXTRA_URL: self.EXTRA_TEXT})
+        service = AnalysisService(
+            store,
+            provider=provider,
+            fetcher=fetcher,
+            search=search,
+            allow_synthetic_evidence=True,
+            max_documents=max_documents,
+        )
+        return store, provider, fetcher, service
+
+    def test_search_finds_additional_pages_for_the_same_session(self):
+        search = FakeSearch([self.EXTRA_URL])
+        store, provider, fetcher, service = self._service(search)
+        report = run(service)
+        self.assertTrue(search.queries)
+        self.assertTrue(any("ingredients" in query.lower() for query in search.queries))
+        self.assertIn(self.EXTRA_URL, fetcher.calls)
+        self.assertIn(URL, fetcher.calls)
+        self.assertEqual(report.analysis.status, "complete")
+        # both parameters were answered from the shared document set
+        for request in provider.calls:
+            urls = {document.url for document in request.documents}
+            self.assertIn(URL, urls)
+
+    def test_search_results_are_deduplicated_with_known_urls(self):
+        search = FakeSearch([URL, self.EXTRA_URL])
+        store, provider, fetcher, service = self._service(search)
+        run(service)
+        self.assertEqual(fetcher.calls.count(URL), 1)
+        composition_id = store.get_composition(
+            PRODUCT["id"], COMPOSITION["composition_hash"]
+        )["id"]
+        self.assertEqual(len(store.documents_for(composition_id)), 2)
+
+    def test_document_limit_applies_to_search_results(self):
+        search = FakeSearch(
+            [
+                "https://one.example/p",
+                "https://two.example/p",
+                "https://three.example/p",
+            ]
+        )
+        store = InMemoryStore()
+        fetcher = FakeDocumentFetcher(
+            {
+                URL: PAGE_TEXT,
+                "https://one.example/p": PAGE_TEXT + " One.",
+                "https://two.example/p": PAGE_TEXT + " Two.",
+                "https://three.example/p": PAGE_TEXT + " Three.",
+            }
+        )
+        service = AnalysisService(
+            store,
+            provider=DocumentProvider(),
+            fetcher=fetcher,
+            search=search,
+            allow_synthetic_evidence=True,
+            max_documents=2,
+        )
+        run(service)
+        composition_id = store.get_composition(
+            PRODUCT["id"], COMPOSITION["composition_hash"]
+        )["id"]
+        self.assertLessEqual(len(store.documents_for(composition_id)), 2)
+
+    def test_search_failure_does_not_break_the_analysis(self):
+        search = FakeSearch([self.EXTRA_URL], fail=True)
+        store, provider, fetcher, service = self._service(search)
+        report = run(service)
+        self.assertEqual(report.analysis.status, "complete")
+        self.assertTrue(any("поиск" in note for note in report.analysis.notes))
+
+    def test_search_is_not_repeated_when_knowledge_is_complete(self):
+        search = FakeSearch([self.EXTRA_URL])
+        store, provider, fetcher, service = self._service(search)
+        run(service)
+        calls = len(search.queries)
+        run(service)
+        self.assertEqual(len(search.queries), calls)
+
+
 if __name__ == "__main__":
     unittest.main()
 
