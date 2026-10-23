@@ -129,7 +129,10 @@ cd figma-make-preview
 VITE_EVALUATION_V2=1 npm run build
 ```
 
-Без переменной (`VITE_EVALUATION_V2` не задана) панель не рендерится и поведение
+Для production флаг закреплён в `figma-make-preview/.env.production`
+(`VITE_EVALUATION_V2=1`), поэтому обычный `npm run build` / `pnpm build` из
+`start.sh` не выключит панель. В сборках без этого файла и без переменной
+(`VITE_EVALUATION_V2` не задана) панель не рендерится, поведение
 сайта не меняется. Перед включением убедитесь, что backend V2 развёрнут и
 `/api/v1/evaluation/health` отвечает 200.
 

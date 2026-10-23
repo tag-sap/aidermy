@@ -31,3 +31,6 @@ calibration/
 # local deployment scratch (never commit)
 _deploy_tmp/
 wip_manifest.json
+
+# public build-time flags (no secrets)
+!figma-make-preview/.env.production
