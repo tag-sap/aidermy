@@ -15,6 +15,7 @@ Design boundaries:
 from __future__ import annotations
 
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -69,6 +70,11 @@ DEFAULT_MAX_COST_PER_RUN = 5.00
 
 COMPOSITION_ACTIVE = "active"
 logger = logging.getLogger(__name__)
+
+# A per-process ceiling on simultaneous paid provider calls. Per-run
+# ``max_concurrency`` protects one report; this protects the provider from a
+# burst of concurrent reports (FastAPI runs sync endpoints in a thread pool).
+_PROVIDER_SLOTS = threading.BoundedSemaphore(8)
 
 
 @dataclass(frozen=True)
@@ -496,7 +502,7 @@ class ResearchService:
                 (
                     job,
                     executor.submit(
-                        self._process_job,
+                        self._run_provider_job,
                         job,
                         product=product,
                         composition=composition,
@@ -697,6 +703,26 @@ class ResearchService:
             "category_purpose": str(category.get("intended_purpose") or ""),
             "category_guidance": str(category.get("report_guidance") or ""),
         }
+
+    def _run_provider_job(
+        self,
+        job: Mapping,
+        *,
+        product: Mapping,
+        composition: Mapping,
+        parameter: Parameter,
+        documents: Sequence[SourceDocument] = (),
+        context: Mapping | None = None,
+    ) -> tuple[str, float, int, int, tuple[SourceDocument, ...]]:
+        with _PROVIDER_SLOTS:
+            return self._process_job(
+                job,
+                product=product,
+                composition=composition,
+                parameter=parameter,
+                documents=documents,
+                context=context,
+            )
 
     def _process_job(
         self,
