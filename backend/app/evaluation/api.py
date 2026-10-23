@@ -20,9 +20,11 @@ downloads, search and LLM calls must not block the event loop.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -144,11 +146,42 @@ def _analysis_service(request: Request) -> AnalysisService:
     )
 
 
-_admin_security = HTTPBasic()
+_admin_security = HTTPBasic(auto_error=False)
 
 
-def require_admin(credentials: HTTPBasicCredentials = Depends(_admin_security)) -> None:
-    """Reuse the admin credentials check from the existing admin routes."""
+def require_admin(
+    credentials: HTTPBasicCredentials | None = Depends(_admin_security),
+    x_admin_authorization: str | None = Header(
+        default=None, alias="X-Admin-Authorization"
+    ),
+) -> None:
+    """Reuse the admin credentials check from the existing admin routes.
+
+    FastAPI's ``HTTPBasic`` and ``OAuth2PasswordBearer`` both read the same
+    ``Authorization`` header. An endpoint that needs a user JWT *and* admin
+    credentials therefore cannot be called with a plain Basic header: it would
+    replace the Bearer token. Admin clients may send the Basic value in
+    ``X-Admin-Authorization`` instead, keeping ``Authorization: Bearer ...`` for
+    the user. The standard ``Authorization: Basic ...`` form keeps working when
+    the endpoint does not also require a user.
+    """
+    if credentials is None and x_admin_authorization:
+        scheme, _, value = x_admin_authorization.partition(" ")
+        if scheme.lower() == "basic" and value:
+            try:
+                decoded = base64.b64decode(value, validate=True).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError, ValueError):
+                decoded = ""
+            username, separator, password = decoded.partition(":")
+            if separator:
+                credentials = HTTPBasicCredentials(username=username, password=password)
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
     from ..admin_routes import verify_admin
 
     verify_admin(credentials)

@@ -1,9 +1,10 @@
 """API tests for `/api/v1/evaluation` using TestClient + in-memory storage."""
 from __future__ import annotations
 
+import base64
 import unittest
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user, get_current_user_optional
@@ -755,6 +756,47 @@ class RuntimeWiringTests(unittest.TestCase):
             "/api/v1/evaluation/analyze", json={"profile": PROFILE}
         )
         self.assertEqual(response.status_code, 422)
+
+
+class AdminAuthHeaderTests(unittest.TestCase):
+    """The research endpoint needs a Bearer user and admin credentials at once."""
+
+    @staticmethod
+    def _client() -> TestClient:
+        app = FastAPI()
+
+        @app.get("/admin-only")
+        def admin_only(_: None = Depends(require_admin)) -> dict:
+            return {"ok": True}
+
+        return TestClient(app)
+
+    @staticmethod
+    def _basic() -> str:
+        return "Basic " + base64.b64encode(b"admin:aidermy2026").decode()
+
+    def test_standard_basic_header_still_works(self):
+        response = self._client().get("/admin-only", headers={"Authorization": self._basic()})
+        self.assertEqual(response.status_code, 200)
+
+    def test_x_admin_header_coexists_with_bearer_user(self):
+        response = self._client().get(
+            "/admin-only",
+            headers={
+                "Authorization": "Bearer user-token",
+                "X-Admin-Authorization": self._basic(),
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_missing_admin_credentials_are_401(self):
+        response = self._client().get("/admin-only")
+        self.assertEqual(response.status_code, 401)
+
+    def test_wrong_admin_credentials_are_401(self):
+        bad = "Basic " + base64.b64encode(b"admin:wrong").decode()
+        response = self._client().get("/admin-only", headers={"X-Admin-Authorization": bad})
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":
