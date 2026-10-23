@@ -3537,3 +3537,5 @@ select:focus-visible,
 .evalv2__evidence span { display: block; opacity: .85; }
 .evalv2__evidence a { color: inherit; word-break: break-all; }
 
+
+.evalv2__inci { overflow-wrap: anywhere; }
