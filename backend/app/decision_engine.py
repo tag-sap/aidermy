@@ -104,12 +104,21 @@ def profile_weights(profile: Dict[str, Any], skin_type: str = "") -> Dict[str, f
 
 
 def build_verdict(score: int) -> str:
-    """Детерминированный verdict, согласованный со score."""
-    if score >= VERDICT_GOOD:
-        return "Подходит"
-    if score >= VERDICT_CAUTION:
-        return "Требует внимания"
-    return "Не рекомендуется"
+    """Детерминированный пользовательский verdict по той же шкале, что и UI.
+
+    Порог считается по уже готовому compatibility score; сам score и его
+    агрегация не меняются. Пять уровней совпадают с mapping.ts и V2.
+    """
+    value = max(0, min(100, int(score)))
+    if value >= 80:
+        return "Отлично подходит"
+    if value >= 60:
+        return "Хорошо подходит"
+    if value >= 40:
+        return "Подходит частично"
+    if value >= 20:
+        return "Слабо подходит"
+    return "Не подходит"
 
 
 def build_summary(

@@ -64,9 +64,12 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertIn("подходит", high)
 
     def test_verdict_thresholds(self):
-        self.assertEqual(build_verdict(80), "Подходит")
-        self.assertEqual(build_verdict(55), "Требует внимания")
-        self.assertEqual(build_verdict(20), "Не рекомендуется")
+        self.assertEqual(build_verdict(80), "Отлично подходит")
+        self.assertEqual(build_verdict(55), "Подходит частично")
+        self.assertEqual(build_verdict(20), "Слабо подходит")
+        self.assertEqual(build_verdict(19), "Не подходит")
+        self.assertEqual(build_verdict(60), "Хорошо подходит")
+        self.assertEqual(build_verdict(40), "Подходит частично")
 
     def test_priorities_boost_sensitivity_for_sensitive_profile(self):
         weights = priorities_for_profile({"skin_type": "Чувствительная", "concerns": []}, "Чувствительная")

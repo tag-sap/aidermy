@@ -86,9 +86,10 @@ function toMatch(a: {
     !a.recommendation_status
   ) return undefined
 
+  const score = typeof a.score === "number" ? a.score : null
   return {
-    score: typeof a.score === "number" ? a.score : null,
-    verdict: normalizeVerdict(a.verdict) || undefined,
+    score,
+    verdict: normalizeVerdict(a.verdict) || mapVerdict(score) || undefined,
     summary: a.summary || undefined,
     safe_ingredients: a.safe_ingredients || undefined,
     caution_ingredients: a.caution_ingredients || undefined,
