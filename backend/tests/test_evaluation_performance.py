@@ -95,6 +95,43 @@ class FailingProvider:
         raise AssertionError(f"unexpected research call: {request.parameter_id}")
 
 
+class BarrierSearch:
+    """The first search and the known-page fetch must run concurrently."""
+
+    def __init__(self) -> None:
+        self.barrier = threading.Barrier(2, timeout=2)
+        self.lock = threading.Lock()
+        self.calls = 0
+        self.overlapped = False
+
+    def search(self, query, *, limit=5):
+        with self.lock:
+            self.calls += 1
+            first = self.calls == 1
+        if first:
+            try:
+                self.barrier.wait()
+                self.overlapped = True
+            except threading.BrokenBarrierError:
+                pass
+        return ()
+
+
+class BarrierFetcher(FakeDocumentFetcher):
+    def __init__(self, pages, *, barrier: threading.Barrier) -> None:
+        super().__init__(pages)
+        self.barrier = barrier
+        self.overlapped = False
+
+    def fetch(self, url):
+        try:
+            self.barrier.wait()
+            self.overlapped = True
+        except threading.BrokenBarrierError:
+            pass
+        return super().fetch(url)
+
+
 class EvaluationPerformanceTests(unittest.TestCase):
     def _service(self, store, provider, *, concurrency: int = 4) -> AnalysisService:
         return AnalysisService(
@@ -130,6 +167,25 @@ class EvaluationPerformanceTests(unittest.TestCase):
         self.assertLess(report.timings["total_ms"], 750)
         self.assertEqual(store.counts.get("save_snapshot"), 1)
         self.assertEqual(store.counts.get("evidence_for_many"), 1)
+
+    def test_known_page_fetch_overlaps_with_search(self):
+        store = CountingStore()
+        search = BarrierSearch()
+        fetcher = BarrierFetcher({URL: PAGE}, barrier=search.barrier)
+        service = AnalysisService(
+            store,
+            provider=SleepingProvider(),
+            fetcher=fetcher,
+            search=search,
+            allow_synthetic_evidence=True,
+            max_concurrency=4,
+        )
+
+        report = self._run(service)
+
+        self.assertTrue(search.overlapped, "search did not start concurrently")
+        self.assertTrue(fetcher.overlapped, "known page fetch did not start concurrently")
+        self.assertEqual(report.analysis.status, "complete")
 
     def test_cached_recheck_reuses_snapshot_and_never_calls_provider(self):
         store = CountingStore()

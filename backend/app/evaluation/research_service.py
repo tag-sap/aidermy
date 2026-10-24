@@ -573,9 +573,11 @@ class ResearchService:
             collect_source_urls(product, composition, extra=tuple(source_urls))
         )
 
-        # Discover additional pages with the project's existing search, only when
-        # the known URLs are not enough to cover the gap set. Queries are
-        # independent and run in a bounded pool; the order of notes stays stable.
+        # Search and the known source URLs are independent. Run both in one
+        # bounded pool: waiting for DuckDuckGo before downloading a known
+        # product page adds its full latency to every first analysis, even when
+        # the search result is empty (202/antibot).
+        queries: list[str] = []
         if self.search is not None and len(library) < self.max_documents:
             queries = build_research_queries(
                 product=product,
@@ -583,54 +585,110 @@ class ResearchService:
                 parameter_labels=parameter_labels,
                 limit=self.max_queries,
             )
-            discovered: list[str] = []
-            if queries:
-                with ThreadPoolExecutor(
-                    max_workers=min(self.max_concurrency, len(queries)),
-                    thread_name_prefix="evaluation-search",
-                ) as executor:
-                    futures = [
-                        (
-                            query,
-                            executor.submit(
-                                self.search.search, query, limit=self.results_per_query
-                            ),
-                        )
-                        for query in queries
-                    ]
-                    for query, future in futures:
-                        if len(library) + len(discovered) >= self.max_documents:
-                            break
-                        try:
-                            found = future.result()
-                        except Exception as exc:  # noqa: BLE001 - search failures are data
-                            notes.append(
-                                f"поиск «{query}» не выполнен ({type(exc).__name__})"
-                            )
-                            continue
-                        if found:
-                            notes.append(f"поиск «{query}»: найдено {len(found)} URL")
-                        discovered.extend(found)
-            candidates.extend(prioritize_candidates(discovered, product))
-
-        # Fetch each candidate once, concurrently. Fetching is the most
-        # latency-sensitive independent operation of the first analysis.
-        unique_urls = [
+        max_attempts = max(1, self.max_documents * 2)
+        known_urls = [
             url
             for url in dict.fromkeys(candidates)
             if url and url not in library
-        ]
-        max_attempts = max(1, self.max_documents * 2)
-        unique_urls = unique_urls[:max_attempts]
+        ][:max_attempts]
+        discovered: list[str] = []
+        search_results: dict[str, tuple[str, ...]] = {}
+        search_errors: dict[str, Exception] = {}
+        known_documents: dict[str, SourceDocument] = {}
+        known_errors: dict[str, Exception] = {}
+        if queries or known_urls:
+            # Keep search and fetch in separate bounded pools. Sharing one
+            # pool lets four search tasks occupy every slot while the known
+            # product page waits; the two operations are independent and their
+            # latencies should overlap instead.
+            search_pool = ThreadPoolExecutor(
+                max_workers=min(self.max_concurrency, max(1, len(queries))),
+                thread_name_prefix="evaluation-search",
+            )
+            fetch_pool = ThreadPoolExecutor(
+                max_workers=min(self.max_concurrency, max(1, len(known_urls))),
+                thread_name_prefix="evaluation-fetch-known",
+            )
+            try:
+                search_futures = [
+                    (
+                        query,
+                        search_pool.submit(
+                            self.search.search, query, limit=self.results_per_query
+                        ),
+                    )
+                    for query in queries
+                ]
+                fetch_futures = (
+                    [
+                        (url, fetch_pool.submit(self.fetcher.fetch, url))
+                        for url in known_urls
+                    ]
+                    if self.fetcher is not None
+                    else []
+                )
+                for query, future in search_futures:
+                    try:
+                        found = future.result()
+                    except Exception as exc:  # noqa: BLE001 - search failures are data
+                        search_errors[query] = exc
+                        continue
+                    search_results[query] = tuple(found or ())
+                    discovered.extend(found or ())
+                for url, future in fetch_futures:
+                    try:
+                        known_documents[url] = future.result()
+                    except Exception as exc:  # noqa: BLE001 - fetch failures are data
+                        known_errors[url] = exc
+            finally:
+                search_pool.shutdown(wait=True)
+                fetch_pool.shutdown(wait=True)
+
+        for query in queries:
+            error = search_errors.get(query)
+            if error is not None:
+                notes.append(f"поиск «{query}» не выполнен ({type(error).__name__})")
+                continue
+            found = search_results.get(query) or ()
+            if found:
+                notes.append(f"поиск «{query}»: найдено {len(found)} URL")
+
         fetched_documents: list[SourceDocument] = []
-        if unique_urls and self.fetcher is not None:
+        for url in known_urls:
+            if len(library) >= self.max_documents:
+                notes.append(
+                    f"достигнут лимит источников на сессию ({self.max_documents})"
+                )
+                break
+            error = known_errors.get(url)
+            if isinstance(error, DocumentUnavailable):
+                notes.append(f"источник недоступен: {error.reason}")
+                continue
+            if error is not None:
+                notes.append(f"источник не загружен ({type(error).__name__})")
+                continue
+            document = known_documents.get(url)
+            if document is None or document.url in library:
+                continue
+            fetched_documents.append(document)
+            library.add(document)
+
+        # Search results are fetched only after the known URLs have been
+        # attempted. This preserves the old limit/order semantics while the
+        # searches themselves already ran concurrently with the known fetch.
+        extra_urls = [
+            url
+            for url in prioritize_candidates(discovered, product)
+            if url and url not in library
+        ][: max(0, max_attempts - len(known_urls))]
+        if extra_urls and self.fetcher is not None:
             with ThreadPoolExecutor(
-                max_workers=min(self.max_concurrency, len(unique_urls)),
+                max_workers=min(self.max_concurrency, len(extra_urls)),
                 thread_name_prefix="evaluation-fetch",
             ) as executor:
                 futures = [
                     (url, executor.submit(self.fetcher.fetch, url))
-                    for url in unique_urls
+                    for url in extra_urls
                 ]
                 for url, future in futures:
                     if len(library) >= self.max_documents:
