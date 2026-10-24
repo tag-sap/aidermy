@@ -1262,8 +1262,8 @@ function GuestResultScreen({ product, guestToken, onSignup, onLogin, onRestart }
   )
 }
 
-function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onBalance }: {
-  items: Product[]; checkingIds: Set<number>; loading?: boolean; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void; onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onBalance?: (balance: number) => void
+function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onBalance }: {
+  items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void; onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onBalance?: (balance: number) => void
 }) {
   const [active, setActive] = useState<CabinetKey>("face")
   const [selectMode, setSelectMode] = useState(false)
@@ -1422,7 +1422,7 @@ function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemov
 
       <div key={active} className="shelf-anim">
         <div className="shelf-summary">
-          <div><strong>{shelved.length}</strong><span>средств на полке</span></div>
+          <div><strong>{shelved.length}</strong><span>из {limit} средств на полке</span></div>
           <div><strong>{avg != null ? `${avg}%` : "—"}</strong><span>средняя совместимость</span></div>
           <div><strong>{shelfVerdict}</strong><span>как сочетаются средства</span></div>
         </div>
@@ -4195,7 +4195,7 @@ export default function App() {
                 onRestart={resetGuestFlow}
               />
             )}
-            {user && page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onBalance={(balance) => setUser((u) => (u ? { ...u, points: balance } : u))} />}
+            {user && page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} limit={PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onBalance={(balance) => setUser((u) => (u ? { ...u, points: balance } : u))} />}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} />}
