@@ -1318,7 +1318,8 @@ function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemov
       const result = await api.shelfRefresh({
         product_ids: ids,
         quoted_cost: refreshQuote.cost,
-        idempotency_key: `shelf-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        // Let the server derive the idempotency key from the same stale set.
+        // A double click must not create a second charge.
       })
       setRefreshMessage(
         result.failed.length > 0
