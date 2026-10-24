@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from app.evaluation.analysis import AnalysisService
+from app.evaluation.contracts import sha256_of
 from app.evaluation.documents import DocumentLibrary, FakeDocumentFetcher, SourceDocument
 from app.evaluation.evidence import validate_candidates
 from app.evaluation.knowledge import ProductKnowledge
@@ -379,6 +380,40 @@ class SavedReportTests(unittest.TestCase):
         self.assertEqual(provider.call_count(), calls)
         self.assertFalse(saved.research)
         self.assertTrue(saved.analysis.is_final)
+        self.assertEqual(
+            {row["parameter_id"] for row in saved.user_report()["personal_compatibility"]},
+            {"problem:dryness", "skin_type:dry"},
+        )
+
+    def test_saved_report_reopens_legacy_optional_fingerprint(self):
+        store = InMemoryStore()
+        provider = DocumentProvider()
+        service = make_service(store, provider, FakeDocumentFetcher({URL: PAGE_TEXT}))
+        run(service, user_id=1)
+        snapshot = next(iter(store._snapshots.values()))
+        legacy_profile = dict(snapshot["profile"])
+        legacy_profile.pop("goals", None)
+        legacy_profile.pop("unresolved_count", None)
+        legacy_profile.pop("intolerance_count", None)
+        legacy_profile["age"] = "25–35"
+        snapshot["profile"] = legacy_profile
+        content = {
+            key: value for key, value in snapshot.items()
+            if key not in {"snapshot_hash", "snapshot_id"}
+        }
+        snapshot["snapshot_hash"] = sha256_of(content)
+        knowledge = ProductKnowledge(
+            product=PRODUCT,
+            composition=COMPOSITION,
+            source_urls=(URL,),
+        )
+        calls = provider.call_count()
+        with patch("app.evaluation.analysis.load_product_knowledge", return_value=knowledge):
+            saved = service.saved_report(
+                product_id=PRODUCT["id"], profile=PROFILE, user_id=1
+            )
+        self.assertIsNotNone(saved)
+        self.assertEqual(provider.call_count(), calls)
         self.assertEqual(
             {row["parameter_id"] for row in saved.user_report()["personal_compatibility"]},
             {"problem:dryness", "skin_type:dry"},

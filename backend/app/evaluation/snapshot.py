@@ -41,6 +41,66 @@ def profile_fingerprint(profile: Mapping | None) -> dict:
     }
 
 
+def _fingerprint_text(value: Any) -> str:
+    return " ".join(str(value or "").replace("_", "-").replace("–", "-").replace("—", "-").split()).casefold()
+
+
+def _fingerprint_list(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, Mapping):
+        values = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = [value]
+    normalised: set[str] = set()
+    for item in values:
+        if isinstance(item, Mapping):
+            item = item.get("id") or item.get("type") or item.get("label") or ""
+        text = _fingerprint_text(item)
+        if text:
+            normalised.add(text)
+    return tuple(sorted(normalised))
+
+
+def profile_compatible(stored: Mapping | None, current: Mapping | None) -> bool:
+    """Compare saved and current profile signals without exact JSON quirks.
+
+    Fingerprints written by older releases may omit optional fields such as
+    ``goals`` or use a different age separator. Those differences alone must
+    not invalidate a report. Core fit signals (skin type, problems, therapy,
+    procedures) are required; optional signals are compared only when present
+    on both sides.
+    """
+    if not isinstance(stored, Mapping) or not isinstance(current, Mapping):
+        return False
+    for key in ("skin_type",):
+        if _fingerprint_text(stored.get(key)) != _fingerprint_text(current.get(key)):
+            return False
+    for key in ("problems", "therapy", "procedures"):
+        if _fingerprint_list(stored.get(key)) != _fingerprint_list(current.get(key)):
+            return False
+    for key in ("age",):
+        left, right = _fingerprint_text(stored.get(key)), _fingerprint_text(current.get(key))
+        if left and right and left != right:
+            return False
+    for key in ("goals",):
+        if key in stored and key in current:
+            if _fingerprint_list(stored.get(key)) != _fingerprint_list(current.get(key)):
+                return False
+    for key in ("intolerance_count", "unresolved_count"):
+        if key in stored and key in current:
+            try:
+                if int(stored.get(key) or 0) != int(current.get(key) or 0):
+                    return False
+            except (TypeError, ValueError):
+                return False
+    return True
+
+
 def _iso(value: Any) -> str:
     """Normalise DB datetimes and strings to one canonical ISO representation."""
     if value is None or value == "":

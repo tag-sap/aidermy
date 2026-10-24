@@ -202,6 +202,12 @@ export function setUserProfile(p: Partial<typeof _userProfile>) {
   if (p.allergies) _userProfile.allergies = p.allergies
   if (p.intolerances) _userProfile.intolerances = p.intolerances
   if (p.structured !== undefined) _userProfile.structured = p.structured
+  // Profile loading is async and this module store is not React state. Notify
+  // the mounted app so an open product drawer reloads the saved-report lookup
+  // with the real profile instead of an empty initial one.
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("aidermy-profile-updated"))
+  }
 }
 
 export function getUserProfile() {

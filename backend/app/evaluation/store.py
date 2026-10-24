@@ -21,6 +21,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from .contracts import ParameterEvaluation
 from .evidence import Evidence
+from .snapshot import profile_compatible
 
 
 class StoreError(RuntimeError):
@@ -228,11 +229,22 @@ class InMemoryStore:
             and str((snapshot.get("composition") or {}).get("hash") or "")
             == str(composition_hash)
             and snapshot.get("user_id") == user_id
-            and snapshot.get("profile") == dict(profile_fingerprint)
         ]
         if not candidates:
             return None
-        return max(candidates, key=lambda item: str(item.get("created_at") or ""))
+        exact = [
+            snapshot for snapshot in candidates
+            if snapshot.get("profile") == dict(profile_fingerprint)
+        ]
+        if exact:
+            return max(exact, key=lambda item: str(item.get("created_at") or ""))
+        compatible = [
+            snapshot for snapshot in candidates
+            if profile_compatible(snapshot.get("profile"), profile_fingerprint)
+        ]
+        if not compatible:
+            return None
+        return max(compatible, key=lambda item: str(item.get("created_at") or ""))
 
     def snapshot_count(self) -> int:
         return len(self._snapshots)

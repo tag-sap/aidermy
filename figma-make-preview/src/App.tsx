@@ -3575,7 +3575,13 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [toast, setToast] = useState("")
   const [shelfLoading, setShelfLoading] = useState(false)
+  const [, setProfileVersion] = useState(0)
 
+  useEffect(() => {
+    const refreshProfile = () => setProfileVersion((value) => value + 1)
+    window.addEventListener("aidermy-profile-updated", refreshProfile)
+    return () => window.removeEventListener("aidermy-profile-updated", refreshProfile)
+  }, [])
   useEffect(() => { const t = window.setTimeout(() => setLoading(false), 1200); return () => window.clearTimeout(t) }, [])
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(""), 2200); return () => window.clearTimeout(t) }, [toast])
 
@@ -3633,7 +3639,7 @@ export default function App() {
     api.getProfile()
       .then((r) => {
         const p = (r.profile || {}) as { skinType?: string; age?: string; concerns?: string[]; allergies?: string[]; structuredProfile?: unknown }
-        if (p.skinType || p.age || p.concerns?.length || p.allergies?.length) {
+        if (p.skinType || p.age || p.concerns?.length || p.allergies?.length || p.structuredProfile) {
           const pd = {
             skinType: p.skinType || getUserProfile().skinType,
             age: p.age || getUserProfile().age,

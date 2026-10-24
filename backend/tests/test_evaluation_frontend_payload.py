@@ -17,6 +17,7 @@ APP_TSX = FRONTEND / "App.tsx"
 DATA_TS = FRONTEND / "data.ts"
 PANEL_TSX = FRONTEND / "evaluation-v2.tsx"
 API_TS = FRONTEND / "api.ts"
+MAPPING_TS = FRONTEND / "mapping.ts"
 
 
 def _save_block(source: str) -> str:
@@ -137,6 +138,7 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         cls.app = APP_TSX.read_text(encoding="utf-8")
         cls.panel = PANEL_TSX.read_text(encoding="utf-8")
         cls.api = API_TS.read_text(encoding="utf-8")
+        cls.mapping = MAPPING_TS.read_text(encoding="utf-8")
 
     def test_product_drawer_has_no_legacy_current_report(self):
         drawer = self.app[self.app.index("function ProductDrawer") :]
@@ -155,9 +157,16 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertNotIn("evaluationProductAnalyze", self.panel)
         self.assertIn("v2Started", self.app)
 
-    def test_v2_report_has_two_separate_sections_without_technical_header(self):
+    def test_v2_report_is_a_compact_numbered_verdict_list(self):
         self.assertIn("Основная функция", self.panel)
-        self.assertIn("Персональная совместимость", self.panel)
+        self.assertIn("evalv2__verdicts", self.panel)
+        self.assertIn("evalv2__info", self.panel)
+        self.assertIn("aria-expanded", self.panel)
+        self.assertIn("Источники", self.panel)
+        self.assertIn("Не удалось проверить", self.panel)
+        self.assertIn("display_text", self.panel)
+        self.assertNotIn("Персональная совместимость", self.panel)
+        self.assertNotIn("Почему такой вывод", self.panel)
         for technical in (
             "Среднее по",
             "Оценено:",
@@ -170,6 +179,15 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         ):
             self.assertNotIn(technical, self.panel, technical)
         self.assertNotIn("total", self.panel)
+
+    def test_async_profile_update_reaches_mounted_report(self):
+        self.assertIn("aidermy-profile-updated", self.mapping)
+        self.assertIn("aidermy-profile-updated", self.app)
+
+    def test_saved_report_loading_error_is_visible_and_not_missing(self):
+        self.assertIn("setRestoreError", self.panel)
+        self.assertIn("Не удалось загрузить сохранённый отчёт", self.panel)
+        self.assertIn("restoreError", self.panel)
 
     def test_api_exposes_composition_check(self):
         self.assertIn("evaluationCompositionCheck", self.api)

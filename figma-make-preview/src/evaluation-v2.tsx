@@ -58,86 +58,132 @@ function VerdictIcon({ verdict }: { verdict?: string }) {
   )
 }
 
-function OverallCard({ overall }: { overall: EvaluationOverall }) {
+function itemVerdict(item: EvaluationPersonalParameter): string {
+  if (item.verdict) return item.verdict
+  if (item.intolerance) {
+    return item.intolerance.state === "present" ? "negative"
+      : item.intolerance.state === "absent" ? "positive" : "unknown"
+  }
+  return item.score != null && item.score >= 75 ? "positive"
+    : item.score != null && item.score <= 25 ? "negative" : "neutral"
+}
+
+function itemText(item: EvaluationPersonalParameter): string {
+  if (item.display_text) return item.display_text
+  const label = item.label || parameterLabel(item.parameter_id)
+  const verdict = itemVerdict(item)
+  if (verdict === "unknown") return `Не удалось определить: ${label}.`
+  return `${label}: ${item.verdict_label || (verdict === "positive" ? "подходит" : verdict === "negative" ? "не подходит" : "нейтрально")}.`
+}
+
+function ReportHeader({ productName, overall }: { productName: string; overall: EvaluationOverall }) {
   return (
-    <article className={`evalv2__overall evalv2__overall--${overall.tone}`}>
-      <p className="eyebrow">Общий вывод</p>
+    <header className="evalv2__report-head">
+      {productName && <h4 className="evalv2__product-name">{productName}</h4>}
       <div className="evalv2__overall-main">
-        <strong>{overall.verdict}</strong>
+        <strong className={`evalv2__overall-verdict evalv2__overall-verdict--${overall.tone}`}>
+          {overall.verdict}
+        </strong>
         <VerdictIcon verdict={overall.tone === "good" ? "positive" : overall.tone === "bad" ? "negative" : "neutral"} />
       </div>
       <p className="evalv2__overall-summary">{overall.summary}</p>
-      <div className="evalv2__overall-counts" aria-label="Сводка проверенных пунктов">
-        <span className="evalv2__count evalv2__count--positive">✓ {overall.positive} подходит</span>
-        <span className="evalv2__count evalv2__count--neutral">— {overall.neutral} нейтрально</span>
-        <span className="evalv2__count evalv2__count--negative">✕ {overall.negative} не подходит</span>
-        <span className="evalv2__count evalv2__count--unknown">? {overall.unknown} нет данных</span>
-      </div>
-    </article>
+      <p className="evalv2__overall-counts">
+        Проверено: {overall.assessed}
+        {overall.negative > 0 ? ` · предупреждений: ${overall.negative}` : ""}
+        {overall.neutral > 0 ? ` · нейтральных: ${overall.neutral}` : ""}
+        {overall.unknown > 0 ? ` · неизвестных: ${overall.unknown}` : ""}
+      </p>
+    </header>
   )
 }
 
-function PrimaryFunctionCard({ item }: { item: EvaluationPrimaryFunction }) {
+function FunctionLine({
+  item,
+  open,
+  onToggle,
+}: {
+  item: EvaluationPrimaryFunction
+  open: boolean
+  onToggle: () => void
+}) {
+  const hasInfo = Boolean(item.reason || item.basis?.length)
   return (
-    <article className="evalv2__function-card">
-      <div className="evalv2__function-head">
-        <div>
-          <strong>{item.label}</strong>
-          <p>{item.purpose}</p>
-        </div>
-      </div>
-      {item.reason && (
-        <details className="evalv2__explain">
-          <summary>Почему так определена функция</summary>
-          <p>{item.reason}</p>
+    <div className={`evalv2__function-line ${open ? "evalv2__function-line--open" : ""}`}>
+      <p>
+        <span>Основная функция:</span> <strong>{item.label}</strong>
+        {item.purpose ? <span className="evalv2__function-purpose"> · {item.purpose}</span> : null}
+      </p>
+      {hasInfo && (
+        <button
+          type="button"
+          className="evalv2__info"
+          aria-label="Объяснить основную функцию"
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          ⓘ
+        </button>
+      )}
+      {open && (
+        <div className="evalv2__info-text">
+          {item.reason && <p>{item.reason}</p>}
           {item.score == null && item.label !== "Основная функция не определена" && (
             <p className="evalv2__function-note">
-              Функция может быть определена по категории продукта; подтверждённость
-              эффективности составом оценивается отдельно и не подменяется баллом.
+              Функция определена по категории; эффективность состава оценивается отдельно.
             </p>
           )}
-        </details>
+          {item.basis?.length ? (
+            <ul className="evalv2__basis">
+              {item.basis.map((row) => (
+                <li key={`${row.label}-${row.value}`}>
+                  <strong>{row.label}:</strong> {row.value}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       )}
-      {(item.basis?.length ?? 0) > 0 && (
-        <details className="evalv2__explain">
-          <summary>Что учтено</summary>
-          <ul className="evalv2__basis">
-            {item.basis?.map((row) => (
-              <li key={`${row.label}-${row.value}`}>
-                <strong>{row.label}:</strong> {row.value}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </article>
+    </div>
   )
 }
 
-function PersonalParameterCard({ item }: { item: EvaluationPersonalParameter }) {
-  const intolerance = item.intolerance
-  const verdict = item.verdict || (intolerance
-    ? (intolerance.state === "present" ? "negative" : intolerance.state === "absent" ? "positive" : "unknown")
-    : item.score != null && item.score >= 75 ? "positive" : item.score != null && item.score <= 25 ? "negative" : "neutral")
+function VerdictRow({
+  item,
+  number,
+  open,
+  onToggle,
+}: {
+  item: EvaluationPersonalParameter
+  number: number
+  open: boolean
+  onToggle: () => void
+}) {
+  const verdict = itemVerdict(item)
+  const details = [item.reason, item.intolerance?.reason].filter(
+    (value): value is string => Boolean(value && value.trim())
+  )
   return (
-    <article className={`evalv2__parameter-card evalv2__parameter-card--${verdict}`}>
-      <div className="evalv2__parameter-head">
-        <div className="evalv2__verdict-title">
-          <VerdictIcon verdict={verdict} />
-          <div>
-            <strong>{item.label || parameterLabel(item.parameter_id)}</strong>
-            <small>{item.verdict_label || (verdict === "unknown" ? "Не удалось определить" : "По вашему профилю")}</small>
-          </div>
+    <li className={`evalv2__verdict-row evalv2__verdict-row--${verdict}`}>
+      <span className="evalv2__num" aria-hidden="true">{number}.</span>
+      <span className="evalv2__verdict-text">{itemText(item)}</span>
+      <span className="evalv2__status" aria-label={item.verdict_label || verdict}>
+        <VerdictIcon verdict={verdict} />
+      </span>
+      <button
+        type="button"
+        className="evalv2__info"
+        aria-label={`Объяснить пункт: ${item.label || itemText(item)}`}
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        ⓘ
+      </button>
+      {open && details.length > 0 && (
+        <div className="evalv2__info-text">
+          {details.map((text, index) => <p key={index}>{text}</p>)}
         </div>
-      </div>
-      {item.reason && (
-        <details className="evalv2__explain">
-          <summary>Почему такой вывод</summary>
-          <p>{item.reason}</p>
-          {intolerance?.reason && <p className="evalv2__intolerance-note">{intolerance.reason}</p>}
-        </details>
       )}
-    </article>
+    </li>
   )
 }
 
@@ -159,8 +205,13 @@ export function EvaluationV2Panel({
   const [report, setReport] = useState<EvaluationReport | null>(null)
   const [notice, setNotice] = useState("")
   const [restoreReason, setRestoreReason] = useState("")
+  const [restoreError, setRestoreError] = useState("")
+  const [restoreAttempt, setRestoreAttempt] = useState(0)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
+  const [functionInfoOpen, setFunctionInfoOpen] = useState(false)
+  const [sourcesOpen, setSourcesOpen] = useState(false)
   const profileKey = useMemo(() => JSON.stringify(profile || {}), [profile])
 
   useEffect(() => {
@@ -175,6 +226,10 @@ export function EvaluationV2Panel({
     setError("")
     setNotice("")
     setRestoreReason("")
+    setRestoreError("")
+    setExpandedItems(new Set())
+    setFunctionInfoOpen(false)
+    setSourcesOpen(false)
 
     api.evaluationProductSavedReport(productId, JSON.parse(profileKey))
       .then((result) => {
@@ -191,14 +246,16 @@ export function EvaluationV2Panel({
       })
       .catch(() => {
         if (!cancelled) {
-          setRestoreReason("Не удалось загрузить сохранённый отчёт. Обновите проверку.")
+          // An API/network error is not the same as an absent report: keep the
+          // error visible and never start a new analysis automatically.
+          setRestoreError("Не удалось загрузить сохранённый отчёт. Проверьте соединение и попробуйте снова.")
         }
       })
       .finally(() => {
         if (!cancelled) setRestoring(false)
       })
     return () => { cancelled = true }
-  }, [productId, profileKey, enabled, canRestore])
+  }, [productId, profileKey, enabled, canRestore, restoreAttempt])
 
   const start = async () => {
     if (!EVALUATION_V2_ENABLED || !enabled) return
@@ -208,6 +265,7 @@ export function EvaluationV2Panel({
     setError("")
     setNotice("")
     setRestoreReason("")
+    setRestoreError("")
     setReport(null)
     try {
       const checked = await api.evaluationCompositionCheck(productId)
@@ -237,6 +295,16 @@ export function EvaluationV2Panel({
   const userReport = report?.user_report
   const primary = userReport?.primary_function ?? report?.primary_function ?? null
   const personal = userReport?.personal_compatibility ?? []
+  const knownItems = personal.filter((item) => itemVerdict(item) !== "unknown")
+  const unknownItems = personal.filter((item) => itemVerdict(item) === "unknown")
+  const toggleItemInfo = (parameterId: string) => {
+    setExpandedItems((current) => {
+      const next = new Set(current)
+      if (next.has(parameterId)) next.delete(parameterId)
+      else next.add(parameterId)
+      return next
+    })
+  }
   const productName = cleanProductName(
     userReport?.product_name || report?.product?.name || ""
   )
@@ -282,16 +350,39 @@ export function EvaluationV2Panel({
   }
 
   if (!started) {
+    const actionLabel = restoreError
+      ? "Повторить загрузку"
+      : restoreReason
+        ? "Обновить проверку"
+        : "Проверить для меня"
     return (
       <div className="evalv2 evalv2--intro">
         <p className="eyebrow">Оценка продукта</p>
-        <p className="evalv2__hint">
-          {restoreReason || "Проверим основную функцию продукта и его совместимость с вашим профилем."}
-        </p>
-        <button type="button" className="evalv2__primary" onClick={() => void start()}>
-          <span><span aria-hidden="true">✦</span> {restoreReason ? "Обновить проверку" : "Проверить для меня"}</span>
-          <small className="evalv2__credit"><span aria-hidden="true">◈</span> AI · 1 балл</small>
+        {restoreError ? (
+          <p className="evalv2__error" role="status">{restoreError}</p>
+        ) : (
+          <p className="evalv2__hint">
+            {restoreReason || "Проверим основную функцию продукта и его совместимость с вашим профилем."}
+          </p>
+        )}
+        <button
+          type="button"
+          className="evalv2__primary"
+          onClick={() => {
+            if (restoreError) setRestoreAttempt((value) => value + 1)
+            else void start()
+          }}
+        >
+          <span><span aria-hidden="true">✦</span> {actionLabel}</span>
+          {!restoreError && (
+            <small className="evalv2__credit"><span aria-hidden="true">◈</span> AI · 1 балл</small>
+          )}
         </button>
+        {restoreError && restoreReason && (
+          <button type="button" className="evalv2__secondary" onClick={() => void start()}>
+            Обновить проверку
+          </button>
+        )}
       </div>
     )
   }
@@ -317,28 +408,62 @@ export function EvaluationV2Panel({
 
       {primary && (
         <section className="evalv2__report">
-          <div className="evalv2__product-head">
-            <p className="eyebrow">Результат проверки</p>
-            {productName && <h4 className="evalv2__product-name">{productName}</h4>}
-          </div>
-          <OverallCard overall={overall} />
-          <p className="evalv2__section-label">Основная функция</p>
-          <PrimaryFunctionCard item={primary} />
+          <ReportHeader productName={productName} overall={overall} />
+          <FunctionLine
+            item={primary}
+            open={functionInfoOpen}
+            onToggle={() => setFunctionInfoOpen((value) => !value)}
+          />
 
-          <section className="evalv2__compatibility">
-            <h4>Персональная совместимость</h4>
-            {personal.length > 0 ? (
-              personal.map((item) => (
-                <PersonalParameterCard key={item.parameter_id} item={item} />
-              ))
-            ) : (
-              <p className="evalv2__empty">
-                Для вашего профиля нет подтверждённых персональных оценок.
-              </p>
-            )}
-            {sources.length > 0 && (
-              <details className="evalv2__sources">
-                <summary>Источники</summary>
+          {knownItems.length > 0 && (
+            <ol className="evalv2__verdicts">
+              {knownItems.map((item, index) => (
+                <VerdictRow
+                  key={item.parameter_id}
+                  item={item}
+                  number={index + 1}
+                  open={expandedItems.has(item.parameter_id)}
+                  onToggle={() => toggleItemInfo(item.parameter_id)}
+                />
+              ))}
+            </ol>
+          )}
+
+          {unknownItems.length > 0 && (
+            <div className="evalv2__unknown">
+              <p className="evalv2__unknown-title">Не удалось проверить</p>
+              <ol className="evalv2__verdicts" start={knownItems.length + 1}>
+                {unknownItems.map((item, index) => (
+                  <VerdictRow
+                    key={item.parameter_id}
+                    item={item}
+                    number={knownItems.length + index + 1}
+                    open={expandedItems.has(item.parameter_id)}
+                    onToggle={() => toggleItemInfo(item.parameter_id)}
+                  />
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {personal.length === 0 && (
+            <p className="evalv2__empty">
+              Для вашего профиля нет подтверждённых персональных оценок.
+            </p>
+          )}
+
+          {sources.length > 0 && (
+            <div className="evalv2__sources">
+              <button
+                type="button"
+                className="evalv2__sources-toggle"
+                aria-expanded={sourcesOpen}
+                onClick={() => setSourcesOpen((value) => !value)}
+              >
+                <span>Источники</span>
+                <span className="evalv2__sources-count">{sources.length}</span>
+              </button>
+              {sourcesOpen && (
                 <ul>
                   {sources.map((source) => (
                     <li key={source.url}>
@@ -348,9 +473,9 @@ export function EvaluationV2Panel({
                     </li>
                   ))}
                 </ul>
-              </details>
-            )}
-          </section>
+              )}
+            </div>
+          )}
         </section>
       )}
 

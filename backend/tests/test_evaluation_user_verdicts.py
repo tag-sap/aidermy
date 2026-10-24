@@ -122,6 +122,35 @@ class OverallVerdictTests(unittest.TestCase):
         public = make_report([row("skin_type:normal", 100)]).user_report()
         self.assertEqual(public["sources"], ["https://example.com/source"])
 
+    def test_display_sentences_are_concrete_and_short(self):
+        public = make_report(
+            [
+                row("therapy:adapalene", 0, label="Совместимость с лечением: «Адапален»"),
+                row(
+                    "procedure:recent_biorevitalization@<7",
+                    100,
+                    label="Уход после процедуры: «Биоревитализация», Последние 7 дней",
+                ),
+                row("problem:acne_general", 50, label="Проблема: «Высыпания»"),
+            ]
+        ).user_report()
+        items = public["personal_compatibility"]
+        self.assertEqual(items[0]["display_text"], "Не рекомендуется использовать с лечением «Адапален».")
+        self.assertEqual(
+            items[1]["display_text"],
+            "Можно использовать после процедуры «Биоревитализация» (первые 7 дней).",
+        )
+        self.assertEqual(items[2]["display_text"], "Нейтрален в отношении проблемы «Высыпания».")
+
+    def test_unknown_display_text_is_not_positive(self):
+        public = make_report(
+            [],
+            gaps=(ParameterGap("problem:dryness", "missing", "оценки нет"),),
+        ).user_report()
+        item = public["personal_compatibility"][0]
+        self.assertEqual(item["verdict"], "unknown")
+        self.assertTrue(item["display_text"].startswith("Не удалось определить"))
+
 
 class IntoleranceVerdictTests(unittest.TestCase):
     def _item(self, inci: str):

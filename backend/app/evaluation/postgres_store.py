@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from .contracts import ParameterEvaluation, RuleSet, sha256_of
 from .evidence import Evidence
 from .parameters import PARAMETERS
+from .snapshot import profile_compatible
 from .store import StoreError, composition_status
 
 SCHEMA = "evaluation"
@@ -796,7 +797,39 @@ class PostgresStore:
             ),
         )
         document = row.get("document") if row else None
-        return dict(document) if isinstance(document, Mapping) else None
+        if isinstance(document, Mapping):
+            return dict(document)
+        # Exact JSONB equality is only a fast path. Older snapshots may have
+        # been written with a different age separator or without an optional
+        # field; compare the meaningful profile signals before declaring the
+        # report missing.
+        rows = self._fetchall(
+            f"""
+            select s.document
+            from {self._table('snapshots')} s
+            join {self._table('product_compositions')} c on c.id = s.composition_id
+            where s.product_id = %s
+              and c.composition_hash = %s
+              and s.user_id is not distinct from %s
+            order by s.created_at desc
+            limit 50
+            """,
+            (
+                int(product_id),
+                str(composition_hash),
+                int(user_id) if user_id is not None else None,
+            ),
+        )
+        for candidate in rows:
+            candidate_document = candidate.get("document")
+            if not isinstance(candidate_document, Mapping):
+                continue
+            if profile_compatible(
+                candidate_document.get("profile") or {},
+                profile_fingerprint,
+            ):
+                return dict(candidate_document)
+        return None
 
     def get_snapshot(self, snapshot_id: str) -> dict | None:
         row = self._fetchone(

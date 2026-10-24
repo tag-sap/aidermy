@@ -276,6 +276,7 @@ export type EvaluationPersonalParameter = {
   section?: string
   verdict?: EvaluationVerdict
   verdict_label?: string
+  display_text?: string
   verdict_icon?: "check" | "dash" | "cross" | string
 }
 

@@ -15,6 +15,7 @@ as a finished report: that decision belongs to ``gaps.analysis_state``.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
@@ -165,6 +166,80 @@ def _item_verdict(parameter_id: str, score: object, intolerance: Mapping | None)
     return "neutral"
 
 
+def _quoted(label: str) -> str:
+    match = re.search(r"«([^»]+)»", str(label or ""))
+    return match.group(1).strip() if match else ""
+
+
+def _display_text(
+    parameter_id: str,
+    label: str,
+    verdict: str,
+    *,
+    intolerance: Mapping | None = None,
+) -> str:
+    """One short, concrete sentence for the compact verdict list."""
+    section = _section(parameter_id)
+    subject = _quoted(label)
+    if verdict == "unknown":
+        return f"Не удалось определить: {label or 'параметр'}."
+    if section == "intolerance":
+        name = subject or "Вещество"
+        if verdict == "positive":
+            return f"{name} не обнаружен в составе."
+        if verdict == "negative":
+            return f"{name} обнаружен в составе."
+        return f"{name}: не удалось определить наличие в составе."
+    if section == "therapy":
+        target = subject or "лечением"
+        if verdict == "positive":
+            return f"Можно использовать с лечением «{target}»."
+        if verdict == "negative":
+            return f"Не рекомендуется использовать с лечением «{target}»."
+        return f"Совместимость с лечением «{target}» неясна."
+    if section == "procedure":
+        target = subject or "процедурой"
+        period = ""
+        if subject and "»" in label:
+            rest = label.split("»", 1)[1].strip(" ,")
+            rest = re.sub(r"^Последние\s+", "первые ", rest, flags=re.I)
+            if rest:
+                period = f" ({rest[:1].lower() + rest[1:]})"
+        if verdict == "positive":
+            return f"Можно использовать после процедуры «{target}»{period}."
+        if verdict == "negative":
+            return f"Не рекомендуется использовать после процедуры «{target}»{period}."
+        return f"Нужна осторожность после процедуры «{target}»{period}."
+    if section == "goal":
+        target = subject or "цель"
+        if verdict == "positive":
+            return f"Поддерживает цель «{target}»."
+        if verdict == "negative":
+            return f"Не подтверждает цель «{target}»."
+        return f"Нейтрален в отношении цели «{target}»."
+    if section == "problem":
+        target = subject or "задача"
+        if verdict == "positive":
+            return f"Соответствует задаче «{target}»."
+        if verdict == "negative":
+            return f"Не соответствует задаче «{target}»."
+        return f"Нейтрален в отношении проблемы «{target}»."
+    if section == "skin_type":
+        target = (subject or "этого типа кожи").lower()
+        if verdict == "positive":
+            return f"Подходит для {target} кожи."
+        if verdict == "negative":
+            return f"Не подходит для {target} кожи."
+        return f"Нейтрален для {target} кожи."
+    if verdict == "positive":
+        return f"{label or 'Параметр'} — подходит."
+    if verdict == "negative":
+        return f"{label or 'Параметр'} — не подходит."
+    if verdict == "unknown":
+        return f"Не удалось определить: {label or 'параметр'}."
+    return f"{label or 'Параметр'} — нейтральный результат."
+
+
 def _gap_label(parameter_id: str) -> str:
     parameter = PARAMETERS.get(parameter_id)
     if parameter is not None:
@@ -290,6 +365,12 @@ class AnalysisReport:
                 "section": _section(parameter_id),
                 "verdict": verdict,
                 "verdict_label": _verdict_label(parameter_id, verdict, intolerance),
+                "display_text": _display_text(
+                    parameter_id,
+                    str(row.get("label") or ""),
+                    verdict,
+                    intolerance=intolerance,
+                ),
                 "verdict_icon": _VERDICT_ICONS[verdict],
             }
             if intolerance is not None:
@@ -312,6 +393,11 @@ class AnalysisReport:
                 "section": _section(parameter_id),
                 "verdict": "unknown",
                 "verdict_label": "Не удалось определить",
+                "display_text": _display_text(
+                    parameter_id,
+                    _gap_label(parameter_id),
+                    "unknown",
+                ),
                 "verdict_icon": _VERDICT_ICONS["unknown"],
             })
             seen.add(parameter_id)
