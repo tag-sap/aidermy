@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from app.evaluation.analysis import AnalysisService
 from app.evaluation.documents import DocumentLibrary, FakeDocumentFetcher, SourceDocument
 from app.evaluation.evidence import validate_candidates
+from app.evaluation.knowledge import ProductKnowledge
 from app.evaluation.research import (
     ResearchOutcome,
     candidate,
@@ -350,6 +352,52 @@ class SnapshotAnalysisTests(unittest.TestCase):
         self.assertEqual(report.analysis.status, "incomplete")
         self.assertEqual(len(report.analysis.as_dict()["gaps"]), 2)
         self.assertIsNone(report.research)
+
+
+class SavedReportTests(unittest.TestCase):
+    def test_saved_report_reads_current_snapshot_without_another_analysis(self):
+        store = InMemoryStore()
+        provider = DocumentProvider()
+        service = make_service(store, provider, FakeDocumentFetcher({URL: PAGE_TEXT}))
+        first = run(service, user_id=1)
+        snapshots = store.snapshot_count()
+        calls = provider.call_count()
+        knowledge = ProductKnowledge(
+            product=PRODUCT,
+            composition=COMPOSITION,
+            source_urls=(URL,),
+        )
+
+        with patch("app.evaluation.analysis.load_product_knowledge", return_value=knowledge):
+            saved = service.saved_report(
+                product_id=PRODUCT["id"], profile=PROFILE, user_id=1
+            )
+
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.snapshot["snapshot_id"], first.snapshot["snapshot_id"])
+        self.assertEqual(store.snapshot_count(), snapshots)
+        self.assertEqual(provider.call_count(), calls)
+        self.assertFalse(saved.research)
+        self.assertTrue(saved.analysis.is_final)
+        self.assertEqual(
+            {row["parameter_id"] for row in saved.user_report()["personal_compatibility"]},
+            {"problem:dryness", "skin_type:dry"},
+        )
+
+    def test_saved_report_rejects_stale_or_missing_history(self):
+        store = InMemoryStore()
+        service = make_service(store, DocumentProvider())
+        knowledge = ProductKnowledge(
+            product=PRODUCT,
+            composition=COMPOSITION,
+            source_urls=(URL,),
+        )
+        with patch("app.evaluation.analysis.load_product_knowledge", return_value=knowledge):
+            self.assertIsNone(
+                service.saved_report(
+                    product_id=PRODUCT["id"], profile=PROFILE, user_id=1
+                )
+            )
 
 
 class FakeSearch:

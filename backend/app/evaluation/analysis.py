@@ -19,9 +19,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
 
-from .gaps import AnalysisState, analysis_state
+from .gaps import AnalysisState, analysis_state, scan_parameters
 from .documents import MAX_DOCUMENTS_PER_SESSION
 from .freshness import DEFAULT_REVIEW_AFTER_DAYS
+from .inci import NOT_LISTED, PRESENT, UNVERIFIABLE, check_intolerance
 from .knowledge import (
     KnowledgeUnavailable,
     ProductKnowledge,
@@ -29,8 +30,10 @@ from .knowledge import (
     assess_composition,
     load_product_knowledge,
 )
+from .parameters import PARAMETERS, ingredient_parameter
 from .primary_function import build_primary_function, public_primary_function
 from .research import ResearchProvider
+from .snapshot import profile_fingerprint, verify_snapshot
 from .timing import StageTimer
 from .research_service import (
     DEFAULT_MAX_ATTEMPTS,
@@ -49,6 +52,43 @@ logger = logging.getLogger(__name__)
 
 class AnalysisUnavailable(RuntimeError):
     """The analysis cannot run (missing provider, catalog or composition)."""
+
+
+_INTOLERANCE_LABELS = {
+    PRESENT: "Обнаружен в составе",
+    NOT_LISTED: "Не обнаружен в составе",
+    UNVERIFIABLE: "Не удалось определить",
+}
+_INTOLERANCE_STATES = {
+    PRESENT: "present",
+    NOT_LISTED: "absent",
+    UNVERIFIABLE: "unknown",
+}
+
+
+def _intolerance_status(parameter_id: str, composition: Mapping) -> dict | None:
+    """Expose the authoritative INCI status without reinterpreting the score."""
+    parameter = PARAMETERS.get(parameter_id)
+    if parameter is None and parameter_id.startswith("intolerance:ingredient:"):
+        name = parameter_id.split(":", 2)[2].replace("_", " ").strip()
+        if not name:
+            return None
+        try:
+            parameter = ingredient_parameter(name)
+        except Exception:  # noqa: BLE001 - malformed legacy ids stay unknown
+            return None
+    if parameter is None or parameter.section != "intolerance":
+        return None
+    checked = check_intolerance(parameter, composition)
+    if checked is None:
+        return None
+    return {
+        "state": _INTOLERANCE_STATES.get(checked.status, "unknown"),
+        "label": _INTOLERANCE_LABELS.get(checked.status, "Не удалось определить"),
+        "status": checked.status,
+        "reason": checked.reason,
+        "matched": list(checked.matched),
+    }
 
 
 @dataclass(frozen=True)
@@ -81,13 +121,17 @@ class AnalysisReport:
             if not row.get("included") or row.get("value") is None:
                 continue
             parameter_id = str(row.get("parameter_id") or "")
-            personal.append({
+            item = {
                 "parameter_id": parameter_id,
                 "label": str(row.get("label") or ""),
                 "score": row.get("value"),
                 "reason": str(row.get("summary") or row.get("reason") or ""),
                 "evidence": list(self.evidence.get(parameter_id) or []),
-            })
+            }
+            intolerance = _intolerance_status(parameter_id, self.composition)
+            if intolerance is not None:
+                item["intolerance"] = intolerance
+            personal.append(item)
         name = " ".join(str(self.product.get("name") or "").replace("\n", " ").split())
         return {
             "product_name": name,
@@ -364,6 +408,125 @@ class AnalysisService:
             timings=timings,
         )
 
+
+    def saved_report(
+        self,
+        *,
+        product_id: int,
+        profile: Mapping[str, Any] | None,
+        user_id: int | None,
+    ) -> AnalysisReport | None:
+        """Read a complete, current snapshot without research or a new write.
+
+        Reopening a product must not repeat the first analysis. This method only
+        accepts a verified snapshot whose saved parameter values still match the
+        current evaluations; stale/incomplete history falls back to ``None`` and
+        the regular (reuse-first) analysis path remains available.
+        """
+        if user_id is None or not hasattr(self.store, "latest_snapshot"):
+            return None
+        try:
+            # Saved-report reads do not need ingredient seed URLs; skip that
+            # extra knowledge lookup on every drawer open.
+            knowledge = load_product_knowledge(
+                int(product_id), include_ingredient_sources=False
+            )
+            record = self.store.get_composition(
+                int(product_id), knowledge.composition_hash
+            )
+        except (ProductNotFound, KnowledgeUnavailable):
+            return None
+        except Exception:  # noqa: BLE001 - a saved read must not break the drawer
+            return None
+        if record is None or str(record.get("status") or "") != COMPOSITION_ACTIVE:
+            return None
+
+        latest = self.store.latest_snapshot(
+            product_id=int(product_id),
+            composition_hash=str(record["composition_hash"]),
+            user_id=int(user_id),
+            profile_fingerprint=profile_fingerprint(profile),
+        )
+        if latest is None or not verify_snapshot(latest):
+            return None
+        saved_analysis = latest.get("analysis") or {}
+        if not saved_analysis.get("is_final"):
+            return None
+
+        stored = self.store.current_evaluations(
+            int(record["id"]), self.method_version
+        )
+        scan = scan_parameters(
+            evaluations=stored,
+            profile=profile,
+            composition_hash=str(record["composition_hash"]),
+            method_version=self.method_version,
+            max_age_days=self.max_age_days,
+            review_after_days=self.review_after_days,
+        )
+        if scan.needed or scan.stale:
+            return None
+        current_values = {
+            item.parameter_id: item.value
+            for item in scan.current
+            if item.status == "assessed" and item.value is not None
+        }
+        saved_values = {
+            str(row.get("parameter_id") or ""): row.get("value")
+            for row in latest.get("parameters") or []
+            if row.get("included") and row.get("value") is not None
+        }
+        if set(current_values) != set(saved_values):
+            return None
+        for parameter_id, value in current_values.items():
+            try:
+                if abs(float(value) - float(saved_values[parameter_id])) > 1e-9:
+                    return None
+            except (TypeError, ValueError):
+                return None
+
+        parameter_ids = tuple(saved_values)
+        evidence: dict[str, list[dict]] = {}
+        if parameter_ids:
+            try:
+                rows = self.store.evidence_for_many(int(record["id"]), parameter_ids)
+            except AttributeError:
+                rows = {
+                    parameter_id: self.store.evidence_for(
+                        int(record["id"]), parameter_id
+                    )
+                    for parameter_id in parameter_ids
+                }
+            for parameter_id, items in rows.items():
+                confirmed = [
+                    row
+                    for row in items
+                    if str(row.get("verification") or "") == "confirmed"
+                ]
+                if confirmed:
+                    evidence[parameter_id] = confirmed
+        primary = build_primary_function(
+            knowledge.product,
+            {**record, "inci_raw": record.get("inci_raw") or ""},
+            composition_status=str(record.get("status") or ""),
+        )
+        state = analysis_state(scan=scan, blocked=False)
+        return AnalysisReport(
+            product=knowledge.product,
+            composition={
+                "composition_hash": str(record["composition_hash"]),
+                "inci_raw": record.get("inci_raw") or "",
+                "source": record.get("source") or "",
+                "verified_at": str(record.get("verified_at") or ""),
+                "status": record.get("status") or "",
+            },
+            snapshot=latest,
+            analysis=state,
+            knowledge=knowledge,
+            evidence=evidence,
+            primary_function=primary,
+            timings={"saved": True},
+        )
 
     def analyze_product(
         self,

@@ -50,6 +50,7 @@ def composition_status(composition: Mapping[str, Any]) -> str:
 
 class EvaluationStore(Protocol):
     def get_composition(self, product_id: int, composition_hash: str) -> dict | None: ...
+    def verified_product_ids(self, product_ids: Sequence[int]) -> set[int]: ...
     def upsert_composition(self, composition: dict) -> dict: ...
     def verify_composition(self, composition_id: int, verified_at: str, source: str = "") -> dict: ...
     def current_evaluations(self, composition_id: int, method_version: str) -> list[ParameterEvaluation]: ...
@@ -154,6 +155,15 @@ class InMemoryStore:
             if record["product_id"] == product_id and record["composition_hash"] == composition_hash:
                 return record
         return None
+
+    def verified_product_ids(self, product_ids: Sequence[int]) -> set[int]:
+        wanted = {int(product_id) for product_id in product_ids}
+        return {
+            int(record["product_id"])
+            for record in self._compositions.values()
+            if int(record["product_id"]) in wanted
+            and str(record.get("status") or "") == COMPOSITION_ACTIVE
+        }
 
     # -- evaluations --------------------------------------------------------
     def current_evaluations(self, composition_id: int, method_version: str) -> list[ParameterEvaluation]:

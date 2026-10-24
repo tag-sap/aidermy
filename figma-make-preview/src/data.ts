@@ -40,6 +40,7 @@ export type Product = {
   slug?: string
   shelf_id?: number
   needs_recheck?: boolean
+  verified?: boolean
   ingredients?: string
   barcode?: string
   variant?: string

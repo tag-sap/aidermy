@@ -146,9 +146,26 @@ except Exception as exc:  # noqa: BLE001 - readiness must not break the app
 async def health():
     return {"status": "ok", "deepseek": "connected" if DEEPSEEK_API_KEY else "missing"}
 
+
+def _verified_product_ids(product_ids: list[int]) -> set[int]:
+    """Read-only composition marker; a broken evaluation store never hides products."""
+    try:
+        store = getattr(app.state, "evaluation_store", None)
+        if store is None or not hasattr(store, "verified_product_ids"):
+            return set()
+        return set(store.verified_product_ids(product_ids))
+    except Exception:  # noqa: BLE001 - catalog must remain available
+        return set()
+
+
 @app.get("/api/products")
 async def get_products(q: str = ""):
     products = search_products(q)
+    verified = _verified_product_ids(
+        [int(p["id"]) for p in products if p.get("id") is not None]
+    )
+    for product in products:
+        product["verified"] = product.get("id") in verified
     return {"products": products}
 
 
@@ -223,6 +240,10 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
             "url": product.get("url") or "",
             "barcode": product.get("barcode") or "",
             "variant": product.get("variant") or "",
+            "verified": bool(
+                product.get("id")
+                and int(product["id"]) in _verified_product_ids([int(product["id"])])
+            ),
         },
         "score": score,
         "analysis": analysis,
@@ -1128,6 +1149,12 @@ async def get_catalog(
         rating = ratings.get(p.get("id")) or {}
         p["rating"] = rating.get("average")
         p["rating_count"] = rating.get("count", 0)
+
+    verified = _verified_product_ids(
+        [int(p["id"]) for p in products if p.get("id") is not None]
+    )
+    for p in products:
+        p["verified"] = p.get("id") in verified
 
     # Отсутствие User Analysis не скрывает продукт из каталога.
     if current_user:

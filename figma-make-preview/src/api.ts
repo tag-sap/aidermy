@@ -36,6 +36,7 @@ export type ApiProduct = {
   rating?: number | null
   rating_count?: number
   score?: number | null
+  verified?: boolean
   analysis?: unknown
 }
 
@@ -90,6 +91,28 @@ export type CheckResult = {
   phase1_status?: string
   recommendation_status?: string
   phase1_violations?: { axis: string; load: number; threshold: number | null; violated: boolean }[]
+  negative_only_score?: number
+  product_id?: number
+  product_context?: {
+    signals?: {
+      signal_id?: string
+      ingredient?: string
+      axis?: string
+      direction?: string
+      effect_value?: number
+      evidence_refs?: string[]
+    }[]
+  } | null
+  product_knowledge?: {
+    scoring_signals?: {
+      signal_id?: string
+      ingredient?: string
+      axis?: string
+      direction?: string
+      evidence_quote?: string
+      source_urls?: string[]
+    }[]
+  } | null
 }
 
 export type ReportFragment = { text: string; sentiment: "positive" | "negative" }
@@ -222,12 +245,21 @@ export type EvaluationPrimaryFunction = {
   }>
 }
 
+export type EvaluationIntoleranceStatus = {
+  state: "present" | "absent" | "unknown" | string
+  label: string
+  status: string
+  reason?: string
+  matched?: string[]
+}
+
 export type EvaluationPersonalParameter = {
   parameter_id: string
   label: string
   score: number
   reason: string
   evidence?: EvaluationEvidence[]
+  intolerance?: EvaluationIntoleranceStatus
 }
 
 export type EvaluationUserReport = {
@@ -260,6 +292,11 @@ export type EvaluationReport = {
   user_report?: EvaluationUserReport
   plan?: { needed: string[]; stale: string[]; gaps: EvaluationGap[]; blocked: boolean; notes: string[] }
   research?: { documents_fetched: number; documents_reused: number; cost_usd: number; failed: string[]; notes: string[] }
+}
+
+export type EvaluationSavedReport = {
+  saved: boolean
+  report: EvaluationReport | null
 }
 
 export type EvaluationProductStatus = {
@@ -472,7 +509,15 @@ export const api = {
     return request<ApiUser>("/auth/me")
   },
   async saveProfile(profile: Record<string, unknown>) {
-    return request<{ status: string }>("/auth/profile", {
+    return request<{
+      status: string
+      profile?: {
+        skinType?: string
+        allergies?: string[]
+        intolerances?: string[]
+        structuredProfile?: Record<string, unknown>
+      } | null
+    }>("/auth/profile", {
       method: "POST",
       body: JSON.stringify({ profile }),
     })
@@ -645,6 +690,12 @@ export const api = {
   },
   async evaluationProductStatus(productId: number, profile: Record<string, unknown>) {
     return request<EvaluationProductStatus>(`/v1/evaluation/products/${productId}/status`, {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    })
+  },
+  async evaluationProductSavedReport(productId: number, profile: Record<string, unknown>) {
+    return request<EvaluationSavedReport>(`/v1/evaluation/products/${productId}/saved-report`, {
       method: "POST",
       body: JSON.stringify({ profile }),
     })

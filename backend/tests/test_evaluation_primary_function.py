@@ -183,3 +183,45 @@ class CompactUserReportTests(unittest.TestCase):
         row = self._report().user_report()["personal_compatibility"][0]
         self.assertEqual(row["reason"], "Состав соответствует сухой коже.")
         self.assertNotIn("Оценка 87.5", row["reason"])
+
+    def _intolerance_report(self, inci: str) -> AnalysisReport:
+        primary = build_primary_function(CREAM, {"inci_raw": inci})
+        return AnalysisReport(
+            product={"id": 1176, "name": CREAM["name"]},
+            composition={
+                "composition_hash": "a" * 64,
+                "status": "active",
+                "inci_raw": inci,
+            },
+            snapshot={
+                "parameters": [
+                    {
+                        "parameter_id": "intolerance:niacinamide_intolerance",
+                        "label": "Наличие в составе: «Ниацинамид»",
+                        "value": 75,
+                        "included": True,
+                        "summary": "Проверка подтверждённого INCI.",
+                    }
+                ],
+                "total": 75,
+                "analysis": {"status": "complete", "is_final": True},
+            },
+            analysis=AnalysisState(status="complete", is_final=True),
+            primary_function=primary,
+        )
+
+    def test_niacinamide_intolerance_uses_confirmed_inci_status(self):
+        present = self._intolerance_report("Aqua, Glycerin, Niacinamide")
+        row = present.user_report()["personal_compatibility"][0]
+        self.assertEqual(row["intolerance"]["state"], "present")
+        self.assertEqual(row["intolerance"]["label"], "Обнаружен в составе")
+
+        absent = self._intolerance_report("Aqua, Glycerin")
+        row = absent.user_report()["personal_compatibility"][0]
+        self.assertEqual(row["intolerance"]["state"], "absent")
+        self.assertEqual(row["intolerance"]["label"], "Не обнаружен в составе")
+
+        unconfirmed = self._intolerance_report("")
+        row = unconfirmed.user_report()["personal_compatibility"][0]
+        self.assertEqual(row["intolerance"]["state"], "unknown")
+        self.assertEqual(row["intolerance"]["label"], "Не удалось определить")

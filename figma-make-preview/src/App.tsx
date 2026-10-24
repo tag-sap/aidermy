@@ -217,6 +217,47 @@ function ScoreRing({ score, label = "совместимость" }: { score: num
   )
 }
 
+const PRODUCT_IMAGE_FALLBACK = `data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#f0f0ef"/><path d="M62 126h76l-10 -42H72z" fill="#d5d4ce"/><circle cx="100" cy="72" r="13" fill="#d5d4ce"/><text x="100" y="160" font-family="sans-serif" font-size="11" text-anchor="middle" fill="#9d9b93">нет фото</text></svg>'
+)}`
+
+function ProductImage({ src, alt = "", className = "" }: { src: string; alt?: string; className?: string }) {
+  const [loaded, setLoaded] = useState(false)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    setLoaded(false)
+    setFailed(false)
+  }, [src])
+  return (
+    <span className={`pimg ${loaded ? "pimg--loaded" : ""} ${className}`}>
+      {!loaded && <span className="pimg__skeleton" aria-hidden="true" />}
+      <img
+        src={failed || !src ? PRODUCT_IMAGE_FALLBACK : src}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        className="pimg__img"
+        onLoad={() => setLoaded(true)}
+        onError={() => { setFailed(true); setLoaded(true) }}
+      />
+    </span>
+  )
+}
+
+function ProductCardSkeleton() {
+  return (
+    <article className="pcard pcard--skeleton" aria-hidden="true">
+      <div className="pcard__img"><span className="pcard__skeleton-img" /></div>
+      <div className="pcard__body">
+        <span className="skeleton-line skeleton-line--short" />
+        <span className="skeleton-line" />
+        <span className="skeleton-line skeleton-line--tiny" />
+      </div>
+      <div className="pcard__foot"><span className="skeleton-line skeleton-line--button" /></div>
+    </article>
+  )
+}
+
 function ProductName({ name }: { name: string }) {
   return (
     <div className="pcard__name-wrap">
@@ -239,8 +280,9 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
       )}
       <button type="button" className="pcard__main" onClick={onSelect ? onSelect : onOpen} aria-label={product.name}>
         <div className="pcard__img">
-          <img src={product.image} alt="" loading="lazy" />
+          <ProductImage src={product.image} />
           {product.match && <ScoreBadge score={product.match.score} verdict={product.match.verdict} recommendationStatus={product.match.recommendation_status} />}
+          {product.verified && <span className="pcard__verified"><Icon name="check" size={11} /> Проверено</span>}
           {product.state && <span className={`pcard__state pcard__state--${product.state}`} />}
         </div>
         <div className="pcard__body">
@@ -251,7 +293,7 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
       </button>
       <div className="pcard__foot">
         {!checked && (checking ? (
-          <span className="pcard__checking"><span className="spin" /> Проверяем…</span>
+          <span className="pcard__checking"><img src="/loading.gif" alt="" /> Проверяем…</span>
         ) : (
           <button type="button" className="pcard__check" onClick={onOpen}>
             <Icon name="sparkle" size={13} /> Проверить совместимость
@@ -1354,8 +1396,9 @@ function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemov
     </div>
   )
 }
-function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
+function CatalogPage({ items, checkingIds, onOpen, query, onQuery, initialCategory = "", loading = false }: {
   items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; query: string; onQuery: (v: string) => void
+  initialCategory?: string; loading?: boolean
 }) {
   const [cat, setCat] = useState<string>("Все")
   const [subcat, setSubcat] = useState<string>("Все")
@@ -1365,6 +1408,20 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
   const [searching, setSearching] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => { setSearch(query) }, [query])
+  useEffect(() => {
+    if (!initialCategory) return
+    const tax = FACE_TAXONOMY.find((item) => item.title === initialCategory)
+    if (tax) {
+      setCat(tax.title)
+      setSubcat("Все")
+      return
+    }
+    const parent = FACE_TAXONOMY.find((item) => item.subcategories.includes(initialCategory))
+    if (parent) {
+      setCat(parent.title)
+      setSubcat(initialCategory)
+    }
+  }, [initialCategory])
   useEffect(() => {
     const q = search.trim()
     if (!q) { setResults(null); setSearching(false); return }
@@ -1405,8 +1462,6 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
     })
   }, [fetched, items, results, search, cat, subcat])
 
-  useEffect(() => { setSubcat("Все") }, [cat])
-
   return (
     <div className="page">
       <PageHeading eyebrow="База продуктов" title="Каталог" lead="Проверяйте составы и находите продукты под особенности вашей кожи." />
@@ -1416,9 +1471,9 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
         {search && <button type="button" onClick={() => setSearch("")} className="search__clear" aria-label="Очистить"><Icon name="close" size={15} /></button>}
       </div>
       <div className="tabs">
-        <button type="button" className={`tab ${cat === "Все" ? "tab--active" : ""}`} onClick={() => setCat("Все")}>Все</button>
+        <button type="button" className={`tab ${cat === "Все" ? "tab--active" : ""}`} onClick={() => { setCat("Все"); setSubcat("Все") }}>Все</button>
         {FACE_TAXONOMY.map((c) => (
-          <button key={c.key} type="button" className={`tab ${cat === c.title ? "tab--active" : ""}`} onClick={() => setCat(c.title)}>{c.title}</button>
+          <button key={c.key} type="button" className={`tab ${cat === c.title ? "tab--active" : ""}`} onClick={() => { setCat(c.title); setSubcat("Все") }}>{c.title}</button>
         ))}
       </div>
       {activeTax && (
@@ -1429,11 +1484,17 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery }: {
         </div>
       )}
       <div className="product-grid">
-        {list.map((p) => (
-          <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} />
-        ))}
+        {loading && list.length === 0
+          ? Array.from({ length: 6 }, (_, index) => <ProductCardSkeleton key={`skeleton-${index}`} />)
+          : list.map((p) => (
+            <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} />
+          ))}
       </div>
-      {searching ? <p className="empty">Ищем…</p> : list.length === 0 && <p className="empty">Ничего не нашлось. Попробуйте другой запрос.</p>}
+      {loading && list.length === 0
+        ? <p className="empty">Загружаем каталог…</p>
+        : searching
+          ? <p className="empty">Ищем…</p>
+          : list.length === 0 && <p className="empty">Ничего не нашлось. Попробуйте другой запрос.</p>}
       {scrolled && (
         <button type="button" className="to-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Наверх"><Icon name="chevron" size={18} /></button>
       )}
@@ -2073,8 +2134,8 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: 
 }
 function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onCheckFinished, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit, morphOrigin }: {
   product: Product; user: User | null; onAuth: () => void; onPricing: () => void; onClose: () => void;
-  onChecking: (id: number) => void; onChecked: (id: number, score: number | null, verdict: Verdict | null, recommendationStatus?: string, analysisId?: number) => void; onCheckFinished: (id: number) => void; onReported: (id: number, analysisId?: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string) => void;
-  onAddToShelf: (p: Product) => void; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void; morphOrigin?: HTMLElement | null
+  onChecking: (id: number) => void; onChecked: (id: number, score: number | null, verdict: Verdict | null, recommendationStatus?: string, analysisId?: number) => void; onCheckFinished: (id: number) => void; onReported: (id: number, analysisId?: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string, category?: string) => void;
+  onAddToShelf: (p: Product) => Promise<boolean>; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void; morphOrigin?: HTMLElement | null
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
     product.match ? "match" : "idle"
@@ -2086,6 +2147,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const [reportLoading, setReportLoading] = useState(false)
   const [cautionIngredients, setCautionIngredients] = useState<string[]>(product.match?.caution_ingredients ?? [])
   const [adding, setAdding] = useState(false)
+  const [shelfError, setShelfError] = useState("")
   const [analysisId, setAnalysisId] = useState<number | undefined>(product.match?.analysis_id)
   const [reportData, setReportData] = useState<ReportResult | null>(null)
   const [showAnalysisExplainer, setShowAnalysisExplainer] = useState(false)
@@ -2228,8 +2290,15 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
 
   const addToShelf = async () => {
     setAdding(true)
-    await onAddToShelf(product)
-    setAdding(false)
+    setShelfError("")
+    try {
+      const saved = await onAddToShelf(product)
+      if (!saved) setShelfError("Не удалось добавить на полку. Проверьте соединение и попробуйте ещё раз.")
+    } catch {
+      setShelfError("Не удалось добавить на полку. Проверьте соединение и попробуйте ещё раз.")
+    } finally {
+      setAdding(false)
+    }
   }
 
   const close = () => {
@@ -2429,12 +2498,13 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
         <button type="button" className="drawer__close" onClick={close} aria-label="Закрыть"><Icon name="close" size={18} /></button>
         <div className="drawer__scroll" ref={drawerScrollRef}>
           <div className="drawer__hero">
-            <img src={product.image} alt="" />
+            <ProductImage src={product.image} className="drawer__hero-image" />
 
             <div className="drawer__hero-meta">
               <button type="button" className="drawer__brand-link" onClick={() => onGoToCatalog(product.brand)}>{product.brand}</button>
               <h2>{product.name}</h2>
-              <button type="button" className="drawer__cat drawer__cat--link" onClick={() => onGoToCatalog(product.category)}>{product.subcategory ? `${product.category} · ${product.subcategory}` : product.category}</button>
+              {product.verified && <span className="drawer__verified"><Icon name="check" size={12} /> Проверенный продукт</span>}
+              <button type="button" className="drawer__cat drawer__cat--link" onClick={() => onGoToCatalog(product.category, product.category)}>{product.subcategory ? `${product.category} · ${product.subcategory}` : product.category}</button>
             </div>
           </div>
 
@@ -2449,7 +2519,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             </div>
           )}
 
-{(!EVALUATION_V2_ENABLED || !user || v2Started) && (product.barcode || product.variant) && (
+{(product.barcode || product.variant) && (
                 <section className="report-card">
                   <h4>Данные упаковки</h4>
                   {product.variant && <p className="drawer__report-summary">Вариант: {product.variant}</p>}
@@ -2457,18 +2527,16 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
                 </section>
               )}
 
-{(!EVALUATION_V2_ENABLED || !user || v2Started) && (
+{product.ingredients && (
               <section className="report-card drawer__inci">
                 <h4>Состав (INCI)</h4>
                 <p className="inci">
-                  {product.ingredients
-                    ? highlightInci(product.ingredients, cautionIngredients)
-                    : "Состав не распознан"}
+                  {highlightInci(product.ingredients, cautionIngredients)}
                 </p>
               </section>
               )}
 
-              {(!EVALUATION_V2_ENABLED || !user || v2Started) && product.slug && (
+              {product.slug && (
                 <section className="drawer__review">
                   <h3>Отзывы о продукте</h3>
 
@@ -2595,12 +2663,15 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
         </div>
         
 <div className={showAnalysisExplainer ? "drawer__footer drawer__footer--hidden" : "drawer__footer"}>
-          {product.shelf_id ? (
-            <Button variant="ghost" onClick={() => onRemove(product)}>Убрать с полки</Button>
-          ) : (
-            <Button variant="secondary" icon="plus" onClick={addToShelf} disabled={adding}>{adding ? "Добавляем…" : "На полку"}</Button>
-          )}
-          <Button variant="ghost" onClick={close}>Закрыть</Button>
+          <div className="drawer__footer-main">
+            {product.shelf_id ? (
+              <Button variant="ghost" onClick={() => onRemove(product)}>Убрать с полки</Button>
+            ) : (
+              <Button variant="secondary" icon="plus" onClick={addToShelf} disabled={adding}>{adding ? "Сохраняем…" : "На полку"}</Button>
+            )}
+            <Button variant="ghost" onClick={close}>Закрыть</Button>
+          </div>
+          {shelfError && <p className="drawer__shelf-error" role="alert">{shelfError}</p>}
         </div>
       </aside>
     </>
@@ -3497,6 +3568,8 @@ export default function App() {
   const [pointsOpen, setPointsOpen] = useState(false)
   const [scanMethod, setScanMethod] = useState<ScanMethod | null>(null)
   const [loading, setLoading] = useState(true)
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogCategory, setCatalogCategory] = useState("")
   const [query, setQuery] = useState("")
   const [helpOpen, setHelpOpen] = useState(false)
   const [toast, setToast] = useState("")
@@ -3581,6 +3654,7 @@ export default function App() {
         if (mapped.length) setItems(mapped)
       })
       .catch(() => {})
+      .finally(() => setCatalogLoading(false))
   }, [])
 
   // Полка: грузим реальные шкафы и отмечаем продукты как «использую».
@@ -3659,6 +3733,7 @@ export default function App() {
     if (p === "shelf" && !user) { setAuthModal("login"); return }
     if (p === "report") { setToast("Раздел «Отчёт» скоро появится"); return }
     if (p === "scan") setScanMethod(null)
+    if (p === "catalog") setCatalogCategory("")
     setPage(p)
     window.scrollTo({ top: 0 })
   }
@@ -3830,12 +3905,15 @@ export default function App() {
       error = "Войдите в аккаунт, чтобы добавлять на полку."
       setAuthModal("login")
     } else {
-      // На полке только проверенные: если ещё не проверен — авто-проверяем перед добавлением.
-      if (!p.match) {
-        try { await api.check({ product_name: p.name, skin_type: getUserProfile().skinType, profile: buildProfile() }) } catch { /* ignore */ }
-      }
+      // Полка не требует предварительного AI-check: backend рассчитывает
+      // детерминированный score сам. Не запускаем скрытый платный/медленный
+      // /check перед сохранением — иначе добавление задерживается и может
+      // выглядеть «не сработавшим».
       try {
         const res = await api.addToShelf(p.slug, p.category || "", p.cabinet || "face")
+        if (res.status !== "ok" || (res.item?.id == null && !res.duplicate)) {
+          throw new Error("Сервер не подтвердил сохранение на полке.")
+        }
         shelfId = res.item?.id
       } catch (e) {
         error = e instanceof Error ? e.message : "Не удалось добавить продукт."
@@ -3905,7 +3983,15 @@ export default function App() {
     setPage("scan")
     window.scrollTo({ top: 0 })
   }
-  const goToCatalog = (q: string) => { setQuery(q); setPage("catalog"); window.scrollTo({ top: 0 }) }
+  const goToCatalog = (q: string, category = "") => {
+    // Открытая карточка должна закрыться, а каталог — открыться уже с фильтром.
+    setOpen(null)
+    setMorphOrigin(null)
+    setQuery(q)
+    setCatalogCategory(category)
+    setPage("catalog")
+    window.scrollTo({ top: 0 })
+  }
 
   if (legalPath) {
     return <LegalPage slug={legalPath} onNavigate={openLegal} />
@@ -3956,7 +4042,7 @@ export default function App() {
             {user && page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
-            {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} />}
+            {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} />}
             {user && page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} onDelete={() => setDeleteOpen(true)} />}
           </div>
         </main>

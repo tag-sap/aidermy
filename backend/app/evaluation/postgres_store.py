@@ -154,6 +154,18 @@ class PostgresStore:
         )
         return dict(row) if row else None
 
+    def verified_product_ids(self, product_ids: Sequence[int]) -> set[int]:
+        """Read-only marker for catalog cards: product has an active composition."""
+        ids = [int(product_id) for product_id in product_ids]
+        if not ids:
+            return set()
+        rows = self._fetchall(
+            f"select distinct product_id from {self._table('product_compositions')} "
+            "where status = 'active' and product_id = any(%s)",
+            (ids,),
+        )
+        return {int(row["product_id"]) for row in rows}
+
     def upsert_composition(self, composition: Mapping[str, Any]) -> dict:
         status = composition_status(composition)
         row = self._fetchone_write(

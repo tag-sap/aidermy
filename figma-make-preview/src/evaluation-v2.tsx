@@ -2,51 +2,45 @@
 // Две независимые части: основная функция продукта и персональная совместимость.
 // Технические статусы, средние баллы и список непроверенных пунктов здесь не
 // показываются; они остаются в backend/snapshot для диагностики.
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   api,
   ApiError,
   EVALUATION_V2_ENABLED,
-  type EvaluationEvidence,
   type EvaluationPersonalParameter,
   type EvaluationPrimaryFunction,
   type EvaluationReport,
 } from "./api"
 
 const VALUE_LABEL: Record<string, string> = {
-  "skin_type:dry": "Сухая кожа",
-  "skin_type:oily": "Жирная кожа",
-  "skin_type:normal": "Нормальная кожа",
-  "skin_type:combination": "Комбинированная кожа",
-  "problem:dryness": "Сухость и обезвоженность",
-  "problem:acne_general": "Склонность к акне",
-  "problem:acne": "Склонность к акне",
+  "skin_type:dry": "Тип кожи: сухая",
+  "skin_type:oily": "Тип кожи: жирная",
+  "skin_type:normal": "Тип кожи: нормальная",
+  "skin_type:combination": "Тип кожи: комбинированная",
+  "problem:dryness": "Задача: сухость и обезвоженность",
+  "problem:acne_general": "Задача: склонность к акне",
+  "problem:acne": "Задача: склонность к акне",
   "goal:hydration": "Цель: увлажнение",
   "goal:acne": "Цель: уменьшить акне",
-  "intolerance:niacinamide_intolerance": "Непереносимость ниацинамида",
-  "intolerance:fragrance_intolerance": "Непереносимость отдушек",
-  "intolerance:alcohol_intolerance": "Непереносимость спирта",
-  "intolerance:acid_intolerance": "Непереносимость кислот",
-  "intolerance:retinoid_intolerance": "Непереносимость ретиноидов",
-  "therapy:adapalene": "Использование адапалена",
-  "therapy:antibiotic": "Антибактериальная терапия",
-  "therapy:benzoyl_peroxide": "Использование бензоилпероксида",
-  "therapy:tretinoin": "Использование третиноина",
-  "therapy:acid_therapy": "Кислотная терапия",
-  "procedure:recent_biorevitalization@<7": "Биоревитализация: первые 7 дней",
-  "procedure:recent_laser@<7": "Лазерная процедура: первые 7 дней",
-  "procedure:recent_peeling@<7": "Пилинг: первые 7 дней",
+  "intolerance:niacinamide_intolerance": "Наличие в составе: ниацинамид",
+  "intolerance:fragrance_intolerance": "Наличие в составе: отдушки",
+  "intolerance:alcohol_intolerance": "Наличие в составе: спирт",
+  "intolerance:acid_intolerance": "Наличие в составе: кислоты",
+  "intolerance:retinoid_intolerance": "Наличие в составе: ретиноиды",
+  "therapy:adapalene": "Совместимость с лечением адапаленом",
+  "therapy:antibiotic": "Совместимость с антибактериальной терапией",
+  "therapy:benzoyl_peroxide": "Совместимость с бензоилпероксидом",
+  "therapy:tretinoin": "Совместимость с третиноином",
+  "therapy:acid_therapy": "Совместимость с кислотной терапией",
+  "procedure:recent_biorevitalization@<7": "Уход после биоревитализации: первые 7 дней",
+  "procedure:recent_laser@<7": "Уход после лазерной процедуры: первые 7 дней",
+  "procedure:recent_peeling@<7": "Уход после пилинга: первые 7 дней",
 }
 
 function parameterLabel(parameterId: string): string {
   // The backend snapshot now carries a normal Russian label. Never fall back to
   // a machine id when an older snapshot is opened.
   return VALUE_LABEL[parameterId] || "Параметр профиля"
-}
-
-function shortText(text: string, limit = 300): string {
-  const clean = (text || "").replace(/\s+/g, " ").trim()
-  return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean
 }
 
 function cleanProductName(name: string): string {
@@ -88,14 +82,19 @@ function PrimaryFunctionCard({ item }: { item: EvaluationPrimaryFunction }) {
         )}
       </div>
       {score != null && <ScoreBar score={score} />}
-      {item.reason && <p className="evalv2__reason">{shortText(item.reason, 260)}</p>}
+      {item.reason && (
+        <details className="evalv2__explain">
+          <summary>Почему такая оценка</summary>
+          <p>{item.reason}</p>
+        </details>
+      )}
       {(item.basis?.length ?? 0) > 0 && (
         <details className="evalv2__explain">
           <summary>Что учтено</summary>
           <ul className="evalv2__basis">
             {item.basis?.map((row) => (
               <li key={`${row.label}-${row.value}`}>
-                <strong>{row.label}:</strong> {shortText(row.value, 180)}
+                <strong>{row.label}:</strong> {row.value}
               </li>
             ))}
           </ul>
@@ -105,14 +104,9 @@ function PrimaryFunctionCard({ item }: { item: EvaluationPrimaryFunction }) {
   )
 }
 
-function PersonalParameterCard({
-  item,
-  evidence,
-}: {
-  item: EvaluationPersonalParameter
-  evidence: EvaluationEvidence[]
-}) {
+function PersonalParameterCard({ item }: { item: EvaluationPersonalParameter }) {
   const score = clampScore(item.score)
+  const intolerance = item.intolerance
   return (
     <article className="evalv2__parameter-card">
       <div className="evalv2__parameter-head">
@@ -120,30 +114,22 @@ function PersonalParameterCard({
           <strong>{item.label || parameterLabel(item.parameter_id)}</strong>
           <small>По вашему профилю</small>
         </div>
-        <span className="evalv2__parameter-score">
-          {score}<small>/100</small>
-        </span>
+        {intolerance ? (
+          <span className={`evalv2__intolerance evalv2__intolerance--${intolerance.state}`}>
+            {intolerance.label}
+          </span>
+        ) : (
+          <span className="evalv2__parameter-score">
+            {score}<small>/100</small>
+          </span>
+        )}
       </div>
-      <ScoreBar score={score} />
-      <p className="evalv2__reason">{shortText(item.reason, 260)}</p>
-      {evidence.length > 0 && (
+      {!intolerance && <ScoreBar score={score} />}
+      {item.reason && (
         <details className="evalv2__explain">
-          <summary>Источники</summary>
-          <div className="evalv2__evidence">
-            <ul>
-              {evidence.slice(0, 5).map((source) => (
-                <li key={source.id}>
-                  <p>«{shortText(source.quote, 220)}»</p>
-                  {source.claim && <span>{source.claim}</span>}
-                  {source.source?.url && (
-                    <a href={source.source.url} target="_blank" rel="noreferrer">
-                      {source.source.url}
-                    </a>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <summary>Почему такая оценка</summary>
+          <p>{item.reason}</p>
+          {intolerance?.reason && <p className="evalv2__intolerance-note">{intolerance.reason}</p>}
         </details>
       )}
     </article>
@@ -162,11 +148,41 @@ export function EvaluationV2Panel({
   onStarted?: () => void
 }) {
   const [started, setStarted] = useState(false)
+  const [restoring, setRestoring] = useState(true)
   const [report, setReport] = useState<EvaluationReport | null>(null)
   const [notice, setNotice] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const profileKey = useMemo(() => JSON.stringify(profile || {}), [profile])
+
+  useEffect(() => {
+    if (!EVALUATION_V2_ENABLED || !enabled) {
+      setRestoring(false)
+      return
+    }
+    let cancelled = false
+    setStarted(false)
+    setRestoring(true)
+    setReport(null)
+    setError("")
+    setNotice("")
+
+    api.evaluationProductSavedReport(productId, JSON.parse(profileKey))
+      .then((result) => {
+        if (cancelled || !result.saved || !result.report) return
+        setReport(result.report)
+        setStarted(true)
+        onStarted?.()
+      })
+      .catch(() => {
+        // No saved report is a normal state: the user sees the explicit
+        // "Проверить для меня" action instead of an invented result.
+      })
+      .finally(() => {
+        if (!cancelled) setRestoring(false)
+      })
+    return () => { cancelled = true }
+  }, [productId, profileKey, enabled])
 
   const start = async () => {
     if (!EVALUATION_V2_ENABLED || !enabled) return
@@ -201,7 +217,41 @@ export function EvaluationV2Panel({
     }
   }
 
+  const userReport = report?.user_report
+  const primary = userReport?.primary_function ?? report?.primary_function ?? null
+  const personal = userReport?.personal_compatibility ?? []
+  const productName = cleanProductName(
+    userReport?.product_name || report?.product?.name || ""
+  )
+  const sources = useMemo(() => {
+    const urls = new Map<string, string>()
+    const add = (url?: string, title?: string) => {
+      const clean = (url || "").trim()
+      if (!/^https?:\/\//i.test(clean) || urls.has(clean)) return
+      urls.set(clean, (title || "").trim() || clean)
+    }
+    for (const item of personal) {
+      const rows = item.evidence?.length
+        ? item.evidence
+        : report?.evidence?.[item.parameter_id] ?? []
+      for (const row of rows) add(row.source?.url, row.source?.title)
+    }
+    for (const row of primary?.basis ?? []) add(row.source)
+    return Array.from(urls.entries()).map(([url, title]) => ({ url, title }))
+  }, [personal, primary, report])
+
   if (!EVALUATION_V2_ENABLED || !enabled) return null
+
+  if (restoring) {
+    return (
+      <div className="evalv2 evalv2--intro" role="status">
+        <div className="evalv2__loading">
+          <img src="/loading.gif" alt="" />
+          <span>Загружаем сохранённый результат…</span>
+        </div>
+      </div>
+    )
+  }
 
   if (!started) {
     return (
@@ -211,22 +261,21 @@ export function EvaluationV2Panel({
           Проверим основную функцию продукта и его совместимость с вашим профилем.
         </p>
         <button type="button" className="evalv2__primary" onClick={() => void start()}>
-          Проверить для меня
+          <span><span aria-hidden="true">✦</span> Проверить для меня</span>
+          <small className="evalv2__credit"><span aria-hidden="true">◈</span> AI · 1 балл</small>
         </button>
       </div>
     )
   }
 
-  const userReport = report?.user_report
-  const primary = userReport?.primary_function ?? report?.primary_function ?? null
-  const personal = userReport?.personal_compatibility ?? []
-  const productName = cleanProductName(
-    userReport?.product_name || report?.product?.name || ""
-  )
-
   return (
     <div className="evalv2">
-      {loading && <p className="evalv2__empty">Проверяем продукт…</p>}
+      {loading && (
+        <div className="evalv2__loading" role="status">
+          <img src="/loading.gif" alt="" />
+          <span>Проверяем продукт…</span>
+        </div>
+      )}
 
       {notice && !loading && !report && (
         <p className="evalv2__empty">Не удалось подтвердить состав продукта.</p>
@@ -250,20 +299,26 @@ export function EvaluationV2Panel({
             <h4>Персональная совместимость</h4>
             {personal.length > 0 ? (
               personal.map((item) => (
-                <PersonalParameterCard
-                  key={item.parameter_id}
-                  item={item}
-                  evidence={
-                    item.evidence?.length
-                      ? item.evidence
-                      : report?.evidence?.[item.parameter_id] ?? []
-                  }
-                />
+                <PersonalParameterCard key={item.parameter_id} item={item} />
               ))
             ) : (
               <p className="evalv2__empty">
                 Для вашего профиля нет подтверждённых персональных оценок.
               </p>
+            )}
+            {sources.length > 0 && (
+              <details className="evalv2__sources">
+                <summary>Источники</summary>
+                <ul>
+                  {sources.map((source) => (
+                    <li key={source.url}>
+                      <a href={source.url} target="_blank" rel="noreferrer">
+                        {source.url}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
           </section>
         </section>

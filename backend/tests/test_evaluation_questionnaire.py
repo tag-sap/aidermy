@@ -204,10 +204,13 @@ class ProfileResolutionTests(unittest.TestCase):
     def test_each_parameter_carries_its_own_question_and_definition(self):
         labels = {item.id: item.label for item in resolve_parameters(PAYLOAD).parameters}
         self.assertEqual(labels["problem:dryness"], "Проблема: «Сухость / обезвоженность»")
-        self.assertEqual(labels["therapy:tretinoin"], "Лечение: «Третиноин»")
+        self.assertEqual(
+            labels["therapy:tretinoin"],
+            "Совместимость с лечением: «Третиноин»",
+        )
         self.assertEqual(
             labels["procedure:recent_laser@<7"],
-            "Процедура: «Лазер», Последние 7 дней",
+            "Уход после процедуры: «Лазер», Последние 7 дней",
         )
         self.assertEqual(labels["goal:hydration"], "Цель: «Увлажнить кожу»")
         parameter = PARAMETERS["problem:dryness"]

@@ -578,6 +578,32 @@ async def product_status(
     )
 
 
+@router.post("/products/{product_id}/saved-report")
+async def product_saved_report(
+    product_id: int,
+    payload: _ProductStatusRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Open the current saved report read-only.
+
+    This is the drawer's fast path: it never plans, researches, or writes a
+    snapshot. If history is stale/incomplete, ``saved=false`` tells the client
+    to use the normal reuse-first analysis path.
+    """
+    service = _analysis_service(request)
+    report = await run_in_threadpool(
+        service.saved_report,
+        product_id=product_id,
+        profile=payload.profile,
+        user_id=int(user["id"]),
+    )
+    return {
+        "saved": report is not None,
+        "report": report.as_dict() if report is not None else None,
+    }
+
+
 def _check_composition_sync(
     product_id: int, payload: CompositionCheckRequest, request: Request
 ) -> dict:
