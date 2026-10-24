@@ -1338,6 +1338,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onA
 
   const cabinet = CABINETS.find((c) => c.key === active) ?? CABINETS[0]
   const shelved = items.filter((p) => p.state && p.cabinet === active)
+  const totalShelved = items.filter((p) => p.state).length
 
   const cells = useMemo(() => {
     const out: { product: Product; cat: string }[] = []
@@ -1422,7 +1423,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onA
 
       <div key={active} className="shelf-anim">
         <div className="shelf-summary">
-          <div><strong>{shelved.length}</strong><span>из {limit} средств на полке</span></div>
+          <div><strong>{totalShelved}</strong><span>из {limit} средств на полке</span></div>
           <div><strong>{avg != null ? `${avg}%` : "—"}</strong><span>средняя совместимость</span></div>
           <div><strong>{shelfVerdict}</strong><span>как сочетаются средства</span></div>
         </div>
