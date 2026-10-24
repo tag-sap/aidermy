@@ -82,6 +82,8 @@ def _is_fragrance(product: Mapping[str, Any]) -> bool:
         marker in text
         for marker in ("парфюм", "parfum", "туалетная вода", "духи", "cologne", "perfume")
     )
+
+
 def assess_comedogenicity(
     product: Mapping[str, Any] | None,
     composition: Mapping[str, Any] | None,
@@ -144,7 +146,7 @@ def assess_comedogenicity(
         # A default 0 without evidence is not a confirmed “not comedogenic”.
         if rating <= 0 and (evidence in {"", "missing", "unknown"} or confidence <= 0):
             continue
-        if evidence in {"missing", "unknown"}:
+        if evidence not in {"high", "strong", "moderate"}:
             continue
         records.append((str(ingredient), rating, row))
 
