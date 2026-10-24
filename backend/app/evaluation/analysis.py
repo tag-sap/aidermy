@@ -33,6 +33,7 @@ from .knowledge import (
 )
 from .parameters import PARAMETERS, ingredient_parameter, resolve_parameters
 from .primary_function import build_primary_function, public_primary_function
+from .comedogenicity import assess_comedogenicity
 from .research import ResearchProvider
 from .snapshot import profile_fingerprint, verify_snapshot
 from .timing import StageTimer
@@ -184,6 +185,11 @@ def _risk_kind(evidence: Sequence[Mapping] | None) -> str:
         if support_level >= 3 and support_confidence >= risk_confidence:
             return ""
         return "probable"
+    # A weak but confirmed contradiction is enough to require attention, but
+    # not enough to declare the product unsuitable. This distinction is what
+    # the user-facing “С осторожностью” state exists for.
+    if risk_level == 1 and risk_confidence >= 0.7:
+        return "possible"
     return ""
 
 
@@ -191,7 +197,13 @@ def _risk_kind(evidence: Sequence[Mapping] | None) -> str:
 # real conflict; an absent ingredient in a complete INCI satisfies the user's
 # “avoid this” restriction and is a positive result.
 _CRITICAL_SECTIONS = {"skin_type", "problem", "therapy", "procedure", "intolerance"}
-_VERDICT_ICONS = {"positive": "check", "neutral": "dash", "negative": "cross", "unknown": "dash"}
+_VERDICT_ICONS = {
+    "positive": "check",
+    "negative": "cross",
+    "caution": "alert",
+    "neutral": "dash",
+    "unknown": "dash",
+}
 
 
 def _section(parameter_id: str) -> str:
@@ -210,6 +222,7 @@ def _verdict_label(
     if section == "therapy":
         return {
             "positive": "Совместимо с лечением",
+            "caution": "Требует осторожности с лечением",
             "neutral": "Совместимость неясна",
             "negative": (
                 "Скорее всего несовместим с лечением"
@@ -221,6 +234,7 @@ def _verdict_label(
     if section == "procedure":
         return {
             "positive": "Можно использовать в этот период",
+            "caution": "Нужна осторожность в этот период",
             "neutral": "Нужна осторожность",
             "negative": (
                 "Скорее всего не рекомендуется в этот период"
@@ -232,6 +246,7 @@ def _verdict_label(
     if section == "goal":
         return {
             "positive": "Цель поддерживается",
+            "caution": "Возможна осторожность",
             "neutral": "Влияние неясно",
             "negative": "Цель не подтверждена",
             "unknown": "Не удалось определить",
@@ -239,6 +254,7 @@ def _verdict_label(
     if section == "skin_type":
         return {
             "positive": "Соответствует типу кожи",
+            "caution": "Возможна осторожность",
             "neutral": "Смешанный результат",
             "negative": "Не соответствует типу кожи",
             "unknown": "Не удалось определить",
@@ -246,12 +262,14 @@ def _verdict_label(
     if section == "problem":
         return {
             "positive": "Соответствует задаче",
+            "caution": "Возможна осторожность",
             "neutral": "Смешанный результат",
             "negative": "Не соответствует задаче",
             "unknown": "Не удалось определить",
         }[verdict]
     return {
         "positive": "Подходит",
+        "caution": "Возможна осторожность",
         "neutral": "Смешанный результат",
         "negative": "Не подходит",
         "unknown": "Не удалось определить",
@@ -278,20 +296,75 @@ def _item_verdict(
         value = float(score)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return "unknown"
+    section = _section(parameter_id)
+    risk = _risk_kind(evidence)
+
+    # Therapy and procedure are safety questions, not efficacy questions. A
+    # mixed/low compatibility there deserves attention even when no strong
+    # contradiction was confirmed; only a strong conflict is unsuitable.
+    if section in {"therapy", "procedure"}:
+        if risk == "confirmed" or value <= 0:
+            return "negative"
+        if risk in {"probable", "possible"} or value < 75:
+            return "caution"
+        return "positive"
+
+    # Benefit questions: a low score may only mean that the product does not
+    # treat the concern. It is not evidence of harm. If no confirmed negative
+    # evidence exists, compatibility is positive; a real risk becomes a warning.
+    if risk == "confirmed":
+        return "negative"
+    if risk in {"probable", "possible"}:
+        return "caution"
     if value >= 75:
         return "positive"
+    if value >= 50:
+        return "positive"
+    if value <= 0:
+        # The zero level is reserved for a confirmed contradiction. If an old
+        # record has no such evidence, present a cautious warning rather than
+        # turning “no treatment benefit” into a hard incompatibility.
+        return "caution"
+    return "positive"
+
+
+def _caution_copy(parameter_id: str, evidence: Sequence[Mapping] | None) -> tuple[str, str]:
+    """Cause-aware risk and a non-prescriptive recommendation.
+
+    The risk text is taken from confirmed evidence when possible; otherwise it
+    states only the uncertainty that remains. The recommendation avoids dose,
+    frequency and treatment schedules because those are not known from the INCI.
+    """
     section = _section(parameter_id)
-    if value <= 25:
-        # A low benefit score is not proof of harm. Only a critical section or
-        # confirmed contradictory evidence may turn it into a negative fact.
-        if section in {"goal", "problem"}:
-            return "neutral"
-        if section in {"therapy", "procedure"} or _risk_kind(evidence):
-            return "negative"
-        return "negative" if section == "skin_type" else "neutral"
-    if section in {"therapy", "procedure"} and _risk_kind(evidence):
-        return "negative"
-    return "neutral"
+    risk = ""
+    for row in sorted(
+        evidence or [],
+        key=lambda item: (
+            {"strong": 3, "moderate": 2, "weak": 1}.get(str(item.get("strength") or ""), 0),
+            float(item.get("confidence") or 0),
+        ),
+        reverse=True,
+    ):
+        if str(row.get("verification") or "") != "confirmed":
+            continue
+        if str(row.get("direction") or "") != "contradicts":
+            continue
+        risk = _short_explanation(row.get("claim") or row.get("quote"))
+        if risk:
+            break
+    if not risk:
+        risk = {
+            "therapy": "Возможна дополнительная нагрузка на кожу при сочетании с текущим лечением.",
+            "procedure": "Возможна дополнительная нагрузка на кожу в период восстановления.",
+            "skin_type": "Возможна дополнительная нагрузка на этот тип кожи.",
+            "problem": "Возможна дополнительная нагрузка на кожу в рамках этой задачи.",
+            "goal": "Возможна дополнительная нагрузка на кожу при достижении этой цели.",
+        }.get(section, "Возможна дополнительная нагрузка на кожу.")
+    return (
+        risk,
+        "Если решите использовать продукт, проверьте переносимость и следите за реакцией; "
+        "при усилении раздражения прекратите использование.",
+    )
 
 
 def _quoted(label: str) -> str:
@@ -328,6 +401,8 @@ def _display_text(
             if risk_kind == "probable":
                 return f"Скорее всего несовместим с лечением «{target}»."
             return f"Не рекомендуется использовать с лечением «{target}»."
+        if verdict == "caution":
+            return f"С лечением «{target}» возможна осторожность."
         return f"Совместимость с лечением «{target}» неясна."
     if section == "procedure":
         target = subject or "процедурой"
@@ -343,6 +418,8 @@ def _display_text(
             if risk_kind == "probable":
                 return f"Скорее всего не рекомендуется использовать после процедуры «{target}»{period}."
             return f"Не рекомендуется использовать после процедуры «{target}»{period}."
+        if verdict == "caution":
+            return f"После процедуры «{target}»{period} возможна осторожность."
         return f"Нужна осторожность после процедуры «{target}»{period}."
     if section == "goal":
         target = subject or "цель"
@@ -350,6 +427,8 @@ def _display_text(
             return f"Поддерживает цель «{target}»."
         if verdict == "negative":
             return f"Не подтверждает цель «{target}»."
+        if verdict == "caution":
+            return f"Возможна осторожность в отношении цели «{target}»."
         return f"Нейтрален в отношении цели «{target}»."
     if section == "problem":
         target = subject or "задача"
@@ -357,6 +436,8 @@ def _display_text(
             return f"Соответствует задаче «{target}»."
         if verdict == "negative":
             return f"Не соответствует задаче «{target}»."
+        if verdict == "caution":
+            return f"Возможна осторожность в отношении проблемы «{target}»."
         return f"Нейтрален в отношении проблемы «{target}»."
     if section == "skin_type":
         target = subject or "этого типа"
@@ -364,11 +445,15 @@ def _display_text(
             return f"Подходит для кожи типа «{target}»."
         if verdict == "negative":
             return f"Не подходит для кожи типа «{target}»."
+        if verdict == "caution":
+            return f"Возможна осторожность для кожи типа «{target}»."
         return f"Нейтрален для кожи типа «{target}»."
     if verdict == "positive":
         return f"{label or 'Параметр'} — подходит."
     if verdict == "negative":
         return f"{label or 'Параметр'} — не подходит."
+    if verdict == "caution":
+        return f"{label or 'Параметр'} — возможна осторожность."
     if verdict == "unknown":
         return f"Не удалось определить: {label or 'параметр'}."
     return f"{label or 'Параметр'} — нейтральный результат."
@@ -392,10 +477,11 @@ def _overall_verdict(items: Sequence[Mapping]) -> dict:
     """Aggregate conflicts by meaning, not by counting positive cards."""
     assessed = [
         item for item in items
-        if item.get("verdict") in {"positive", "neutral", "negative"}
+        if item.get("verdict") in {"positive", "caution", "neutral", "negative"}
     ]
     unknown = sum(1 for item in items if item.get("verdict") == "unknown")
     positive = sum(1 for item in items if item.get("verdict") == "positive")
+    caution = [item for item in items if item.get("verdict") == "caution"]
     neutral = sum(1 for item in items if item.get("verdict") == "neutral")
     negative = [item for item in items if item.get("verdict") == "negative"]
     critical = [
@@ -419,6 +505,11 @@ def _overall_verdict(items: Sequence[Mapping]) -> dict:
         verdict = "Подходит с оговорками"
         tone = "warn"
         summary = "Есть предупреждение: продукт подходит не полностью."
+    elif caution:
+        first = caution[0]
+        verdict = "Подходит с оговорками"
+        tone = "warn"
+        summary = f"Есть предупреждение: {first.get('label')} требует осторожности."
     elif neutral or unknown:
         verdict = "Подходит с оговорками"
         tone = "warn"
@@ -432,6 +523,7 @@ def _overall_verdict(items: Sequence[Mapping]) -> dict:
         "tone": tone,
         "summary": summary,
         "positive": positive,
+        "caution": len(caution),
         "neutral": neutral,
         "negative": len(negative),
         "unknown": unknown,
@@ -471,6 +563,8 @@ class AnalysisReport:
     # Raw questionnaire input is kept out of snapshots, but the compact user
     # projection needs its intolerance parameter ids to read the verified INCI.
     profile_input: Mapping | None = None
+    # Kept last for backward-compatible positional construction.
+    comedogenicity: dict = field(default_factory=dict)
 
     @property
     def is_final(self) -> bool:
@@ -487,7 +581,16 @@ class AnalysisReport:
         personal = []
         seen: set[str] = set()
         for row in self.snapshot.get("parameters") or []:
-            if not row.get("included") or row.get("value") is None:
+            if (
+                not row.get("included")
+                or row.get("value") is None
+                or str(row.get("status") or "") in {
+                    "pending",
+                    "not_applicable",
+                    "insufficient_evidence",
+                    "stale",
+                }
+            ):
                 continue
             parameter_id = str(row.get("parameter_id") or "")
             evidence_rows = list(self.evidence.get(parameter_id) or [])
@@ -526,6 +629,12 @@ class AnalysisReport:
             }
             if risk_kind:
                 item["risk_kind"] = risk_kind
+            if verdict == "caution":
+                risk_text, recommendation = _caution_copy(parameter_id, evidence_rows)
+                item["status_label"] = "С осторожностью"
+                item["cause"] = explanation
+                item["risk"] = risk_text
+                item["recommendation"] = recommendation
             if intolerance is not None:
                 item["intolerance"] = intolerance
             personal.append(item)
@@ -590,18 +699,28 @@ class AnalysisReport:
             })
             seen.add(parameter_id)
 
-        verdict_order = {"positive": 0, "negative": 1, "neutral": 2, "unknown": 3}
+        verdict_order = {
+            "positive": 0,
+            "negative": 1,
+            "caution": 2,
+            "neutral": 3,
+            "unknown": 4,
+        }
         personal.sort(key=lambda row: verdict_order.get(str(row.get("verdict")), 9))
         primary = public_primary_function(self.primary_function)
         primary["reason"] = _short_explanation(primary.get("reason"))
         name = " ".join(str(self.product.get("name") or "").replace("\n", " ").split())
-        return {
+        report = {
             "product_name": name,
             "primary_function": primary,
             "overall": _overall_verdict(personal),
             "personal_compatibility": personal,
             "sources": _source_urls(personal, primary),
         }
+        comedo = dict(self.comedogenicity or {})
+        if comedo and comedo.get("applicable", True):
+            report["comedogenicity"] = comedo
+        return report
 
     def as_dict(self) -> dict:
         payload = {
@@ -616,6 +735,7 @@ class AnalysisReport:
             "analysis": self.analysis.as_dict(),
             "evidence": self.evidence,
             "primary_function": self.primary_function,
+            "comedogenicity": self.comedogenicity,
             "user_report": self.user_report(),
             "timings": self.timings,
         }
@@ -869,6 +989,11 @@ class AnalysisService:
             knowledge=knowledge,
             evidence=evidence_by_parameter,
             primary_function=primary_function,
+            comedogenicity=assess_comedogenicity(
+                product,
+                {**record, "inci_raw": record.get("inci_raw") or composition.get("inci_raw") or ""},
+                composition_status=str(record.get("status") or ""),
+            ),
             timings=timings,
             profile_input=profile,
         )
@@ -990,6 +1115,11 @@ class AnalysisService:
             knowledge=knowledge,
             evidence=evidence,
             primary_function=primary,
+            comedogenicity=assess_comedogenicity(
+                knowledge.product,
+                {**record, "inci_raw": record.get("inci_raw") or ""},
+                composition_status=str(record.get("status") or ""),
+            ),
             timings={"saved": True},
             profile_input=profile,
         )

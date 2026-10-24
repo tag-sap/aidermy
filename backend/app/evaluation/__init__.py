@@ -99,6 +99,11 @@ from .primary_function import (
     build_primary_function,
     public_primary_function,
 )
+from .comedogenicity import (
+    COMEDOGENICITY_VERSION,
+    ComedogenicityAssessment,
+    assess_comedogenicity,
+)
 from .llm_research import LlmResearchProvider
 from .research_service import ResearchPlan, ResearchRunReport, ResearchService
 from .snapshot import (
@@ -151,6 +156,9 @@ __all__ = [
     "PRIMARY_FUNCTION_VERSION",
     "build_primary_function",
     "public_primary_function",
+    "COMEDOGENICITY_VERSION",
+    "ComedogenicityAssessment",
+    "assess_comedogenicity",
     "AnalysisState",
     "KnowledgeScan",
     "ParameterGap",

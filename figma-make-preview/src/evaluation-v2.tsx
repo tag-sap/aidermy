@@ -7,6 +7,7 @@ import {
   api,
   ApiError,
   EVALUATION_V2_ENABLED,
+  type EvaluationComedogenicity,
   type EvaluationOverall,
   type EvaluationPersonalParameter,
   type EvaluationPrimaryFunction,
@@ -64,7 +65,7 @@ function LoadingState({ label }: { label: string }) {
 
 function VerdictIcon({ verdict }: { verdict?: string }) {
   const kind = verdict || "unknown"
-  const glyph = kind === "positive" ? "✓" : kind === "negative" ? "✕" : "—"
+  const glyph = kind === "positive" ? "✓" : kind === "negative" ? "✕" : kind === "caution" ? "⚠" : "—"
   return (
     <span className={`evalv2__verdict-icon evalv2__verdict-icon--${kind}`} aria-hidden="true">
       {glyph}
@@ -79,7 +80,7 @@ function itemVerdict(item: EvaluationPersonalParameter): string {
       : item.intolerance.state === "absent" ? "positive" : "unknown"
   }
   return item.score != null && item.score >= 75 ? "positive"
-    : item.score != null && item.score <= 25 ? "negative" : "neutral"
+    : item.score != null && item.score <= 25 ? "caution" : "positive"
 }
 
 function itemText(item: EvaluationPersonalParameter): string {
@@ -87,7 +88,7 @@ function itemText(item: EvaluationPersonalParameter): string {
   const label = item.label || parameterLabel(item.parameter_id)
   const verdict = itemVerdict(item)
   if (verdict === "unknown") return `Не удалось определить: ${label}.`
-  return `${label}: ${item.verdict_label || (verdict === "positive" ? "подходит" : verdict === "negative" ? "не подходит" : "нейтрально")}.`
+  return `${label}: ${item.verdict_label || (verdict === "positive" ? "подходит" : verdict === "negative" ? "не подходит" : verdict === "caution" ? "возможна осторожность" : "нейтрально")}.`
 }
 
 function ReportHeader({ productName, overall }: { productName: string; overall: EvaluationOverall }) {
@@ -113,13 +114,18 @@ function FunctionLine({
   open: boolean
   onToggle: () => void
 }) {
-  const hasInfo = Boolean(item.reason)
+  const hasInfo = Boolean(item.reason || (item.basis && item.basis.length))
   return (
     <div className={`evalv2__function-line ${open ? "evalv2__function-line--open" : ""}`}>
       <p>
         <span>Основная функция:</span> <strong>{item.label}</strong>
         {item.purpose ? <span className="evalv2__function-purpose"> · {item.purpose}</span> : null}
       </p>
+      {item.score != null && (
+        <span className="evalv2__function-score" aria-label={`Оценка основной функции ${item.score} из 100`}>
+          {item.score}<small>%</small>
+        </span>
+      )}
       {hasInfo && (
         <button
           type="button"
@@ -134,11 +140,68 @@ function FunctionLine({
       {open && (
         <div className="evalv2__info-text">
           {item.reason && <p>{item.reason}</p>}
+          {(item.basis || []).map((row, index) => (
+            <p key={index}>
+              <strong>{row.label}: </strong>
+              {row.value}
+            </p>
+          ))}
           {item.score == null && item.label !== "Основная функция не определена" && (
             <p className="evalv2__function-note">
               Функция определена по категории; эффективность состава оценивается отдельно.
             </p>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ComedogenicityLine({
+  item,
+  open,
+  onToggle,
+}: {
+  item: EvaluationComedogenicity
+  open: boolean
+  onToggle: () => void
+}) {
+  if (item.applicable === false || item.status === "not_applicable") return null
+  const label = item.status === "insufficient_evidence"
+    ? "Недостаточно данных"
+    : item.level === "low"
+      ? "Низкий потенциал"
+      : item.level === "medium"
+        ? "Требует контекста"
+        : item.level === "high"
+          ? "Высокий потенциал"
+          : "Недостаточно данных"
+  const details = [item.reason, item.risk, item.recommendation].filter(
+    (value): value is string => Boolean(value && value.trim())
+  )
+  return (
+    <div className={`evalv2__function-line evalv2__comedo-line evalv2__comedo-line--${item.level || "unknown"}`}>
+      <p>
+        <span>Комедогенность:</span> <strong>{label}</strong>
+        <span className="evalv2__function-purpose"> · отдельно от общей совместимости</span>
+      </p>
+      {details.length > 0 && (
+        <button
+          type="button"
+          className="evalv2__info"
+          aria-label="Объяснить оценку комедогенности"
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          ⓘ
+        </button>
+      )}
+      {open && details.length > 0 && (
+        <div className="evalv2__info-text">
+          {details.map((text, index) => <p key={index}>{text}</p>)}
+          {(item.basis || []).map((row, index) => (
+            <p key={`basis-${index}`}><strong>{row.label}: </strong>{row.value}</p>
+          ))}
         </div>
       )}
     </div>
@@ -157,9 +220,12 @@ function VerdictRow({
   onToggle: () => void
 }) {
   const verdict = itemVerdict(item)
-  const details = [item.explanation || item.reason, item.intolerance?.reason].filter(
-    (value): value is string => Boolean(value && value.trim())
-  )
+  const details = [
+    { label: verdict === "caution" ? "Причина" : "", text: item.cause || item.explanation || item.reason },
+    { label: "Возможный риск", text: item.risk || "" },
+    { label: "Рекомендация", text: item.recommendation || "" },
+    { label: "", text: item.intolerance?.reason || "" },
+  ].filter((detail) => Boolean(detail.text && detail.text.trim()))
   return (
     <li className={`evalv2__verdict-row evalv2__verdict-row--${verdict}`}>
       <span className="evalv2__num" aria-hidden="true">{number}.</span>
@@ -178,7 +244,12 @@ function VerdictRow({
       </button>
       {open && details.length > 0 && (
         <div className="evalv2__info-text">
-          {details.map((text, index) => <p key={index}>{text}</p>)}
+          {details.map((detail, index) => (
+            <p key={index}>
+              {detail.label ? <strong>{detail.label}: </strong> : null}
+              {detail.text}
+            </p>
+          ))}
         </div>
       )}
     </li>
@@ -209,6 +280,7 @@ export function EvaluationV2Panel({
   const [loading, setLoading] = useState(false)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [functionInfoOpen, setFunctionInfoOpen] = useState(false)
+  const [comedoOpen, setComedoOpen] = useState(false)
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const profileKey = useMemo(() => JSON.stringify(profile || {}), [profile])
 
@@ -227,6 +299,7 @@ export function EvaluationV2Panel({
     setRestoreError("")
     setExpandedItems(new Set())
     setFunctionInfoOpen(false)
+    setComedoOpen(false)
     setSourcesOpen(false)
 
     api.evaluationProductSavedReport(productId, JSON.parse(profileKey))
@@ -294,6 +367,10 @@ export function EvaluationV2Panel({
 
   const userReport = report?.user_report
   const primary = userReport?.primary_function ?? report?.primary_function ?? null
+  const topLevelComedo = report?.comedogenicity && Object.keys(report.comedogenicity).length
+    ? report.comedogenicity
+    : null
+  const comedogenicity = userReport?.comedogenicity ?? topLevelComedo
   const personal = userReport?.personal_compatibility ?? []
   const knownItems = personal.filter((item) => itemVerdict(item) !== "unknown")
   const unknownItems = personal.filter((item) => itemVerdict(item) === "unknown")
@@ -313,6 +390,7 @@ export function EvaluationV2Panel({
     tone: "muted",
     summary: "В сохранённом отчёте нет пользовательского вывода.",
     positive: 0,
+    caution: 0,
     neutral: 0,
     negative: 0,
     unknown: 0,
@@ -404,6 +482,13 @@ export function EvaluationV2Panel({
             open={functionInfoOpen}
             onToggle={() => setFunctionInfoOpen((value) => !value)}
           />
+          {comedogenicity && (
+            <ComedogenicityLine
+              item={comedogenicity}
+              open={comedoOpen}
+              onToggle={() => setComedoOpen((value) => !value)}
+            />
+          )}
 
           {knownItems.length > 0 && (
             <ol className="evalv2__verdicts">

@@ -3646,6 +3646,7 @@ select:focus-visible,
 .evalv2__verdict-icon { display: inline-grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%; font-size: 14px; font-weight: 900; line-height: 1; }
 .evalv2__verdict-icon--positive { background: var(--good-bg); color: var(--good); }
 .evalv2__verdict-icon--negative { background: var(--bad-bg); color: var(--bad); }
+.evalv2__verdict-icon--caution { background: var(--warn-bg); color: var(--warn); }
 .evalv2__verdict-icon--neutral, .evalv2__verdict-icon--unknown { background: var(--surface); color: var(--ink-soft); border: 1px solid var(--border); }
 .evalv2__verdict-title { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
 .evalv2__verdict-title > div { min-width: 0; }
@@ -3670,6 +3671,8 @@ select:focus-visible,
 .evalv2__function-line > .evalv2__info-text { flex: 0 0 100%; }
 .evalv2__function-line > p > span:first-child { color: var(--ink-soft); }
 .evalv2__function-purpose { color: var(--ink-soft); font-size: 11.5px; }
+.evalv2__comedo-line--medium { border-color: rgba(169,120,30,.3); }
+.evalv2__comedo-line--medium strong { color: #8a5a00; }
 .evalv2__info { display: inline-grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--paper); color: var(--ink-soft); font-size: 14px; line-height: 1; cursor: pointer; }
 .evalv2__info:hover, .evalv2__info[aria-expanded="true"] { background: var(--lime-soft); border-color: var(--ink); color: var(--ink); }
 .evalv2__info-text { grid-column: 2 / -1; margin: 2px 0 1px; padding: 7px 9px; border-left: 2px solid var(--border-strong); background: var(--paper); color: var(--ink-soft); font-size: 11.5px; line-height: 1.45; }
@@ -3684,6 +3687,7 @@ select:focus-visible,
 .evalv2__verdict-row--positive .evalv2__verdict-text { color: var(--ink); }
 .evalv2__verdict-row--neutral .evalv2__verdict-text, .evalv2__verdict-row--unknown .evalv2__verdict-text { color: var(--ink-soft); }
 .evalv2__verdict-row--negative .evalv2__verdict-text { color: var(--ink); }
+.evalv2__verdict-row--caution .evalv2__verdict-text { color: var(--ink); }
 .evalv2__unknown { margin-top: 11px; padding-top: 7px; border-top: 1px solid var(--border); }
 .evalv2__unknown-title { margin: 0; color: var(--ink-faint); font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
 .evalv2__sources { margin-top: 10px; padding-top: 7px; border-top: 1px solid var(--border); }

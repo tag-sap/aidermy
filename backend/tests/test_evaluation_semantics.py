@@ -7,9 +7,24 @@ from app.evaluation.analysis import _item_verdict, _overall_verdict
 
 
 class VerdictSemanticsTests(unittest.TestCase):
-    def test_low_goal_benefit_is_neutral_not_harm(self):
-        self.assertEqual(_item_verdict("goal:hydration", 0, None), "neutral")
-        self.assertEqual(_item_verdict("problem:dryness", 0, None), "neutral")
+    def test_no_treatment_benefit_does_not_become_negative(self):
+        self.assertEqual(_item_verdict("goal:hydration", 0, None), "caution")
+        self.assertEqual(_item_verdict("problem:dryness", 0, None), "caution")
+
+    def test_relevant_benefit_without_harm_is_positive(self):
+        self.assertEqual(_item_verdict("problem:acne_general", 50, None), "positive")
+        self.assertEqual(_item_verdict("goal:hydration", 25, None), "positive")
+
+    def test_confirmed_mild_risk_is_caution_not_hard_conflict(self):
+        evidence = [{
+            "verification": "confirmed",
+            "direction": "contradicts",
+            "strength": "moderate",
+            "confidence": 0.8,
+            "claim": "Возможна дополнительная нагрузка на кожу.",
+        }]
+        self.assertEqual(_item_verdict("problem:dryness", 50, None, evidence), "caution")
+        self.assertEqual(_item_verdict("therapy:adapalene", 50, None, evidence), "caution")
 
     def test_missing_data_is_unknown(self):
         self.assertEqual(_item_verdict("goal:hydration", None, None), "unknown")

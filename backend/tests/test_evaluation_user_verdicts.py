@@ -60,11 +60,13 @@ class OverallVerdictTests(unittest.TestCase):
         self.assertEqual(public["overall"]["positive"], 1)
         self.assertEqual(public["personal_compatibility"][0]["verdict_icon"], "check")
 
-    def test_neutral_is_with_caveats(self):
+    def test_relevant_benefit_without_harm_is_positive(self):
+        # A cleanser need not treat dryness to be compatible with it. A mixed
+        # benefit score without confirmed harm is compatibility, not a warning.
         public = make_report([row("problem:dryness", 50)]).user_report()
-        self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
-        self.assertEqual(public["personal_compatibility"][0]["verdict"], "neutral")
-        self.assertEqual(public["personal_compatibility"][0]["verdict_icon"], "dash")
+        self.assertEqual(public["overall"]["verdict"], "Подходит")
+        self.assertEqual(public["personal_compatibility"][0]["verdict"], "positive")
+        self.assertEqual(public["personal_compatibility"][0]["verdict_icon"], "check")
 
     def test_critical_therapy_conflict_is_not_suitable(self):
         public = make_report(
@@ -78,7 +80,7 @@ class OverallVerdictTests(unittest.TestCase):
         self.assertEqual(item["verdict"], "negative")
         self.assertEqual(item["verdict_label"], "Конфликт с лечением")
 
-    def test_moderate_confirmed_risk_evidence_becomes_probable_conflict(self):
+    def test_moderate_confirmed_risk_evidence_becomes_caution(self):
         public = make_report(
             [row("therapy:benzoyl_peroxide", 50, label="Совместимость с лечением: «Бензоилпероксид»")],
             evidence={
@@ -101,15 +103,18 @@ class OverallVerdictTests(unittest.TestCase):
             },
         ).user_report()
         item = public["personal_compatibility"][0]
-        self.assertEqual(item["verdict"], "negative")
+        self.assertEqual(item["verdict"], "caution")
         self.assertEqual(item["risk_kind"], "probable")
         self.assertEqual(
             item["display_text"],
-            "Скорее всего несовместим с лечением «Бензоилпероксид».",
+            "С лечением «Бензоилпероксид» возможна осторожность.",
         )
-        self.assertEqual(public["overall"]["verdict"], "Не подходит")
+        self.assertEqual(item["status_label"], "С осторожностью")
+        self.assertTrue(item["risk"])
+        self.assertTrue(item["recommendation"])
+        self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
 
-    def test_sorting_is_positive_negative_neutral_unknown(self):
+    def test_sorting_is_positive_caution_unknown(self):
         public = make_report(
             [
                 row("problem:dryness", 50, label="Проблема: «Сухость»"),
@@ -120,7 +125,7 @@ class OverallVerdictTests(unittest.TestCase):
         ).user_report()
         self.assertEqual(
             [item["verdict"] for item in public["personal_compatibility"]],
-            ["positive", "neutral", "neutral", "unknown"],
+            ["positive", "positive", "caution", "unknown"],
         )
 
     def test_long_explanation_is_trimmed_at_sentence_boundary(self):
@@ -145,7 +150,7 @@ class OverallVerdictTests(unittest.TestCase):
         )
         self.assertNotIn("Оценка", explanation)
 
-    def test_noncritical_goal_conflict_is_with_caveats(self):
+    def test_low_goal_without_confirmed_harm_is_caution_not_negative(self):
         public = make_report(
             [
                 row("skin_type:normal", 100),
@@ -154,11 +159,19 @@ class OverallVerdictTests(unittest.TestCase):
         ).user_report()
         self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
         self.assertEqual(public["overall"]["negative"], 0)
-        self.assertEqual(public["overall"]["neutral"], 1)
+        self.assertEqual(public["overall"]["caution"], 1)
         self.assertEqual(
             public["personal_compatibility"][1]["verdict_label"],
-            "Влияние неясно",
+            "Возможна осторожность",
         )
+
+    def test_not_applicable_parameter_is_omitted_and_not_aggregated(self):
+        public = make_report(
+            [row("problem:acne_general", None, included=False)],
+        ).user_report()
+        self.assertEqual(public["personal_compatibility"], [])
+        self.assertEqual(public["overall"]["assessed"], 0)
+        self.assertEqual(public["overall"]["verdict"], "Недостаточно данных")
 
     def test_unknown_only_is_insufficient_and_never_a_check(self):
         public = make_report(
@@ -214,7 +227,7 @@ class OverallVerdictTests(unittest.TestCase):
         )
         self.assertEqual(
             items["problem:acne_general"]["display_text"],
-            "Нейтрален в отношении проблемы «Высыпания».",
+            "Соответствует задаче «Высыпания».",
         )
 
     def test_unknown_display_text_is_not_positive(self):

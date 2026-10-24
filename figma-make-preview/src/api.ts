@@ -253,13 +253,14 @@ export type EvaluationIntoleranceStatus = {
   matched?: string[]
 }
 
-export type EvaluationVerdict = "positive" | "neutral" | "negative" | "unknown"
+export type EvaluationVerdict = "positive" | "caution" | "neutral" | "negative" | "unknown"
 
 export type EvaluationOverall = {
   verdict: "Подходит" | "Подходит с оговорками" | "Не подходит" | "Недостаточно данных" | string
   tone: "good" | "warn" | "bad" | "muted" | string
   summary: string
   positive: number
+  caution: number
   neutral: number
   negative: number
   unknown: number
@@ -277,8 +278,25 @@ export type EvaluationPersonalParameter = {
   section?: string
   verdict?: EvaluationVerdict
   verdict_label?: string
+  status_label?: string
   display_text?: string
-  verdict_icon?: "check" | "dash" | "cross" | string
+  verdict_icon?: "check" | "dash" | "cross" | "alert" | string
+  cause?: string
+  risk?: string
+  recommendation?: string
+}
+
+export type EvaluationComedogenicity = {
+  version?: string
+  status: "assessed" | "insufficient_evidence" | "not_applicable" | string
+  verdict?: "positive" | "caution" | "unknown" | "not_applicable" | string
+  applicable?: boolean
+  level?: "low" | "medium" | "high" | "unknown" | string
+  score: number | null
+  reason: string
+  risk?: string
+  recommendation?: string
+  basis?: Array<{ label: string; value: string }>
 }
 
 export type EvaluationUserReport = {
@@ -287,6 +305,7 @@ export type EvaluationUserReport = {
   overall: EvaluationOverall
   personal_compatibility: EvaluationPersonalParameter[]
   sources: string[]
+  comedogenicity?: EvaluationComedogenicity
 }
 
 export type EvaluationSnapshot = {
@@ -310,6 +329,7 @@ export type EvaluationReport = {
   analysis: EvaluationAnalysis
   evidence?: Record<string, EvaluationEvidence[]>
   primary_function?: EvaluationPrimaryFunction
+  comedogenicity?: EvaluationComedogenicity
   user_report?: EvaluationUserReport
   plan?: { needed: string[]; stale: string[]; gaps: EvaluationGap[]; blocked: boolean; notes: string[] }
   research?: { documents_fetched: number; documents_reused: number; cost_usd: number; failed: string[]; notes: string[] }
