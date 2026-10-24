@@ -784,7 +784,8 @@ mapped centrally in `evaluation/verdicts.py` and mirrored in `mapping.ts`:
 | 60–79 | Хорошо подходит | happy |
 | 80–100 | Отлично подходит | happy |
 
-The four icons are extracted without redrawing from
+The same labels are used by the V2 report, `DecisionEngine.build_verdict` and the
+frontend score mapping. The four icons are extracted without redrawing from
 `public/icons/verdict_icons.svg` into a local SVG sprite. `happy` is deliberately
 shared by the two positive bands. Per-parameter statuses use the same sprite:
 positive=happy, negative=dead, caution=alert, neutral/unknown=neutral. The
