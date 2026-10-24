@@ -2220,15 +2220,18 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: 
   const structured = (getUserProfile().structured || {}) as Record<string, unknown>
   const structuredList = (key: string): string[] => {
     const value = structured[key]
-    return Array.isArray(value)
-      ? value.map((item) => {
-          if (item && typeof item === "object") {
-            const row = item as Record<string, unknown>
-            return String(row.label || row.name || row.id || "").trim()
-          }
-          return String(item || "").trim()
-        }).filter(Boolean)
-      : []
+    const raw = Array.isArray(value)
+      ? value
+      : value && typeof value === "object"
+        ? Object.values(value as Record<string, unknown>)
+        : []
+    return raw.map((item) => {
+      if (item && typeof item === "object") {
+        const row = item as Record<string, unknown>
+        return String(row.label || row.name || row.id || "").trim()
+      }
+      return String(item || "").trim()
+    }).filter(Boolean)
   }
   const therapy = structuredList("therapy")
   const procedures = structuredList("procedures")
