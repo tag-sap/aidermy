@@ -776,7 +776,7 @@ These rules are deterministic and do not rely on the LLM:
 The deterministic Score Engine thresholds are unchanged. The five labels are
 mapped centrally in `evaluation/verdicts.py` and mirrored in `mapping.ts`:
 
-| Score | User-facing verdict | Icon |
+| Score | User-facing verdict | Icon (parameter rows) |
 |---:|---|---|
 | 0–19 | Не подходит | dead |
 | 20–39 | Слабо подходит | alert |
@@ -785,12 +785,17 @@ mapped centrally in `evaluation/verdicts.py` and mirrored in `mapping.ts`:
 | 80–100 | Отлично подходит | happy |
 
 The same labels are used by the V2 report, `DecisionEngine.build_verdict` and the
-frontend score mapping. The four icons are extracted without redrawing from
-`public/icons/verdict_icons.svg` into a local SVG sprite. `happy` is deliberately
-shared by the two positive bands. Per-parameter statuses use the same sprite:
-positive=happy, negative=dead, caution=alert, neutral/unknown=neutral. The
-icon does not change the score. A historical payload with old wording is mapped
-to the current label at display time; stored scores and reports are not rewritten.
+frontend score mapping. The four icons reproduce the artwork from
+`public/icons/verdict_icons.svg` without redrawing it. `VerdictIcon` renders
+self-contained inline SVG: gradients, fills, strokes and the shadow filter are
+explicit attributes with per-instance IDs, so rendering does not depend on a
+stylesheet inside an external `<use>` shadow tree. `happy` is deliberately
+shared by the two positive bands. Per-parameter statuses use the same artwork:
+positive=happy, negative=dead, caution=alert, neutral/unknown=neutral. Tubes are
+shown only next to individual parameter rows; the overall product verdict is
+text-only and is not accompanied by a tube. The icon does not change the score.
+A historical payload with old wording is mapped to the current label at display
+time; stored scores and reports are not rewritten.
 
 
 

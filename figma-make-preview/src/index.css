@@ -3647,8 +3647,6 @@ select:focus-visible,
 .evalv2__count { padding: 3px 7px; border-radius: 999px; background: rgba(255,255,255,.7); color: var(--ink-soft); font-size: 10.5px; font-weight: 700; }
 .evalv2__verdict-icon { display: inline-grid; place-items: center; flex: 0 0 auto; width: 20px; height: 34px; line-height: 1; }
 .evalv2__verdict-icon svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.evalv2__overall-verdict-wrap { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
-.evalv2__overall-icon { width: 27px; height: 45px; }
 .evalv2__comedo-components { flex: 0 0 100%; display: flex; flex-wrap: wrap; gap: 5px 10px; list-style: none; margin: 1px 0 0; padding: 0; }
 .evalv2__comedo-components li { display: inline-flex; align-items: baseline; gap: 5px; padding: 3px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--ink-soft); font-size: 10.5px; line-height: 1.35; }
 .evalv2__comedo-components b { color: var(--ink); font-size: 10.5px; font-variant-numeric: tabular-nums; }

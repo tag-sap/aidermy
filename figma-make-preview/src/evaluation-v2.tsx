@@ -2,7 +2,7 @@
 // Общий вердикт + основная функция + персональные пункты со значками.
 // Технические статусы и средние баллы остаются в backend/snapshot; неизвестные
 // пункты показываются нейтральным прочерком, а не положительной галочкой.
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useState } from "react"
 import {
   api,
   ApiError,
@@ -69,15 +69,93 @@ const VERDICT_ICON_BY_STATUS: Record<string, string> = {
   caution: "alert",
   neutral: "neutral",
   unknown: "neutral",
-  // Older saved reports use glyph names; normalize them to the same sprite.
+  // Older saved reports use glyph names; normalize them to the same artwork.
   check: "happy",
   cross: "dead",
   dash: "neutral",
 }
 
-function iconName(verdict?: string, icon?: string): string {
+type VerdictName = "dead" | "happy" | "neutral" | "alert"
+
+const VERDICT_TUBE_PATH = "M30,30 L110,30 C115,30 120,35 118,45 L108,160 C107,168 100,175 90,175 L50,175 C40,175 33,168 32,160 L22,45 C20,35 25,30 30,30 Z"
+const VERDICT_CAP_PATH = "M45,175 L95,175 L90,205 C90,208 86,210 80,210 L60,210 C54,210 50,208 50,205 Z"
+const VERDICT_CRIMPS = [35, 45, 55, 65, 75, 85, 95, 105]
+
+// The original sprite kept these colours only in a <style> block at the root
+// of the external file. An external <use> is not required to import that
+// stylesheet into the shadow tree, leaving paths at the SVG default fill
+// (black). Keep the palette as data and paint every shape explicitly.
+const VERDICT_PALETTE: Record<VerdictName, {
+  body: [string, string]
+  cap: [string, string]
+  band: string
+}> = {
+  dead: { body: ["#EF4444", "#DC2626"], cap: ["#991B1B", "#7F1D1D"], band: "#B91C1C" },
+  happy: { body: ["#10B981", "#059669"], cap: ["#065F46", "#047857"], band: "#047857" },
+  neutral: { body: ["#3B82F6", "#2563EB"], cap: ["#1E40AF", "#1E3A8A"], band: "#1D4ED8" },
+  alert: { body: ["#F59E0B", "#D97706"], cap: ["#92400E", "#78350F"], band: "#B45309" },
+}
+
+const VERDICT_FACE_LINE = {
+  fill: "none",
+  stroke: "#FFFFFF",
+  strokeWidth: 3.5,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+}
+const VERDICT_FACE_SOLID = { fill: "#FFFFFF", stroke: "none" }
+const VERDICT_CRIMP = {
+  stroke: "rgba(0, 0, 0, 0.2)",
+  strokeWidth: 2,
+  strokeLinecap: "round" as const,
+}
+
+function iconName(verdict?: string, icon?: string): VerdictName {
   const value = icon || VERDICT_ICON_BY_STATUS[verdict || ""] || "neutral"
-  return ["dead", "happy", "neutral", "alert"].includes(value) ? value : "neutral"
+  return value === "dead" || value === "happy" || value === "neutral" || value === "alert"
+    ? value
+    : "neutral"
+}
+
+function VerdictFace({ name }: { name: VerdictName }) {
+  if (name === "dead") {
+    return (
+      <g transform="translate(0, 10)">
+        <line x1="52" y1="82" x2="64" y2="94" {...VERDICT_FACE_LINE} />
+        <line x1="64" y1="82" x2="52" y2="94" {...VERDICT_FACE_LINE} />
+        <line x1="76" y1="82" x2="88" y2="94" {...VERDICT_FACE_LINE} />
+        <line x1="88" y1="82" x2="76" y2="94" {...VERDICT_FACE_LINE} />
+        <path d="M55,120 Q62,115 70,120 T85,120" {...VERDICT_FACE_LINE} />
+      </g>
+    )
+  }
+  if (name === "alert") {
+    return (
+      <g transform="translate(0, 10)">
+        <line x1="50" y1="74" x2="62" y2="78" {...VERDICT_FACE_LINE} strokeWidth={2.5} />
+        <line x1="90" y1="78" x2="78" y2="74" {...VERDICT_FACE_LINE} strokeWidth={2.5} />
+        <ellipse cx="56" cy="86" rx="5" ry="4" {...VERDICT_FACE_SOLID} />
+        <ellipse cx="84" cy="86" rx="5" ry="4" {...VERDICT_FACE_SOLID} />
+        <path d="M54,118 Q62,112 70,116 T86,112" {...VERDICT_FACE_LINE} />
+      </g>
+    )
+  }
+  if (name === "neutral") {
+    return (
+      <g transform="translate(0, 10)">
+        <circle cx="56" cy="88" r="5" {...VERDICT_FACE_SOLID} />
+        <circle cx="84" cy="88" r="5" {...VERDICT_FACE_SOLID} />
+        <line x1="54" y1="115" x2="86" y2="115" {...VERDICT_FACE_LINE} />
+      </g>
+    )
+  }
+  return (
+    <g transform="translate(0, 10)">
+      <circle cx="56" cy="86" r="5" {...VERDICT_FACE_SOLID} />
+      <circle cx="84" cy="86" r="5" {...VERDICT_FACE_SOLID} />
+      <path d="M52,108 Q70,130 88,108" {...VERDICT_FACE_LINE} />
+    </g>
+  )
 }
 
 function VerdictIcon({
@@ -90,10 +168,42 @@ function VerdictIcon({
   className?: string
 }) {
   const name = iconName(verdict, icon)
+  const palette = VERDICT_PALETTE[name]
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "")
+  const bodyGradient = `verdict-${uid}-body`
+  const capGradient = `verdict-${uid}-cap`
+  const shadow = `verdict-${uid}-shadow`
   return (
-    <span className={`evalv2__verdict-icon evalv2__verdict-icon--${name} ${className}`.trim()} aria-hidden="true">
+    <span
+      className={`evalv2__verdict-icon evalv2__verdict-icon--${name} ${className}`.trim()}
+      data-verdict-icon={name}
+      aria-hidden="true"
+    >
       <svg viewBox="5 5 130 215" focusable="false">
-        <use href={`/icons/verdict_icons.svg#verdict-${name}`} />
+        <defs>
+          <linearGradient id={bodyGradient} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={palette.body[0]} />
+            <stop offset="100%" stopColor={palette.body[1]} />
+          </linearGradient>
+          <linearGradient id={capGradient} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor={palette.cap[0]} />
+            <stop offset="100%" stopColor={palette.cap[1]} />
+          </linearGradient>
+          <filter id={shadow} x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="0" dy="8" stdDeviation="6" floodColor="#0F172A" floodOpacity="0.15" />
+          </filter>
+        </defs>
+        <path
+          d={VERDICT_TUBE_PATH}
+          fill={`url(#${bodyGradient})`}
+          filter={`url(#${shadow})`}
+        />
+        <rect x="25" y="20" width="90" height="10" rx="3" fill={palette.band} />
+        {VERDICT_CRIMPS.map((x) => (
+          <line key={x} x1={x} y1="23" x2={x} y2="27" {...VERDICT_CRIMP} />
+        ))}
+        <path d={VERDICT_CAP_PATH} fill={`url(#${capGradient})`} />
+        <VerdictFace name={name} />
       </svg>
     </span>
   )
@@ -124,12 +234,9 @@ function ReportHeader({ productName, overall }: { productName: string; overall: 
     <header className="evalv2__report-head">
       {productName && <h4 className="evalv2__product-name">{productName}</h4>}
       <div className="evalv2__overall-main">
-        <span className="evalv2__overall-verdict-wrap">
-          <VerdictIcon verdict={overall.tone === "bad" ? "negative" : overall.tone === "good" ? "positive" : overall.tone === "warn" ? "caution" : "neutral"} icon={overall.icon} className="evalv2__overall-icon" />
-          <strong className={`evalv2__overall-verdict evalv2__overall-verdict--${overall.tone}`}>
-            {overall.verdict}
-          </strong>
-        </span>
+        <strong className={`evalv2__overall-verdict evalv2__overall-verdict--${overall.tone}`}>
+          {overall.verdict}
+        </strong>
       </div>
       <p className="evalv2__overall-summary">{overall.summary}</p>
     </header>

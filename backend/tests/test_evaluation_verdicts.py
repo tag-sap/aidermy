@@ -104,9 +104,38 @@ class VerdictIconTests(unittest.TestCase):
         self.assertIn("feDropShadow", source)
         self.assertNotIn("<text", source)  # labels are accessible names, not tiny art
 
-    def test_panel_uses_sprite_and_has_no_glyph_fallbacks(self):
+    def test_panel_paints_every_shape_without_external_style_dependency(self):
         source = PANEL.read_text(encoding="utf-8")
-        self.assertIn("/icons/verdict_icons.svg#verdict-", source)
+        self.assertIn("VERDICT_PALETTE", source)
+        self.assertIn("useId()", source)
+        self.assertIn('fill={`url(#${bodyGradient})`}', source)
+        self.assertIn('fill={`url(#${capGradient})`}', source)
+        self.assertIn('stroke: "#FFFFFF"', source)
+        self.assertIn('stroke: "rgba(0, 0, 0, 0.2)"', source)
+        for colour in (
+            "#EF4444", "#DC2626", "#991B1B", "#7F1D1D",
+            "#10B981", "#059669", "#065F46", "#047857",
+            "#3B82F6", "#2563EB", "#1E40AF", "#1E3A8A",
+            "#F59E0B", "#D97706", "#92400E", "#78350F",
+        ):
+            self.assertIn(colour, source)
+        # External <use> cannot be trusted to import the sprite's root <style>.
+        # A missing stylesheet leaves SVG paths at their initial black fill.
+        self.assertNotIn("/icons/verdict_icons.svg#verdict-", source)
+        self.assertNotIn("<use ", source)
+        self.assertNotIn('fill="currentColor"', source)
+
+    def test_overall_verdict_has_no_tube_but_parameter_rows_keep_icons(self):
+        source = PANEL.read_text(encoding="utf-8")
+        header = source[source.index("function ReportHeader"):source.index("function FunctionLine")]
+        rows = source[source.index("function VerdictRow"):source.index("export function EvaluationV2Panel")]
+        self.assertNotIn("VerdictIcon", header)
+        self.assertIn("overall.verdict", header)
+        self.assertIn("<VerdictIcon", rows)
+        self.assertIn("item.verdict_icon", rows)
+
+    def test_panel_has_no_glyph_fallbacks(self):
+        source = PANEL.read_text(encoding="utf-8")
         self.assertIn("VERDICT_ICON_BY_STATUS", source)
         for glyph in ("✓", "✕", "⚠", "—"):
             self.assertNotIn(glyph, source)
