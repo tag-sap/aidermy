@@ -140,11 +140,13 @@ export function EvaluationV2Panel({
   productId,
   profile,
   enabled = true,
+  canRestore = true,
   onStarted,
 }: {
   productId: number
   profile: Record<string, unknown>
   enabled?: boolean
+  canRestore?: boolean
   onStarted?: () => void
 }) {
   const [started, setStarted] = useState(false)
@@ -156,7 +158,7 @@ export function EvaluationV2Panel({
   const profileKey = useMemo(() => JSON.stringify(profile || {}), [profile])
 
   useEffect(() => {
-    if (!EVALUATION_V2_ENABLED || !enabled) {
+    if (!EVALUATION_V2_ENABLED || !enabled || !canRestore) {
       setRestoring(false)
       return
     }
@@ -182,7 +184,7 @@ export function EvaluationV2Panel({
         if (!cancelled) setRestoring(false)
       })
     return () => { cancelled = true }
-  }, [productId, profileKey, enabled])
+  }, [productId, profileKey, enabled, canRestore])
 
   const start = async () => {
     if (!EVALUATION_V2_ENABLED || !enabled) return

@@ -2514,6 +2514,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               <EvaluationV2Panel
                 productId={product.id}
                 profile={buildProfile()}
+                canRestore={product.verified !== false}
                 onStarted={() => setV2Started(true)}
               />
             </div>
