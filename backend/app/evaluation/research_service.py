@@ -203,6 +203,7 @@ class ResearchService:
             profile=profile,
             composition_hash=composition_hash,
             method_version=self.method_version,
+            composition=record,
             now=now,
             max_age_days=self.max_age_days,
             review_after_days=self.review_after_days,

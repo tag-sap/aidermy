@@ -530,6 +530,7 @@ def _product_status_sync(
         profile=payload.profile,
         composition_hash=str(record["composition_hash"]),
         method_version=_method_version(request),
+        composition=record,
     )
     blocked = not readiness.usable
     state = analysis_state(

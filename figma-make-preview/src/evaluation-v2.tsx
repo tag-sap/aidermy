@@ -48,6 +48,20 @@ function cleanProductName(name: string): string {
   return (name || "").replace(/\s+/g, " ").trim()
 }
 
+function LoadingState({ label }: { label: string }) {
+  const [dots, setDots] = useState(1)
+  useEffect(() => {
+    const timer = window.setInterval(() => setDots((value) => (value % 3) + 1), 380)
+    return () => window.clearInterval(timer)
+  }, [])
+  return (
+    <div className="evalv2__loading" role="status" aria-live="polite">
+      <img src="/loading.gif" alt="" />
+      <span>{label}{".".repeat(dots)}</span>
+    </div>
+  )
+}
+
 function VerdictIcon({ verdict }: { verdict?: string }) {
   const kind = verdict || "unknown"
   const glyph = kind === "positive" ? "✓" : kind === "negative" ? "✕" : "—"
@@ -84,15 +98,8 @@ function ReportHeader({ productName, overall }: { productName: string; overall: 
         <strong className={`evalv2__overall-verdict evalv2__overall-verdict--${overall.tone}`}>
           {overall.verdict}
         </strong>
-        <VerdictIcon verdict={overall.tone === "good" ? "positive" : overall.tone === "bad" ? "negative" : "neutral"} />
       </div>
       <p className="evalv2__overall-summary">{overall.summary}</p>
-      <p className="evalv2__overall-counts">
-        Проверено: {overall.assessed}
-        {overall.negative > 0 ? ` · предупреждений: ${overall.negative}` : ""}
-        {overall.neutral > 0 ? ` · нейтральных: ${overall.neutral}` : ""}
-        {overall.unknown > 0 ? ` · неизвестных: ${overall.unknown}` : ""}
-      </p>
     </header>
   )
 }
@@ -106,7 +113,7 @@ function FunctionLine({
   open: boolean
   onToggle: () => void
 }) {
-  const hasInfo = Boolean(item.reason || item.basis?.length)
+  const hasInfo = Boolean(item.reason)
   return (
     <div className={`evalv2__function-line ${open ? "evalv2__function-line--open" : ""}`}>
       <p>
@@ -132,15 +139,6 @@ function FunctionLine({
               Функция определена по категории; эффективность состава оценивается отдельно.
             </p>
           )}
-          {item.basis?.length ? (
-            <ul className="evalv2__basis">
-              {item.basis.map((row) => (
-                <li key={`${row.label}-${row.value}`}>
-                  <strong>{row.label}:</strong> {row.value}
-                </li>
-              ))}
-            </ul>
-          ) : null}
         </div>
       )}
     </div>
@@ -159,7 +157,7 @@ function VerdictRow({
   onToggle: () => void
 }) {
   const verdict = itemVerdict(item)
-  const details = [item.reason, item.intolerance?.reason].filter(
+  const details = [item.explanation || item.reason, item.intolerance?.reason].filter(
     (value): value is string => Boolean(value && value.trim())
   )
   return (
@@ -340,11 +338,8 @@ export function EvaluationV2Panel({
 
   if (restoring) {
     return (
-      <div className="evalv2 evalv2--intro" role="status">
-        <div className="evalv2__loading">
-          <img src="/loading.gif" alt="" />
-          <span>Загружаем сохранённый результат…</span>
-        </div>
+      <div className="evalv2 evalv2--intro">
+        <LoadingState label="Загружаем сохранённый результат" />
       </div>
     )
   }
@@ -373,10 +368,7 @@ export function EvaluationV2Panel({
             else void start()
           }}
         >
-          <span><span aria-hidden="true">✦</span> {actionLabel}</span>
-          {!restoreError && (
-            <small className="evalv2__credit"><span aria-hidden="true">◈</span> AI · 1 балл</small>
-          )}
+          <span>{actionLabel}</span>
         </button>
         {restoreError && restoreReason && (
           <button type="button" className="evalv2__secondary" onClick={() => void start()}>
@@ -389,12 +381,7 @@ export function EvaluationV2Panel({
 
   return (
     <div className="evalv2">
-      {loading && (
-        <div className="evalv2__loading" role="status">
-          <img src="/loading.gif" alt="" />
-          <span>Проверяем продукт…</span>
-        </div>
-      )}
+      {loading && <LoadingState label="Проверяем продукт" />}
 
       {notice && !loading && !report && (
         <p className="evalv2__empty">Не удалось подтвердить состав продукта.</p>

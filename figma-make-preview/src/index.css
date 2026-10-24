@@ -3597,8 +3597,8 @@ select:focus-visible,
 .evalv2__basis { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 5px; font-size: 12px; color: var(--ink-soft); }
 .evalv2__basis strong { color: var(--ink); font-weight: 600; }
 .evalv2__basis li, .evalv2__explain p { overflow-wrap: anywhere; }
-.evalv2__loading { display: flex; align-items: center; gap: 10px; min-height: 46px; color: var(--ink-soft); font-size: 12.5px; }
-.evalv2__loading img { width: 42px; height: 42px; object-fit: contain; flex: 0 0 auto; }
+.evalv2__loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 220px; padding: 18px 8px; color: var(--ink-soft); font-size: 13px; font-weight: 600; text-align: center; }
+.evalv2__loading img { width: 104px; height: 104px; object-fit: contain; flex: 0 0 auto; }
 .evalv2__primary { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; }
 .evalv2__primary > span { display: inline-flex; align-items: center; gap: 7px; }
 .evalv2__credit { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.16); color: #f7f7f0; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
@@ -3638,7 +3638,7 @@ select:focus-visible,
 .evalv2__report-head { margin: 0 0 8px; }
 .evalv2__product-name { margin: 0 0 7px; font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
 .evalv2__overall-main { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.evalv2__overall-verdict { font-family: var(--font-display); font-size: 20px; line-height: 1.2; }
+.evalv2__overall-verdict { font-family: var(--font-sans); font-weight: 700; font-size: 19px; line-height: 1.3; }
 .evalv2__overall-verdict--good { color: var(--good); }
 .evalv2__overall-verdict--warn { color: #8a5a00; }
 .evalv2__overall-verdict--bad { color: var(--bad); }
@@ -3650,7 +3650,7 @@ select:focus-visible,
 .evalv2__function-line > .evalv2__info-text { flex: 0 0 100%; }
 .evalv2__function-line > p > span:first-child { color: var(--ink-soft); }
 .evalv2__function-purpose { color: var(--ink-soft); font-size: 11.5px; }
-.evalv2__info { display: inline-grid; place-items: center; flex: 0 0 auto; width: 25px; height: 25px; padding: 0; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--paper); color: var(--ink-soft); font-size: 14px; line-height: 1; cursor: pointer; }
+.evalv2__info { display: inline-grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--paper); color: var(--ink-soft); font-size: 14px; line-height: 1; cursor: pointer; }
 .evalv2__info:hover, .evalv2__info[aria-expanded="true"] { background: var(--lime-soft); border-color: var(--ink); color: var(--ink); }
 .evalv2__info-text { grid-column: 2 / -1; margin: 2px 0 1px; padding: 7px 9px; border-left: 2px solid var(--border-strong); background: var(--paper); color: var(--ink-soft); font-size: 11.5px; line-height: 1.45; }
 .evalv2__info-text p { margin: 0 0 4px; }
@@ -3659,8 +3659,8 @@ select:focus-visible,
 .evalv2__verdict-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px 27px; align-items: start; gap: 7px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; line-height: 1.4; }
 .evalv2__num { color: var(--ink-faint); font-size: 11px; font-variant-numeric: tabular-nums; padding-top: 2px; }
 .evalv2__verdict-text { min-width: 0; overflow-wrap: anywhere; }
-.evalv2__status { display: flex; justify-content: center; padding-top: 1px; }
-.evalv2__verdict-row .evalv2__verdict-icon { width: 22px; height: 22px; font-size: 12px; }
+.evalv2__status { display: flex; align-items: flex-start; justify-content: center; margin-top: 0; padding-top: 0; }
+.evalv2__verdict-row .evalv2__verdict-icon { width: 24px; height: 24px; font-size: 12px; }
 .evalv2__verdict-row--positive .evalv2__verdict-text { color: var(--ink); }
 .evalv2__verdict-row--neutral .evalv2__verdict-text, .evalv2__verdict-row--unknown .evalv2__verdict-text { color: var(--ink-soft); }
 .evalv2__verdict-row--negative .evalv2__verdict-text { color: var(--ink); }

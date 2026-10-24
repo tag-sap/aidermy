@@ -58,6 +58,11 @@ PAYLOAD_IDS = (
     "skin_type:dry",
     "therapy:tretinoin",
 )
+# Fragrance absence is deterministically available from this complete INCI.
+RESEARCH_IDS = tuple(
+    parameter_id for parameter_id in PAYLOAD_IDS
+    if parameter_id != "intolerance:fragrance_intolerance"
+)
 
 
 def _export_blocks(text: str) -> dict[str, str]:
@@ -282,10 +287,10 @@ class KnowledgeReuseTests(unittest.TestCase):
         self._run()
         changed = dict(COMPOSITION, composition_hash=HASH_B)
         plan = self.service.plan(product=PRODUCT, composition=changed, profile=PAYLOAD)
-        self.assertEqual(plan.needed, PAYLOAD_IDS)
+        self.assertEqual(plan.needed, RESEARCH_IDS)
         self.assertEqual(plan.stale, ())
         self._run(composition=changed)
-        self.assertEqual(len(self._evaluations(HASH_B)), len(PAYLOAD_IDS))
+        self.assertEqual(len(self._evaluations(HASH_B)), len(RESEARCH_IDS))
 
 
     def test_method_version_change_triggers_new_research(self):
@@ -294,13 +299,13 @@ class KnowledgeReuseTests(unittest.TestCase):
         report = newer.research_missing(
             product=PRODUCT, composition=COMPOSITION, profile=PAYLOAD
         )
-        self.assertEqual(report.researched, PAYLOAD_IDS)
+        self.assertEqual(report.researched, RESEARCH_IDS)
         self.assertEqual(
             len(self.store.current_evaluations(self._composition_id(), "research-2.0.0")),
-            len(PAYLOAD_IDS),
+            len(RESEARCH_IDS),
         )
         # Old rows remain as history for the previous method version.
-        self.assertEqual(len(self._evaluations()), len(PAYLOAD_IDS))
+        self.assertEqual(len(self._evaluations()), len(RESEARCH_IDS))
 
     def test_different_profiles_do_not_rewrite_shared_knowledge(self):
         self._run()
@@ -399,7 +404,7 @@ class CompositionVerificationTests(unittest.TestCase):
             profile=PAYLOAD,
         )
         self.assertFalse(report.blocked)
-        self.assertEqual(report.researched, PAYLOAD_IDS)
+        self.assertEqual(report.researched, RESEARCH_IDS)
 
     def test_explicitly_verified_payload_is_active_immediately(self):
         store = InMemoryStore()

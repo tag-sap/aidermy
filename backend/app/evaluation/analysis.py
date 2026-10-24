@@ -31,7 +31,7 @@ from .knowledge import (
     assess_composition,
     load_product_knowledge,
 )
-from .parameters import PARAMETERS, ingredient_parameter
+from .parameters import PARAMETERS, ingredient_parameter, resolve_parameters
 from .primary_function import build_primary_function, public_primary_function
 from .research import ResearchProvider
 from .snapshot import profile_fingerprint, verify_snapshot
@@ -92,7 +92,104 @@ def _intolerance_status(parameter_id: str, composition: Mapping) -> dict | None:
     }
 
 
-_CRITICAL_SECTIONS = {"skin_type", "problem", "therapy", "procedure", "intolerance"}
+def _short_explanation(text: object) -> str:
+    """Keep at most two complete sentences; never cut a word or sentence."""
+    clean = " ".join(str(text or "").replace("\n", " ").split())
+    if not clean:
+        return ""
+    # The stored rationale starts with the parameter label and the question;
+    # show the concrete answer, not the question.
+    question_end = clean.find("?")
+    if 0 <= question_end < len(clean) - 1:
+        after_question = clean[question_end + 1:].strip()
+        if after_question:
+            clean = after_question
+    # Model rationales append scoring/audit material after the actual reason.
+    for marker in ("Оценка ", "За требование:", "Без отношения", "Цитаты приведены"):
+        cut = clean.find(marker)
+        if cut > 0:
+            clean = clean[:cut].rstrip(" ;,.")
+    sentences = re.split(r"(?<=[.!?])\s+", clean)
+    generic_prefixes = (
+        "Оценивается ",
+        "Насколько ",
+        "Подходит ли ",
+        "Соответствует ли ",
+        "Можно ли ",
+    )
+    concrete = [
+        sentence for sentence in sentences
+        if sentence.strip() and not sentence.lstrip().startswith(generic_prefixes)
+    ]
+    selected = concrete or sentences
+    # One complete sentence is better than two very long ones. Never cut a
+    # sentence in the middle to satisfy a character budget.
+    result = " ".join(selected[:1] if len(selected[0]) > 180 else selected[:2]).strip()
+    if len(result) > 300 and len(selected) > 1:
+        result = selected[0].strip()
+    if result and result[-1] not in ".!?":
+        result += "."
+    return result
+
+
+def _evidence_explanation(evidence: Sequence[Mapping] | None, verdict: str) -> str:
+    """Prefer the short stored claim over repeating a long model rationale."""
+    if verdict not in {"positive", "negative"}:
+        return ""
+    wanted = "contradicts" if verdict == "negative" else "supports"
+    rows = [
+        row for row in (evidence or [])
+        if str(row.get("verification") or "") == "confirmed"
+        and (not wanted or str(row.get("direction") or "") == wanted)
+    ]
+    if not rows:
+        return ""
+    rows.sort(
+        key=lambda row: (
+            {"strong": 3, "moderate": 2, "weak": 1}.get(str(row.get("strength") or ""), 0),
+            float(row.get("confidence") or 0),
+        ),
+        reverse=True,
+    )
+    return _short_explanation(rows[0].get("claim") or rows[0].get("quote"))
+
+
+def _risk_kind(evidence: Sequence[Mapping] | None) -> str:
+    """Classify confirmed evidence as a confirmed or probable risk.
+
+    This is deliberately based on stored, verified evidence and the existing
+    evaluation result, not on guessing from an ingredient name.
+    """
+    risk_level = 0
+    risk_confidence = 0.0
+    support_level = 0
+    support_confidence = 0.0
+    levels = {"weak": 1, "moderate": 2, "strong": 3}
+    for row in evidence or []:
+        if str(row.get("verification") or "") != "confirmed":
+            continue
+        try:
+            confidence = float(row.get("confidence") or 0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        level = levels.get(str(row.get("strength") or ""), 0)
+        direction = str(row.get("direction") or "")
+        if direction == "contradicts" and level > risk_level:
+            risk_level, risk_confidence = level, confidence
+        elif direction == "supports" and level > support_level:
+            support_level, support_confidence = level, confidence
+    if risk_level >= 3 and risk_confidence >= 0.7:
+        return "confirmed"
+    if risk_level == 2 and risk_confidence >= 0.7:
+        if support_level >= 3 and support_confidence >= risk_confidence:
+            return ""
+        return "probable"
+    return ""
+
+
+# Intolerance rows answer “is it in the INCI?”; absence is a negative answer,
+# not a safety conflict, so it must not make the whole product unsuitable.
+_CRITICAL_SECTIONS = {"skin_type", "problem", "therapy", "procedure"}
 _VERDICT_ICONS = {"positive": "check", "neutral": "dash", "negative": "cross", "unknown": "dash"}
 
 
@@ -100,7 +197,12 @@ def _section(parameter_id: str) -> str:
     return parameter_id.split(":", 1)[0]
 
 
-def _verdict_label(parameter_id: str, verdict: str, intolerance: Mapping | None = None) -> str:
+def _verdict_label(
+    parameter_id: str,
+    verdict: str,
+    intolerance: Mapping | None = None,
+    risk_kind: str = "",
+) -> str:
     section = _section(parameter_id)
     if section == "intolerance" and intolerance is not None:
         return str(intolerance.get("label") or "Не удалось определить")
@@ -108,14 +210,22 @@ def _verdict_label(parameter_id: str, verdict: str, intolerance: Mapping | None 
         return {
             "positive": "Совместимо с лечением",
             "neutral": "Совместимость неясна",
-            "negative": "Конфликт с лечением",
+            "negative": (
+                "Скорее всего несовместим с лечением"
+                if risk_kind == "probable"
+                else "Конфликт с лечением"
+            ),
             "unknown": "Не удалось определить",
         }[verdict]
     if section == "procedure":
         return {
             "positive": "Можно использовать в этот период",
             "neutral": "Нужна осторожность",
-            "negative": "Не рекомендуется в этот период",
+            "negative": (
+                "Скорее всего не рекомендуется в этот период"
+                if risk_kind == "probable"
+                else "Не рекомендуется в этот период"
+            ),
             "unknown": "Не удалось определить",
         }[verdict]
     if section == "goal":
@@ -147,13 +257,21 @@ def _verdict_label(parameter_id: str, verdict: str, intolerance: Mapping | None 
     }[verdict]
 
 
-def _item_verdict(parameter_id: str, score: object, intolerance: Mapping | None) -> str:
+def _item_verdict(
+    parameter_id: str,
+    score: object,
+    intolerance: Mapping | None,
+    evidence: Sequence[Mapping] | None = None,
+) -> str:
     if intolerance is not None:
+        # This is a presence check, not a safety verdict: finding the ingredient
+        # answers “yes” (positive), a complete list without it answers “no”
+        # (negative), and an incomplete/missing list stays unknown.
         state = str(intolerance.get("state") or "unknown")
         if state == "present":
-            return "negative"
-        if state == "absent":
             return "positive"
+        if state == "absent":
+            return "negative"
         return "unknown"
     try:
         value = float(score)  # type: ignore[arg-type]
@@ -162,6 +280,8 @@ def _item_verdict(parameter_id: str, score: object, intolerance: Mapping | None)
     if value >= 75:
         return "positive"
     if value <= 25:
+        return "negative"
+    if _section(parameter_id) in {"therapy", "procedure"} and _risk_kind(evidence):
         return "negative"
     return "neutral"
 
@@ -177,6 +297,7 @@ def _display_text(
     verdict: str,
     *,
     intolerance: Mapping | None = None,
+    risk_kind: str = "",
 ) -> str:
     """One short, concrete sentence for the compact verdict list."""
     section = _section(parameter_id)
@@ -185,16 +306,19 @@ def _display_text(
         return f"Не удалось определить: {label or 'параметр'}."
     if section == "intolerance":
         name = subject or "Вещество"
-        if verdict == "positive":
-            return f"{name} не обнаружен в составе."
-        if verdict == "negative":
+        state = str((intolerance or {}).get("state") or "unknown")
+        if state == "present":
             return f"{name} обнаружен в составе."
+        if state == "absent":
+            return f"{name} не обнаружен в составе."
         return f"{name}: не удалось определить наличие в составе."
     if section == "therapy":
         target = subject or "лечением"
         if verdict == "positive":
             return f"Можно использовать с лечением «{target}»."
         if verdict == "negative":
+            if risk_kind == "probable":
+                return f"Скорее всего несовместим с лечением «{target}»."
             return f"Не рекомендуется использовать с лечением «{target}»."
         return f"Совместимость с лечением «{target}» неясна."
     if section == "procedure":
@@ -208,6 +332,8 @@ def _display_text(
         if verdict == "positive":
             return f"Можно использовать после процедуры «{target}»{period}."
         if verdict == "negative":
+            if risk_kind == "probable":
+                return f"Скорее всего не рекомендуется использовать после процедуры «{target}»{period}."
             return f"Не рекомендуется использовать после процедуры «{target}»{period}."
         return f"Нужна осторожность после процедуры «{target}»{period}."
     if section == "goal":
@@ -225,12 +351,12 @@ def _display_text(
             return f"Не соответствует задаче «{target}»."
         return f"Нейтрален в отношении проблемы «{target}»."
     if section == "skin_type":
-        target = (subject or "этого типа кожи").lower()
+        target = subject or "этого типа"
         if verdict == "positive":
-            return f"Подходит для {target} кожи."
+            return f"Подходит для кожи типа «{target}»."
         if verdict == "negative":
-            return f"Не подходит для {target} кожи."
-        return f"Нейтрален для {target} кожи."
+            return f"Не подходит для кожи типа «{target}»."
+        return f"Нейтрален для кожи типа «{target}»."
     if verdict == "positive":
         return f"{label or 'Параметр'} — подходит."
     if verdict == "negative":
@@ -276,20 +402,19 @@ def _overall_verdict(items: Sequence[Mapping]) -> dict:
     elif not assessed and unknown:
         verdict = "Недостаточно данных"
         tone = "muted"
-        summary = "Нет подтверждённых оценок; неизвестные данные не считаются положительными."
+        summary = "Нет подтверждённых данных; неизвестные результаты не считаются положительными."
     elif not assessed:
         verdict = "Недостаточно данных"
         tone = "muted"
-        summary = "Для вашего профиля нет проверенных пунктов."
+        summary = "Для вашего профиля нет подтверждённых результатов."
     elif negative:
         verdict = "Подходит с оговорками"
         tone = "warn"
-        prefix = "Есть предупреждение" if len(negative) == 1 else f"Есть предупреждения: {len(negative)}"
-        summary = f"{prefix}. Это не критический конфликт, но продукт подходит не полностью."
+        summary = "Есть предупреждение: продукт подходит не полностью."
     elif neutral or unknown:
         verdict = "Подходит с оговорками"
         tone = "warn"
-        summary = f"Есть оговорки: нейтральных — {neutral}, неизвестных — {unknown}."
+        summary = "Есть оговорки: часть пунктов нейтральна или не проверена."
     else:
         verdict = "Подходит"
         tone = "good"
@@ -335,6 +460,9 @@ class AnalysisReport:
     evidence: dict[str, list[dict]] = field(default_factory=dict)
     primary_function: dict = field(default_factory=dict)
     timings: dict = field(default_factory=dict)
+    # Raw questionnaire input is kept out of snapshots, but the compact user
+    # projection needs its intolerance parameter ids to read the verified INCI.
+    profile_input: Mapping | None = None
 
     @property
     def is_final(self) -> bool:
@@ -354,29 +482,81 @@ class AnalysisReport:
             if not row.get("included") or row.get("value") is None:
                 continue
             parameter_id = str(row.get("parameter_id") or "")
+            evidence_rows = list(self.evidence.get(parameter_id) or [])
             intolerance = _intolerance_status(parameter_id, self.composition)
-            verdict = _item_verdict(parameter_id, row.get("value"), intolerance)
+            risk_kind = _risk_kind(evidence_rows) if not intolerance else ""
+            verdict = _item_verdict(
+                parameter_id,
+                row.get("value"),
+                intolerance,
+                evidence_rows,
+            )
+            explanation = (
+                _evidence_explanation(evidence_rows, verdict)
+                or _short_explanation(row.get("reason") or row.get("summary"))
+            )
             item = {
                 "parameter_id": parameter_id,
                 "label": str(row.get("label") or ""),
                 "score": row.get("value"),
-                "reason": str(row.get("summary") or row.get("reason") or ""),
-                "evidence": list(self.evidence.get(parameter_id) or []),
+                "reason": explanation,
+                "explanation": explanation,
+                "evidence": evidence_rows,
                 "section": _section(parameter_id),
                 "verdict": verdict,
-                "verdict_label": _verdict_label(parameter_id, verdict, intolerance),
+                "verdict_label": _verdict_label(
+                    parameter_id, verdict, intolerance, risk_kind
+                ),
                 "display_text": _display_text(
                     parameter_id,
                     str(row.get("label") or ""),
                     verdict,
                     intolerance=intolerance,
+                    risk_kind=risk_kind,
                 ),
                 "verdict_icon": _VERDICT_ICONS[verdict],
             }
+            if risk_kind:
+                item["risk_kind"] = risk_kind
             if intolerance is not None:
                 item["intolerance"] = intolerance
             personal.append(item)
             seen.add(parameter_id)
+
+        # INCI questions are deterministic: use the already verified composition
+        # even when an old snapshot has no LLM evaluation for that parameter.
+        if self.profile_input:
+            for parameter in resolve_parameters(self.profile_input).parameters:
+                if parameter.section != "intolerance" or parameter.id in seen:
+                    continue
+                checked = check_intolerance(parameter, self.composition)
+                if checked is None or not checked.verified:
+                    continue
+                intolerance = _intolerance_status(parameter.id, self.composition)
+                verdict = _item_verdict(
+                    parameter.id,
+                    100.0 if checked.status == NOT_LISTED else 0.0,
+                    intolerance,
+                )
+                explanation = _short_explanation(checked.reason)
+                personal.append({
+                    "parameter_id": parameter.id,
+                    "label": parameter.label,
+                    "score": 100.0 if checked.status == NOT_LISTED else 0.0,
+                    "reason": explanation,
+                    "explanation": explanation,
+                    "evidence": [],
+                    "section": "intolerance",
+                    "verdict": verdict,
+                    "verdict_label": _verdict_label(parameter.id, verdict, intolerance),
+                    "display_text": _display_text(
+                        parameter.id, parameter.label, verdict, intolerance=intolerance
+                    ),
+                    "verdict_icon": _VERDICT_ICONS[verdict],
+                    "derived": True,
+                    "intolerance": intolerance,
+                })
+                seen.add(parameter.id)
 
         # Unknown is not a positive result: show it explicitly with a neutral
         # dash, but never invent a score or a check.
@@ -402,7 +582,10 @@ class AnalysisReport:
             })
             seen.add(parameter_id)
 
+        verdict_order = {"positive": 0, "negative": 1, "neutral": 2, "unknown": 3}
+        personal.sort(key=lambda row: verdict_order.get(str(row.get("verdict")), 9))
         primary = public_primary_function(self.primary_function)
+        primary["reason"] = _short_explanation(primary.get("reason"))
         name = " ".join(str(self.product.get("name") or "").replace("\n", " ").split())
         return {
             "product_name": name,
@@ -679,6 +862,7 @@ class AnalysisService:
             evidence=evidence_by_parameter,
             primary_function=primary_function,
             timings=timings,
+            profile_input=profile,
         )
 
 
@@ -722,10 +906,9 @@ class AnalysisService:
         )
         if latest is None or not verify_snapshot(latest):
             return None
-        saved_analysis = latest.get("analysis") or {}
-        if not saved_analysis.get("is_final"):
-            return None
-
+        # An older snapshot may be marked incomplete only because an INCI
+        # parameter was not evaluated. Re-scan with the verified composition:
+        # deterministic INCI answers close such gaps without a new analysis.
         stored = self.store.current_evaluations(
             int(record["id"]), self.method_version
         )
@@ -734,6 +917,7 @@ class AnalysisService:
             profile=profile,
             composition_hash=str(record["composition_hash"]),
             method_version=self.method_version,
+            composition=record,
             max_age_days=self.max_age_days,
             review_after_days=self.review_after_days,
         )
@@ -799,6 +983,7 @@ class AnalysisService:
             evidence=evidence,
             primary_function=primary,
             timings={"saved": True},
+            profile_input=profile,
         )
 
     def analyze_product(

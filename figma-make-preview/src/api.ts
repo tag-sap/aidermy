@@ -271,6 +271,7 @@ export type EvaluationPersonalParameter = {
   label: string
   score: number | null
   reason: string
+  explanation?: string
   evidence?: EvaluationEvidence[]
   intolerance?: EvaluationIntoleranceStatus
   section?: string

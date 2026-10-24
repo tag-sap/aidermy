@@ -7,7 +7,17 @@ from app.evaluation.analysis import AnalysisReport
 from app.evaluation.gaps import AnalysisState, ParameterGap
 
 
-def make_report(rows, *, inci="Aqua, Glycerin, Niacinamide", gaps=()):
+def make_report(rows, *, inci="Aqua, Glycerin, Niacinamide", gaps=(), evidence=None):
+    evidence = evidence if evidence is not None else {
+        "skin_type:normal": [
+            {
+                "id": 1,
+                "verification": "confirmed",
+                "quote": "not shown",
+                "source": {"url": "https://example.com/source"},
+            }
+        ]
+    }
     return AnalysisReport(
         product={"id": 1, "name": "Test product"},
         composition={
@@ -22,16 +32,7 @@ def make_report(rows, *, inci="Aqua, Glycerin, Niacinamide", gaps=()):
             is_final=not gaps,
             gaps=tuple(gaps),
         ),
-        evidence={
-            "skin_type:normal": [
-                {
-                    "id": 1,
-                    "verification": "confirmed",
-                    "quote": "not shown",
-                    "source": {"url": "https://example.com/source"},
-                }
-            ]
-        },
+        evidence=evidence,
         primary_function={
             "label": "Очищение",
             "purpose": "Очистить кожу.",
@@ -42,13 +43,13 @@ def make_report(rows, *, inci="Aqua, Glycerin, Niacinamide", gaps=()):
     )
 
 
-def row(parameter_id: str, value, *, label: str = "", included: bool = True):
+def row(parameter_id: str, value, *, label: str = "", included: bool = True, summary: str | None = None):
     return {
         "parameter_id": parameter_id,
         "label": label or parameter_id,
         "value": value,
         "included": included,
-        "summary": f"Объяснение для {parameter_id}",
+        "summary": summary if summary is not None else f"Объяснение для {parameter_id}",
     }
 
 
@@ -76,6 +77,73 @@ class OverallVerdictTests(unittest.TestCase):
         item = public["personal_compatibility"][1]
         self.assertEqual(item["verdict"], "negative")
         self.assertEqual(item["verdict_label"], "Конфликт с лечением")
+
+    def test_moderate_confirmed_risk_evidence_becomes_probable_conflict(self):
+        public = make_report(
+            [row("therapy:benzoyl_peroxide", 50, label="Совместимость с лечением: «Бензоилпероксид»")],
+            evidence={
+                "therapy:benzoyl_peroxide": [
+                    {
+                        "verification": "confirmed",
+                        "direction": "contradicts",
+                        "strength": "moderate",
+                        "confidence": 0.8,
+                        "claim": "Кислоты увеличивают раздражающую нагрузку.",
+                    },
+                    {
+                        "verification": "confirmed",
+                        "direction": "supports",
+                        "strength": "moderate",
+                        "confidence": 0.7,
+                        "claim": "Есть успокаивающие компоненты.",
+                    },
+                ]
+            },
+        ).user_report()
+        item = public["personal_compatibility"][0]
+        self.assertEqual(item["verdict"], "negative")
+        self.assertEqual(item["risk_kind"], "probable")
+        self.assertEqual(
+            item["display_text"],
+            "Скорее всего несовместим с лечением «Бензоилпероксид».",
+        )
+        self.assertEqual(public["overall"]["verdict"], "Не подходит")
+
+    def test_sorting_is_positive_negative_neutral_unknown(self):
+        public = make_report(
+            [
+                row("problem:dryness", 50, label="Проблема: «Сухость»"),
+                row("skin_type:normal", 100, label="Тип кожи: «Нормальная»"),
+                row("goal:acne", 0, label="Цель: «Убрать акне»"),
+            ],
+            gaps=(ParameterGap("goal:hydration", "missing", "оценки нет"),),
+        ).user_report()
+        self.assertEqual(
+            [item["verdict"] for item in public["personal_compatibility"]],
+            ["positive", "negative", "neutral", "unknown"],
+        )
+
+    def test_long_explanation_is_trimmed_at_sentence_boundary(self):
+        public = make_report(
+            [
+                row(
+                    "skin_type:normal",
+                    75,
+                    label="Тип кожи: «Нормальная»",
+                    summary=(
+                        "Состав соответствует нормальной коже. "
+                        "Он не содержит подтверждённых раздражителей. "
+                        "Оценка 75/100. За требование: длинная цитата."
+                    ),
+                )
+            ]
+        ).user_report()
+        explanation = public["personal_compatibility"][0]["explanation"]
+        self.assertEqual(
+            explanation,
+            "Состав соответствует нормальной коже. Он не содержит подтверждённых раздражителей.",
+        )
+        self.assertNotIn("Оценка", explanation)
 
     def test_noncritical_goal_conflict_is_with_caveats(self):
         public = make_report(
@@ -134,13 +202,19 @@ class OverallVerdictTests(unittest.TestCase):
                 row("problem:acne_general", 50, label="Проблема: «Высыпания»"),
             ]
         ).user_report()
-        items = public["personal_compatibility"]
-        self.assertEqual(items[0]["display_text"], "Не рекомендуется использовать с лечением «Адапален».")
+        items = {item["parameter_id"]: item for item in public["personal_compatibility"]}
         self.assertEqual(
-            items[1]["display_text"],
+            items["therapy:adapalene"]["display_text"],
+            "Не рекомендуется использовать с лечением «Адапален».",
+        )
+        self.assertEqual(
+            items["procedure:recent_biorevitalization@<7"]["display_text"],
             "Можно использовать после процедуры «Биоревитализация» (первые 7 дней).",
         )
-        self.assertEqual(items[2]["display_text"], "Нейтрален в отношении проблемы «Высыпания».")
+        self.assertEqual(
+            items["problem:acne_general"]["display_text"],
+            "Нейтрален в отношении проблемы «Высыпания».",
+        )
 
     def test_unknown_display_text_is_not_positive(self):
         public = make_report(
@@ -160,24 +234,24 @@ class IntoleranceVerdictTests(unittest.TestCase):
         ).user_report()
         return public["personal_compatibility"][0]
 
-    def test_present_is_red_cross(self):
+    def test_present_is_a_positive_presence_answer(self):
         item = self._item("Aqua, Glycerin, Niacinamide")
-        self.assertEqual(item["verdict"], "negative")
-        self.assertEqual(item["verdict_icon"], "cross")
-        self.assertEqual(item["verdict_label"], "Обнаружен в составе")
-
-    def test_present_intolerance_makes_overall_unsuitable(self):
-        public = make_report(
-            [row("intolerance:niacinamide_intolerance", 0)],
-            inci="Aqua, Glycerin, Niacinamide",
-        ).user_report()
-        self.assertEqual(public["overall"]["verdict"], "Не подходит")
-
-    def test_absent_is_green_check(self):
-        item = self._item("Aqua, Glycerin")
         self.assertEqual(item["verdict"], "positive")
         self.assertEqual(item["verdict_icon"], "check")
+        self.assertEqual(item["verdict_label"], "Обнаружен в составе")
+
+    def test_absent_is_a_negative_presence_answer(self):
+        item = self._item("Aqua, Glycerin")
+        self.assertEqual(item["verdict"], "negative")
+        self.assertEqual(item["verdict_icon"], "cross")
         self.assertEqual(item["verdict_label"], "Не обнаружен в составе")
+
+    def test_absent_intolerance_is_not_a_critical_safety_conflict(self):
+        public = make_report(
+            [row("intolerance:niacinamide_intolerance", 0)],
+            inci="Aqua, Glycerin",
+        ).user_report()
+        self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
 
     def test_unconfirmed_is_neutral_unknown(self):
         item = self._item("")

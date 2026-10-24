@@ -165,8 +165,14 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("Источники", self.panel)
         self.assertIn("Не удалось проверить", self.panel)
         self.assertIn("display_text", self.panel)
+        self.assertIn("LoadingState", self.panel)
+        self.assertIn("Проверяем продукт", self.panel)
         self.assertNotIn("Персональная совместимость", self.panel)
         self.assertNotIn("Почему такой вывод", self.panel)
+        self.assertNotIn("overall-counts", self.panel)
+        self.assertNotIn("Проверено:", self.panel)
+        self.assertNotIn("AI", self.panel)
+        self.assertNotIn("◈", self.panel)
         for technical in (
             "Среднее по",
             "Оценено:",

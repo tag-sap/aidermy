@@ -774,7 +774,13 @@ class ProductEndpointTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
-        self.assertEqual(len(body["analysis"]["assessed_parameters"]), 8)
+        self.assertEqual(len(body["analysis"]["assessed_parameters"]), 7)
+        # The deterministic INCI answer is still present in the user projection.
+        self.assertEqual(len(body["user_report"]["personal_compatibility"]), 8)
+        self.assertTrue(any(
+            row["parameter_id"] == "intolerance:niacinamide_intolerance"
+            for row in body["user_report"]["personal_compatibility"]
+        ))
         self.assertIsNone(body["snapshot"]["total"])
         self.assertEqual(len(body["analysis"]["gaps"]), 0)
 

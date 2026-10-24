@@ -26,6 +26,7 @@ from .contracts import (
     ParameterEvaluation,
 )
 from .freshness import DEFAULT_REVIEW_AFTER_DAYS, select_current
+from .inci import check_intolerance
 from .parameters import resolve_parameters
 
 GAP_MISSING = "missing"              # no evaluation for this composition/method
@@ -105,6 +106,7 @@ def scan_parameters(
     profile: Mapping | None,
     composition_hash: str,
     method_version: str,
+    composition: Mapping | None = None,
     now: datetime | None = None,
     max_age_days: int | None = None,
     review_after_days: int | None = DEFAULT_REVIEW_AFTER_DAYS,
@@ -131,6 +133,13 @@ def scan_parameters(
 
     gaps: list[ParameterGap] = []
     for parameter in resolved.parameters:
+        # INCI presence/absence is deterministic and already stored in the
+        # verified composition. Do not create a research gap (or spend money)
+        # when the answer can be read directly from that data.
+        if parameter.section == "intolerance":
+            checked = check_intolerance(parameter, composition)
+            if checked is not None and checked.verified:
+                continue
         evaluation = by_id.get(parameter.id)
         if evaluation is None:
             gaps.append(ParameterGap(parameter.id, GAP_MISSING, "оценки нет"))
