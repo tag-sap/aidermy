@@ -635,7 +635,12 @@ class AnalysisReport:
             if verdict == "caution":
                 risk_text, recommendation = _caution_copy(parameter_id, evidence_rows)
                 item["status_label"] = "С осторожностью"
-                item["cause"] = explanation
+                item["cause"] = explanation or _display_text(
+                    parameter_id,
+                    str(row.get("label") or ""),
+                    "caution",
+                    risk_kind=risk_kind,
+                )
                 item["risk"] = risk_text
                 item["recommendation"] = recommendation
             if intolerance is not None:
