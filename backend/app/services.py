@@ -9,6 +9,7 @@ import unicodedata
 from typing import List
 from dotenv import load_dotenv
 from .database import get_ingredients
+from .evaluation.verdicts import verdict_text as compatibility_verdict_text
 from .ingredient_normalizer import split_inci_tokens
 from .postgres_connection import get_postgres_connection
 
@@ -1114,17 +1115,12 @@ def _deterministic_balance_fragments(analysis: dict) -> tuple:
 
 
 def _report_verdict_text(score: int) -> str:
-    """Человеческий verdict для fallback. Источник score — только deterministic."""
-    score = max(0, min(100, int(score)))
-    if score >= 80:
-        return "Очень хорошо подходит"
-    if score >= 60:
-        return "Хорошо подходит"
-    if score >= 40:
-        return "Подходит частично"
-    if score >= 20:
-        return "Скорее не подходит"
-    return "Не подходит"
+    """Human-readable verdict from the deterministic compatibility score.
+
+    The Score Engine thresholds (20/40/60/80) and the score itself are unchanged.
+    Only the user-facing labels follow the current five-band scale.
+    """
+    return compatibility_verdict_text(score)
 
 
 def _report_concern_evidence(deterministic: dict) -> list[dict]:

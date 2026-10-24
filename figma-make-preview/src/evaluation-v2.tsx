@@ -1,4 +1,4 @@
-// evaluation-v2.tsx — пользовательский результат Evaluation V2.
+// evaluation-v2.tsx - пользовательский результат Evaluation V2.
 // Общий вердикт + основная функция + персональные пункты со значками.
 // Технические статусы и средние баллы остаются в backend/snapshot; неизвестные
 // пункты показываются нейтральным прочерком, а не положительной галочкой.
@@ -63,12 +63,38 @@ function LoadingState({ label }: { label: string }) {
   )
 }
 
-function VerdictIcon({ verdict }: { verdict?: string }) {
-  const kind = verdict || "unknown"
-  const glyph = kind === "positive" ? "✓" : kind === "negative" ? "✕" : kind === "caution" ? "⚠" : "—"
+const VERDICT_ICON_BY_STATUS: Record<string, string> = {
+  positive: "happy",
+  negative: "dead",
+  caution: "alert",
+  neutral: "neutral",
+  unknown: "neutral",
+  // Older saved reports use glyph names; normalize them to the same sprite.
+  check: "happy",
+  cross: "dead",
+  dash: "neutral",
+}
+
+function iconName(verdict?: string, icon?: string): string {
+  const value = icon || VERDICT_ICON_BY_STATUS[verdict || ""] || "neutral"
+  return ["dead", "happy", "neutral", "alert"].includes(value) ? value : "neutral"
+}
+
+function VerdictIcon({
+  verdict,
+  icon,
+  className = "",
+}: {
+  verdict?: string
+  icon?: string
+  className?: string
+}) {
+  const name = iconName(verdict, icon)
   return (
-    <span className={`evalv2__verdict-icon evalv2__verdict-icon--${kind}`} aria-hidden="true">
-      {glyph}
+    <span className={`evalv2__verdict-icon evalv2__verdict-icon--${name} ${className}`.trim()} aria-hidden="true">
+      <svg viewBox="5 5 130 215" focusable="false">
+        <use href={`/icons/verdict_icons.svg#verdict-${name}`} />
+      </svg>
     </span>
   )
 }
@@ -79,8 +105,10 @@ function itemVerdict(item: EvaluationPersonalParameter): string {
     return item.intolerance.state === "present" ? "negative"
       : item.intolerance.state === "absent" ? "positive" : "unknown"
   }
+  // Older payloads may not carry a verdict. Never reconstruct a safety
+  // warning from a low benefit score: only the backend may authorize caution.
   return item.score != null && item.score >= 75 ? "positive"
-    : item.score != null && item.score <= 25 ? "caution" : "positive"
+    : item.score != null ? "neutral" : "unknown"
 }
 
 function itemText(item: EvaluationPersonalParameter): string {
@@ -96,9 +124,12 @@ function ReportHeader({ productName, overall }: { productName: string; overall: 
     <header className="evalv2__report-head">
       {productName && <h4 className="evalv2__product-name">{productName}</h4>}
       <div className="evalv2__overall-main">
-        <strong className={`evalv2__overall-verdict evalv2__overall-verdict--${overall.tone}`}>
-          {overall.verdict}
-        </strong>
+        <span className="evalv2__overall-verdict-wrap">
+          <VerdictIcon verdict={overall.tone === "bad" ? "negative" : overall.tone === "good" ? "positive" : overall.tone === "warn" ? "caution" : "neutral"} icon={overall.icon} className="evalv2__overall-icon" />
+          <strong className={`evalv2__overall-verdict evalv2__overall-verdict--${overall.tone}`}>
+            {overall.verdict}
+          </strong>
+        </span>
       </div>
       <p className="evalv2__overall-summary">{overall.summary}</p>
     </header>
@@ -114,7 +145,7 @@ function FunctionLine({
   open: boolean
   onToggle: () => void
 }) {
-  const hasInfo = Boolean(item.reason || (item.basis && item.basis.length))
+  const hasInfo = Boolean(item.reason || item.score_note || (item.basis && item.basis.length))
   return (
     <div className={`evalv2__function-line ${open ? "evalv2__function-line--open" : ""}`}>
       <p>
@@ -122,8 +153,17 @@ function FunctionLine({
         {item.purpose ? <span className="evalv2__function-purpose"> · {item.purpose}</span> : null}
       </p>
       {item.score != null && (
-        <span className="evalv2__function-score" aria-label={`Оценка основной функции ${item.score} из 100`}>
-          {item.score}<small>%</small>
+        <span className="evalv2__function-score-wrap">
+          <span
+            className="evalv2__function-score"
+            aria-label={`Соответствие состава функции ${item.score} из 100`}
+            title={item.score_note || "Оценка соответствия состава, не клиническая эффективность"}
+          >
+            {item.score}<small>%</small>
+          </span>
+          <span className="evalv2__function-score-caption">
+            {item.score_label || "соответствие состава"}
+          </span>
         </span>
       )}
       {hasInfo && (
@@ -140,6 +180,7 @@ function FunctionLine({
       {open && (
         <div className="evalv2__info-text">
           {item.reason && <p>{item.reason}</p>}
+          {item.score_note && <p className="evalv2__function-note">{item.score_note}</p>}
           {(item.basis || []).map((row, index) => (
             <p key={index}>
               <strong>{row.label}: </strong>
@@ -166,16 +207,14 @@ function ComedogenicityLine({
   open: boolean
   onToggle: () => void
 }) {
-  if (item.applicable === false || item.status === "not_applicable") return null
-  const label = item.status === "insufficient_evidence"
-    ? "Недостаточно данных"
-    : item.level === "low"
-      ? "Низкий потенциал"
-      : item.level === "medium"
-        ? "Требует контекста"
-        : item.level === "high"
-          ? "Высокий потенциал"
-          : "Недостаточно данных"
+  // The block owns confirmed ingredient ratings in 1..5. It is never rendered
+  // as "Недостаточно данных", and no product-level diagnosis is inferred.
+  const flagged = item.ingredients || []
+  if (item.status !== "assessed" || item.applicable === false || flagged.length === 0) return null
+  const label = item.risk_label
+    || (item.level === "high" ? "Высокий потенциальный риск"
+      : item.level === "medium" ? "Средний потенциальный риск"
+        : "Низкий потенциальный риск")
   const details = [item.reason, item.risk, item.recommendation].filter(
     (value): value is string => Boolean(value && value.trim())
   )
@@ -183,8 +222,16 @@ function ComedogenicityLine({
     <div className={`evalv2__function-line evalv2__comedo-line evalv2__comedo-line--${item.level || "unknown"}`}>
       <p>
         <span>Комедогенность:</span> <strong>{label}</strong>
-        <span className="evalv2__function-purpose"> · отдельно от общей совместимости</span>
+        <span className="evalv2__function-purpose"> · по отдельным подтверждённым компонентам</span>
       </p>
+      <ul className="evalv2__comedo-components" aria-label="Подтверждённые рейтинги комедогенности">
+        {flagged.map((ingredient) => (
+          <li key={`${ingredient.name}-${ingredient.rating}`}>
+            <span>{ingredient.name}</span>
+            <b>{ingredient.rating_label || `${ingredient.rating}/5`}</b>
+          </li>
+        ))}
+      </ul>
       {details.length > 0 && (
         <button
           type="button"
@@ -224,6 +271,7 @@ function VerdictRow({
     { label: verdict === "caution" ? "Причина" : "", text: item.cause || item.explanation || item.reason },
     { label: "Возможный риск", text: item.risk || "" },
     { label: "Рекомендация", text: item.recommendation || "" },
+    { label: "Роль продукта", text: item.scope_note || "" },
     { label: "", text: item.intolerance?.reason || "" },
   ].filter((detail) => Boolean(detail.text && detail.text.trim()))
   return (
@@ -231,7 +279,7 @@ function VerdictRow({
       <span className="evalv2__num" aria-hidden="true">{number}.</span>
       <span className="evalv2__verdict-text">{itemText(item)}</span>
       <span className="evalv2__status" aria-label={item.verdict_label || verdict}>
-        <VerdictIcon verdict={verdict} />
+        <VerdictIcon verdict={verdict} icon={item.verdict_icon} />
       </span>
       <button
         type="button"
@@ -370,7 +418,12 @@ export function EvaluationV2Panel({
   const topLevelComedo = report?.comedogenicity && Object.keys(report.comedogenicity).length
     ? report.comedogenicity
     : null
-  const comedogenicity = userReport?.comedogenicity ?? topLevelComedo
+  const rawComedogenicity = userReport?.comedogenicity ?? topLevelComedo
+  const comedogenicity = rawComedogenicity?.status === "assessed"
+    && rawComedogenicity.applicable !== false
+    && (rawComedogenicity.ingredients?.length || 0) > 0
+    ? rawComedogenicity
+    : null
   const personal = userReport?.personal_compatibility ?? []
   const knownItems = personal.filter((item) => itemVerdict(item) !== "unknown")
   const unknownItems = personal.filter((item) => itemVerdict(item) === "unknown")

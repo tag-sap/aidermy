@@ -236,6 +236,9 @@ export type EvaluationPrimaryFunction = {
   label: string
   purpose: string
   score: number | null
+  score_kind?: "formula_support" | string
+  score_label?: string
+  score_note?: string
   reason: string
   basis?: Array<{
     type?: string
@@ -256,8 +259,9 @@ export type EvaluationIntoleranceStatus = {
 export type EvaluationVerdict = "positive" | "caution" | "neutral" | "negative" | "unknown"
 
 export type EvaluationOverall = {
-  verdict: "Подходит" | "Подходит с оговорками" | "Не подходит" | "Недостаточно данных" | string
-  tone: "good" | "warn" | "bad" | "muted" | string
+  verdict: "Не подходит" | "Слабо подходит" | "Подходит частично" | "Хорошо подходит" | "Отлично подходит" | "Недостаточно данных" | string
+  tone: "good" | "warn" | "neutral" | "bad" | "muted" | string
+  icon?: "dead" | "happy" | "neutral" | "alert" | string
   summary: string
   positive: number
   caution: number
@@ -280,10 +284,12 @@ export type EvaluationPersonalParameter = {
   verdict_label?: string
   status_label?: string
   display_text?: string
-  verdict_icon?: "check" | "dash" | "cross" | "alert" | string
+  verdict_icon?: "dead" | "happy" | "neutral" | "alert" | "check" | "dash" | "cross" | string
   cause?: string
   risk?: string
   recommendation?: string
+  goal_scope?: "direct" | "supportive" | "not_intended" | string
+  scope_note?: string
 }
 
 export type EvaluationComedogenicity = {
@@ -297,6 +303,14 @@ export type EvaluationComedogenicity = {
   risk?: string
   recommendation?: string
   basis?: Array<{ label: string; value: string }>
+  ingredients?: Array<{ name: string; rating: number; rating_label?: string }>
+  max_rating?: number | null
+  risk_label?: string
+  total_count?: number
+  resolved_count?: number
+  known_count?: number
+  flagged_count?: number
+  coverage?: number
 }
 
 export type EvaluationUserReport = {

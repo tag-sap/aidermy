@@ -11,7 +11,10 @@ description alone is not enough to produce a score.
 
 The result is deliberately conservative: a known category with a confirmed
 formula can be assessed, but an unknown category or an unconfirmed/absent INCI
-returns ``None`` instead of an invented number.
+returns ``None`` instead of an invented number. The number is a **formula
+support** score, not a clinical efficacy score: the deterministic input has no
+concentration or finished-product evidence, so the maximum is 90 and a score of
+100 is never produced here.
 """
 from __future__ import annotations
 
@@ -22,7 +25,14 @@ from ..catalog_taxonomy import classify_product
 from ..category_knowledge import get_category_knowledge
 from .inci import split_inci
 
-PRIMARY_FUNCTION_VERSION = "1.0.0"
+PRIMARY_FUNCTION_VERSION = "2.0.0"
+PRIMARY_SCORE_KIND = "formula_support"
+PRIMARY_SCORE_LABEL = "Соответствие состава"
+PRIMARY_SCORE_NOTE = (
+    "Оценка отражает наличие функциональных групп в подтверждённом INCI. "
+    "Она не подтверждает концентрацию, эффективность готового продукта или "
+    "клинический результат."
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +49,22 @@ _SPECS: dict[str, FunctionSpec] = {
     "face:cleansing": FunctionSpec(
         "cleansing", "Очищение", "Очистить кожу и снять загрязнения.",
         ("surfactants",),
+    ),
+    "face:acne": FunctionSpec(
+        "anti_acne", "Антиакне-уход", "Уменьшить проявления акне и воспалений.",
+        ("acne_actives", "soothing", "acids", "retinoids"),
+    ),
+    "face:brightening": FunctionSpec(
+        "brightening", "Выравнивание тона", "Поддержать выравнивание тона и снизить видимую пигментацию.",
+        ("brightening_actives", "antioxidants", "acids"),
+    ),
+    "face:barrier": FunctionSpec(
+        "barrier", "Восстановление барьера", "Поддержать барьер и снизить потерю влаги.",
+        ("ceramides", "soothing", "occlusives", "humectants"),
+    ),
+    "face:hydration": FunctionSpec(
+        "hydration", "Увлажнение", "Увлажнить и смягчить кожу.",
+        ("humectants", "emollients"),
     ),
     "face:toning": FunctionSpec(
         "toning", "Тонизирование", "Подготовить кожу после очищения и освежить её.",
@@ -180,6 +206,17 @@ _MARKERS: dict[str, tuple[str, ...]] = {
         "panthenol", "allantoin", "bisabolol", "centella", "madecassoside",
         "aloe", "licorice", "glycyrrhiza",
     ),
+    "acne_actives": (
+        "salicylic acid", "niacinamide", "nicotinamide", "zinc pca",
+        "zinc gluconate", "sulfur", "benzoyl peroxide", "azelaic acid",
+        "adapalene", "tretinoin", "retinal", "retinol", "tea tree",
+        "melaleuca", "capryloyl salicylic acid",
+    ),
+    "brightening_actives": (
+        "niacinamide", "nicotinamide", "ascorbic acid", "ascorbyl",
+        "arbutin", "tranexamic acid", "kojic acid", "licorice",
+        "glycyrrhiza", "azelaic acid", "resorcinol", "glutathione",
+    ),
     "clays": ("kaolin", "bentonite", "montmorillonite", "clay"),
     "abrasives": (
         "silica", "jojoba esters", "sugar", "salt", "walnut", "apricot",
@@ -206,6 +243,8 @@ _GROUP_LABELS = {
     "peptides": "пептиды",
     "antioxidants": "антиоксиданты",
     "soothing": "успокаивающие компоненты",
+    "acne_actives": "компоненты против акне",
+    "brightening_actives": "осветляющие компоненты",
     "clays": "глины",
     "abrasives": "абразивные частицы",
     "enzymes": "энзимы",
@@ -225,7 +264,9 @@ def _text(product: Mapping) -> str:
 
 def _function_key(product: Mapping, classification: Mapping) -> str:
     text = _text(product)
-    # Sun protection is a distinct purpose and must not be reduced to "cream".
+    # Explicit sun protection is a purpose marker, not a form. It must be
+    # checked before form categories such as "cream" and before a catalog pair
+    # that contradicts an unmistakably named sunscreen.
     if any(
         marker in text
         for marker in (
@@ -234,6 +275,12 @@ def _function_key(product: Mapping, classification: Mapping) -> str:
         )
     ):
         return "sun_protection:spf"
+    # The catalog's function_key distinguishes purpose (anti-acne, barrier,
+    # brightening) from form (serum/cream/gel). It must win over generic form
+    # markers, but only when the catalog source was not contradicted by text.
+    trusted = str(classification.get("function_key") or "").strip()
+    if trusted in _SPECS and str(classification.get("category_source") or "") == "catalog":
+        return trusted
     body_area = str(classification.get("body_area") or "")
     product_type = str(classification.get("product_type") or "")
     key = f"{body_area}:{product_type}"
@@ -361,7 +408,6 @@ def build_primary_function(
     # are ignored rather than silently changing the denominator.
     expected = [group for group in expected if group in _MARKERS or group == "actives"]
     relevant_found = [group for group in expected if group in found_groups]
-    ratio = len(relevant_found) / len(expected) if expected else 0.0
     if not relevant_found:
         # The formula exists, but it contains no recognised support for this
         # function. That is insufficient evidence, not a zero or an invented
@@ -388,30 +434,40 @@ def build_primary_function(
             "category": canonical,
             "category_source": category_source,
         }
-    if ratio >= 1.0:
-        score = 100
-    elif ratio >= 0.5:
-        score = 75
-    else:
+    # The score describes formula support, not clinical efficacy. A category
+    # and even several matching ingredients cannot prove that the finished
+    # product works at an effective concentration. The maximum is therefore
+    # deliberately below 100: 100 is reserved for independently confirmed
+    # efficacy, which this deterministic input does not contain.
+    # Only groups that belong to the function's own support model count. A
+    # cleanser does not become 100% cleansing because it also contains a
+    # humectant or a soothing extract; those are useful, but not evidence for
+    # the primary cleansing function.
+    score_groups = list(relevant_found)
+    support_count = len(score_groups)
+    if support_count == 1:
         score = 50
+    elif support_count == 2:
+        score = 65
+    elif support_count == 3:
+        score = 80
+    else:
+        score = 90
 
     found_labels = [
-        _GROUP_LABELS.get(group, group) for group in relevant_found
+        _GROUP_LABELS.get(group, group) for group in score_groups
     ]
-    if ratio >= 1.0:
+    if support_count == 1:
         reason = (
-            f"Состав содержит ключевые группы компонентов для функции «{spec.label}»; "
-            "это соответствует назначению."
-        )
-    elif ratio >= 0.5:
-        reason = (
-            f"Состав в основном поддерживает функцию «{spec.label}»: найдены "
-            f"{', '.join(found_labels)}."
+            f"Состав содержит только базовую функциональную группу для функции "
+            f"«{spec.label}»: {', '.join(found_labels)}. Этого достаточно для "
+            "минимального соответствия формуле, но не для вывода об эффективности."
         )
     else:
         reason = (
-            f"Состав частично поддерживает функцию «{spec.label}»: "
-            f"найдены {', '.join(found_labels)}."
+            f"Состав содержит {support_count} независимые функциональные группы "
+            f"для функции «{spec.label}»: {', '.join(found_labels)}. Это поддержка "
+            "формулы, а не подтверждение концентрации или клинического эффекта."
         )
 
     basis = [
@@ -443,6 +499,9 @@ def build_primary_function(
         "label": spec.label,
         "purpose": spec.purpose,
         "score": score,
+        "score_kind": PRIMARY_SCORE_KIND,
+        "score_label": PRIMARY_SCORE_LABEL,
+        "score_note": PRIMARY_SCORE_NOTE,
         "reason": reason,
         "basis": basis,
         "category": canonical,
@@ -450,13 +509,48 @@ def build_primary_function(
     }
 
 
+_PURPOSE_DETAIL_MARKERS = (
+    "только", " кроме", "за исключением", "избег", "концентрац", "частот",
+    "утро", "вечер", "до ", "после ", "курс", "не более", "не менее",
+    "механизм", "кислот", "фермент", "ретинол", "пептид", "кератин",
+    "водостой", "зон", " если", " при ", " нельзя", " не ",
+)
+
+
+def _purpose_adds_extra_detail(label: str, purpose: str) -> bool:
+    """Whether the purpose text adds a mechanism/constraint, not a paraphrase.
+
+    All built-in ``FunctionSpec.purpose`` values are short restatements of the
+    label. They remain available to research/LLM context, but are not repeated
+    under the user-facing "Основная функция" line.
+    """
+    clean = " ".join(str(purpose or "").replace("\n", " ").split())
+    if not clean:
+        return False
+    if str(label or "").startswith("Основная функция не определена"):
+        return False
+    low = clean.casefold()
+    if any(char.isdigit() for char in low):
+        return True
+    return any(marker in low for marker in _PURPOSE_DETAIL_MARKERS)
+
+
 def public_primary_function(result: Mapping | None) -> dict:
     """Remove internal wording/status before returning a user-facing report."""
     result = result or {}
+    label = str(result.get("label") or "Основная функция не определена")
+    purpose = str(result.get("purpose") or "")
+    # Do not print "Защита от солнца · Защитить кожу от ультрафиолета": the
+    # title already says it. Only an actual mechanism or constraint survives.
+    if not _purpose_adds_extra_detail(label, purpose):
+        purpose = ""
     return {
-        "label": str(result.get("label") or "Основная функция не определена"),
-        "purpose": str(result.get("purpose") or ""),
+        "label": label,
+        "purpose": purpose,
         "score": result.get("score"),
+        "score_kind": str(result.get("score_kind") or PRIMARY_SCORE_KIND),
+        "score_label": str(result.get("score_label") or PRIMARY_SCORE_LABEL),
+        "score_note": str(result.get("score_note") or PRIMARY_SCORE_NOTE),
         "reason": str(result.get("reason") or ""),
         "basis": list(result.get("basis") or []),
     }

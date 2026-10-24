@@ -33,7 +33,10 @@ from .knowledge import (
 )
 from .parameters import PARAMETERS, ingredient_parameter, resolve_parameters
 from .primary_function import build_primary_function, public_primary_function
+from .relevance import goal_scope, goal_scope_note
 from .comedogenicity import assess_comedogenicity
+from .comedo_dedupe import comedo_ingredient_names, scrub_comedo_fields
+from .verdicts import VERDICT_ICON_BY_STATUS, verdict_band
 from .research import ResearchProvider
 from .snapshot import profile_fingerprint, verify_snapshot
 from .timing import StageTimer
@@ -198,11 +201,11 @@ def _risk_kind(evidence: Sequence[Mapping] | None) -> str:
 # “avoid this” restriction and is a positive result.
 _CRITICAL_SECTIONS = {"skin_type", "problem", "therapy", "procedure", "intolerance"}
 _VERDICT_ICONS = {
-    "positive": "check",
-    "negative": "cross",
-    "caution": "alert",
-    "neutral": "dash",
-    "unknown": "dash",
+    "positive": VERDICT_ICON_BY_STATUS["positive"],
+    "negative": VERDICT_ICON_BY_STATUS["negative"],
+    "caution": VERDICT_ICON_BY_STATUS["caution"],
+    "neutral": VERDICT_ICON_BY_STATUS["neutral"],
+    "unknown": VERDICT_ICON_BY_STATUS["unknown"],
 }
 
 
@@ -215,6 +218,7 @@ def _verdict_label(
     verdict: str,
     intolerance: Mapping | None = None,
     risk_kind: str = "",
+    goal_scope: str = "",
 ) -> str:
     section = _section(parameter_id)
     if section == "intolerance" and intolerance is not None:
@@ -244,11 +248,21 @@ def _verdict_label(
             "unknown": "Не удалось определить",
         }[verdict]
     if section == "goal":
+        if verdict == "positive":
+            return (
+                "Поддерживает уход"
+                if goal_scope == "supportive"
+                else "Цель поддерживается"
+            )
+        if verdict == "neutral":
+            return (
+                "Не является самостоятельным средством"
+                if goal_scope in {"not_intended", "supportive"}
+                else "Цель не подтверждена"
+            )
         return {
-            "positive": "Цель поддерживается",
             "caution": "Возможна осторожность",
-            "neutral": "Влияние неясно",
-            "negative": "Цель не подтверждена",
+            "negative": "Есть риск в отношении цели",
             "unknown": "Не удалось определить",
         }[verdict]
     if section == "skin_type":
@@ -318,14 +332,14 @@ def _item_verdict(
         return "caution"
     if value >= 75:
         return "positive"
+    # A low benefit score without confirmed contradicting evidence is not a
+    # safety warning. For goals it is specifically neutral: the product may be
+    # useful in a routine, but its standalone effect on the goal is unproven.
+    if section == "goal":
+        return "neutral"
     if value >= 50:
         return "positive"
-    if value <= 0:
-        # The zero level is reserved for a confirmed contradiction. If an old
-        # record has no such evidence, present a cautious warning rather than
-        # turning “no treatment benefit” into a hard incompatibility.
-        return "caution"
-    return "positive"
+    return "neutral"
 
 
 def _caution_copy(parameter_id: str, evidence: Sequence[Mapping] | None) -> tuple[str, str]:
@@ -363,11 +377,26 @@ def _caution_copy(parameter_id: str, evidence: Sequence[Mapping] | None) -> tupl
             "problem": "Возможна дополнительная нагрузка на кожу в рамках этой задачи.",
             "goal": "Возможна дополнительная нагрузка на кожу при достижении этой цели.",
         }.get(section, "Возможна дополнительная нагрузка на кожу.")
-    return (
-        risk,
-        "Если решите использовать продукт, проверьте переносимость и следите за реакцией; "
-        "при усилении раздражения прекратите использование.",
-    )
+    recommendation = {
+        "therapy": (
+            "Обсудите сочетание с врачом, который назначил лечение, до начала "
+            "совместного использования."
+        ),
+        "procedure": (
+            "Обсудите использование с врачом, который проводил процедуру, "
+            "до нанесения продукта."
+        ),
+        "goal": (
+            "Не считайте продукт самостоятельным средством для этой цели; "
+            "если он нужен в уходе, обсудите его роль с дерматологом."
+        ),
+        # No generic recommendation is invented for a benefit row when the
+        # evidence does not support a concrete action. The cause and risk stay
+        # visible instead.
+        "skin_type": "",
+        "problem": "",
+    }.get(section, "")
+    return risk, recommendation
 
 
 def _quoted(label: str) -> str:
@@ -382,6 +411,7 @@ def _display_text(
     *,
     intolerance: Mapping | None = None,
     risk_kind: str = "",
+    goal_scope: str = "",
 ) -> str:
     """One short, concrete sentence for the compact verdict list."""
     section = _section(parameter_id)
@@ -427,12 +457,27 @@ def _display_text(
     if section == "goal":
         target = subject or "цель"
         if verdict == "positive":
+            if goal_scope == "supportive":
+                return (
+                    f"Может поддерживать уход в рамках цели «{target}», но не "
+                    "заменяет средство для этой цели."
+                )
             return f"Поддерживает цель «{target}»."
         if verdict == "negative":
-            return f"Не подтверждает цель «{target}»."
+            return f"Есть риск в отношении цели «{target}»."
         if verdict == "caution":
             return f"Возможна осторожность в отношении цели «{target}»."
-        return f"Нейтрален в отношении цели «{target}»."
+        if goal_scope == "not_intended":
+            return (
+                f"Не является самостоятельным средством для цели «{target}»; "
+                "это не риск."
+            )
+        if goal_scope == "supportive":
+            return (
+                f"Может поддерживать уход в рамках цели «{target}», но не является "
+                "самостоятельным средством для её достижения; это не риск."
+            )
+        return f"Цель «{target}» не подтверждена; это не риск."
     if section == "problem":
         target = subject or "задача"
         if verdict == "positive":
@@ -476,8 +521,15 @@ def _gap_label(parameter_id: str) -> str:
     return "Параметр профиля"
 
 
-def _overall_verdict(items: Sequence[Mapping]) -> dict:
-    """Aggregate conflicts by meaning, not by counting positive cards."""
+def _overall_verdict(items: Sequence[Mapping], score: float | int | None = None) -> dict:
+    """Aggregate conflicts by meaning, not by counting positive cards.
+
+    ``score`` is an already calculated deterministic compatibility score, when
+    one exists. Its thresholds are not recalculated here: ``verdict_band`` only
+    maps the existing 0..19/20..39/40..59/60..79/80..100 bands to user text.
+    Without a score, the semantic checklist outcome is mapped to the same five
+    labels without inventing a percentage.
+    """
     assessed = [
         item for item in items
         if item.get("verdict") in {"positive", "caution", "neutral", "negative"}
@@ -491,39 +543,52 @@ def _overall_verdict(items: Sequence[Mapping]) -> dict:
         item for item in negative
         if _section(str(item.get("parameter_id") or "")) in _CRITICAL_SECTIONS
     ]
+    band = verdict_band(score)
     if critical:
         first = critical[0]
-        verdict = "Не подходит"
-        tone = "bad"
+        verdict, tone, icon = "Не подходит", "bad", "dead"
         summary = f"Есть критичный конфликт: {first.get('label')}. {first.get('verdict_label')}."
     elif not assessed and unknown:
-        verdict = "Недостаточно данных"
-        tone = "muted"
+        verdict, tone, icon = "Недостаточно данных", "muted", "neutral"
         summary = "Нет подтверждённых данных; неизвестные результаты не считаются положительными."
     elif not assessed:
-        verdict = "Недостаточно данных"
-        tone = "muted"
+        verdict, tone, icon = "Недостаточно данных", "muted", "neutral"
         summary = "Для вашего профиля нет подтверждённых результатов."
+    elif band is not None:
+        verdict = str(band["label"])
+        tone = str(band["tone"])
+        icon = str(band["icon"])
+        summary = "Оценка соответствия профилю кожи по подтверждённым данным."
     elif negative:
-        verdict = "Подходит с оговорками"
-        tone = "warn"
-        summary = "Есть предупреждение: продукт подходит не полностью."
+        verdict, tone, icon = "Слабо подходит", "warn", "alert"
+        summary = "Есть подтверждённое предупреждение: продукт подходит не полностью."
     elif caution:
         first = caution[0]
-        verdict = "Подходит с оговорками"
-        tone = "warn"
+        verdict, tone, icon = "Подходит частично", "neutral", "neutral"
         summary = f"Есть предупреждение: {first.get('label')} требует осторожности."
-    elif neutral or unknown:
-        verdict = "Подходит с оговорками"
-        tone = "warn"
-        summary = "Есть оговорки: часть пунктов нейтральна или не проверена."
+    elif unknown:
+        verdict, tone, icon = "Подходит частично", "neutral", "neutral"
+        summary = "Часть пунктов не проверена; это ограничивает вывод."
+    elif neutral:
+        if positive:
+            verdict, tone, icon = "Хорошо подходит", "good", "happy"
+            summary = (
+                "Подтверждённых рисков нет; часть целей не подтверждена или "
+                "не является назначением продукта."
+            )
+        else:
+            verdict, tone, icon = "Подходит частично", "neutral", "neutral"
+            summary = (
+                "Подтверждённых рисков нет, но и положительных результатов "
+                "по выбранным целям недостаточно."
+            )
     else:
-        verdict = "Подходит"
-        tone = "good"
+        verdict, tone, icon = "Отлично подходит", "good", "happy"
         summary = "Все проверенные пункты подтверждают совместимость."
     return {
         "verdict": verdict,
         "tone": tone,
+        "icon": icon,
         "summary": summary,
         "positive": positive,
         "caution": len(caution),
@@ -583,6 +648,9 @@ class AnalysisReport:
         """
         personal = []
         seen: set[str] = set()
+        comedo = dict(self.comedogenicity or {})
+        comedo_names = comedo_ingredient_names(comedo)
+        product_context = dict(self.knowledge.product) if self.knowledge is not None else dict(self.product)
         for row in self.snapshot.get("parameters") or []:
             if (
                 not row.get("included")
@@ -605,10 +673,27 @@ class AnalysisReport:
                 intolerance,
                 evidence_rows,
             )
+            scope = goal_scope(parameter_id, product_context)
+            scope_note = goal_scope_note(scope, product_context)
+            # A goal outside the product's function is not a user-facing
+            # checklist item unless there is a confirmed risk. Do not fill the
+            # report with tasks the product was never meant to solve.
+            if (
+                _section(parameter_id) == "goal"
+                and scope == "not_intended"
+                and not risk_kind
+            ):
+                continue
+            # An unknown category is not allowed to turn an LLM score into a
+            # positive claim either.
+            if scope in {"not_intended", "unknown"} and verdict == "positive":
+                verdict = "neutral"
             explanation = (
                 _evidence_explanation(evidence_rows, verdict)
                 or _short_explanation(row.get("reason") or row.get("summary"))
             )
+            if scope == "not_intended" and verdict == "neutral" and scope_note:
+                explanation = scope_note
             item = {
                 "parameter_id": parameter_id,
                 "label": str(row.get("label") or ""),
@@ -619,7 +704,11 @@ class AnalysisReport:
                 "section": _section(parameter_id),
                 "verdict": verdict,
                 "verdict_label": _verdict_label(
-                    parameter_id, verdict, intolerance, risk_kind
+                    parameter_id,
+                    verdict,
+                    intolerance,
+                    risk_kind,
+                    goal_scope=scope,
                 ),
                 "display_text": _display_text(
                     parameter_id,
@@ -627,9 +716,13 @@ class AnalysisReport:
                     verdict,
                     intolerance=intolerance,
                     risk_kind=risk_kind,
+                    goal_scope=scope,
                 ),
                 "verdict_icon": _VERDICT_ICONS[verdict],
             }
+            if scope and scope != "unknown":
+                item["goal_scope"] = scope
+                item["scope_note"] = scope_note
             if risk_kind:
                 item["risk_kind"] = risk_kind
             if verdict == "caution":
@@ -640,6 +733,7 @@ class AnalysisReport:
                     str(row.get("label") or ""),
                     "caution",
                     risk_kind=risk_kind,
+                    goal_scope=scope,
                 )
                 item["risk"] = risk_text
                 item["recommendation"] = recommendation
@@ -715,18 +809,34 @@ class AnalysisReport:
             "unknown": 4,
         }
         personal.sort(key=lambda row: verdict_order.get(str(row.get("verdict")), 9))
+        # The dedicated comedogenicity block owns its ingredient names/ratings.
+        # Remove only repeated comedogenicity clauses from other user-facing
+        # fields; independent irritation/allergy/barrier risks remain intact.
+        if comedo_names:
+            for item in personal:
+                scrub_comedo_fields(item, comedo_names)
         primary = public_primary_function(self.primary_function)
         primary["reason"] = _short_explanation(primary.get("reason"))
+        if comedo_names:
+            scrub_comedo_fields(primary, comedo_names, fields=("reason", "purpose"))
         name = " ".join(str(self.product.get("name") or "").replace("\n", " ").split())
+        overall = _overall_verdict(personal, score=self.snapshot.get("total"))
+        if comedo_names:
+            overall["summary"] = str(
+                scrub_comedo_fields(dict(overall), comedo_names, fields=("summary",)).get("summary") or ""
+            )
         report = {
             "product_name": name,
             "primary_function": primary,
-            "overall": _overall_verdict(personal),
+            "overall": overall,
             "personal_compatibility": personal,
             "sources": _source_urls(personal, primary),
         }
-        comedo = dict(self.comedogenicity or {})
-        if comedo and comedo.get("applicable", True):
+        # A product-level pseudo-status is never shown. The block exists only
+        # when at least one ingredient has a confirmed rating in 1..5; low INCI
+        # coverage does not hide that known evidence.
+        has_flagged = bool(comedo.get("ingredients")) or bool(comedo.get("max_rating"))
+        if comedo and comedo.get("applicable", True) and comedo.get("status") == "assessed" and has_flagged:
             report["comedogenicity"] = comedo
         return report
 

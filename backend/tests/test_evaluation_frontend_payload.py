@@ -195,6 +195,13 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("Не удалось загрузить сохранённый отчёт", self.panel)
         self.assertIn("restoreError", self.panel)
 
+    def test_v2_panel_hides_insufficient_comedogenicity_and_labels_formula_support(self):
+        self.assertIn('item.status !== "assessed"', self.panel)
+        self.assertIn('rawComedogenicity?.status === "assessed"', self.panel)
+        self.assertIn('score_label', self.panel)
+        self.assertIn('score_note', self.panel)
+        self.assertIn('Роль продукта', self.panel)
+
     def test_api_exposes_composition_check(self):
         self.assertIn("evaluationCompositionCheck", self.api)
         self.assertIn("/composition/check", self.api)

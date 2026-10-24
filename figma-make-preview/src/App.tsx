@@ -5,7 +5,7 @@ import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
 import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review } from "./api"
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { CareSetsPage } from "./careSets"
-import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
+import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
 import { PhotoScan } from "./photo-scan"
 import { ReportDetails } from "./report-details"
 import { EvaluationV2Panel } from "./evaluation-v2"
@@ -67,10 +67,10 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 }
 
 function toneOf(score: number | null, verdict: Verdict | null): "good" | "warn" | "bad" | "neutral" {
-  if (verdict === "Отлично подходит" || verdict === "Подходит") return "good"
-  if (verdict === "Скорее не подходит" || verdict === "Допустимо") return "warn"
+  if (verdict === "Отлично подходит" || verdict === "Хорошо подходит") return "good"
+  if (verdict === "Слабо подходит" || verdict === "Допустимо") return "warn"
   if (verdict === "Не подходит" || verdict === "Не рекомендовано") return "bad"
-  if (verdict === "Нейтральный результат") return "neutral"
+  if (verdict === "Подходит частично") return "neutral"
   if (score == null) return "neutral"
   return score < 20 ? "bad" : score < 40 ? "warn" : score < 60 ? "neutral" : "good"
 }
@@ -155,7 +155,8 @@ function ScoreBadge({ score, verdict, recommendationStatus }: {
   recommendationStatus?: string | null;
 }) {
   const value = score ?? null
-  const status = verdict || recommendationStatus
+  const normalized = normalizeVerdict(verdict)
+  const status = normalized || recommendationStatus
   if (value == null) {
     return status ? <span className="score-text">{status}</span> : null
   }
@@ -2542,7 +2543,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
         finalVerdict = null
         finalScore = null
       } else if (rawScore != null) {
-        finalVerdict = mapVerdict(rawScore, res.verdict) ?? "Нейтральный результат"
+        finalVerdict = mapVerdict(rawScore, res.verdict) ?? "Подходит частично"
         finalScore = rawScore
       } else {
         // Неожиданный ответ без score и известного статуса — не выдумываем результат.

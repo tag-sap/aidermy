@@ -5,7 +5,10 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.catalog_taxonomy import (
+    CATALOG_TAXONOMY,
     TAXONOMY,
+    is_target_skincare,
+    paginate_target_products,
     body_area_keys,
     subcategory_titles,
     canonical_subcategory,
@@ -54,6 +57,19 @@ class TaxonomyStructureTests(unittest.TestCase):
             self.assertEqual(cab["categories"], expected)
 
 
+class TargetCatalogTests(unittest.TestCase):
+    def test_paginate_target_products_keeps_face_catalog_and_total(self):
+        items = [
+            {"id": 1, "name": "Hydrating gel", "catalog_category": "Увлажнение", "catalog_subcategory": "Гели"},
+            {"id": 2, "name": "Body lotion", "catalog_category": "Увлажнение", "catalog_subcategory": "Кремы", "catalog_category": "Уход за телом"},
+            {"id": 3, "name": "SPF 50 Sunscreen", "catalog_category": "Защита от солнца", "catalog_subcategory": "SPF 50"},
+        ]
+        page, total = paginate_target_products(items, limit=1, offset=0)
+        self.assertEqual(total, 2)
+        self.assertEqual([item["id"] for item in page], [1])
+        self.assertTrue(is_target_skincare(items[0]))
+        self.assertTrue(is_target_skincare(items[2]))
+
 class ClassificationTests(unittest.TestCase):
     def test_hinoki_body_milk(self):
         c = classify_product({"name": "Hinoki\nBody Milk", "category": ""})
@@ -69,6 +85,77 @@ class ClassificationTests(unittest.TestCase):
         c = classify_product({"name": "VT Cosmetics\nCica Light Touch Mesh Pact", "category": ""})
         self.assertEqual(c["body_area"], "makeup")
         self.assertEqual(c["canonical_category"], "Пудры")
+
+    def test_catalog_purpose_wins_over_name_form(self):
+        c = classify_product({
+            "name": "Увлажняющая сыворотка для лица",
+            "category": "Сыворотка",
+            "subcategory": "Сыворотки",
+            "catalog_category": "Сыворотки и концентраты",
+            "catalog_subcategory": "От акне и воспалений",
+        })
+        self.assertEqual(c["category_source"], "catalog")
+        self.assertEqual(c["canonical_category"], "Сыворотки")
+        self.assertEqual(c["function_key"], "face:acne")
+        self.assertEqual(c["catalog_subcategory"], "От акне и воспалений")
+
+    def test_catalog_cleansing_wins_over_hydrating_name(self):
+        c = classify_product({
+            "name": "Hydrating moisturizing cleanser",
+            "category": "Очищение",
+            "catalog_category": "Очищение",
+            "catalog_subcategory": "Гели и пенки",
+        })
+        self.assertEqual(c["function_key"], "face:cleansing")
+        self.assertNotEqual(c["function_key"], "face:hydration")
+
+    def test_every_catalog_category_and_subcategory_has_a_function(self):
+        expected = {
+            "Очищение": "face:cleansing",
+            "Тонизация": "face:toning",
+            "Сыворотки и концентраты:Увлажняющие": "face:hydration",
+            "Сыворотки и концентраты:От акне и воспалений": "face:acne",
+            "Сыворотки и концентраты:Осветляющие": "face:brightening",
+            "Сыворотки и концентраты:Антивозрастные": "face:antiage",
+            "Сыворотки и концентраты:Для восстановления барьера": "face:barrier",
+            "Увлажнение": "face:moisturizing",
+            "Восстановление кожного барьера": "face:barrier",
+            "Маски": "face:masks",
+            "Эксфолиация": "face:scrubs",
+            "Защита от солнца": "sun_protection:spf",
+            "Уход за областью вокруг глаз": "face:eyes",
+            "Уход за губами": "face:lips",
+        }
+        for group in CATALOG_TAXONOMY:
+            for sub in group["subcategories"]:
+                key = f"{group['title']}:{sub['title']}"
+                expected_key = expected.get(key) or expected.get(group["title"])
+                self.assertIsNotNone(expected_key, key)
+                c = classify_product({
+                    "name": "Neutral product name",
+                    "catalog_category": group["title"],
+                    "catalog_subcategory": sub["title"],
+                })
+                self.assertEqual(c["category_source"], "catalog", key)
+                self.assertEqual(c["function_key"], expected_key, key)
+
+    def test_invalid_catalog_pair_falls_back_without_inventing_category(self):
+        c = classify_product({
+            "name": "Neutral serum",
+            "catalog_category": "Сыворотки и концентраты",
+            "catalog_subcategory": "Несуществующая подкатегория",
+        })
+        self.assertNotEqual(c["category_source"], "catalog")
+        self.assertEqual(c["category_source"], "name")
+        self.assertEqual(c["function_key"], "face:serums")
+
+    def test_explicit_sunscreen_text_overrides_conflicting_catalog_pair(self):
+        c = classify_product({
+            "name": "Capital Soleil Tinted Face Mineral Sunscreen SPF 60",
+            "catalog_category": "Сыворотки и концентраты",
+            "catalog_subcategory": "Антивозрастные",
+        })
+        self.assertNotEqual(c["category_source"], "catalog")
 
     def test_unknown_not_guessed(self):
         c = classify_product({"name": "Неизвестный продукт XYZ", "category": "Другое"})

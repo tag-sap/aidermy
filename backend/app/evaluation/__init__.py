@@ -96,8 +96,19 @@ from .knowledge import (
 from .analysis import AnalysisReport, AnalysisService, AnalysisUnavailable
 from .primary_function import (
     PRIMARY_FUNCTION_VERSION,
+    PRIMARY_SCORE_KIND,
+    PRIMARY_SCORE_LABEL,
+    PRIMARY_SCORE_NOTE,
     build_primary_function,
     public_primary_function,
+)
+from .relevance import (
+    GOAL_SCOPE_DIRECT,
+    GOAL_SCOPE_NOT_INTENDED,
+    GOAL_SCOPE_SUPPORTIVE,
+    GOAL_SCOPE_UNKNOWN,
+    goal_scope,
+    goal_scope_note,
 )
 from .comedogenicity import (
     COMEDOGENICITY_VERSION,
@@ -154,8 +165,17 @@ __all__ = [
     "AnalysisService",
     "AnalysisUnavailable",
     "PRIMARY_FUNCTION_VERSION",
+    "PRIMARY_SCORE_KIND",
+    "PRIMARY_SCORE_LABEL",
+    "PRIMARY_SCORE_NOTE",
     "build_primary_function",
     "public_primary_function",
+    "GOAL_SCOPE_DIRECT",
+    "GOAL_SCOPE_SUPPORTIVE",
+    "GOAL_SCOPE_NOT_INTENDED",
+    "GOAL_SCOPE_UNKNOWN",
+    "goal_scope",
+    "goal_scope_note",
     "COMEDOGENICITY_VERSION",
     "ComedogenicityAssessment",
     "assess_comedogenicity",

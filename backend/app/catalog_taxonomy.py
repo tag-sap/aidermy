@@ -1,8 +1,9 @@
 # catalog_taxonomy.py
 # Система категорий и подкатегорий каталога Aidermy.
-# Реальный источник истины для фильтрации: продукт резолвится в
-# (категория, подкатегория) по названию + legacy-категории products.db,
-# результат сохраняется в колонку subcategory и используется SQL-фильтром
+# Реальный источник истины для фильтрации: для продуктов с доверенной парой
+# catalog_category/catalog_subcategory она используется первой; название +
+# legacy-категория — только fallback. Результат сохраняется в колонку subcategory
+# и используется SQL-фильтром
 # /api/catalog (точное совпадение). Поэтому «Serum» попадает в «Сыворотки»,
 # а не теряется из-за расхождения названия и старого поля.
 
@@ -696,18 +697,145 @@ def _legacy_or_text_to_key(raw: str) -> Tuple[Optional[str], Optional[str]]:
 
 
 
+_CATALOG_TO_INTERNAL: Dict[str, Tuple[str, str, str]] = {
+    "Очищение": ("face", "cleansing", "Очищение и демакияж"),
+    "Тонизация": ("face", "toning", "Тонизирование"),
+    "Сыворотки и концентраты": ("face", "serums", "Сыворотки"),
+    "Увлажнение": ("face", "moisturizing", "Увлажнение и питание"),
+    "Восстановление кожного барьера": ("face", "creams", "Кремы"),
+    "Маски": ("face", "masks", "Маски"),
+    "Эксфолиация": ("face", "scrubs", "Скрабы и пилинги"),
+    "Защита от солнца": ("face", "special", "Специальный уход"),
+    "Уход за областью вокруг глаз": ("face", "eyes", "Для кожи вокруг глаз"),
+    "Уход за губами": ("face", "lips", "Уход для губ"),
+}
+
+# The catalog subcategory is the product's purpose, not merely its form. Keep
+# this mapping separate from the broad internal subcategory above.
+_CATALOG_SUBCATEGORY_FUNCTIONS: Dict[str, str] = {
+    "Очищение": "face:cleansing",
+    "Тонизация": "face:toning",
+    "Сыворотки и концентраты:От акне и воспалений": "face:acne",
+    "Сыворотки и концентраты:Осветляющие": "face:brightening",
+    "Сыворотки и концентраты:Антивозрастные": "face:antiage",
+    "Сыворотки и концентраты:Для восстановления барьера": "face:barrier",
+    "Сыворотки и концентраты:Увлажняющие": "face:hydration",
+    "Увлажнение": "face:moisturizing",
+    "Восстановление кожного барьера": "face:barrier",
+    "Маски": "face:masks",
+    "Эксфолиация": "face:scrubs",
+    "Защита от солнца": "sun_protection:spf",
+    "Уход за областью вокруг глаз": "face:eyes",
+    "Уход за губами": "face:lips",
+}
+
+
+_SUN_MARKERS = (
+    "sunscreen", "sun screen", "sun cream", "sun fluid", "sun serum",
+    "sun stick", "sunblock", "spf", "солнцезащит", "защита от солнца",
+)
+_STRONG_CATEGORY_MARKERS = {
+    "hair": ("shampoo", "шампун", "conditioner", "кондиционер", "hair ", "для волос"),
+    "body": ("body ", "для тела", "shower gel", "гель для душа", "hand cream", "foot cream"),
+    "makeup": ("foundation", "mascara", "lipstick", "тушь", "помад", "тени для век"),
+    "fragrance": ("parfum", "perfume", "духи", "туалетная вода", "eau de parfum"),
+    "cleansing": ("cleanser", "cleansing", "face wash", "мицелляр", "умывалк", "демакияж"),
+}
+
+
+def _catalog_conflicts(category: str, text: str) -> bool:
+    """Detect an obviously different purpose stated by the product text.
+
+    The catalog is authoritative when it describes the same kind of product as
+    the name. It is not allowed to turn a clearly named sunscreen into a serum
+    (or a body product into a face serum) without a controlled fallback.
+    """
+    low = " ".join((text or "").replace(chr(10), " ").lower().split())
+    if not low:
+        return False
+    if category != "Защита от солнца" and any(marker in low for marker in _SUN_MARKERS):
+        return True
+    if category != "Очищение" and any(
+        marker in low for marker in _STRONG_CATEGORY_MARKERS["cleansing"]
+    ):
+        return True
+    if category != "Волосы" and any(
+        marker in low for marker in _STRONG_CATEGORY_MARKERS["hair"]
+    ):
+        return True
+    if category != "Уход для тела" and any(
+        marker in low for marker in _STRONG_CATEGORY_MARKERS["body"]
+    ):
+        return True
+    if category != "Макияж" and any(
+        marker in low for marker in _STRONG_CATEGORY_MARKERS["makeup"]
+    ):
+        return True
+    if category != "Парфюмерия" and any(
+        marker in low for marker in _STRONG_CATEGORY_MARKERS["fragrance"]
+    ):
+        return True
+    if category == "Защита от солнца" and not any(marker in low for marker in _SUN_MARKERS):
+        # A body serum/milk labelled as sun protection without any sun marker
+        # is a catalog contradiction, not a reason to relabel it as SPF.
+        if any(marker in low for marker in (_STRONG_CATEGORY_MARKERS["body"] + ("serum", "сыворот"))):
+            return True
+    return False
+
+
+def _catalog_classification(
+    catalog_category: str,
+    catalog_subcategory: str,
+) -> Optional[Dict[str, Any]]:
+    """Classify from the trusted catalog fields, before any text matching."""
+    category = (catalog_category or "").strip()
+    subcategory = (catalog_subcategory or "").strip()
+    internal = _CATALOG_TO_INTERNAL.get(category)
+    if internal is None:
+        return None
+    body_area, product_type, canonical = internal
+    # Reject an unknown catalog pair rather than silently treating a free-form
+    # value as a trusted category. A category without its subcategory is still
+    # usable with lower confidence.
+    known_subcategories = set()
+    for group in CATALOG_TAXONOMY:
+        if group.get("title") == category:
+            known_subcategories = {item.get("title") for item in group.get("subcategories", [])}
+            break
+    if subcategory and known_subcategories and subcategory not in known_subcategories:
+        return None
+    function_key = _CATALOG_SUBCATEGORY_FUNCTIONS.get(
+        f"{category}:{subcategory}",
+        _CATALOG_SUBCATEGORY_FUNCTIONS.get(category, f"{body_area}:{product_type}"),
+    )
+    return {
+        "body_area": body_area,
+        "body_area_title": body_area_title(body_area),
+        "product_type": product_type,
+        "primary_function": canonical,
+        "secondary_functions": [],
+        "canonical_category": canonical,
+        "category_confidence": 0.98 if subcategory else 0.9,
+        "category_source": "catalog",
+        "function_key": function_key,
+        "catalog_category": category,
+        "catalog_subcategory": subcategory,
+    }
+
+
 def classify_product(product: Dict[str, Any]) -> Dict[str, Any]:
     """Полная классификация продукта в таксономию каталога.
 
     Приоритет источника категории:
-      1. manufacturer / scraper metadata (category из парсера)
-      2. существующая надёжная catalog metadata (subcategory/taxonomy_category)
-      3. название + описание
-      4. правила / dictionary (legacy map)
-      5. Vision  (placeholder — не реализовано)
-      6. LLM     (placeholder — не реализовано)
-      7. unknown
+      1. валидная пара catalog_category/catalog_subcategory из каталога;
+      2. название + описание (контролируемый fallback);
+      3. существующая внутренняя subcategory/taxonomy_category (может быть
+         устаревшей, поэтому не переопределяет явное назначение из catalog_*);
+      4. правила / dictionary (legacy map);
+      5. unknown.
 
+    ``function_key`` отдельно описывает назначение (например, ``face:acne``)
+    и не подменяется формой продукта (``face:serums``).
     НЕ определяет категорию по INCI и НЕ угадывает: при низкой уверенности
     отдаёт «Другое» / source=unknown.
     """
@@ -729,19 +857,37 @@ def classify_product(product: Dict[str, Any]) -> Dict[str, Any]:
             "canonical_category": title or "Другое",
             "category_confidence": round(conf, 3),
             "category_source": source,
+            "function_key": f"{ba}:{sk}" if ba and sk else "",
+            "catalog_category": "",
+            "catalog_subcategory": "",
         }
 
-    # 1. Название + описание — самый надёжный сигнал о типе продукта.
-    #    Проверяется ПЕРВЫМ, т.к. subcategory/taxonomy_category в products.db могли
-    #    быть вычислены по старой таксономии (например, «essence» ошибочно попадал в
-    #    «Тонизирование»). Название с явным ключевым словом (essence/serum/toner/…)
-    #    точнее, чем устаревшая metadata.
+    # 1. Trusted catalog pair (catalog_category/catalog_subcategory). This is
+    #    the source of truth for purpose, even when the product name contains
+    #    another benefit word (e.g. an anti-acne serum called "moisturizing").
+    trusted = _catalog_classification(
+        str(product.get("catalog_category") or ""),
+        str(product.get("catalog_subcategory") or ""),
+    )
+    catalog_conflict = bool(
+        trusted is not None
+        and _catalog_conflicts(
+            str(trusted.get("catalog_category") or ""), f"{name} {description}"
+        )
+    )
+    if trusted is not None and not catalog_conflict:
+        return trusted
+
+    # 2. Name + description. This is deliberately checked before the legacy
+    #    internal `subcategory`: that column may be stale (e.g. an essence
+    #    tagged as "Тонизирование"). Trusted catalog_* fields already won above.
     ba3, sk3, conf3 = _resolve_from_text(f"{name} {description}")
     if ba3 and sk3:
         return make(ba3, sk3, "name", conf3)
 
-    # 2. catalog metadata (subcategory + taxonomy_category — уже разрешены каталогом).
-    if subcategory_raw and subcategory_raw.lower() not in {"все товары категории", "другое", "other", ""}:
+    # 3. Existing internal catalog subcategory. Do not use it to override a
+    #    catalog pair that was already contradicted by an explicit product text.
+    if not catalog_conflict and subcategory_raw and subcategory_raw.lower() not in {"все товары категории", "другое", "other", ""}:
         hit = subcategory_key_for_title(subcategory_raw)
         if hit:
             return make(hit[0], hit[1], "catalog", 0.95)
@@ -764,3 +910,58 @@ def classify_product(product: Dict[str, Any]) -> Dict[str, Any]:
     # 7. unknown.
     return make("", None, "unknown", 0.0)
 
+
+
+# ---------------------------------------------------------------------------
+# Target product scope: Aidermy face-skincare only.
+# Category is a hard relevance filter; it must never become a score modifier.
+# ---------------------------------------------------------------------------
+_TARGET_EXCLUDED_TERMS = (
+    "губ", "lip", "помад", "блеск", "lipstick", "lipgloss",
+    "hair", "шампун", "кондицион", "бальзам для волос",
+    "парфюм", "духи", "parfum", "fragrance",
+    "body", "тел", "corporal", "рук", "ног", "nail",
+    "makeup", "декоратив", "тушь", "mascara", "пудр", "powder",
+    "тональ", "foundation", "консилер", "concealer", "румян", "blush",
+)
+
+
+def paginate_target_products(
+    products: List[Dict[str, Any]], limit: int, offset: int
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Фильтрует целевую область ДО пагинации и возвращает (page, total).
+
+    Фильтрация после LIMIT/OFFSET даёт короткие страницы и неверный total.
+    Вызывающий слой передаёт все строки, соответствующие остальным фильтрам.
+    """
+    target = [product for product in products if is_target_skincare(product)]
+    total = len(target)
+    start = max(0, int(offset))
+    size = max(0, int(limit))
+    return target[start:start + size], total
+
+
+def is_target_skincare(product: Dict[str, Any]) -> bool:
+    """True только для средств ухода за кожей лица из канонической таксономии.
+
+    Это жёсткий фильтр предметной области. Он не влияет на числовой score:
+    нерелевантный продукт должен быть исключён ДО скоринга/рекомендации.
+    """
+    classification = classify_product(product)
+    catalog_category = str(product.get("catalog_category") or "").strip()
+    from .face_taxonomy import main_face_category_titles
+
+    is_catalog_face = catalog_category in set(main_face_category_titles())
+    if classification.get("body_area") != "face" and not is_catalog_face:
+        return False
+    category = str(
+        classification.get("canonical_category") or catalog_category or ""
+    ).strip().lower()
+    if not category or category in {"другое", "other"}:
+        return False
+    text = " ".join(str(product.get(key) or "") for key in (
+        "name", "category", "subcategory", "taxonomy_category",
+        "catalog_category", "catalog_subcategory",
+    )).lower()
+    text += " " + category
+    return not any(term in text for term in _TARGET_EXCLUDED_TERMS)

@@ -22,28 +22,45 @@ export function splitProductName(raw: string, brand?: string): { brand: string; 
   return { brand: b, name: n || raw || "" }
 }
 
+const LEGACY_VERDICT_ALIASES: Record<string, Verdict> = {
+  "Очень хорошо подходит": "Отлично подходит",
+  "Подходит": "Хорошо подходит",
+  "Скорее не подходит": "Слабо подходит",
+  "Нейтральный результат": "Подходит частично",
+  "Нейтрально": "Подходит частично",
+  "Подходит с оговорками": "Подходит частично",
+  "С осторожностью": "Подходит частично",
+  "Допустимо": "Подходит частично",
+}
+
+export function normalizeVerdict(verdict?: string | null): Verdict | null {
+  const value = (verdict || "").trim()
+  if (!value) return null
+  if (value in LEGACY_VERDICT_ALIASES) return LEGACY_VERDICT_ALIASES[value]
+  if (
+    value === "Не подходит"
+    || value === "Слабо подходит"
+    || value === "Подходит частично"
+    || value === "Хорошо подходит"
+    || value === "Отлично подходит"
+    || value === "Не рекомендовано"
+  ) return value
+  return null
+}
+
 export function mapVerdict(score: number | null, backendVerdict?: string): Verdict | null {
   // Новая шкала Score Engine: score определяет диапазон.
   if (score != null) {
     if (score < 20) return "Не подходит"
-    if (score < 40) return "Скорее не подходит"
-    if (score < 60) return "Нейтральный результат"
-    if (score < 80) return "Подходит"
+    if (score < 40) return "Слабо подходит"
+    if (score < 60) return "Подходит частично"
+    if (score < 80) return "Хорошо подходит"
     return "Отлично подходит"
   }
 
-  // Если score отсутствует, сохраняем точный новый вердикт API.
-  if (backendVerdict === "Не подходит" ||
-      backendVerdict === "Скорее не подходит" ||
-      backendVerdict === "Нейтральный результат" ||
-      backendVerdict === "Подходит" ||
-      backendVerdict === "Отлично подходит") return backendVerdict
-
-  if (backendVerdict === "С осторожностью" ||
-      backendVerdict === "Нейтрально" ||
-      backendVerdict === "Допустимо") return "Допустимо"
-
-  return null
+  // Historical payloads may carry old labels. Display their current equivalent
+  // instead of rewriting stored scores or reports.
+  return normalizeVerdict(backendVerdict)
 }
 
 // Собирает отдельный объект Match из сохранённого analysis API.
@@ -71,7 +88,7 @@ function toMatch(a: {
 
   return {
     score: typeof a.score === "number" ? a.score : null,
-    verdict: a.verdict || undefined,
+    verdict: normalizeVerdict(a.verdict) || undefined,
     summary: a.summary || undefined,
     safe_ingredients: a.safe_ingredients || undefined,
     caution_ingredients: a.caution_ingredients || undefined,
@@ -117,7 +134,7 @@ export function mapShelfItem(item: ShelfItem): Product {
     Boolean(item.recommendation_status)
   ) ? {
     score,
-    verdict: item.verdict || mapVerdict(score) || undefined,
+    verdict: normalizeVerdict(item.verdict) || mapVerdict(score) || undefined,
     report: undefined,
     has_report: hasReport,
     analysis_id: item.analysis_id ?? undefined,

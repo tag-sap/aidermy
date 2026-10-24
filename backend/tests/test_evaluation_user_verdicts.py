@@ -56,17 +56,17 @@ def row(parameter_id: str, value, *, label: str = "", included: bool = True, sum
 class OverallVerdictTests(unittest.TestCase):
     def test_all_positive_is_suitable(self):
         public = make_report([row("skin_type:normal", 100)]).user_report()
-        self.assertEqual(public["overall"]["verdict"], "Подходит")
+        self.assertEqual(public["overall"]["verdict"], "Отлично подходит")
         self.assertEqual(public["overall"]["positive"], 1)
-        self.assertEqual(public["personal_compatibility"][0]["verdict_icon"], "check")
+        self.assertEqual(public["personal_compatibility"][0]["verdict_icon"], "happy")
 
     def test_relevant_benefit_without_harm_is_positive(self):
         # A cleanser need not treat dryness to be compatible with it. A mixed
         # benefit score without confirmed harm is compatibility, not a warning.
         public = make_report([row("problem:dryness", 50)]).user_report()
-        self.assertEqual(public["overall"]["verdict"], "Подходит")
+        self.assertEqual(public["overall"]["verdict"], "Отлично подходит")
         self.assertEqual(public["personal_compatibility"][0]["verdict"], "positive")
-        self.assertEqual(public["personal_compatibility"][0]["verdict_icon"], "check")
+        self.assertEqual(public["personal_compatibility"][0]["verdict_icon"], "happy")
 
     def test_critical_therapy_conflict_is_not_suitable(self):
         public = make_report(
@@ -112,7 +112,7 @@ class OverallVerdictTests(unittest.TestCase):
         self.assertEqual(item["status_label"], "С осторожностью")
         self.assertTrue(item["risk"])
         self.assertTrue(item["recommendation"])
-        self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
+        self.assertEqual(public["overall"]["verdict"], "Подходит частично")
 
     def test_sorting_is_positive_caution_unknown(self):
         public = make_report(
@@ -125,7 +125,7 @@ class OverallVerdictTests(unittest.TestCase):
         ).user_report()
         self.assertEqual(
             [item["verdict"] for item in public["personal_compatibility"]],
-            ["positive", "positive", "caution", "unknown"],
+            ["positive", "positive", "neutral", "unknown"],
         )
 
     def test_long_explanation_is_trimmed_at_sentence_boundary(self):
@@ -150,20 +150,65 @@ class OverallVerdictTests(unittest.TestCase):
         )
         self.assertNotIn("Оценка", explanation)
 
-    def test_low_goal_without_confirmed_harm_is_caution_not_negative(self):
+    def test_low_goal_without_confirmed_harm_is_not_a_warning(self):
         public = make_report(
             [
                 row("skin_type:normal", 100),
                 row("goal:acne", 0, label="Цель: «Убрать акне»"),
             ]
         ).user_report()
-        self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
+        self.assertEqual(public["overall"]["verdict"], "Хорошо подходит")
         self.assertEqual(public["overall"]["negative"], 0)
-        self.assertEqual(public["overall"]["caution"], 1)
+        self.assertEqual(public["overall"]["caution"], 0)
+        self.assertEqual(
+            public["personal_compatibility"][1]["verdict"],
+            "neutral",
+        )
         self.assertEqual(
             public["personal_compatibility"][1]["verdict_label"],
-            "Возможна осторожность",
+            "Цель не подтверждена",
         )
+
+    def test_cleanser_brightening_goal_is_not_a_caution_or_false_efficacy(self):
+        report = make_report(
+            [
+                row("skin_type:oily", 75, label="Тип кожи: «Жирная»"),
+                row("goal:brightening", 100, label="Цель: «Выровнять тон»"),
+            ],
+        )
+        report.product.update({
+            "category": "Очищение",
+            "subcategory": "Очищение и демакияж",
+            "name": "ROUND LAB 1025 Dokdo Cleanser",
+        })
+        public = report.user_report()
+        ids = {item["parameter_id"] for item in public["personal_compatibility"]}
+        self.assertNotIn("goal:brightening", ids)
+        self.assertEqual(public["overall"]["caution"], 0)
+        self.assertEqual(public["overall"]["negative"], 0)
+
+    def test_confirmed_risk_still_wins_over_goal_relevance(self):
+        report = make_report(
+            [row("goal:brightening", 50, label="Цель: «Выровнять тон»")],
+            evidence={
+                "goal:brightening": [{
+                    "verification": "confirmed",
+                    "direction": "contradicts",
+                    "strength": "moderate",
+                    "confidence": 0.8,
+                    "claim": "Подтверждённый раздражающий риск.",
+                }]
+            },
+        )
+        report.product.update({
+            "category": "Очищение",
+            "subcategory": "Очищение и демакияж",
+        })
+        public = report.user_report()
+        goal = public["personal_compatibility"][0]
+        self.assertEqual(goal["verdict"], "caution")
+        self.assertTrue(goal["risk"])
+        self.assertEqual(public["overall"]["caution"], 1)
 
     def test_not_applicable_parameter_is_omitted_and_not_aggregated(self):
         public = make_report(
@@ -181,14 +226,14 @@ class OverallVerdictTests(unittest.TestCase):
         self.assertEqual(public["overall"]["verdict"], "Недостаточно данных")
         self.assertEqual(public["overall"]["unknown"], 1)
         self.assertEqual(public["personal_compatibility"][0]["verdict"], "unknown")
-        self.assertEqual(public["personal_compatibility"][0]["verdict_icon"], "dash")
+        self.assertEqual(public["personal_compatibility"][0]["verdict_icon"], "neutral")
 
     def test_unknown_next_to_positive_adds_a_caveat_not_a_check(self):
         public = make_report(
             [row("skin_type:normal", 100)],
             gaps=(ParameterGap("problem:dryness", "missing", "оценки нет"),),
         ).user_report()
-        self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
+        self.assertEqual(public["overall"]["verdict"], "Подходит частично")
         self.assertEqual(public["overall"]["positive"], 1)
         self.assertEqual(public["overall"]["unknown"], 1)
 
@@ -251,13 +296,13 @@ class IntoleranceVerdictTests(unittest.TestCase):
     def test_present_is_a_negative_restriction_answer(self):
         item = self._item("Aqua, Glycerin, Niacinamide")
         self.assertEqual(item["verdict"], "negative")
-        self.assertEqual(item["verdict_icon"], "cross")
+        self.assertEqual(item["verdict_icon"], "dead")
         self.assertEqual(item["verdict_label"], "Обнаружен в составе")
 
     def test_absent_is_a_positive_restriction_answer(self):
         item = self._item("Aqua, Glycerin")
         self.assertEqual(item["verdict"], "positive")
-        self.assertEqual(item["verdict_icon"], "check")
+        self.assertEqual(item["verdict_icon"], "happy")
         self.assertEqual(item["verdict_label"], "Не обнаружен в составе")
 
     def test_absent_intolerance_satisfies_the_restriction(self):
@@ -265,12 +310,12 @@ class IntoleranceVerdictTests(unittest.TestCase):
             [row("intolerance:niacinamide_intolerance", 0)],
             inci="Aqua, Glycerin",
         ).user_report()
-        self.assertEqual(public["overall"]["verdict"], "Подходит")
+        self.assertEqual(public["overall"]["verdict"], "Отлично подходит")
 
     def test_unconfirmed_is_neutral_unknown(self):
         item = self._item("")
         self.assertEqual(item["verdict"], "unknown")
-        self.assertEqual(item["verdict_icon"], "dash")
+        self.assertEqual(item["verdict_icon"], "neutral")
         self.assertEqual(item["verdict_label"], "Не удалось определить")
 
 

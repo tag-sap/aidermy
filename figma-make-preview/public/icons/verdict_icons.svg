@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="5 5 130 215" aria-hidden="true">
+  <defs>
+    <linearGradient id="deadGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EF4444" />
+      <stop offset="100%" stop-color="#DC2626" />
+    </linearGradient>
+    <linearGradient id="deadCap" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#991B1B" />
+      <stop offset="100%" stop-color="#7F1D1D" />
+    </linearGradient>
+    <linearGradient id="happyGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="happyCap" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#065F46" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+    <linearGradient id="neutralGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6" />
+      <stop offset="100%" stop-color="#2563EB" />
+    </linearGradient>
+    <linearGradient id="neutralCap" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E40AF" />
+      <stop offset="100%" stop-color="#1E3A8A" />
+    </linearGradient>
+    <linearGradient id="alertGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+    <linearGradient id="alertCap" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#92400E" />
+      <stop offset="100%" stop-color="#78350F" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#0F172A" flood-opacity="0.15" />
+    </filter>
+  </defs>
+  <style>
+    .tube-dead { fill: url(#deadGradient); filter: url(#shadow); }
+    .cap-dead { fill: url(#deadCap); }
+    
+    .tube-happy { fill: url(#happyGradient); filter: url(#shadow); }
+    .cap-happy { fill: url(#happyCap); }
+    
+    .tube-neutral { fill: url(#neutralGradient); filter: url(#shadow); }
+    .cap-neutral { fill: url(#neutralCap); }
+    
+    .tube-alert { fill: url(#alertGradient); filter: url(#shadow); }
+    .cap-alert { fill: url(#alertCap); }
+
+    .crimp { stroke: rgba(0, 0, 0, 0.2); stroke-width: 2; stroke-linecap: round; }
+    .face { fill: none; stroke: #FFFFFF; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+    .face-solid { fill: #FFFFFF; }
+    .label { font-family: system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 600; fill: #64748B; text-anchor: middle; }
+  </style>
+  <symbol id="verdict-dead" viewBox="5 5 130 215">
+    <title>Мёртвый</title>
+    <g>
+      <path class="tube-dead" d="M30,30 L110,30 C115,30 120,35 118,45 L108,160 C107,168 100,175 90,175 L50,175 C40,175 33,168 32,160 L22,45 C20,35 25,30 30,30 Z" />
+      <rect x="25" y="20" width="90" height="10" rx="3" fill="#B91C1C" />
+      <line x1="35" y1="23" x2="35" y2="27" class="crimp" />
+      <line x1="45" y1="23" x2="45" y2="27" class="crimp" />
+      <line x1="55" y1="23" x2="55" y2="27" class="crimp" />
+      <line x1="65" y1="23" x2="65" y2="27" class="crimp" />
+      <line x1="75" y1="23" x2="75" y2="27" class="crimp" />
+      <line x1="85" y1="23" x2="85" y2="27" class="crimp" />
+      <line x1="95" y1="23" x2="95" y2="27" class="crimp" />
+      <line x1="105" y1="23" x2="105" y2="27" class="crimp" />
+      <path class="cap-dead" d="M45,175 L95,175 L90,205 C90,208 86,210 80,210 L60,210 C54,210 50,208 50,205 Z" />
+      <g transform="translate(0, 10)">
+        <line x1="52" y1="82" x2="64" y2="94" class="face" />
+        <line x1="64" y1="82" x2="52" y2="94" class="face" />
+        <line x1="76" y1="82" x2="88" y2="94" class="face" />
+        <line x1="88" y1="82" x2="76" y2="94" class="face" />
+        <path d="M55,120 Q62,115 70,120 T85,120" class="face" />
+      </g>
+    </g>
+  </symbol>
+  <symbol id="verdict-happy" viewBox="5 5 130 215">
+    <title>Улыбающийся</title>
+    <g>
+      <path class="tube-happy" d="M30,30 L110,30 C115,30 120,35 118,45 L108,160 C107,168 100,175 90,175 L50,175 C40,175 33,168 32,160 L22,45 C20,35 25,30 30,30 Z" />
+      <rect x="25" y="20" width="90" height="10" rx="3" fill="#047857" />
+      <line x1="35" y1="23" x2="35" y2="27" class="crimp" />
+      <line x1="45" y1="23" x2="45" y2="27" class="crimp" />
+      <line x1="55" y1="23" x2="55" y2="27" class="crimp" />
+      <line x1="65" y1="23" x2="65" y2="27" class="crimp" />
+      <line x1="75" y1="23" x2="75" y2="27" class="crimp" />
+      <line x1="85" y1="23" x2="85" y2="27" class="crimp" />
+      <line x1="95" y1="23" x2="95" y2="27" class="crimp" />
+      <line x1="105" y1="23" x2="105" y2="27" class="crimp" />
+      <path class="cap-happy" d="M45,175 L95,175 L90,205 C90,208 86,210 80,210 L60,210 C54,210 50,208 50,205 Z" />
+      <g transform="translate(0, 10)">
+        <circle cx="56" cy="86" r="5" class="face-solid" />
+        <circle cx="84" cy="86" r="5" class="face-solid" />
+        <path d="M52,108 Q70,130 88,108" class="face" />
+      </g>
+    </g>
+  </symbol>
+  <symbol id="verdict-neutral" viewBox="5 5 130 215">
+    <title>Нейтральный</title>
+    <g>
+      <path class="tube-neutral" d="M30,30 L110,30 C115,30 120,35 118,45 L108,160 C107,168 100,175 90,175 L50,175 C40,175 33,168 32,160 L22,45 C20,35 25,30 30,30 Z" />
+      <rect x="25" y="20" width="90" height="10" rx="3" fill="#1D4ED8" />
+      <line x1="35" y1="23" x2="35" y2="27" class="crimp" />
+      <line x1="45" y1="23" x2="45" y2="27" class="crimp" />
+      <line x1="55" y1="23" x2="55" y2="27" class="crimp" />
+      <line x1="65" y1="23" x2="65" y2="27" class="crimp" />
+      <line x1="75" y1="23" x2="75" y2="27" class="crimp" />
+      <line x1="85" y1="23" x2="85" y2="27" class="crimp" />
+      <line x1="95" y1="23" x2="95" y2="27" class="crimp" />
+      <line x1="105" y1="23" x2="105" y2="27" class="crimp" />
+      <path class="cap-neutral" d="M45,175 L95,175 L90,205 C90,208 86,210 80,210 L60,210 C54,210 50,208 50,205 Z" />
+      <g transform="translate(0, 10)">
+        <circle cx="56" cy="88" r="5" class="face-solid" />
+        <circle cx="84" cy="88" r="5" class="face-solid" />
+        <line x1="54" y1="115" x2="86" y2="115" class="face" />
+      </g>
+    </g>
+  </symbol>
+  <symbol id="verdict-alert" viewBox="5 5 130 215">
+    <title>Настороженный</title>
+    <g>
+      <path class="tube-alert" d="M30,30 L110,30 C115,30 120,35 118,45 L108,160 C107,168 100,175 90,175 L50,175 C40,175 33,168 32,160 L22,45 C20,35 25,30 30,30 Z" />
+      <rect x="25" y="20" width="90" height="10" rx="3" fill="#B45309" />
+      <line x1="35" y1="23" x2="35" y2="27" class="crimp" />
+      <line x1="45" y1="23" x2="45" y2="27" class="crimp" />
+      <line x1="55" y1="23" x2="55" y2="27" class="crimp" />
+      <line x1="65" y1="23" x2="65" y2="27" class="crimp" />
+      <line x1="75" y1="23" x2="75" y2="27" class="crimp" />
+      <line x1="85" y1="23" x2="85" y2="27" class="crimp" />
+      <line x1="95" y1="23" x2="95" y2="27" class="crimp" />
+      <line x1="105" y1="23" x2="105" y2="27" class="crimp" />
+      <path class="cap-alert" d="M45,175 L95,175 L90,205 C90,208 86,210 80,210 L60,210 C54,210 50,208 50,205 Z" />
+      <g transform="translate(0, 10)">
+        <line x1="50" y1="74" x2="62" y2="78" class="face" stroke-width="2.5" />
+        <line x1="90" y1="78" x2="78" y2="74" class="face" stroke-width="2.5" />
+        <ellipse cx="56" cy="86" rx="5" ry="4" class="face-solid" />
+        <ellipse cx="84" cy="86" rx="5" ry="4" class="face-solid" />
+        <path d="M54,118 Q62,112 70,116 T86,112" class="face" />
+      </g>
+    </g>
+  </symbol>
+</svg>

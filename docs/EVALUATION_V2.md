@@ -736,3 +736,80 @@ POST /api/v1/evaluation/products/{id}/research  (или /analyze/research)
 
 
 
+
+
+## 10. Primary formula support, goal relevance and comedogenicity
+
+These rules are deterministic and do not rely on the LLM:
+
+- `build_primary_function` returns a **formula-support** score, not clinical efficacy.
+  It is based only on the functional groups expected for the product's own function:
+  one group = 50, two = 65, three = 80, four or more = 90. A score of 100 is not
+  produced from INCI alone. The public payload carries `score_kind=formula_support`,
+  `score_label` and `score_note`; the UI labels the number as «Соответствие состава».
+- `goal_scope` classifies a goal as `direct`, `supportive`, `not_intended` or
+  `unknown` using the trusted product category. A low benefit score without confirmed
+  contradicting evidence is `neutral`, never `caution`. A cleansing product can be
+  supportive for an acne routine, but it is not presented as a standalone acne or
+  brightening treatment; only confirmed risk evidence produces a warning.
+- Comedogenicity is a separate product-level signal and is never added to the
+  compatibility total. Any confirmed ingredient rating in the catalog's **0–5**
+  field is reported when it is **1–5**, even if INCI coverage is low. The block
+  lists every such component with its rating and a potential-risk wording.
+  `known_count` counts confirmed numeric records (including confirmed zeros),
+  `flagged_count` counts ratings 1–5, and `coverage = known_count / total_count`
+  is diagnostic only: it never hides already confirmed evidence.
+- A rating of 0 or an unknown ingredient is not a claim of safety. No confirmed
+  rating 1–5 means no user-facing block; `insufficient_evidence` remains in
+  `AnalysisReport.as_dict()` only. The max rating maps to low (1–2), medium (3)
+  or high (4–5) attention. It never proves that the whole product is
+  comedogenic: concentration and the finished formula are not available.
+- The dedicated block owns ingredient names, ratings and the potential-risk
+  wording. Other report fields are scrubbed only for repeated comedogenicity
+  clauses. Independent irritation, sensitization and barrier risks remain.
+- The primary-function line shows only the function label for built-in
+  categories. A `purpose` is included only when it adds a real mechanism or
+  constraint, not when it paraphrases the label.
+
+## 11. User-facing compatibility verdicts and icons
+
+The deterministic Score Engine thresholds are unchanged. The five labels are
+mapped centrally in `evaluation/verdicts.py` and mirrored in `mapping.ts`:
+
+| Score | User-facing verdict | Icon |
+|---:|---|---|
+| 0–19 | Не подходит | dead |
+| 20–39 | Слабо подходит | alert |
+| 40–59 | Подходит частично | neutral |
+| 60–79 | Хорошо подходит | happy |
+| 80–100 | Отлично подходит | happy |
+
+The four icons are extracted without redrawing from
+`public/icons/verdict_icons.svg` into a local SVG sprite. `happy` is deliberately
+shared by the two positive bands. Per-parameter statuses use the same sprite:
+positive=happy, negative=dead, caution=alert, neutral/unknown=neutral. The
+icon does not change the score. A historical payload with old wording is mapped
+to the current label at display time; stored scores and reports are not rewritten.
+
+
+
+## 12. Classification source of truth
+
+The purpose classification is resolved before primary-function scoring:
+
+1. a valid `catalog_category` + `catalog_subcategory` pair from `public.products`
+   is trusted first (`category_source=catalog`);
+2. the product name/description is a controlled fallback;
+3. a legacy internal `subcategory` is only a fallback after the name, because
+   the historical column can be stale (for example, an essence tagged as a toner);
+4. absent/contradictory data returns `Другое`/unknown rather than inventing a category.
+
+The catalog pair has two independent dimensions:
+
+- `product_type` describes the form/category (serum, cream, cleanser);
+- `function_key` describes the purpose (anti-acne, brightening, barrier, hydration).
+
+An anti-acne serum therefore keeps `function_key=face:acne` even if its name
+contains «увлажняющая» or «hydrating». The LLM receives this deterministic
+classification and cannot replace it. Goal relevance uses the same function key,
+so non-primary goals do not become warnings; a confirmed risk is still shown.

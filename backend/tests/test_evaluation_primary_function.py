@@ -26,7 +26,10 @@ class PrimaryFunctionTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "assessed")
         self.assertEqual(result["label"], "Увлажнение")
-        self.assertIn(result["score"], (75, 100))
+        self.assertEqual(result["score"], 80)
+        self.assertLess(result["score"], 100)
+        self.assertEqual(result["score_kind"], "formula_support")
+        self.assertIn("не подтверждает", result["score_note"])
         self.assertIn("Увлажн", result["purpose"])
         self.assertNotIn("profile", result)
         self.assertNotIn("total", result)
@@ -64,7 +67,8 @@ class PrimaryFunctionTests(unittest.TestCase):
         result = build_primary_function(
             product, {"inci_raw": product["ingredients"]}, composition_status="active"
         )
-        self.assertEqual(result["score"], 100)
+        self.assertEqual(result["score"], 50)
+        self.assertLess(result["score"], 100)
         self.assertIn("UV-фильтры", result["basis"][-1]["value"])
 
     def test_missing_or_unconfirmed_composition_has_no_invented_score(self):
@@ -92,7 +96,102 @@ class PrimaryFunctionTests(unittest.TestCase):
         )
         self.assertEqual(result["label"], "Очищение")
         self.assertGreater(result["score"], 0)
+        self.assertLess(result["score"], 100)
         self.assertNotIn("акне", result["reason"].casefold())
+
+    def test_cleanser_with_only_a_surfactant_is_not_maximally_effective(self):
+        product = {
+            "id": 1514,
+            "name": "ROUND LAB 1025 Dokdo Cleanser",
+            "category": "Очищение",
+            "subcategory": "Очищение и демакияж",
+            "ingredients": "Aqua, Sodium Cocoyl Isethionate",
+        }
+        result = build_primary_function(
+            product, {"inci_raw": product["ingredients"]}, composition_status="active"
+        )
+        self.assertEqual(result["function_id"], "cleansing")
+        self.assertEqual(result["score"], 50)
+        self.assertLess(result["score"], 100)
+
+    def test_cleanser_support_groups_do_not_inflate_primary_function(self):
+        product = {
+            "id": 1514,
+            "name": "ROUND LAB 1025 Dokdo Cleanser",
+            "category": "Очищение",
+            "subcategory": "Очищение и демакияж",
+            "ingredients": (
+                "Aqua, Sodium Cocoyl Isethionate, Glycerin, Panthenol, Allantoin"
+            ),
+        }
+        result = build_primary_function(
+            product, {"inci_raw": product["ingredients"]}, composition_status="active"
+        )
+        self.assertEqual(result["score"], 50)
+        self.assertLess(result["score"], 100)
+        self.assertNotIn("100", str(result["score"]))
+
+    def test_anti_acne_serum_keeps_its_catalog_function_when_name_says_hydrating(self):
+        product = {
+            "id": 4843,
+            "name": "Увлажняющая сыворотка для лица",
+            "category": "Сыворотка",
+            "subcategory": "Сыворотки",
+            "catalog_category": "Сыворотки и концентраты",
+            "catalog_subcategory": "От акне и воспалений",
+            "ingredients": "Aqua, Glycerin, Niacinamide, Salicylic Acid, Panthenol",
+        }
+        result = build_primary_function(
+            product, {"inci_raw": product["ingredients"]}, composition_status="active"
+        )
+        self.assertEqual(result["function_id"], "anti_acne")
+        self.assertEqual(result["label"], "Антиакне-уход")
+        self.assertNotEqual(result["function_id"], "moisturizing")
+        self.assertLess(result["score"], 100)
+
+    def test_hydrating_serum_does_not_replace_anti_acne_purpose(self):
+        product = {
+            "id": 4843,
+            "name": "Hydrating moisturizing serum",
+            "catalog_category": "Сыворотки и концентраты",
+            "catalog_subcategory": "От акне и воспалений",
+            "ingredients": "Aqua, Glycerin",
+        }
+        result = build_primary_function(
+            product, {"inci_raw": product["ingredients"]}, composition_status="active"
+        )
+        self.assertEqual(result["label"], "Антиакне-уход")
+        self.assertIsNone(result["score"])
+
+    def test_category_membership_or_one_ingredient_is_not_efficacy_proof(self):
+        product = {
+            "id": 999,
+            "name": "Simple Hydrating Cream",
+            "category": "Крем",
+            "subcategory": "Кремы",
+            "ingredients": "Aqua, Glycerin",
+        }
+        result = build_primary_function(
+            product, {"inci_raw": product["ingredients"]}, composition_status="active"
+        )
+        self.assertEqual(result["label"], "Увлажнение")
+        self.assertEqual(result["score"], 50)
+        self.assertLess(result["score"], 100)
+        self.assertIn("не подтверждает", result["score_note"])
+
+    def test_explicit_sunscreen_keeps_sun_function_despite_conflicting_catalog(self):
+        product = {
+            "id": 4719,
+            "name": "Capital Soleil Tinted Face Mineral Sunscreen SPF 60",
+            "catalog_category": "Сыворотки и концентраты",
+            "catalog_subcategory": "Антивозрастные",
+            "ingredients": "Aqua, Zinc Oxide",
+        }
+        result = build_primary_function(
+            product, {"inci_raw": product["ingredients"]}, composition_status="active"
+        )
+        self.assertEqual(result["function_id"], "sun_protection")
+        self.assertEqual(result["label"], "Защита от солнца")
 
     def test_unknown_category_has_no_invented_score(self):
         result = build_primary_function(
@@ -152,6 +251,43 @@ class CategoryFunctionRegressionTests(unittest.TestCase):
                 )
                 self.assertEqual(result["label"], "Очищение")
                 self.assertEqual(result["function_id"], "cleansing")
+
+
+class PublicFunctionPurposeTests(unittest.TestCase):
+    def test_redundant_purpose_is_not_shown_for_multiple_categories(self):
+        from app.evaluation.primary_function import public_primary_function
+
+        products = (
+            {"id": 1, "name": "SPF 50 Sunscreen", "category": "Солнцезащитный крем",
+             "ingredients": "Aqua, Zinc Oxide"},
+            {"id": 2, "name": "Gentle Cleanser", "category": "Очищение",
+             "ingredients": "Aqua, Glycerin"},
+            {"id": 3, "name": "Hydrating Cream", "category": "Крем",
+             "ingredients": "Aqua, Glycerin"},
+            {"id": 4, "name": "Anti-acne serum", "catalog_category": "Сыворотки и концентраты",
+             "catalog_subcategory": "От акне и воспалений", "ingredients": "Aqua, Glycerin"},
+            {"id": 5, "name": "Brightening essence", "catalog_category": "Сыворотки и концентраты",
+             "catalog_subcategory": "Осветляющие", "ingredients": "Aqua, Glycerin"},
+        )
+        for product in products:
+            with self.subTest(product=product["name"]):
+                built = build_primary_function(
+                    product, {"inci_raw": product["ingredients"]}, composition_status="active"
+                )
+                self.assertTrue(built["purpose"])
+                public = public_primary_function(built)
+                self.assertEqual(public["purpose"], "")
+                self.assertTrue(public["label"])
+
+    def test_extra_constraint_or_mechanism_is_preserved(self):
+        from app.evaluation.primary_function import public_primary_function
+
+        public = public_primary_function({
+            "label": "Защита от солнца",
+            "purpose": "Наносить только на открытые участки и обновлять после купания.",
+        })
+        self.assertIn("только", public["purpose"])
+        self.assertIn("после купания", public["purpose"])
 
 
 class CompactUserReportTests(unittest.TestCase):

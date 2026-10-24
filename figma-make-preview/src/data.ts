@@ -3,7 +3,7 @@
 
 export type Page = "home" | "shelf" | "scan" | "catalog" | "report" | "profile" | "sets"
 export type ProductState = "using" | "want" | "finished"
-export type Verdict = "Не подходит" | "Скорее не подходит" | "Нейтральный результат" | "Подходит" | "Отлично подходит" | "Допустимо" | "Не рекомендовано"
+export type Verdict = "Не подходит" | "Слабо подходит" | "Подходит частично" | "Хорошо подходит" | "Отлично подходит" | "Допустимо" | "Не рекомендовано"
 export type Plan = "free" | "plus" | "pro"
 export type CabinetKey = "face" | "hair" | "body" | "makeup" | "fragrance"
 

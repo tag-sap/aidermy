@@ -314,6 +314,11 @@ def load_product_knowledge(
             "category": str(product.get("category") or "").strip(),
             "subcategory": str(product.get("subcategory") or "").strip(),
             "taxonomy_category": str(product.get("taxonomy_category") or "").strip(),
+            # The catalog pair is the trusted purpose classification. Keep it
+            # in the analysis payload instead of reducing the product to its
+            # display name and legacy category.
+            "catalog_category": str(product.get("catalog_category") or "").strip(),
+            "catalog_subcategory": str(product.get("catalog_subcategory") or "").strip(),
             "description": str(product.get("description") or "").strip(),
             "has_reliable_inci": len(_inci_tokens(inci_raw)) >= 2,
         },
