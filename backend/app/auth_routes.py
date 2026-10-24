@@ -732,11 +732,32 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
     if "structured_profile" not in _profile_cols:
         cursor.execute("ALTER TABLE user_profiles ADD COLUMN structured_profile TEXT")
     
+    # Read the existing profile before touching structured data, so a partial
+    # update cannot erase fields the client did not send.
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    existing = cursor.fetchone()
+
     # Structured profile: если фронтенд прислал канонические ID (анкета v1.2),
     # сохраняем их напрямую. Иначе — AI #1 (legacy: анкета -> Structured User Profile).
     provided_structured = profile.get("structured")
     if isinstance(provided_structured, dict) and provided_structured:
         structured_json = serialize_structured(provided_structured)
+    elif (
+        existing
+        and "structured" not in profile
+        and "structured_profile" in existing.keys()
+        and existing["structured_profile"]
+    ):
+        # Partial update: keep existing constraints, but mirror changed basic
+        # profile fields into the structured copy instead of leaving it stale.
+        parsed = deserialize_structured(existing["structured_profile"]) or {}
+        if "skinType" in profile:
+            parsed["skin_type"] = profile.get("skinType")
+        if "concerns" in profile:
+            parsed["concerns"] = profile.get("concerns") or []
+        if "allergies" in profile:
+            parsed["allergies"] = profile.get("allergies") or []
+        structured_json = serialize_structured(parsed)
     else:
         struct_input = {
             "skin_type": profile.get("skinType"),
@@ -752,19 +773,49 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
             structured = None
         structured_json = serialize_structured(structured) if structured else None
 
-    # Сначала проверяем, есть ли запись. Сравниваем сохранённый профиль,
-    # чтобы повторное сохранение без изменений не делало результаты устаревшими.
-    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
-    existing = cursor.fetchone()
+    # Merge a partial request with the saved row. Missing keys mean “leave as is”,
+    # not “erase this part of the profile”.
+    def saved(key: str, default=None):
+        if not existing:
+            return default
+        return existing[key] if key in existing.keys() else default
+
+    name_value = profile.get('name') if 'name' in profile else saved('name')
+    skin_type_value = profile.get('skinType') if 'skinType' in profile else saved('skin_type')
+    age_value = profile.get('age') if 'age' in profile else saved('age')
+    concerns_value = (
+        ','.join(profile.get('concerns') or [])
+        if 'concerns' in profile
+        else (saved('concerns') or '')
+    )
+    allergies_value = (
+        ','.join(profile.get('allergies') or [])
+        if 'allergies' in profile
+        else (saved('allergies') or '')
+    )
+    custom_text_value = profile.get('customText') if 'customText' in profile else saved('custom_text')
+    quiz_answers_value = (
+        json.dumps(profile.get('quizAnswers', {}))
+        if 'quizAnswers' in profile
+        else (saved('quiz_answers') or json.dumps({}))
+    )
+    skin_type_determined_value = (
+        profile.get('skinTypeDetermined')
+        if 'skinTypeDetermined' in profile
+        else saved('skin_type_determined')
+    )
+
+    # Сравниваем сохранённый профиль, чтобы повторное сохранение без изменений
+    # не делало результаты устаревшими.
     new_signature = (
-        profile.get('name'),
-        profile.get('skinType'),
-        profile.get('age'),
-        ','.join(profile.get('concerns', [])),
-        ','.join(profile.get('allergies', [])),
-        profile.get('customText'),
-        json.dumps(profile.get('quizAnswers', {})),
-        profile.get('skinTypeDetermined'),
+        name_value,
+        skin_type_value,
+        age_value,
+        concerns_value,
+        allergies_value,
+        custom_text_value,
+        quiz_answers_value,
+        skin_type_determined_value,
         structured_json,
     )
     old_signature = (
@@ -796,14 +847,14 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id = ?
         ''', (
-            profile.get('name'),
-            profile.get('skinType'),
-            profile.get('age'),
-            ','.join(profile.get('concerns', [])),
-            ','.join(profile.get('allergies', [])),
-            profile.get('customText'),
-            json.dumps(profile.get('quizAnswers', {})),
-            profile.get('skinTypeDetermined'),
+            name_value,
+            skin_type_value,
+            age_value,
+            concerns_value,
+            allergies_value,
+            custom_text_value,
+            quiz_answers_value,
+            skin_type_determined_value,
             structured_json,
             user_id
         ))
@@ -814,14 +865,14 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             user_id,
-            profile.get('name'),
-            profile.get('skinType'),
-            profile.get('age'),
-            ','.join(profile.get('concerns', [])),
-            ','.join(profile.get('allergies', [])),
-            profile.get('customText'),
-            json.dumps(profile.get('quizAnswers', {})),
-            profile.get('skinTypeDetermined'),
+            name_value,
+            skin_type_value,
+            age_value,
+            concerns_value,
+            allergies_value,
+            custom_text_value,
+            quiz_answers_value,
+            skin_type_determined_value,
             structured_json
         ))
     
