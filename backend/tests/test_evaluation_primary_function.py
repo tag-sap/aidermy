@@ -141,7 +141,9 @@ class CategoryFunctionRegressionTests(unittest.TestCase):
                 result = build_primary_function(
                     {
                         "id": 999,
-                        "name": "Test cleanser",
+                        # No "cleanser"/"face wash" marker: only the catalog
+                        # category/type can identify this function.
+                        "name": "Bioderma Créaline Foaming Gel",
                         "category": category,
                         "subcategory": subcategory,
                     },

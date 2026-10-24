@@ -90,7 +90,7 @@ function PrimaryFunctionCard({ item }: { item: EvaluationPrimaryFunction }) {
         <details className="evalv2__explain">
           <summary>Почему так определена функция</summary>
           <p>{item.reason}</p>
-          {item.score == null && (
+          {item.score == null && item.label !== "Основная функция не определена" && (
             <p className="evalv2__function-note">
               Функция может быть определена по категории продукта; подтверждённость
               эффективности составом оценивается отдельно и не подменяется баллом.
