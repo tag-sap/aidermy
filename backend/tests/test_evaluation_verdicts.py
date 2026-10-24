@@ -138,6 +138,7 @@ class VerdictIconTests(unittest.TestCase):
             'if (score < 60) return "Подходит частично"',
             'if (score < 80) return "Хорошо подходит"',
             'return "Отлично подходит"',
+            'verdict: normalizeVerdict(a.verdict) || mapVerdict(score) || undefined',
         ):
             self.assertIn(fragment, source)
 
