@@ -187,9 +187,10 @@ def _risk_kind(evidence: Sequence[Mapping] | None) -> str:
     return ""
 
 
-# Intolerance rows answer “is it in the INCI?”; absence is a negative answer,
-# not a safety conflict, so it must not make the whole product unsuitable.
-_CRITICAL_SECTIONS = {"skin_type", "problem", "therapy", "procedure"}
+# Intolerance rows answer a profile restriction. A confirmed presence is a
+# real conflict; an absent ingredient in a complete INCI satisfies the user's
+# “avoid this” restriction and is a positive result.
+_CRITICAL_SECTIONS = {"skin_type", "problem", "therapy", "procedure", "intolerance"}
 _VERDICT_ICONS = {"positive": "check", "neutral": "dash", "negative": "cross", "unknown": "dash"}
 
 
@@ -264,13 +265,13 @@ def _item_verdict(
     evidence: Sequence[Mapping] | None = None,
 ) -> str:
     if intolerance is not None:
-        # This is a presence check, not a safety verdict: finding the ingredient
-        # answers “yes” (positive), a complete list without it answers “no”
-        # (negative), and an incomplete/missing list stays unknown.
+        # The profile asks the user to avoid an ingredient. A complete INCI
+        # without it satisfies that restriction (positive); finding it is a
+        # confirmed conflict (negative); an incomplete list stays unknown.
         state = str(intolerance.get("state") or "unknown")
-        if state == "present":
-            return "positive"
         if state == "absent":
+            return "positive"
+        if state == "present":
             return "negative"
         return "unknown"
     try:
@@ -279,9 +280,16 @@ def _item_verdict(
         return "unknown"
     if value >= 75:
         return "positive"
+    section = _section(parameter_id)
     if value <= 25:
-        return "negative"
-    if _section(parameter_id) in {"therapy", "procedure"} and _risk_kind(evidence):
+        # A low benefit score is not proof of harm. Only a critical section or
+        # confirmed contradictory evidence may turn it into a negative fact.
+        if section in {"goal", "problem"}:
+            return "neutral"
+        if section in {"therapy", "procedure"} or _risk_kind(evidence):
+            return "negative"
+        return "negative" if section == "skin_type" else "neutral"
+    if section in {"therapy", "procedure"} and _risk_kind(evidence):
         return "negative"
     return "neutral"
 

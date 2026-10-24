@@ -282,6 +282,8 @@ export function EvaluationV2Panel({
         setError("Войдите, чтобы проверить продукт.")
       } else if (statusCode === 503) {
         setError("Проверка временно недоступна.")
+      } else if (statusCode === 409) {
+        setError(e instanceof ApiError ? e.message : "Проверка не запущена: недостаточно баллов.")
       } else {
         setError("Не удалось проверить продукт. Попробуйте позже.")
       }
@@ -369,6 +371,7 @@ export function EvaluationV2Panel({
           }}
         >
           <span>{actionLabel}</span>
+          {!restoreError && <span className="evalv2__credit">1 балл</span>}
         </button>
         {restoreError && restoreReason && (
           <button type="button" className="evalv2__secondary" onClick={() => void start()}>

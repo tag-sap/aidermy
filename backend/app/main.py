@@ -1372,7 +1372,25 @@ class ShelfAnalyzeRequest(BaseModel):
     analysis_id: Optional[int] = None
 
 
-SHELF_CATEGORIES = ["Очищение", "Тонер", "Сыворотка", "Крем", "SPF", "Маска"]
+class ShelfRefreshRequest(BaseModel):
+    product_ids: List[int] = []
+    idempotency_key: str = ""
+    quoted_cost: Optional[int] = None
+
+
+# Unified Aidermy categories (same taxonomy as catalogue and recommendations).
+SHELF_CATEGORIES = [
+    "Очищение",
+    "Тонизация",
+    "Сыворотки и концентраты",
+    "Увлажнение",
+    "Восстановление кожного барьера",
+    "Маски",
+    "Эксфолиация",
+    "Защита от солнца",
+    "Уход за глазами",
+    "Уход за губами",
+]
 
 
 def _profile_from_user(user: dict) -> dict:
@@ -1715,12 +1733,186 @@ async def get_shelf(current_user: dict = Depends(get_current_user)):
     except Exception:
         pass
 
-    return {"cabinets": cabinets}
+    from .plans import normalize_plan, shelf_limit
+
+    plan = normalize_plan(current_user.get("plan"))
+    return {
+        "cabinets": cabinets,
+        "plan": plan,
+        "limit": shelf_limit(plan),
+        "count": len(shelf),
+    }
+
+
+def _shelf_refresh_candidates(current_user: dict) -> list[dict]:
+    """Only products whose current saved Match is invalid need a refresh."""
+    from .database import get_user_shelf
+    from .shelf_service import build_cabinet_payload
+
+    shelf = get_user_shelf(current_user["id"])
+    cabinets = build_cabinet_payload(current_user, shelf)
+    out: list[dict] = []
+    seen: set[int] = set()
+    for cabinet in cabinets:
+        for category in cabinet.get("categories") or []:
+            for item in category.get("items") or []:
+                pid = item.get("product_id")
+                if item.get("needs_recheck") and pid is not None and pid not in seen:
+                    seen.add(pid)
+                    out.append({
+                        "product_id": pid,
+                        "name": item.get("name") or "",
+                        "slug": item.get("slug") or "",
+                    })
+    return out
+
+
+@app.get("/api/shelf/refresh/preview")
+async def preview_shelf_refresh(current_user: dict = Depends(get_current_user)):
+    """Show the exact products and package price before any paid operation."""
+    from .database import get_balance
+    from .shelf_refresh import refresh_quote
+
+    candidates = _shelf_refresh_candidates(current_user)
+    cost = refresh_quote(len(candidates))
+    balance = get_balance(current_user["id"])
+    return {
+        "needs_refresh": candidates,
+        "count": len(candidates),
+        "cost": cost,
+        "currency": "points",
+        "individual_cost": len(candidates),
+        "discount_applied": bool(candidates) and cost < len(candidates),
+        "balance": balance.get("balance", 0),
+        "remaining": max(0, int(balance.get("balance", 0)) - cost),
+    }
+
+
+@app.post("/api/shelf/refresh")
+async def refresh_shelf(request: ShelfRefreshRequest, current_user: dict = Depends(get_current_user)):
+    """Recalculate only stale products, after a fixed-price user approval."""
+    from .database import (
+        AIDERMY_DB,
+        change_balance,
+        get_balance,
+        get_connection,
+        get_product_by_id,
+    )
+    from .shelf_refresh import refresh_quote
+    from .shelf_service import recheck_product
+
+    candidates = _shelf_refresh_candidates(current_user)
+    requested = {int(pid) for pid in (request.product_ids or [])}
+    if requested:
+        candidates = [item for item in candidates if int(item["product_id"]) in requested]
+    cost = refresh_quote(len(candidates))
+    if request.quoted_cost is not None and int(request.quoted_cost) != cost:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Стоимость обновления изменилась после расчёта. "
+                "Проверьте новый расчёт перед подтверждением."
+            ),
+        )
+    if not candidates:
+        return {
+            "status": "ok",
+            "updated": 0,
+            "failed": 0,
+            "cost": 0,
+            "charged": 0,
+            "needs_refresh": [],
+        }
+
+    balance = get_balance(current_user["id"])
+    if int(balance.get("balance", 0)) < cost:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Для обновления нужно {cost} баллов, сейчас доступно "
+                f"{balance.get('balance', 0)}. Обновление не запущено."
+            ),
+        )
+
+    import hashlib
+    import json
+
+    key = (request.idempotency_key or "").strip()
+    if not key:
+        key = "shelf-refresh:" + hashlib.sha256(
+            json.dumps(
+                {
+                    "user": current_user["id"],
+                    "ids": sorted(int(item["product_id"]) for item in candidates),
+                    "profile": current_user.get("profile_updated_at") or "",
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+    else:
+        key = f"shelf-refresh:{current_user['id']}:{key}"
+
+    conn = get_connection(AIDERMY_DB)
+    try:
+        cursor = conn.cursor()
+        prior = cursor.execute(
+            "SELECT 1 FROM balance_transactions WHERE idempotency_key = ? LIMIT 1",
+            (f"{current_user['id']}:{key}",),
+        ).fetchone()
+    finally:
+        conn.close()
+    if prior:
+        return {
+            "status": "ok",
+            "already_processed": True,
+            "updated": 0,
+            "failed": 0,
+            "cost": cost,
+            "charged": 0,
+            "needs_refresh": candidates,
+        }
+
+    updated = 0
+    failed: list[int] = []
+    for item in candidates:
+        product = get_product_by_id(int(item["product_id"]))
+        if not product:
+            failed.append(int(item["product_id"]))
+            continue
+        score, _analysis = recheck_product(current_user, product)
+        if score is None:
+            failed.append(int(item["product_id"]))
+        else:
+            updated += 1
+
+    charged = refresh_quote(updated)
+    if charged:
+        new_balance = change_balance(
+            current_user["id"], -charged, "shelf_refresh", "Обновление полки", idempotency_key=key
+        )
+    else:
+        new_balance = get_balance(current_user["id"]).get("balance", 0)
+    return {
+        "status": "ok",
+        "updated": updated,
+        "failed": failed,
+        "cost": charged,
+        "quoted_cost": cost,
+        "charged": charged,
+        "balance": new_balance,
+        "needs_refresh": [],
+    }
 
 
 @app.post("/api/shelf")
 async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(get_current_user)):
-    from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf
+    from .database import (
+        get_product_by_slug,
+        get_user_shelf,
+        add_product_to_shelf,
+        ShelfLimitError,
+    )
+    from .plans import normalize_plan, shelf_limit
     from .shelf_service import (
         canonical_category,
         CABINET_BY_KEY,
@@ -1750,16 +1942,35 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
     if not ok:
         raise HTTPException(status_code=422, detail=reason)
 
-    for s in get_user_shelf(current_user["id"]):
+    shelf = get_user_shelf(current_user["id"])
+    for s in shelf:
         if s["product_id"] == product["id"]:
             return {"status": "ok", "duplicate": True, "item": {"id": s["id"], "product_id": product["id"]}}
+
+    # Cheap pre-check keeps the normal path from doing score work when the shelf
+    # is already full. The database insert repeats this check under a write lock.
+    plan = normalize_plan(current_user.get("plan"))
+    limit = shelf_limit(plan)
+    if len(shelf) >= limit:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"На тарифе {plan.capitalize()} можно хранить до {limit} продуктов. "
+                "Освободите место или перейдите на подходящий тариф."
+            ),
+        )
 
     # При добавлении на полку score = история (snapshot) → пересчёт из Static Product Model.
     score = None
     if cabinet_applies_scoring(cabinet):
         score = get_personalized_score(current_user, product)
 
-    item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet, score=score)
+    try:
+        item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet, score=score)
+    except ShelfLimitError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=500, detail="Не удалось сохранить продукт на полке")
     return {"status": "ok", "duplicate": False, "item": item}
 
 
@@ -2496,12 +2707,19 @@ async def routine_to_shelf(
     request: RoutineToShelfRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    from .database import get_product_by_slug, get_user_shelf, add_product_to_shelf, create_routine
+    from .database import (
+        get_product_by_slug,
+        get_user_shelf,
+        add_product_to_shelf,
+        create_routine,
+        ShelfLimitError,
+    )
 
     existing = {s["product_id"] for s in get_user_shelf(current_user["id"])}
     routine_id = create_routine(current_user["id"], request.name)
     added = 0
     skipped = 0
+    limit_reached = False
     for item in request.items:
         slug = (item or {}).get("slug")
         category = (item or {}).get("category") or ""
@@ -2513,7 +2731,17 @@ async def routine_to_shelf(
         if product["id"] in existing:
             skipped += 1
             continue
-        add_product_to_shelf(current_user["id"], product["id"], category, request.name, routine_id)
+        try:
+            add_product_to_shelf(current_user["id"], product["id"], category, request.name, routine_id)
+        except ShelfLimitError:
+            limit_reached = True
+            break
         existing.add(product["id"])
         added += 1
-    return {"status": "ok", "added": added, "skipped": skipped, "routine_id": routine_id}
+    return {
+        "status": "ok",
+        "added": added,
+        "skipped": skipped,
+        "routine_id": routine_id,
+        "limit_reached": limit_reached,
+    }

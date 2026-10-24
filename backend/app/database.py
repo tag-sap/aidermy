@@ -3,6 +3,21 @@ import os
 import json
 from datetime import datetime, timedelta
 
+from .plans import normalize_plan, shelf_limit
+
+
+class ShelfLimitError(RuntimeError):
+    """Raised when adding a product would exceed the plan capacity."""
+
+    def __init__(self, plan: str, limit: int, count: int):
+        self.plan = normalize_plan(plan)
+        self.limit = int(limit)
+        self.count = int(count)
+        super().__init__(
+            f"На тарифе {self.plan.capitalize()} можно хранить до {self.limit} продуктов. "
+            "Освободите место или перейдите на подходящий тариф."
+        )
+
 # === ДВЕ БАЗЫ ===
 AIDERMY_DB = os.path.join(os.path.dirname(__file__), '..', 'aidermy.db')
 PRODUCTS_DB = os.path.join(os.path.dirname(__file__), '..', 'products.db')
@@ -102,6 +117,27 @@ def get_analysis_connection():
 
 def init_db():
     if os.getenv("SUPABASE_DATABASE_URL"):
+        # The production account lives in Supabase. Keep the idempotency column
+        # available there too; ALTER is safe to repeat.
+        try:
+            from .postgres_connection import get_postgres_connection
+
+            with get_postgres_connection() as pg:
+                with pg.cursor() as cur:
+                    cur.execute(
+                        "ALTER TABLE public.balance_transactions "
+                        "ADD COLUMN IF NOT EXISTS idempotency_key TEXT"
+                    )
+                    cur.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS idx_balance_tx_idempotency "
+                        "ON public.balance_transactions (idempotency_key) "
+                        "WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''"
+                    )
+                pg.commit()
+        except Exception:
+            # Existing deployments may not have the table until their own
+            # migration runs; billing code then fails safely without charging.
+            pass
         return
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
@@ -433,6 +469,14 @@ def init_db():
         )
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_balance_tx_user ON balance_transactions (user_id)')
+    balance_columns = [col[1] for col in cursor.execute("PRAGMA table_info(balance_transactions)").fetchall()]
+    if balance_columns and "idempotency_key" not in balance_columns:
+        cursor.execute("ALTER TABLE balance_transactions ADD COLUMN idempotency_key TEXT")
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_balance_tx_idempotency "
+        "ON balance_transactions (idempotency_key) "
+        "WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''"
+    )
 
     # === COMMUNITY INTELLIGENCE ===
     cursor.execute('''
@@ -1060,17 +1104,58 @@ def get_product_by_id(product_id: int):
     return dict(row) if row else None
 
 def add_product_to_shelf(user_id: int, product_id: int, category: str = "", notes: str = "", routine_id: int = None, cabinet: str = "face", score: int = None):
+    """Add exactly one shelf row, atomically enforcing the plan capacity.
+
+    The duplicate fast-path is intentionally checked before the capacity check:
+    retrying an already-added product must never fail just because the shelf is
+    now full. ``UNIQUE(user_id, product_id)`` remains the final duplicate guard.
+    """
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR IGNORE INTO shelf_products (user_id, product_id, category, notes, routine_id, cabinet, score)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (user_id, product_id, category, notes, routine_id, cabinet or "face", score))
-    conn.commit()
-    cursor.execute("SELECT * FROM shelf_products WHERE user_id = ? AND product_id = ?", (user_id, product_id))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
+    try:
+        if not os.getenv("SUPABASE_DATABASE_URL"):
+            cursor.execute("BEGIN IMMEDIATE")
+        user_row = cursor.execute(
+            "SELECT plan FROM users WHERE id = ?" + (" FOR UPDATE" if os.getenv("SUPABASE_DATABASE_URL") else ""),
+            (user_id,),
+        ).fetchone()
+        if not user_row:
+            raise ShelfLimitError("free", shelf_limit("free"), 0)
+        existing = cursor.execute(
+            "SELECT * FROM shelf_products WHERE user_id = ? AND product_id = ?",
+            (user_id, product_id),
+        ).fetchone()
+        if existing:
+            conn.commit()
+            return dict(existing)
+
+        count = int(cursor.execute(
+            "SELECT COUNT(*) AS n FROM shelf_products WHERE user_id = ?", (user_id,)
+        ).fetchone()["n"] or 0)
+        plan = normalize_plan(user_row["plan"])
+        limit = shelf_limit(plan)
+        if count >= limit:
+            conn.rollback()
+            raise ShelfLimitError(plan, limit, count)
+
+        cursor.execute('''
+            INSERT INTO shelf_products (user_id, product_id, category, notes, routine_id, cabinet, score)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, product_id, category, notes, routine_id, cabinet or "face", score))
+        conn.commit()
+        row = cursor.execute(
+            "SELECT * FROM shelf_products WHERE user_id = ? AND product_id = ?",
+            (user_id, product_id),
+        ).fetchone()
+        return dict(row) if row else None
+    except ShelfLimitError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def create_routine(user_id: int, name: str = "") -> int:
@@ -1764,44 +1849,95 @@ def get_balance(user_id: int) -> dict:
     conn.close()
     balance = int(row["balance"] or 0) if row else 0
     plan = (row["plan"] or "free") if row else "free"
-    return {"balance": balance, "plan": plan, "monthly_points": PLAN_MONTHLY_POINTS.get(plan, 20)}
+    return {
+        "balance": balance,
+        "plan": plan,
+        "monthly_points": PLAN_MONTHLY_POINTS.get(plan, 20),
+        "shelf_limit": shelf_limit(plan),
+    }
 
 
-def change_balance(user_id: int, delta: int, tx_type: str, note: str = "") -> int:
-    """Изменяет баланс (delta может быть отрицательным) и пишет журнал.
-    Возвращает новый баланс. При нехватке средств возвращает None."""
+def change_balance(user_id: int, delta: int, tx_type: str, note: str = "", idempotency_key: str = "") -> int:
+    """Изменить баланс атомарно и идемпотентно.
+
+    An idempotency key prevents double spending after a retry or a concurrent
+    request. A key is scoped to the operation; an already applied key returns
+    the current balance without creating another transaction.
+    """
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
-    row = cursor.execute("SELECT balance FROM users WHERE id = ?", (user_id,)).fetchone()
-    if not row:
+    try:
+        if not os.getenv("SUPABASE_DATABASE_URL"):
+            cursor.execute("BEGIN IMMEDIATE")
+        stored_key = f"{user_id}:{idempotency_key}" if idempotency_key else ""
+        if stored_key:
+            prior = cursor.execute(
+                "SELECT user_id FROM balance_transactions WHERE idempotency_key = ?",
+                (stored_key,),
+            ).fetchone()
+            if prior:
+                row = cursor.execute("SELECT balance FROM users WHERE id = ?", (user_id,)).fetchone()
+                conn.commit()
+                return int(row["balance"] or 0) if row else None
+        row = cursor.execute("SELECT balance FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            conn.rollback()
+            return None
+        current = int(row["balance"] or 0)
+        new = current + delta
+        if new < 0:
+            conn.rollback()
+            return None
+        cursor.execute("UPDATE users SET balance = ? WHERE id = ?", (new, user_id))
+        cursor.execute(
+            "INSERT INTO balance_transactions (user_id, type, amount, note, idempotency_key) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (user_id, tx_type, delta, note, stored_key or None),
+        )
+        conn.commit()
+        return new
+    except sqlite3.IntegrityError:
+        # Another concurrent request already applied the same idempotency key.
+        conn.rollback()
+        row = cursor.execute("SELECT balance FROM users WHERE id = ?", (user_id,)).fetchone()
+        return int(row["balance"] or 0) if row else None
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
         conn.close()
-        return None
-    current = int(row["balance"] or 0)
-    new = current + delta
-    if new < 0:
-        conn.close()
-        return None
-    cursor.execute("UPDATE users SET balance = ? WHERE id = ?", (new, user_id))
-    cursor.execute(
-        "INSERT INTO balance_transactions (user_id, type, amount, note) VALUES (?, ?, ?, ?)",
-        (user_id, tx_type, delta, note),
-    )
-    conn.commit()
-    conn.close()
-    return new
 
 
 def set_user_plan(user_id: int, plan: str) -> dict:
-    """Меняет тариф и начисляет ежемесячные баллы тарифа (одноразово при смене)."""
+    """Change the plan and grant its monthly allowance once.
+
+    Repeating the same request (or retrying a request) must not mint points
+    again. A downgrade never removes existing shelf products or Matches.
+    """
     if plan not in PLAN_MONTHLY_POINTS:
         plan = "free"
     conn = get_connection(AIDERMY_DB)
     cursor = conn.cursor()
+    row = cursor.execute("SELECT plan FROM users WHERE id = ?", (user_id,)).fetchone()
+    current_plan = normalize_plan(row["plan"] if row else "free")
+    if row is None:
+        conn.close()
+        return get_balance(user_id)
+    if current_plan == plan:
+        conn.close()
+        return get_balance(user_id)
     cursor.execute("UPDATE users SET plan = ? WHERE id = ?", (plan, user_id))
     conn.commit()
     conn.close()
     bonus = PLAN_MONTHLY_POINTS.get(plan, 20)
-    change_balance(user_id, bonus, "plan_bonus", f"Ежемесячные баллы тарифа {plan}")
+    month = datetime.utcnow().strftime("%Y-%m")
+    change_balance(
+        user_id,
+        bonus,
+        "plan_bonus",
+        f"Ежемесячные баллы тарифа {plan}",
+        idempotency_key=f"plan-bonus:{plan}:{month}",
+    )
     return get_balance(user_id)
 
 

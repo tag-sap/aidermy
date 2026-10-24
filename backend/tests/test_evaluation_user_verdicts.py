@@ -120,7 +120,7 @@ class OverallVerdictTests(unittest.TestCase):
         ).user_report()
         self.assertEqual(
             [item["verdict"] for item in public["personal_compatibility"]],
-            ["positive", "negative", "neutral", "unknown"],
+            ["positive", "neutral", "neutral", "unknown"],
         )
 
     def test_long_explanation_is_trimmed_at_sentence_boundary(self):
@@ -153,10 +153,11 @@ class OverallVerdictTests(unittest.TestCase):
             ]
         ).user_report()
         self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
-        self.assertEqual(public["overall"]["negative"], 1)
+        self.assertEqual(public["overall"]["negative"], 0)
+        self.assertEqual(public["overall"]["neutral"], 1)
         self.assertEqual(
             public["personal_compatibility"][1]["verdict_label"],
-            "Цель не подтверждена",
+            "Влияние неясно",
         )
 
     def test_unknown_only_is_insufficient_and_never_a_check(self):
@@ -234,24 +235,24 @@ class IntoleranceVerdictTests(unittest.TestCase):
         ).user_report()
         return public["personal_compatibility"][0]
 
-    def test_present_is_a_positive_presence_answer(self):
+    def test_present_is_a_negative_restriction_answer(self):
         item = self._item("Aqua, Glycerin, Niacinamide")
-        self.assertEqual(item["verdict"], "positive")
-        self.assertEqual(item["verdict_icon"], "check")
-        self.assertEqual(item["verdict_label"], "Обнаружен в составе")
-
-    def test_absent_is_a_negative_presence_answer(self):
-        item = self._item("Aqua, Glycerin")
         self.assertEqual(item["verdict"], "negative")
         self.assertEqual(item["verdict_icon"], "cross")
+        self.assertEqual(item["verdict_label"], "Обнаружен в составе")
+
+    def test_absent_is_a_positive_restriction_answer(self):
+        item = self._item("Aqua, Glycerin")
+        self.assertEqual(item["verdict"], "positive")
+        self.assertEqual(item["verdict_icon"], "check")
         self.assertEqual(item["verdict_label"], "Не обнаружен в составе")
 
-    def test_absent_intolerance_is_not_a_critical_safety_conflict(self):
+    def test_absent_intolerance_satisfies_the_restriction(self):
         public = make_report(
             [row("intolerance:niacinamide_intolerance", 0)],
             inci="Aqua, Glycerin",
         ).user_report()
-        self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
+        self.assertEqual(public["overall"]["verdict"], "Подходит")
 
     def test_unconfirmed_is_neutral_unknown(self):
         item = self._item("")

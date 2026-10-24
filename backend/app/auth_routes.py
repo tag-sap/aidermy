@@ -752,9 +752,33 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
             structured = None
         structured_json = serialize_structured(structured) if structured else None
 
-    # Сначала проверяем, есть ли запись
-    cursor.execute("SELECT id FROM user_profiles WHERE user_id = ?", (user_id,))
+    # Сначала проверяем, есть ли запись. Сравниваем сохранённый профиль,
+    # чтобы повторное сохранение без изменений не делало результаты устаревшими.
+    cursor.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
     existing = cursor.fetchone()
+    new_signature = (
+        profile.get('name'),
+        profile.get('skinType'),
+        profile.get('age'),
+        ','.join(profile.get('concerns', [])),
+        ','.join(profile.get('allergies', [])),
+        profile.get('customText'),
+        json.dumps(profile.get('quizAnswers', {})),
+        profile.get('skinTypeDetermined'),
+        structured_json,
+    )
+    old_signature = (
+        existing['name'] if existing else None,
+        existing['skin_type'] if existing else None,
+        existing['age'] if existing else None,
+        existing['concerns'] if existing else None,
+        existing['allergies'] if existing else None,
+        existing['custom_text'] if existing else None,
+        existing['quiz_answers'] if existing else None,
+        existing['skin_type_determined'] if existing else None,
+        existing['structured_profile'] if existing else None,
+    ) if existing else None
+    profile_changed = old_signature != new_signature
     
     if existing:
         # Обновляем
@@ -804,15 +828,17 @@ async def save_profile(request: Request, current_user: dict = Depends(get_curren
     conn.commit()
     conn.close()
 
-    # Изменение анкеты: users.profile_updated_at = NOW() → старые User Analysis
-    # больше не актуальны (analysis.created_at < profile_updated_at).
-    # Старые анализы инвалидируются (удаляются); Product DB / полка НЕ трогаются.
-    try:
-        from .database import touch_user_profile_updated_at, delete_user_analyses
-        touch_user_profile_updated_at(user_id)
-        delete_user_analyses(user_id)
-    except Exception as exc:
-        print(f"[PROFILE] analysis invalidation failed: {exc!r}")
+    # Only a real profile change makes the saved Matches stale. A no-op save
+    # must not trigger a refresh or make current results disappear.
+    if profile_changed:
+        try:
+            from .database import touch_user_profile_updated_at
+            # Keep the saved analyses/history. The timestamp makes them stale,
+            # so they can be selected for a user-approved refresh later instead
+            # of being silently deleted. Product DB and the shelf are untouched.
+            touch_user_profile_updated_at(user_id)
+        except Exception as exc:
+            print(f"[PROFILE] analysis invalidation failed: {exc!r}")
 
     return {"status": "ok"}
 

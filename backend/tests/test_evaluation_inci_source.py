@@ -44,7 +44,7 @@ def composition(inci: str = ART_FACT_INCI) -> dict:
 
 
 class InciSourceTests(unittest.TestCase):
-    def test_art_fact_niacinamide_absent_from_saved_inci_is_negative(self):
+    def test_art_fact_niacinamide_absent_from_saved_inci_is_positive(self):
         parameter = next(
             item for item in resolve_parameters(PROFILE).parameters
             if item.id == "intolerance:niacinamide_intolerance"
@@ -103,7 +103,7 @@ class InciSourceTests(unittest.TestCase):
         )
         item = report.user_report()["personal_compatibility"][0]
         self.assertEqual(item["parameter_id"], "intolerance:niacinamide_intolerance")
-        self.assertEqual(item["verdict"], "negative")
+        self.assertEqual(item["verdict"], "positive")
         self.assertEqual(item["display_text"], "Ниацинамид не обнаружен в составе.")
         self.assertEqual(item["derived"], True)
 

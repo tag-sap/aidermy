@@ -477,7 +477,7 @@ export const api = {
       currency: string
       prices_defined: boolean
       payments_configured: boolean
-      plans: { key: string; title: string; monthly_points: number; price: number | null; available: boolean }[]
+      plans: { key: string; title: string; monthly_points: number; shelf_limit?: number; price: number | null; available: boolean }[]
       packages: { id: string; title: string; checks?: number | null; price?: number | null }[]
       note: string
     }>("/billing/catalog")
@@ -579,7 +579,7 @@ export const api = {
 
   // ===== полка =====
   async shelf() {
-    return request<{ cabinets: ShelfCabinet[] }>("/shelf")
+    return request<{ cabinets: ShelfCabinet[]; plan?: string; limit?: number; count?: number }>("/shelf")
   },
   async addToShelf(slug: string, category: string, cabinet: string) {
     return request<{ status: string; duplicate?: boolean; item?: { id?: number; product_id?: number } }>("/shelf", {
@@ -607,6 +607,28 @@ export const api = {
   },
   async recheck(productId: number) {
     return request<{ score: number; analysis: unknown }>(`/shelf/recheck/${productId}`, { method: "POST" })
+  },
+  async shelfRefreshPreview() {
+    return request<{
+      needs_refresh: { product_id: number; name: string; slug: string }[]
+      count: number
+      cost: number
+      individual_cost: number
+      discount_applied: boolean
+      balance: number
+      remaining: number
+    }>("/shelf/refresh/preview")
+  },
+  async shelfRefresh(payload: { product_ids?: number[]; idempotency_key?: string; quoted_cost?: number } = {}) {
+    return request<{
+      status: string
+      updated: number
+      failed: number[]
+      cost: number
+      charged: number
+      balance?: number
+      already_processed?: boolean
+    }>("/shelf/refresh", { method: "POST", body: JSON.stringify(payload) })
   },
   async updateShelfCategory(shelfId: number, category: string) {
     return request(`/shelf/${shelfId}`, { method: "PATCH", body: JSON.stringify({ category }) })

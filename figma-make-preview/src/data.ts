@@ -121,10 +121,10 @@ export const skinProfile = {
   intolerances: ["Отдушки", "Эфирные масла", "Спирт"],
 }
 
-export const PLANS: { key: Plan; title: string; monthlyPoints: number }[] = [
-  { key: "free", title: "Free", monthlyPoints: 20 },
-  { key: "plus", title: "Plus", monthlyPoints: 40 },
-  { key: "pro", title: "Pro", monthlyPoints: 60 },
+export const PLANS: { key: Plan; title: string; monthlyPoints: number; shelfLimit: number }[] = [
+  { key: "free", title: "Free", monthlyPoints: 20, shelfLimit: 5 },
+  { key: "plus", title: "Plus", monthlyPoints: 40, shelfLimit: 10 },
+  { key: "pro", title: "Pro", monthlyPoints: 60, shelfLimit: 15 },
 ]
 
 export const SUBSCRIPTION_ROWS: { feature: string; values: Record<Plan, string>; pro?: boolean }[] = [
@@ -132,7 +132,7 @@ export const SUBSCRIPTION_ROWS: { feature: string; values: Record<Plan, string>;
   { feature: "Проверка совместимости с профилем", values: { free: "✓", plus: "✓", pro: "✓" } },
   { feature: "Скан по фото", values: { free: "✓", plus: "✓", pro: "✓" } },
   { feature: "Skin Profile / опрос", values: { free: "✓", plus: "✓", pro: "✓" } },
-  { feature: "Моя полка", values: { free: "Ограниченная", plus: "Расширенная", pro: "Максимальная" }, pro: true },
+  { feature: "Моя полка", values: { free: "до 5 продуктов", plus: "до 10 продуктов", pro: "до 15 продуктов" }, pro: true },
   { feature: "Бесплатные баллы на анализы каждый месяц", values: { free: "20", plus: "40", pro: "60" } },
   { feature: "Расширенная аналитика полки", values: { free: "—", plus: "✓", pro: "✓" } },
   { feature: "Сохранение результата Match", values: { free: "7 дней", plus: "7 дней", pro: "30 дней" }, pro: true },

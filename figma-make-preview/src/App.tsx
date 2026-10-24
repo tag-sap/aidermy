@@ -1262,13 +1262,17 @@ function GuestResultScreen({ product, guestToken, onSignup, onLogin, onRestart }
   )
 }
 
-function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemove, onClear, onDeleteBatch }: {
-  items: Product[]; checkingIds: Set<number>; loading?: boolean; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void; onDeleteBatch: (ids: number[]) => void
+function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onBalance }: {
+  items: Product[]; checkingIds: Set<number>; loading?: boolean; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void; onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onBalance?: (balance: number) => void
 }) {
   const [active, setActive] = useState<CabinetKey>("face")
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const wrapRef = useRef<HTMLDivElement>(null)
+  const [refreshQuote, setRefreshQuote] = useState<null | { count: number; cost: number; balance: number; remaining: number }>(null)
+  const [refreshBusy, setRefreshBusy] = useState(false)
+  const [refreshMessage, setRefreshMessage] = useState("")
+  const [view, setView] = useState<"list" | "rack">("list")
   const [cardsPerShelf, setCardsPerShelf] = useState(5)
 
   const toggleSelect = (shelfId: number) => {
@@ -1288,7 +1292,48 @@ function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemov
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [active])
+  }, [active, view])
+
+  useEffect(() => {
+    let alive = true
+    if (loading || !items.some((item) => item.needs_recheck)) {
+      setRefreshQuote(null)
+      return () => { alive = false }
+    }
+    void api.shelfRefreshPreview()
+      .then((quote) => {
+        if (!alive) return
+        setRefreshQuote(quote.count > 0 ? quote : null)
+      })
+      .catch(() => { if (alive) setRefreshQuote(null) })
+    return () => { alive = false }
+  }, [items, loading])
+
+  const handleRefresh = async () => {
+    if (!refreshQuote || refreshBusy) return
+    setRefreshBusy(true)
+    setRefreshMessage("")
+    const ids = items.filter((item) => item.needs_recheck).map((item) => item.id)
+    try {
+      const result = await api.shelfRefresh({
+        product_ids: ids,
+        quoted_cost: refreshQuote.cost,
+        idempotency_key: `shelf-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      })
+      setRefreshMessage(
+        result.failed.length > 0
+          ? `Обновлено ${result.updated} из ${result.updated + result.failed.length}. Не удалось обновить ${result.failed.length}.`
+          : `Полка обновлена: ${result.updated} продуктов, списано ${result.charged} баллов.`
+      )
+      setRefreshQuote(null)
+      if (typeof result.balance === "number") onBalance?.(result.balance)
+      onRefresh?.()
+    } catch (error) {
+      setRefreshMessage(error instanceof Error ? error.message : "Не удалось обновить полку.")
+    } finally {
+      setRefreshBusy(false)
+    }
+  }
 
   const cabinet = CABINETS.find((c) => c.key === active) ?? CABINETS[0]
   const shelved = items.filter((p) => p.state && p.cabinet === active)
@@ -1340,6 +1385,7 @@ function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemov
           ) : (
             <>
               <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
+              {shelved.length > 0 && <Button variant="ghost" onClick={() => setView((v) => v === "list" ? "rack" : "list")}>{view === "list" ? "Полка" : "Список"}</Button>}
               {shelved.length > 0 && <Button variant="ghost" onClick={() => setSelectMode(true)}>Выбрать</Button>}
               {shelved.length > 0 && <Button variant="ghost" onClick={() => onClear(active)}>Очистить полку</Button>}
             </>
@@ -1357,6 +1403,22 @@ function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemov
         })}
       </div>
 
+      {refreshQuote && (
+        <div className="shelf-refresh" role="status">
+          <div>
+            <strong>Есть устаревшие результаты</strong>
+            <span>
+              Обновить {refreshQuote.count} {refreshQuote.count === 1 ? "продукт" : "продуктов"}?
+              Стоимость — {refreshQuote.cost} баллов, останется {refreshQuote.remaining}.
+            </span>
+          </div>
+          <Button variant="secondary" small onClick={() => void handleRefresh()} disabled={refreshBusy}>
+            {refreshBusy ? "Обновляем…" : `Обновить за ${refreshQuote.cost}`}
+          </Button>
+        </div>
+      )}
+      {refreshMessage && <p className="shelf-refresh__message" role="status">{refreshMessage}</p>}
+
       <div key={active} className="shelf-anim">
         <div className="shelf-summary">
           <div><strong>{shelved.length}</strong><span>средств на полке</span></div>
@@ -1364,6 +1426,45 @@ function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemov
           <div><strong>{shelfVerdict}</strong><span>как сочетаются средства</span></div>
         </div>
 
+        {view === "list" ? (
+          <div className="shelf-list">
+            {shelved.map((p) => (
+              <div className="shelf-list__row" key={p.id}>
+                {selectMode && (
+                  <button
+                    type="button"
+                    className={`shelf-list__select ${selected.has(p.shelf_id ?? p.id) ? "is-selected" : ""}`}
+                    aria-label={selected.has(p.shelf_id ?? p.id) ? "Снять выбор" : "Выбрать продукт"}
+                    onClick={() => toggleSelect(p.shelf_id ?? p.id)}
+                  >
+                    {selected.has(p.shelf_id ?? p.id) ? "✓" : ""}
+                  </button>
+                )}
+                <button type="button" className="shelf-list__main" onClick={() => onOpen(p)}>
+                  <span className="shelf-list__name">
+                    <strong>{p.name}</strong>
+                    <small>{p.brand || p.category || "Уход"}</small>
+                  </span>
+                  <span className="shelf-list__meta">
+                    {p.category && <em>{p.category}</em>}
+                    <span>{STATE_LABEL[p.state ?? "using"]}</span>
+                  </span>
+                  <span className={`shelf-list__score ${p.match?.score == null ? "is-empty" : ""}`}>
+                    {checkingIds.has(p.id) ? "…" : p.match?.score != null ? `${p.match.score}%` : "—"}
+                  </span>
+                </button>
+                {!selectMode && (
+                  <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`}>×</button>
+                )}
+              </div>
+            ))}
+            {shelved.length === 0 && (
+              loading
+                ? <p className="empty"><span className="spin" /> Загружаем полку…</p>
+                : <p className="empty">Полка пуста. Добавьте первое средство.</p>
+            )}
+          </div>
+        ) : (
         <div className="shelf-rack-wrap" ref={wrapRef}>
           {groupedShelves.map((shelf, si) => (
             <div className="shelf" key={si}>
@@ -1391,6 +1492,7 @@ function ShelfPage({ items, checkingIds, loading = false, onOpen, onAdd, onRemov
               : <p className="empty">Полка пуста. Добавьте первое средство.</p>
           )}
         </div>
+        )}
       </div>
       <button type="button" className="shelf-fab" onClick={onAdd} aria-label="Добавить продукт"><Icon name="plus" size={24} /></button>
     </div>
@@ -2077,6 +2179,7 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: 
 }) {
   const [quiz, setQuiz] = useState(false)
   const [skinType, setSkinType] = useState(getUserProfile().skinType)
+  const [profileError, setProfileError] = useState("")
   if (quiz) {
     return (
       <div className="page">
@@ -2088,7 +2191,9 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: 
           setSkinType(skinTypeLabel)
           setQuiz(false)
           if (getToken()) {
-            api.saveProfile({ skinType: skinTypeLabel, age: p.age ?? "", concerns: p.concerns ?? [], allergies: p.allergies ?? [], customText: "", structured: p.structured ?? undefined }).catch(() => {})
+            setProfileError("")
+            api.saveProfile({ skinType: skinTypeLabel, age: p.age ?? "", concerns: p.concerns ?? [], allergies: p.allergies ?? [], customText: "", structured: p.structured ?? undefined })
+              .catch((error) => setProfileError(error instanceof Error ? error.message : "Не удалось сохранить профиль"))
           }
         }} />
       </div>
@@ -2112,12 +2217,29 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: 
     )
   }
   const plan = PLANS.find((p) => p.key === user.plan)
+  const structured = (getUserProfile().structured || {}) as Record<string, unknown>
+  const structuredList = (key: string): string[] => {
+    const value = structured[key]
+    return Array.isArray(value)
+      ? value.map((item) => {
+          if (item && typeof item === "object") {
+            const row = item as Record<string, unknown>
+            return String(row.label || row.name || row.id || "").trim()
+          }
+          return String(item || "").trim()
+        }).filter(Boolean)
+      : []
+  }
+  const therapy = structuredList("therapy")
+  const procedures = structuredList("procedures")
+  const restrictions = structuredList("restrictions")
   return (
     <div className="page">
       <PageHeading eyebrow="Профиль" title="Профиль кожи" lead="На основе профиля рассчитывается совместимость каждого продукта."
         action={<div className="page-head__actions"><Button icon="user" onClick={() => setQuiz(true)}>Перепройти опрос</Button><Button variant="ghost" icon="logout" onClick={onLogout}>Выйти</Button><Button variant="ghost" onClick={onDelete}>Удалить аккаунт</Button></div>} />
+      {profileError && <p className="evalv2__error" role="alert">{profileError}</p>}
       <div className="account-bar">
-        <div><p className="eyebrow">Аккаунт</p><strong>{user.name}</strong><span>{user.points} баллов · тариф {plan?.title}</span></div>
+        <div><p className="eyebrow">Аккаунт</p><strong>{user.name}</strong><span>{user.points} баллов · тариф {plan?.title} · до {plan?.shelfLimit ?? 5} продуктов на полке</span></div>
         <div className="account-bar__actions">
           <Button variant="secondary" icon="credits" onClick={onPoints}>Пополнить баллы</Button>
           <Button variant="ghost" icon="crown" onClick={onPricing}>Управлять подпиской</Button>
@@ -2127,8 +2249,11 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: 
         <section className="panel"><p className="eyebrow">Тип кожи</p><h3 className="panel__h3">{skinType}</h3></section>
         <section className="panel"><p className="eyebrow">Проблемы</p>{getUserProfile().concerns.length ? <div className="chips">{getUserProfile().concerns.map((g) => <span key={g} className="chip">{g}</span>)}</div> : <p className="panel__note">Не указаны</p>}</section>
         <section className="panel"><p className="eyebrow">Непереносимости</p>{getUserProfile().allergies.length ? <div className="chips">{getUserProfile().allergies.map((t) => <span key={t} className="chip">{t}</span>)}</div> : <p className="panel__note">Не указаны</p>}</section>
+        <section className="panel"><p className="eyebrow">Лечение</p>{therapy.length ? <div className="chips">{therapy.map((t) => <span key={t} className="chip">{t}</span>)}</div> : <p className="panel__note">Не указано</p>}</section>
+        <section className="panel"><p className="eyebrow">Процедуры</p>{procedures.length ? <div className="chips">{procedures.map((t) => <span key={t} className="chip">{t}</span>)}</div> : <p className="panel__note">Не указаны</p>}</section>
+        <section className="panel"><p className="eyebrow">Ограничения</p>{restrictions.length ? <div className="chips">{restrictions.map((t) => <span key={t} className="chip">{t}</span>)}</div> : <p className="panel__note">Не указаны</p>}</section>
       </div>
-      <section className="block"><p className="profile-note">Совместимость каждого продукта рассчитывается по этому профилю и текущей полке. Чем точнее заполнен профиль, тем точнее результат проверки.</p></section>
+      <section className="block"><p className="profile-note">Изменение профиля бесплатно. Сохранённые результаты не удаляются: устаревшие продукты можно обновить с полки одним пакетом.</p></section>
     </div>
   )
 }
@@ -2294,8 +2419,10 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
     try {
       const saved = await onAddToShelf(product)
       if (!saved) setShelfError("Не удалось добавить на полку. Проверьте соединение и попробуйте ещё раз.")
-    } catch {
-      setShelfError("Не удалось добавить на полку. Проверьте соединение и попробуйте ещё раз.")
+    } catch (error) {
+      setShelfError(error instanceof Error && error.message
+        ? error.message
+        : "Не удалось добавить на полку. Проверьте соединение и попробуйте ещё раз.")
     } finally {
       setAdding(false)
     }
@@ -3377,7 +3504,7 @@ function ShelfAddModal({
                       <button
                         type="button"
                         className="add-modal__add"
-                        onClick={() => onAdd(p)}
+                        onClick={() => { void Promise.resolve(onAdd(p)).catch(() => {}) }}
                         aria-label="Добавить"
                       >
                         <Icon name="plus" size={16} />
@@ -3693,6 +3820,12 @@ export default function App() {
       .finally(() => setShelfLoading(false))
   }
   useEffect(() => { loadShelf() }, [])
+  // A profile save can make shelf results stale; reload the actual shelf state
+  // whenever the user opens it, not only after a full page refresh.
+  useEffect(() => {
+    if (page === "shelf" && user) void loadShelf()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
 
   // Блокируем прокрутку фона, когда открыт drawer или модалка.
   useEffect(() => {
@@ -3897,7 +4030,13 @@ export default function App() {
   }
   const handleSelectPlan = async (p: Plan) => {
     if (getToken()) {
-      try { const r = await api.subscription(p); setUser((u) => (u ? { ...u, plan: p, points: r.balance } : u)) } catch { setUser((u) => (u ? { ...u, plan: p } : u)) }
+      try {
+        const r = await api.subscription(p)
+        setUser((u) => (u ? { ...u, plan: p, points: r.balance } : u))
+        setToast("Тариф обновлён")
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : "Не удалось изменить тариф")
+      }
     } else {
       setUser((u) => (u ? { ...u, plan: p } : u))
     }
@@ -3926,7 +4065,7 @@ export default function App() {
         error = e instanceof Error ? e.message : "Не удалось добавить продукт."
       }
     }
-    if (error) { setToast(error); return false }
+    if (error) { setToast(error); throw new Error(error) }
     setItems((cur) => cur.map((x) => (x.id === id ? { ...x, state: "using", shelf_id: shelfId ?? x.shelf_id } : x)))
     // Оптимистично добавляем на полку, чтобы карточка появилась сразу,
     // а затем сверяемся с сервером (он вернёт канонический shelf_id/категорию).
@@ -3979,7 +4118,13 @@ export default function App() {
   }
   const handleTopUp = async (amount: number) => {
     if (getToken()) {
-      try { const r = await api.topUp(amount); setUser((u) => (u ? { ...u, points: r.balance } : u)) } catch { setUser((u) => (u ? { ...u, points: u.points + amount } : u)) }
+      try {
+        const r = await api.topUp(amount)
+        setUser((u) => (u ? { ...u, points: r.balance } : u))
+        setToast("Баллы добавлены")
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : "Не удалось пополнить баланс")
+      }
     } else {
       setUser((u) => (u ? { ...u, points: u.points + amount } : u))
     }
@@ -4046,7 +4191,7 @@ export default function App() {
                 onRestart={resetGuestFlow}
               />
             )}
-            {user && page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} />}
+            {user && page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onBalance={(balance) => setUser((u) => (u ? { ...u, points: balance } : u))} />}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} />}

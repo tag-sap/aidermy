@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -385,12 +387,41 @@ async def read_snapshot(
     return {"snapshot": snapshot}
 
 
+def _charge_evaluation(user_id: int, report, profile: dict) -> None:
+    """Charge one point only for a completed, saved full check.
+
+    The idempotency key makes retries and concurrent requests safe. A failed or
+    incomplete analysis never reaches this function.
+    """
+    snapshot = getattr(report, "snapshot", None) or {}
+    composition_hash = str((snapshot.get("composition") or {}).get("hash") or "")
+    method_version = str(snapshot.get("engine_version") or "")
+    if not composition_hash or not getattr(report, "is_final", False):
+        return
+    fingerprint = json.dumps(
+        profile_fingerprint(profile), ensure_ascii=False, sort_keys=True, default=str
+    )
+    key_material = "|".join(
+        ("evaluation", str(user_id), str((snapshot.get("product") or {}).get("id") or ""), composition_hash, method_version, fingerprint)
+    )
+    key = "eval:" + hashlib.sha256(key_material.encode("utf-8")).hexdigest()
+    try:
+        from ..database import change_balance
+
+        change_balance(user_id, -1, "evaluation_check", "Проверка продукта", idempotency_key=key)
+    except Exception:
+        # Billing must never turn a completed result into an error. The
+        # idempotent transaction is retried on the next request if needed.
+        pass
+
+
 def _analyze_sync(
     payload: AnalyzeRequest,
     request: Request,
     user: dict,
     *,
     allow_research: bool,
+    charge: bool = False,
 ) -> dict:
     """Blocking analysis (runs in a worker thread, never on the event loop)."""
     service = _analysis_service(request)
@@ -428,7 +459,10 @@ def _analyze_sync(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ContractError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return report.as_dict()
+    payload_body = report.as_dict()
+    if charge:
+        _charge_evaluation(int(user["id"]), report, payload.profile)
+    return payload_body
 
 
 async def _run_analysis(
@@ -437,9 +471,15 @@ async def _run_analysis(
     user: dict,
     *,
     allow_research: bool,
+    charge: bool = False,
 ) -> dict:
     return await run_in_threadpool(
-        _analyze_sync, payload, request, user, allow_research=allow_research
+        _analyze_sync,
+        payload,
+        request,
+        user,
+        allow_research=allow_research,
+        charge=charge,
     )
 
 
@@ -748,7 +788,9 @@ async def product_evaluate(
     work. Existing valid evaluations are reused without a provider call.
     """
     body = _product_analysis_request(payload, product_id, verify_catalog_inci=False)
-    return await _run_analysis(body, request, user, allow_research=True)
+    return await _run_analysis(
+        body, request, user, allow_research=True, charge=True
+    )
 
 
 @router.post("/products/{product_id}/research")
