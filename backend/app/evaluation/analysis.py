@@ -117,6 +117,27 @@ def _verdict_label(parameter_id: str, verdict: str, intolerance: Mapping | None 
             "negative": "Не рекомендуется в этот период",
             "unknown": "Не удалось определить",
         }[verdict]
+    if section == "goal":
+        return {
+            "positive": "Цель поддерживается",
+            "neutral": "Влияние неясно",
+            "negative": "Цель не подтверждена",
+            "unknown": "Не удалось определить",
+        }[verdict]
+    if section == "skin_type":
+        return {
+            "positive": "Соответствует типу кожи",
+            "neutral": "Смешанный результат",
+            "negative": "Не соответствует типу кожи",
+            "unknown": "Не удалось определить",
+        }[verdict]
+    if section == "problem":
+        return {
+            "positive": "Соответствует задаче",
+            "neutral": "Смешанный результат",
+            "negative": "Не соответствует задаче",
+            "unknown": "Не удалось определить",
+        }[verdict]
     return {
         "positive": "Подходит",
         "neutral": "Смешанный результат",

@@ -86,6 +86,10 @@ class OverallVerdictTests(unittest.TestCase):
         ).user_report()
         self.assertEqual(public["overall"]["verdict"], "Подходит с оговорками")
         self.assertEqual(public["overall"]["negative"], 1)
+        self.assertEqual(
+            public["personal_compatibility"][1]["verdict_label"],
+            "Цель не подтверждена",
+        )
 
     def test_unknown_only_is_insufficient_and_never_a_check(self):
         public = make_report(
