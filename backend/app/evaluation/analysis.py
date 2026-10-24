@@ -337,14 +337,17 @@ def _caution_copy(parameter_id: str, evidence: Sequence[Mapping] | None) -> tupl
     """
     section = _section(parameter_id)
     risk = ""
-    for row in sorted(
-        evidence or [],
-        key=lambda item: (
+    def evidence_rank(item: Mapping) -> tuple[int, float]:
+        try:
+            confidence = float(item.get("confidence") or 0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        return (
             {"strong": 3, "moderate": 2, "weak": 1}.get(str(item.get("strength") or ""), 0),
-            float(item.get("confidence") or 0),
-        ),
-        reverse=True,
-    ):
+            confidence,
+        )
+
+    for row in sorted(evidence or [], key=evidence_rank, reverse=True):
         if str(row.get("verification") or "") != "confirmed":
             continue
         if str(row.get("direction") or "") != "contradicts":
