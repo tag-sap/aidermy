@@ -209,10 +209,8 @@ def _overall_verdict(items: Sequence[Mapping]) -> dict:
     elif negative:
         verdict = "Подходит с оговорками"
         tone = "warn"
-        summary = (
-            f"Есть предупреждения: {len(negative)}. Это не критический конфликт, "
-            "но продукт подходит не полностью."
-        )
+        prefix = "Есть предупреждение" if len(negative) == 1 else f"Есть предупреждения: {len(negative)}"
+        summary = f"{prefix}. Это не критический конфликт, но продукт подходит не полностью."
     elif neutral or unknown:
         verdict = "Подходит с оговорками"
         tone = "warn"
@@ -220,7 +218,7 @@ def _overall_verdict(items: Sequence[Mapping]) -> dict:
     else:
         verdict = "Подходит"
         tone = "good"
-        summary = f"Все {positive} проверенных пункта подтверждают совместимость."
+        summary = "Все проверенные пункты подтверждают совместимость."
     return {
         "verdict": verdict,
         "tone": tone,
