@@ -384,6 +384,24 @@ class SavedReportTests(unittest.TestCase):
             {"problem:dryness", "skin_type:dry"},
         )
 
+    def test_saved_report_does_not_reuse_another_profile_snapshot(self):
+        store = InMemoryStore()
+        service = make_service(store, DocumentProvider(), FakeDocumentFetcher({URL: PAGE_TEXT}))
+        run(service, user_id=1)
+        knowledge = ProductKnowledge(
+            product=PRODUCT,
+            composition=COMPOSITION,
+            source_urls=(URL,),
+        )
+        with patch("app.evaluation.analysis.load_product_knowledge", return_value=knowledge):
+            self.assertIsNone(
+                service.saved_report(
+                    product_id=PRODUCT["id"],
+                    profile={"skin_type": "oily", "concerns": ["acne_general"]},
+                    user_id=1,
+                )
+            )
+
     def test_saved_report_rejects_stale_or_missing_history(self):
         store = InMemoryStore()
         service = make_service(store, DocumentProvider())

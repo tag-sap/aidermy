@@ -308,6 +308,13 @@ def load_product_knowledge(
             "name": display_name,
             "brand": brand,
             "url": str(product.get("url") or product.get("incidecoder_url") or ""),
+            # Functional classification must use the catalog category/type as
+            # evidence. Keeping only the display name discarded the reliable
+            # "Очищение" signal for products such as Bioderma Créaline.
+            "category": str(product.get("category") or "").strip(),
+            "subcategory": str(product.get("subcategory") or "").strip(),
+            "taxonomy_category": str(product.get("taxonomy_category") or "").strip(),
+            "description": str(product.get("description") or "").strip(),
             "has_reliable_inci": len(_inci_tokens(inci_raw)) >= 2,
         },
         composition=composition,

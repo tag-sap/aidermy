@@ -108,6 +108,50 @@ class PrimaryFunctionTests(unittest.TestCase):
         self.assertLessEqual(len(sentences), 2)
 
 
+class CategoryFunctionRegressionTests(unittest.TestCase):
+    def test_bioderma_cleansing_category_defines_function_without_marker_words(self):
+        product = {
+            "id": 4468,
+            "name": "Créaline (Sensibio) Foaming Gel/ Gel Moussant",
+            "category": "Очищение",
+            "subcategory": "Очищение и демакияж",
+            "taxonomy_category": "Уход для лица",
+        }
+        result = build_primary_function(
+            product,
+            {"inci_raw": "Aqua, Glycerin"},
+            composition_status="active",
+        )
+        self.assertEqual(result["category"], "Очищение и демакияж")
+        self.assertEqual(result["function_id"], "cleansing")
+        self.assertEqual(result["label"], "Очищение")
+        # The category defines the function; absence of a recognized marker
+        # withholds the efficacy score, not the function itself.
+        self.assertIsNone(result["score"])
+        self.assertEqual(result["status"], "insufficient_evidence")
+
+    def test_similar_cleansing_categories_keep_function_defined(self):
+        for category, subcategory in (
+            ("Очищение", "Гели и пенки"),
+            ("Очищение", "Мицеллярная вода"),
+            ("Очищение", "Молочко"),
+            ("Очищение и демакияж", "Очищение и демакияж"),
+        ):
+            with self.subTest(category=category, subcategory=subcategory):
+                result = build_primary_function(
+                    {
+                        "id": 999,
+                        "name": "Test cleanser",
+                        "category": category,
+                        "subcategory": subcategory,
+                    },
+                    {"inci_raw": "Aqua, Glycerin"},
+                    composition_status="active",
+                )
+                self.assertEqual(result["label"], "Очищение")
+                self.assertEqual(result["function_id"], "cleansing")
+
+
 class CompactUserReportTests(unittest.TestCase):
     def _report(self, primary: dict | None = None) -> AnalysisReport:
         primary = primary or build_primary_function(
@@ -158,7 +202,13 @@ class CompactUserReportTests(unittest.TestCase):
         public = report.user_report()
         self.assertEqual(
             set(public),
-            {"product_name", "primary_function", "personal_compatibility"},
+            {
+                "product_name",
+                "primary_function",
+                "overall",
+                "personal_compatibility",
+                "sources",
+            },
         )
         self.assertNotIn("total", public)
         self.assertNotIn("average", public)

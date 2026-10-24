@@ -91,6 +91,144 @@ def _intolerance_status(parameter_id: str, composition: Mapping) -> dict | None:
     }
 
 
+_CRITICAL_SECTIONS = {"skin_type", "problem", "therapy", "procedure", "intolerance"}
+_VERDICT_ICONS = {"positive": "check", "neutral": "dash", "negative": "cross", "unknown": "dash"}
+
+
+def _section(parameter_id: str) -> str:
+    return parameter_id.split(":", 1)[0]
+
+
+def _verdict_label(parameter_id: str, verdict: str, intolerance: Mapping | None = None) -> str:
+    section = _section(parameter_id)
+    if section == "intolerance" and intolerance is not None:
+        return str(intolerance.get("label") or "Не удалось определить")
+    if section == "therapy":
+        return {
+            "positive": "Совместимо с лечением",
+            "neutral": "Совместимость неясна",
+            "negative": "Конфликт с лечением",
+            "unknown": "Не удалось определить",
+        }[verdict]
+    if section == "procedure":
+        return {
+            "positive": "Можно использовать в этот период",
+            "neutral": "Нужна осторожность",
+            "negative": "Не рекомендуется в этот период",
+            "unknown": "Не удалось определить",
+        }[verdict]
+    return {
+        "positive": "Подходит",
+        "neutral": "Смешанный результат",
+        "negative": "Не подходит",
+        "unknown": "Не удалось определить",
+    }[verdict]
+
+
+def _item_verdict(parameter_id: str, score: object, intolerance: Mapping | None) -> str:
+    if intolerance is not None:
+        state = str(intolerance.get("state") or "unknown")
+        if state == "present":
+            return "negative"
+        if state == "absent":
+            return "positive"
+        return "unknown"
+    try:
+        value = float(score)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "unknown"
+    if value >= 75:
+        return "positive"
+    if value <= 25:
+        return "negative"
+    return "neutral"
+
+
+def _gap_label(parameter_id: str) -> str:
+    parameter = PARAMETERS.get(parameter_id)
+    if parameter is not None:
+        return parameter.label
+    if parameter_id.startswith("intolerance:ingredient:"):
+        name = parameter_id.split(":", 2)[2].replace("_", " ").strip()
+        if name:
+            try:
+                return ingredient_parameter(name).label
+            except Exception:  # noqa: BLE001
+                return name
+    return "Параметр профиля"
+
+
+def _overall_verdict(items: Sequence[Mapping]) -> dict:
+    """Aggregate conflicts by meaning, not by counting positive cards."""
+    assessed = [
+        item for item in items
+        if item.get("verdict") in {"positive", "neutral", "negative"}
+    ]
+    unknown = sum(1 for item in items if item.get("verdict") == "unknown")
+    positive = sum(1 for item in items if item.get("verdict") == "positive")
+    neutral = sum(1 for item in items if item.get("verdict") == "neutral")
+    negative = [item for item in items if item.get("verdict") == "negative"]
+    critical = [
+        item for item in negative
+        if _section(str(item.get("parameter_id") or "")) in _CRITICAL_SECTIONS
+    ]
+    if critical:
+        first = critical[0]
+        verdict = "Не подходит"
+        tone = "bad"
+        summary = f"Есть критичный конфликт: {first.get('label')}. {first.get('verdict_label')}."
+    elif not assessed and unknown:
+        verdict = "Недостаточно данных"
+        tone = "muted"
+        summary = "Нет подтверждённых оценок; неизвестные данные не считаются положительными."
+    elif not assessed:
+        verdict = "Недостаточно данных"
+        tone = "muted"
+        summary = "Для вашего профиля нет проверенных пунктов."
+    elif negative:
+        verdict = "Подходит с оговорками"
+        tone = "warn"
+        summary = (
+            f"Есть предупреждения: {len(negative)}. Это не критический конфликт, "
+            "но продукт подходит не полностью."
+        )
+    elif neutral or unknown:
+        verdict = "Подходит с оговорками"
+        tone = "warn"
+        summary = f"Есть оговорки: нейтральных — {neutral}, неизвестных — {unknown}."
+    else:
+        verdict = "Подходит"
+        tone = "good"
+        summary = f"Все {positive} проверенных пункта подтверждают совместимость."
+    return {
+        "verdict": verdict,
+        "tone": tone,
+        "summary": summary,
+        "positive": positive,
+        "neutral": neutral,
+        "negative": len(negative),
+        "unknown": unknown,
+        "assessed": len(assessed),
+    }
+
+
+def _source_urls(items: Sequence[Mapping], primary: Mapping | None) -> list[str]:
+    urls: list[str] = []
+
+    def add(url: object) -> None:
+        text = str(url or "").strip()
+        if text.startswith(("http://", "https://")) and text not in urls:
+            urls.append(text)
+
+    for item in items:
+        for row in item.get("evidence") or []:
+            source = row.get("source") or {}
+            add(source.get("url"))
+    for row in (primary or {}).get("basis") or []:
+        add(row.get("source"))
+    return urls
+
+
 @dataclass(frozen=True)
 class AnalysisReport:
     product: dict
@@ -111,32 +249,62 @@ class AnalysisReport:
     def user_report(self) -> dict:
         """The compact, non-technical result rendered in the product drawer.
 
-        Internal statuses, gaps, provider errors, the historical average and
-        source-quote audit material stay in ``snapshot``/``analysis``/``evidence``
-        for administrators and audit; this projection contains only the two
-        user-facing sections.
+        Internal statuses, provider errors, the historical average and
+        source-quote audit material stay in ``snapshot``/``analysis``/``evidence``.
+        This projection contains the overall verdict, the checklist with
+        explicit neutral/unknown states, and one source list.
         """
         personal = []
+        seen: set[str] = set()
         for row in self.snapshot.get("parameters") or []:
             if not row.get("included") or row.get("value") is None:
                 continue
             parameter_id = str(row.get("parameter_id") or "")
+            intolerance = _intolerance_status(parameter_id, self.composition)
+            verdict = _item_verdict(parameter_id, row.get("value"), intolerance)
             item = {
                 "parameter_id": parameter_id,
                 "label": str(row.get("label") or ""),
                 "score": row.get("value"),
                 "reason": str(row.get("summary") or row.get("reason") or ""),
                 "evidence": list(self.evidence.get(parameter_id) or []),
+                "section": _section(parameter_id),
+                "verdict": verdict,
+                "verdict_label": _verdict_label(parameter_id, verdict, intolerance),
+                "verdict_icon": _VERDICT_ICONS[verdict],
             }
-            intolerance = _intolerance_status(parameter_id, self.composition)
             if intolerance is not None:
                 item["intolerance"] = intolerance
             personal.append(item)
+            seen.add(parameter_id)
+
+        # Unknown is not a positive result: show it explicitly with a neutral
+        # dash, but never invent a score or a check.
+        for gap in self.analysis.gaps:
+            parameter_id = str(gap.parameter_id)
+            if parameter_id in seen:
+                continue
+            personal.append({
+                "parameter_id": parameter_id,
+                "label": _gap_label(parameter_id),
+                "score": None,
+                "reason": gap.detail or "Нет подтверждённых данных для оценки.",
+                "evidence": [],
+                "section": _section(parameter_id),
+                "verdict": "unknown",
+                "verdict_label": "Не удалось определить",
+                "verdict_icon": _VERDICT_ICONS["unknown"],
+            })
+            seen.add(parameter_id)
+
+        primary = public_primary_function(self.primary_function)
         name = " ".join(str(self.product.get("name") or "").replace("\n", " ").split())
         return {
             "product_name": name,
-            "primary_function": public_primary_function(self.primary_function),
+            "primary_function": primary,
+            "overall": _overall_verdict(personal),
             "personal_compatibility": personal,
+            "sources": _source_urls(personal, primary),
         }
 
     def as_dict(self) -> dict:

@@ -253,19 +253,38 @@ export type EvaluationIntoleranceStatus = {
   matched?: string[]
 }
 
+export type EvaluationVerdict = "positive" | "neutral" | "negative" | "unknown"
+
+export type EvaluationOverall = {
+  verdict: "Подходит" | "Подходит с оговорками" | "Не подходит" | "Недостаточно данных" | string
+  tone: "good" | "warn" | "bad" | "muted" | string
+  summary: string
+  positive: number
+  neutral: number
+  negative: number
+  unknown: number
+  assessed: number
+}
+
 export type EvaluationPersonalParameter = {
   parameter_id: string
   label: string
-  score: number
+  score: number | null
   reason: string
   evidence?: EvaluationEvidence[]
   intolerance?: EvaluationIntoleranceStatus
+  section?: string
+  verdict?: EvaluationVerdict
+  verdict_label?: string
+  verdict_icon?: "check" | "dash" | "cross" | string
 }
 
 export type EvaluationUserReport = {
   product_name: string
   primary_function: EvaluationPrimaryFunction
+  overall: EvaluationOverall
   personal_compatibility: EvaluationPersonalParameter[]
+  sources: string[]
 }
 
 export type EvaluationSnapshot = {
@@ -296,6 +315,7 @@ export type EvaluationReport = {
 
 export type EvaluationSavedReport = {
   saved: boolean
+  reason?: string
   report: EvaluationReport | null
 }
 

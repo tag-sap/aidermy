@@ -600,6 +600,11 @@ async def product_saved_report(
     )
     return {
         "saved": report is not None,
+        "reason": (
+            ""
+            if report is not None
+            else "Сохранённого отчёта для текущего профиля нет или он устарел. Обновите проверку."
+        ),
         "report": report.as_dict() if report is not None else None,
     }
 
