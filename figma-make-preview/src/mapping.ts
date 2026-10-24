@@ -172,7 +172,7 @@ export function mapRecommendation(r: { id?: number; slug?: string; name?: string
     id: r.id ?? hashSlug(slug || r.name || "rec"),
     brand: r.brand || "",
     name: r.name || "Продукт",
-    cabinet: "face",
+    cabinet: inferCabinet(category, r.name),
     category,
     image: r.image_url || placeholderImage(r.id ?? hashSlug(slug)),
     tags: category ? [category] : [],
