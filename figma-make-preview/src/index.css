@@ -298,6 +298,7 @@ h1 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em
 .shelf-summary strong { font-family: var(--font-sans); font-weight: 700; font-size: 22px; line-height: 1.1; letter-spacing: -0.02em; display: block; overflow-wrap: anywhere; }
 .shelf-summary span { color: var(--ink-soft); font-size: 11.5px; }
 .shelf-refresh { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.shelf-refresh.is-busy { border-color: color-mix(in srgb, var(--good) 38%, var(--border)); background: color-mix(in srgb, var(--good-bg) 55%, var(--surface)); }
 .shelf-refresh > div { display: grid; gap: 4px; min-width: 0; }
 .shelf-refresh strong { font-size: 13px; }
 .shelf-refresh span { color: var(--ink-soft); font-size: 12px; line-height: 1.45; }
@@ -312,7 +313,8 @@ h1 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em
 .shelf-list__meta em { font-style: normal; color: var(--ink); }
 .shelf-list__score { min-width: 42px; text-align: right; font-size: 13px; font-weight: 700; }
 .shelf-list__score.is-empty { color: var(--ink-soft); font-weight: 500; }
-.shelf-list__remove, .shelf-list__select { flex: 0 0 auto; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 50%; background: var(--paper); color: var(--ink-soft); cursor: pointer; line-height: 1; }
+.shelf-list__remove, .shelf-list__select { flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--paper); color: var(--ink-soft); cursor: pointer; line-height: 1; }
+.shelf-list__remove svg, .shelf-list__select svg { display: block; }
 .shelf-list__remove:hover { color: var(--bad); }
 .shelf-list__select.is-selected { background: var(--good-bg); color: var(--good); }
 @media (max-width: 760px) { .shelf-list__main { grid-template-columns: minmax(0, 1fr) auto; } .shelf-list__meta em { display: none; } }

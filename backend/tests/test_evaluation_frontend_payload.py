@@ -248,6 +248,16 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertNotIn("pcard__verified", self.app)
         self.assertNotIn("Проверенный продукт", self.app)
 
+    def test_shelf_batch_refresh_uses_current_user_evaluation(self):
+        self.assertIn("handleBatchRefresh", self.app)
+        self.assertIn("refreshCandidates", self.app)
+        self.assertIn("evaluationProductEvaluate", self.app)
+        self.assertIn("Обновить проверки", self.app)
+        self.assertNotIn("Есть устаревшие результаты", self.app)
+        # Remove controls are centered SVG icons, not a baseline-shifted glyph.
+        self.assertIn('className="shelf-list__remove"', self.app)
+        self.assertIn('<Icon name="close" size={15} />', self.app)
+
     def test_shelf_is_a_compact_list_with_real_capacity_copy(self):
         self.assertIn("shelf-info", self.app)
         self.assertIn("shelf-info__capacity", self.app)

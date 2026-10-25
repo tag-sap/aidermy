@@ -1284,53 +1284,77 @@ function GuestResultScreen({ product, guestToken, onSignup, onLogin, onRestart }
 }
 
 
-function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan = "free", error = "", onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onPricing, onBalance }: {
-  items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; count?: number; plan?: Plan; error?: string;
+function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan = "free", balance, error = "", onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onPricing, onBalance }: {
+  items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; count?: number; plan?: Plan; balance?: number; error?: string;
   onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void;
   onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onPricing?: () => void; onBalance?: (balance: number) => void
 }) {
   const [active, setActive] = useState<CabinetKey>("face")
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [refreshQuote, setRefreshQuote] = useState<null | { count: number; cost: number; balance: number; remaining: number }>(null)
-  const [refreshBusy, setRefreshBusy] = useState(false)
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [batchDone, setBatchDone] = useState(0)
+  const [batchTotal, setBatchTotal] = useState(0)
+  const [batchCurrent, setBatchCurrent] = useState<number | null>(null)
   const [refreshMessage, setRefreshMessage] = useState("")
 
   const toggleSelect = (shelfId: number) => {
     setSelected((prev) => { const next = new Set(prev); if (next.has(shelfId)) next.delete(shelfId); else next.add(shelfId); return next })
   }
 
-  useEffect(() => {
-    let alive = true
-    if (loading || !items.some((item) => item.needs_recheck)) {
-      setRefreshQuote(null)
-      return () => { alive = false }
-    }
-    void api.shelfRefreshPreview()
-      .then((quote) => { if (alive) setRefreshQuote(quote.count > 0 ? quote : null) })
-      .catch(() => { if (alive) setRefreshQuote(null) })
-    return () => { alive = false }
-  }, [items, loading])
+  const refreshCandidates = items.filter((item) => {
+    if (!item.state || checkingIds.has(item.id)) return false
+    const status = item.check?.status
+    return status === "stale" || status === "none" || item.needs_recheck === true
+  })
 
-  const handleRefresh = async () => {
-    if (!refreshQuote || refreshBusy) return
-    setRefreshBusy(true)
+  const handleBatchRefresh = async () => {
+    if (batchBusy || refreshCandidates.length === 0) return
+    const candidates = [...refreshCandidates]
+    setBatchBusy(true)
+    setBatchDone(0)
+    setBatchTotal(candidates.length)
+    setBatchCurrent(null)
     setRefreshMessage("")
-    const ids = items.filter((item) => item.needs_recheck).map((item) => item.id)
-    try {
-      const result = await api.shelfRefresh({ product_ids: ids, quoted_cost: refreshQuote.cost })
-      setRefreshMessage(
-        result.failed.length > 0
-          ? `Обновлено ${result.updated} из ${result.updated + result.failed.length}. Не удалось обновить ${result.failed.length}.`
-          : `Полка обновлена: ${result.updated} продуктов.`
-      )
-      setRefreshQuote(null)
-      if (typeof result.balance === "number") onBalance?.(result.balance)
+    let updated = 0
+    const failures: string[] = []
+
+    for (let index = 0; index < candidates.length; index += 1) {
+      const item = candidates[index]
+      setBatchCurrent(item.id)
+      try {
+        const composition = await api.evaluationCompositionCheck(item.id)
+        if (!composition.composition_state?.usable) {
+          failures.push(`${item.name}: ${composition.message || "состав не подтверждён"}`)
+        } else {
+          const report = await api.evaluationProductEvaluate(item.id, buildProfile())
+          if (report.analysis?.is_final) {
+            updated += 1
+          } else {
+            failures.push(`${item.name}: недостаточно данных для итоговой проверки`)
+          }
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "ошибка проверки"
+        failures.push(`${item.name}: ${reason}`)
+      }
+      setBatchDone(index + 1)
+    }
+
+    setBatchCurrent(null)
+    setBatchBusy(false)
+    const failureText = failures.length
+      ? ` Не удалось обновить ${failures.length}: ${failures.slice(0, 2).join("; ")}${failures.length > 2 ? "…" : ""}.`
+      : ""
+    setRefreshMessage(`Обновлено ${updated} из ${candidates.length}.${failureText}`)
+    if (updated > 0) {
+      try {
+        const nextBalance = await api.balance()
+        onBalance?.(nextBalance.balance)
+      } catch {
+        // Status refresh below is more important than a balance badge update.
+      }
       onRefresh?.()
-    } catch (error) {
-      setRefreshMessage(error instanceof Error ? error.message : "Не удалось обновить полку.")
-    } finally {
-      setRefreshBusy(false)
     }
   }
 
@@ -1385,14 +1409,18 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
         </div>
       </section>
 
-      {refreshQuote && (
-        <div className="shelf-refresh" role="status">
+      {refreshCandidates.length > 0 && (
+        <div className={`shelf-refresh ${batchBusy ? "is-busy" : ""}`} role="status" aria-live="polite">
           <div>
-            <strong>Есть устаревшие результаты</strong>
-            <span>Обновить {refreshQuote.count} {refreshQuote.count === 1 ? "продукт" : "продуктов"}? Стоимость — {refreshQuote.cost} баллов, останется {refreshQuote.remaining}.</span>
+            <strong>{batchBusy ? `Обновляем проверки: ${batchDone} из ${batchTotal}` : "Пакетное обновление проверок"}</strong>
+            <span>
+              {batchBusy
+                ? "Проверяем состав и пересчитываем персональный результат. Не закрывайте раздел до завершения."
+                : `Проверим ${refreshCandidates.length} ${refreshCandidates.length === 1 ? "средство" : "средств"} с устаревшими или отсутствующими проверками. Стоимость — 1 балл за успешно обновлённый продукт${typeof balance === "number" ? ` · баланс ${balance}` : ""}.`}
+            </span>
           </div>
-          <Button variant="secondary" small onClick={() => void handleRefresh()} disabled={refreshBusy}>
-            {refreshBusy ? "Обновляем…" : `Обновить за ${refreshQuote.cost}`}
+          <Button variant="secondary" small onClick={() => void handleBatchRefresh()} disabled={batchBusy}>
+            {batchBusy ? "Обновляем…" : `Обновить проверки (${refreshCandidates.length})`}
           </Button>
         </div>
       )}
@@ -1414,7 +1442,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
                 aria-label={selected.has(p.shelf_id ?? p.id) ? "Снять выбор" : "Выбрать продукт"}
                 onClick={() => toggleSelect(p.shelf_id ?? p.id)}
               >
-                {selected.has(p.shelf_id ?? p.id) ? "✓" : ""}
+                {selected.has(p.shelf_id ?? p.id) ? <Icon name="check" size={14} /> : ""}
               </button>
             )}
             <button type="button" className="shelf-list__main" onClick={() => onOpen(p)}>
@@ -1428,7 +1456,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
                 </span>
               </span>
               <span className="shelf-list__check" aria-live="polite">
-                {checkingIds.has(p.id) ? (
+                {checkingIds.has(p.id) || (batchBusy && batchCurrent === p.id) ? (
                   <span className="shelf-list__checking"><img src="/loading.gif" alt="" /> Проверяем…</span>
                 ) : p.check?.status === "checked" ? (
                   <>
@@ -1444,7 +1472,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
               <Icon name="chevron" size={16} />
             </button>
             {!selectMode && (
-              <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`}>×</button>
+              <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`} title="Убрать с полки"><Icon name="close" size={15} /></button>
             )}
           </div>
         ))}
@@ -4256,7 +4284,7 @@ export default function App() {
                 onRestart={resetGuestFlow}
               />
             )}
-            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} count={shelfMeta?.count} plan={shelfMeta?.plan ?? user.plan} error={shelfError} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onPricing={() => setPricingOpen(true)} onBalance={(balance) => setUser((u) => (u ? { ...u, points: balance } : u))} />}
+            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} count={shelfMeta?.count} plan={shelfMeta?.plan ?? user.plan} balance={user.points} error={shelfError} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onPricing={() => setPricingOpen(true)} onBalance={(balance) => setUser((u) => (u ? { ...u, points: balance } : u))} />}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} enrichChecks={enrichCheckStatuses} />}
