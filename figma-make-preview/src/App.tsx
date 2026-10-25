@@ -3673,7 +3673,7 @@ export default function App() {
   const [shelfLoading, setShelfLoading] = useState(false)
   const [shelfError, setShelfError] = useState("")
   const [shelfMeta, setShelfMeta] = useState<{ plan: Plan; limit: number; count: number } | null>(null)
-  const [, setProfileVersion] = useState(0)
+  const [profileVersion, setProfileVersion] = useState(0)
   // Every account change gets a new epoch. A late response from the previous
   // session is ignored instead of repopulating the new user's cards.
   const authEpochRef = useRef(0)
@@ -3844,6 +3844,16 @@ export default function App() {
     if (page === "shelf" && user) void loadShelf()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page])
+
+  // A profile changes the personal-check fingerprint. Re-fetch statuses after
+  // the async profile load so a checked card is not shown as stale merely
+  // because the browser had not loaded the profile yet.
+  useEffect(() => {
+    if (!user) return
+    void loadCatalog()
+    void loadShelf()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileVersion])
 
   // Блокируем прокрутку фона, когда открыт drawer или модалка.
   useEffect(() => {
@@ -4030,6 +4040,22 @@ export default function App() {
     clearPersonalState()
     setUser(u)
     setAuthModal(null)
+    // Load the server profile before asking for personal statuses. The browser
+    // may still hold the previous account's profile after an account switch.
+    void api.getProfile()
+      .then((r) => {
+        const p = (r.profile || {}) as { skinType?: string; age?: string; concerns?: string[]; allergies?: string[]; structuredProfile?: unknown }
+        if (p.skinType || p.age || p.concerns?.length || p.allergies?.length || p.structuredProfile) {
+          setUserProfile({
+            skinType: p.skinType || getUserProfile().skinType,
+            age: p.age || getUserProfile().age,
+            concerns: p.concerns || [],
+            allergies: p.allergies || [],
+            structured: p.structuredProfile || null,
+          })
+        }
+      })
+      .catch(() => {})
     void loadCatalog()
     void loadShelf()
     // Гость только что прошёл проверку — сохраняем её результат в аккаунт.
