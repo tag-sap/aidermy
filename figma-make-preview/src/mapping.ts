@@ -264,6 +264,20 @@ export function setUserProfile(p: Partial<typeof _userProfile>) {
   }
 }
 
+export function resetUserProfile() {
+  _userProfile = {
+    skinType: "",
+    age: "",
+    concerns: [],
+    allergies: [],
+    intolerances: [],
+    structured: null,
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("aidermy-profile-updated"))
+  }
+}
+
 export function getUserProfile() {
   return _userProfile
 }

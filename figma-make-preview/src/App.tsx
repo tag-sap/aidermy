@@ -5,7 +5,7 @@ import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
 import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review } from "./api"
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { CareSetsPage } from "./careSets"
-import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, getUserProfile, applyCheckStatuses } from "./mapping"
+import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, resetUserProfile, getUserProfile, applyCheckStatuses } from "./mapping"
 import { PhotoScan } from "./photo-scan"
 import { ReportDetails } from "./report-details"
 import { EvaluationV2Panel } from "./evaluation-v2"
@@ -4020,6 +4020,7 @@ export default function App() {
   }
 
   const clearPersonalState = () => {
+    resetUserProfile()
     setItems((cur) => cur.map((p) => ({
       ...p,
       match: undefined,

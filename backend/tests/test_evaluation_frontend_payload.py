@@ -238,6 +238,8 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("match: undefined", self.mapping)
         self.assertIn("authEpochRef", self.app)
         self.assertIn("clearPersonalState", self.app)
+        self.assertIn("resetUserProfile", self.app)
+        self.assertIn("resetUserProfile", self.mapping)
         self.assertIn("check: undefined", self.app)
         self.assertIn("Проверено", self.app)
         self.assertIn("Данные устарели", self.app)
