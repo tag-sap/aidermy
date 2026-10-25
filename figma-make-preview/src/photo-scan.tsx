@@ -370,7 +370,7 @@ export function PhotoScan({ guestToken, onContinue }: {
           </div>
           <div className="scan-ready__actions">
             <button type="button" className="btn btn--primary" onClick={() => void checkAndContinue(readyProduct)} disabled={checking}>
-              {checking ? "Проверяем…" : "Проверить совместимость"}
+              {checking ? "Проверяем…" : "Проверить"}
             </button>
             <button type="button" className="btn btn--ghost" onClick={resetResult} disabled={checking}>Это не тот продукт</button>
           </div>

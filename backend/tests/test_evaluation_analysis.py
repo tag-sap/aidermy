@@ -562,6 +562,66 @@ class SearchIntegrationTests(unittest.TestCase):
         self.assertEqual(len(search.queries), calls)
 
 
+class PersonalCheckStatusTests(unittest.TestCase):
+    """Preview statuses are scoped to the current user, not to the product."""
+
+    def _service(self):
+        store = InMemoryStore()
+        service = make_service(store, DocumentProvider(), FakeDocumentFetcher({URL: PAGE_TEXT}))
+        return store, service
+
+    def _knowledge(self):
+        return ProductKnowledge(
+            product=PRODUCT,
+            composition=COMPOSITION,
+            source_urls=(URL,),
+        )
+
+    def test_user_with_current_snapshot_is_checked_and_other_user_is_none(self):
+        store, service = self._service()
+        run(service, user_id=1)
+        with patch("app.evaluation.analysis.load_product_knowledge", return_value=self._knowledge()):
+            own = service.personal_check_statuses(
+                product_ids=[PRODUCT["id"]], profile=PROFILE, user_id=1
+            )
+            other = service.personal_check_statuses(
+                product_ids=[PRODUCT["id"]], profile=PROFILE, user_id=2
+            )
+        self.assertEqual(own[PRODUCT["id"]]["status"], "checked")
+        self.assertTrue(own[PRODUCT["id"]]["verdict"])
+        self.assertEqual(other[PRODUCT["id"]], {"status": "none"})
+
+    def test_each_user_gets_only_their_own_checked_status(self):
+        store, service = self._service()
+        run(service, user_id=1)
+        run(service, user_id=2)
+        with patch("app.evaluation.analysis.load_product_knowledge", return_value=self._knowledge()):
+            first = service.personal_check_statuses(
+                product_ids=[PRODUCT["id"]], profile=PROFILE, user_id=1
+            )
+            second = service.personal_check_statuses(
+                product_ids=[PRODUCT["id"]], profile=PROFILE, user_id=2
+            )
+        self.assertEqual(first[PRODUCT["id"]]["status"], "checked")
+        self.assertEqual(second[PRODUCT["id"]]["status"], "checked")
+        self.assertNotEqual(
+            first[PRODUCT["id"]].get("snapshot_id"),
+            second[PRODUCT["id"]].get("snapshot_id"),
+        )
+
+    def test_changed_profile_marks_existing_history_as_stale(self):
+        store, service = self._service()
+        run(service, user_id=1)
+        with patch("app.evaluation.analysis.load_product_knowledge", return_value=self._knowledge()):
+            status = service.personal_check_statuses(
+                product_ids=[PRODUCT["id"]],
+                profile={"skin_type": "oily", "concerns": ["acne_general"]},
+                user_id=1,
+            )
+        self.assertEqual(status[PRODUCT["id"]]["status"], "stale")
+        self.assertIn("устарел", status[PRODUCT["id"]]["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

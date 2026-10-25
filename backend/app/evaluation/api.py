@@ -530,6 +530,13 @@ class _ProductStatusRequest(BaseModel):
     profile: dict[str, Any] = {}
 
 
+class _ProductStatusesRequest(BaseModel):
+    """Explicit user-scoped preview statuses for a list of catalog products."""
+
+    product_ids: list[int] = []
+    profile: dict[str, Any] = {}
+
+
 class CompositionCheckRequest(BaseModel):
     """Optional source override; the catalog URL is used when omitted."""
 
@@ -603,6 +610,34 @@ def _product_status_sync(
         "current": [item.as_dict() for item in scan.current],
         "source_urls": list(knowledge.source_urls),
         "snapshot": latest_snapshot,
+    }
+
+
+@router.post("/products/statuses")
+async def product_statuses(
+    payload: _ProductStatusesRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Current user's preview status for products, never another user's data.
+
+    The endpoint is read-only and uses the same ``saved_report`` decision as the
+    drawer. A product with no snapshot for this user is ``none``; a snapshot
+    that no longer satisfies profile/composition/method freshness is ``stale``.
+    """
+    ids = list(dict.fromkeys(int(pid) for pid in payload.product_ids))[:500]
+    service = _analysis_service(request)
+    statuses = await run_in_threadpool(
+        service.personal_check_statuses,
+        product_ids=ids,
+        profile=payload.profile,
+        user_id=int(user["id"]),
+    )
+    return {
+        "statuses": {
+            str(product_id): status
+            for product_id, status in sorted(statuses.items())
+        }
     }
 
 

@@ -36,7 +36,7 @@ export type ApiProduct = {
   rating?: number | null
   rating_count?: number
   score?: number | null
-  verified?: boolean
+  composition_verified?: boolean
   analysis?: unknown
 }
 
@@ -364,6 +364,16 @@ export type EvaluationProductStatus = {
   current: Array<{ parameter_id: string; status: string; value: number | null; rationale: string }>
   source_urls: string[]
   snapshot?: EvaluationSnapshot | null
+}
+
+export type EvaluationPreviewStatus = {
+  status: "checked" | "stale" | "none"
+  verdict?: string | null
+  tone?: string | null
+  icon?: string | null
+  checked_at?: string | null
+  snapshot_id?: string | null
+  reason?: string | null
 }
 
 export type EvaluationCompositionCheck = {
@@ -772,6 +782,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ profile }),
     })
+  },
+  async evaluationProductStatuses(productIds: number[], profile: Record<string, unknown>) {
+    return request<{ statuses: Record<string, EvaluationPreviewStatus> }>(
+      "/v1/evaluation/products/statuses",
+      {
+        method: "POST",
+        body: JSON.stringify({ product_ids: productIds, profile }),
+      }
+    )
   },
   async evaluationProductSavedReport(productId: number, profile: Record<string, unknown>) {
     return request<EvaluationSavedReport>(`/v1/evaluation/products/${productId}/saved-report`, {

@@ -6,7 +6,7 @@ from typing import Optional
 
 from .auth import get_current_user
 from .database import get_balance, change_balance, set_user_plan, PLAN_MONTHLY_POINTS
-from .plans import shelf_limit
+from .plans import shelf_limit, PLAN_TITLES
 
 router = APIRouter(prefix="/api", tags=["billing"])
 
@@ -75,7 +75,7 @@ async def billing_catalog():
     plans = [
         {
             "key": key,
-            "title": key.capitalize(),
+            "title": PLAN_TITLES.get(key, key.capitalize()),
             "monthly_points": points,
             "shelf_limit": shelf_limit(key),
             "price": PLAN_PRICES.get(key),

@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
 import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review } from "./api"
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { CareSetsPage } from "./careSets"
-import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, getUserProfile } from "./mapping"
+import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, getUserProfile, applyCheckStatuses } from "./mapping"
 import { PhotoScan } from "./photo-scan"
 import { ReportDetails } from "./report-details"
 import { EvaluationV2Panel } from "./evaluation-v2"
@@ -270,7 +270,10 @@ function ProductName({ name }: { name: string }) {
 function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, selected }: {
   product: Product; checking?: boolean; onOpen?: () => void; onRemove?: () => void; onSelect?: () => void; selected?: boolean
 }) {
-  const checked = product.match != null
+  const check = product.check
+  const checked = check?.status === "checked"
+  const stale = check?.status === "stale"
+  const legacyChecked = !EVALUATION_V2_ENABLED && product.match != null
   return (
     <article className={`pcard ${selected ? "pcard--selected" : ""}`}>
       {onRemove && !onSelect && (
@@ -282,24 +285,40 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
       <button type="button" className="pcard__main" onClick={onSelect ? onSelect : onOpen} aria-label={product.name}>
         <div className="pcard__img">
           <ProductImage src={product.image} />
-          {product.match && <ScoreBadge score={product.match.score} verdict={product.match.verdict} recommendationStatus={product.match.recommendation_status} />}
-          {product.verified && <span className="pcard__verified"><Icon name="check" size={11} /> Проверено</span>}
+          {(checked || legacyChecked) && <ScoreBadge score={product.match?.score ?? null} verdict={product.match?.verdict} recommendationStatus={product.match?.recommendation_status} />}
+          {checked && (
+            <span className="pcard__check-status pcard__check-status--checked">
+              <Icon name="check" size={11} /> Проверено
+            </span>
+          )}
+          {stale && (
+            <span className="pcard__check-status pcard__check-status--stale">
+              <Icon name="alert" size={11} /> Данные устарели
+            </span>
+          )}
           {product.state && <span className={`pcard__state pcard__state--${product.state}`} />}
         </div>
         <div className="pcard__body">
           <p className="pcard__brand">{product.brand}</p>
           <ProductName name={product.name} />
           <p className="pcard__cat">{product.subcategory ? `${product.category} · ${product.subcategory}` : product.category}</p>
+          {checked && check?.verdict && <span className="pcard__check-verdict">{check.verdict}</span>}
         </div>
       </button>
       <div className="pcard__foot">
-        {!checked && (checking ? (
-          <span className="pcard__checking"><img src="/loading.gif" alt="" /> Проверяем…</span>
-        ) : (
+        {checked ? (
+          <span className="pcard__checked-note"><Icon name="file" size={13} /> Отчёт готов</span>
+        ) : stale ? (
           <button type="button" className="pcard__check" onClick={onOpen}>
-            <Icon name="sparkle" size={13} /> Проверить совместимость
+            <Icon name="sparkle" size={13} /> Обновить
           </button>
-        ))}
+        ) : checking ? (
+          <span className="pcard__checking"><img src="/loading.gif" alt="" /> Проверяем…</span>
+        ) : !legacyChecked ? (
+          <button type="button" className="pcard__check" onClick={onOpen}>
+            <Icon name="sparkle" size={13} /> Проверить
+          </button>
+        ) : null}
       </div>
     </article>
   )
@@ -880,16 +899,17 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
   onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]; shelfItems: Product[]
 }) {
   const using = items.filter((p) => p.state === "using").slice(0, 4)
-  const recent = items.filter((p) => p.match).slice(0, 6)
+  const recent = items
+    .filter((p) => p.check?.status === "checked" || (!EVALUATION_V2_ENABLED && p.match))
+    .slice(0, 6)
   // Тот же источник результата, что и «Моя полка» (shelfItems) — без отдельного расчёта для Home.
   const shelfSource = shelfItems.length ? shelfItems : items.filter((p) => p.state)
-  const avg = (() => {
-    const scored = shelfSource.filter((p) => p.match != null)
-    return scored.length ? Math.round(scored.reduce((s, p) => s + (p.match?.score ?? 0), 0) / scored.length) : null
-  })()
-  // Реальные рекомендации: есть match, не на полке, отсортированы по score.
-  // Показываем до 6 карточек (если доступно), без изменения ранжирования.
-  const recommended = items.filter((p) => p.match != null && !p.state).sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 3)
+  const checkedOnShelf = shelfSource.filter((p) => p.check?.status === "checked").length
+  // Реальные рекомендации: в V2 — продукты без актуальной проверки; старый
+  // Match-ранкинг используется только когда Evaluation V2 выключен.
+  const recommended = EVALUATION_V2_ENABLED
+    ? items.filter((p) => !p.state && p.check?.status !== "checked").slice(0, 3)
+    : items.filter((p) => p.match != null && !p.state).sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 3)
   return (
     <div className="page">
       <section className="hero">
@@ -909,8 +929,8 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
         <section className="panel panel--click" onClick={() => onNavigate("shelf")}>
           <p className="eyebrow">Моя полка · сводка</p>
           <div className="report-preview">
-            <div className="report-preview__num"><strong>{avg ?? "—"}</strong><span>{avg != null ? "%" : ""}</span></div>
-            <p className="report-preview__label">средняя совместимость полки</p>
+            <div className="report-preview__num"><strong>{checkedOnShelf}</strong><span>из {shelfSource.length}</span></div>
+            <p className="report-preview__label">продуктов с актуальной проверкой</p>
           </div>
         </section>
 
@@ -1263,37 +1283,22 @@ function GuestResultScreen({ product, guestToken, onSignup, onLogin, onRestart }
   )
 }
 
-function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onBalance }: {
-  items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void; onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onBalance?: (balance: number) => void
+
+function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan = "free", error = "", onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onPricing, onBalance }: {
+  items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; count?: number; plan?: Plan; error?: string;
+  onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void;
+  onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onPricing?: () => void; onBalance?: (balance: number) => void
 }) {
   const [active, setActive] = useState<CabinetKey>("face")
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const wrapRef = useRef<HTMLDivElement>(null)
   const [refreshQuote, setRefreshQuote] = useState<null | { count: number; cost: number; balance: number; remaining: number }>(null)
   const [refreshBusy, setRefreshBusy] = useState(false)
   const [refreshMessage, setRefreshMessage] = useState("")
-  const [view, setView] = useState<"list" | "rack">("list")
-  const [cardsPerShelf, setCardsPerShelf] = useState(5)
 
   const toggleSelect = (shelfId: number) => {
-    setSelected((prev) => { const n = new Set(prev); if (n.has(shelfId)) n.delete(shelfId); else n.add(shelfId); return n })
+    setSelected((prev) => { const next = new Set(prev); if (next.has(shelfId)) next.delete(shelfId); else next.add(shelfId); return next })
   }
-
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
-    const CARD_W = 150, GAP = 12
-    const measure = () => {
-      if (window.innerWidth <= 760) { setCardsPerShelf(2); return }
-      const available = Math.max(CARD_W, el.clientWidth - 8)
-      setCardsPerShelf(Math.max(1, Math.floor((available + GAP) / (CARD_W + GAP))))
-    }
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [active, view])
 
   useEffect(() => {
     let alive = true
@@ -1302,10 +1307,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onA
       return () => { alive = false }
     }
     void api.shelfRefreshPreview()
-      .then((quote) => {
-        if (!alive) return
-        setRefreshQuote(quote.count > 0 ? quote : null)
-      })
+      .then((quote) => { if (alive) setRefreshQuote(quote.count > 0 ? quote : null) })
       .catch(() => { if (alive) setRefreshQuote(null) })
     return () => { alive = false }
   }, [items, loading])
@@ -1316,16 +1318,11 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onA
     setRefreshMessage("")
     const ids = items.filter((item) => item.needs_recheck).map((item) => item.id)
     try {
-      const result = await api.shelfRefresh({
-        product_ids: ids,
-        quoted_cost: refreshQuote.cost,
-        // Let the server derive the idempotency key from the same stale set.
-        // A double click must not create a second charge.
-      })
+      const result = await api.shelfRefresh({ product_ids: ids, quoted_cost: refreshQuote.cost })
       setRefreshMessage(
         result.failed.length > 0
           ? `Обновлено ${result.updated} из ${result.updated + result.failed.length}. Не удалось обновить ${result.failed.length}.`
-          : `Полка обновлена: ${result.updated} продуктов, списано ${result.charged} баллов.`
+          : `Полка обновлена: ${result.updated} продуктов.`
       )
       setRefreshQuote(null)
       if (typeof result.balance === "number") onBalance?.(result.balance)
@@ -1337,48 +1334,16 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onA
     }
   }
 
-  const cabinet = CABINETS.find((c) => c.key === active) ?? CABINETS[0]
   const shelved = items.filter((p) => p.state && p.cabinet === active)
-  const totalShelved = items.filter((p) => p.state).length
-
-  const cells = useMemo(() => {
-    const out: { product: Product; cat: string }[] = []
-    const cats = Array.from(new Set(shelved.map((p) => p.category)))
-    for (const cat of cats) {
-      for (const p of shelved) if (p.category === cat) out.push({ product: p, cat })
-    }
-    return out
-  }, [shelved])
-
-  const shelves = useMemo(() => {
-    const out: typeof cells[] = []
-    for (let i = 0; i < cells.length; i += cardsPerShelf) out.push(cells.slice(i, i + cardsPerShelf))
-    if (out.length === 0) out.push([])
-    else if (out[out.length - 1].length >= cardsPerShelf) out.push([])
-    return out
-  }, [cells, cardsPerShelf])
-
-  const groupedShelves = useMemo(() => {
-    return shelves.map((shelf) => {
-      const groups: { cat: string; cells: typeof shelf }[] = []
-      for (const cell of shelf) {
-        const last = groups[groups.length - 1]
-        if (last && last.cat === cell.cat) last.cells.push(cell)
-        else groups.push({ cat: cell.cat, cells: [cell] })
-      }
-      return groups
-    })
-  }, [shelves])
-
-  const avg = (() => {
-    const scored = shelved.filter((p) => p.match != null)
-    return scored.length ? Math.round(scored.reduce((s, p) => s + (p.match?.score ?? 0), 0) / scored.length) : null
-  })()
-  const shelfVerdict = avg == null ? "—" : avg >= 80 ? "Отлично" : avg >= 60 ? "Нормально" : "Есть конфликты"
+  const totalShelved = count ?? items.filter((p) => p.state).length
+  const planLabel = plan === "plus" ? "Plus" : plan === "pro" ? "Pro" : "Basic"
+  const nextPlan = plan === "free" ? "Plus" : plan === "plus" ? "Pro" : null
+  const remaining = Math.max(0, limit - totalShelved)
+  const atLimit = totalShelved >= limit
 
   return (
     <div className="page">
-      <PageHeading eyebrow="Уход" title="Моя полка" lead="Здесь хранятся ваши средства: видна их совместимость с профилем кожи. Можно отслеживать то, что используете, проверять средства повторно, а система учитывает полку при рекомендациях."
+      <PageHeading eyebrow="Уход" title="Моя полка" lead="Средства, которые вы используете, и их персональные проверки."
         action={<div className="page-head__actions">
           {selectMode ? (
             <>
@@ -1388,7 +1353,6 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onA
           ) : (
             <>
               <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
-              {shelved.length > 0 && <Button variant="ghost" onClick={() => setView((v) => v === "list" ? "rack" : "list")}>{view === "list" ? "Полка" : "Список"}</Button>}
               {shelved.length > 0 && <Button variant="ghost" onClick={() => setSelectMode(true)}>Выбрать</Button>}
               {shelved.length > 0 && <Button variant="ghost" onClick={() => onClear(active)}>Очистить полку</Button>}
             </>
@@ -1397,23 +1361,35 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onA
 
       <div className="cabinet-tabs">
         {CABINETS.filter((c) => c.key === "face" || c.key === "makeup").map((c) => {
-          const count = items.filter((p) => p.state && p.cabinet === c.key).length
+          const itemCount = items.filter((p) => p.state && p.cabinet === c.key).length
           return (
             <button key={c.key} type="button" className={`cabinet-tab ${active === c.key ? "cabinet-tab--active" : ""}`} onClick={() => setActive(c.key)}>
-              {c.short}<span>{count}</span>
+              {c.short}<span>{itemCount}</span>
             </button>
           )
         })}
       </div>
 
+      <section className="shelf-info" aria-label="Информация о полке">
+        <div className="shelf-info__copy">
+          <p className="eyebrow">Ваша полка</p>
+          <p>Храните свои средства и следите за их персональными проверками.</p>
+        </div>
+        <div className="shelf-info__capacity">
+          <span className="shelf-info__plan">Тариф {planLabel}</span>
+          <strong>Добавлено {totalShelved} из {limit} продуктов</strong>
+          <span>{remaining > 0 ? `Осталось ${remaining}` : "Лимит полки достигнут"}</span>
+          {atLimit && nextPlan && onPricing && (
+            <button type="button" className="shelf-info__upgrade" onClick={onPricing}>Перейти на {nextPlan}</button>
+          )}
+        </div>
+      </section>
+
       {refreshQuote && (
         <div className="shelf-refresh" role="status">
           <div>
             <strong>Есть устаревшие результаты</strong>
-            <span>
-              Обновить {refreshQuote.count} {refreshQuote.count === 1 ? "продукт" : "продуктов"}?
-              Стоимость — {refreshQuote.cost} баллов, останется {refreshQuote.remaining}.
-            </span>
+            <span>Обновить {refreshQuote.count} {refreshQuote.count === 1 ? "продукт" : "продуктов"}? Стоимость — {refreshQuote.cost} баллов, останется {refreshQuote.remaining}.</span>
           </div>
           <Button variant="secondary" small onClick={() => void handleRefresh()} disabled={refreshBusy}>
             {refreshBusy ? "Обновляем…" : `Обновить за ${refreshQuote.cost}`}
@@ -1421,89 +1397,72 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, onOpen, onA
         </div>
       )}
       {refreshMessage && <p className="shelf-refresh__message" role="status">{refreshMessage}</p>}
+      {error && (
+        <p className="shelf-error" role="alert">
+          {error} <button type="button" className="guest-link" onClick={onRefresh}>Повторить</button>
+        </p>
+      )}
 
-      <div key={active} className="shelf-anim">
-        <div className="shelf-summary">
-          <div><strong>{totalShelved}</strong><span>из {limit} средств на полке</span></div>
-          <div><strong>{avg != null ? `${avg}%` : "—"}</strong><span>средняя совместимость</span></div>
-          <div><strong>{shelfVerdict}</strong><span>как сочетаются средства</span></div>
-        </div>
-
-        {view === "list" ? (
-          <div className="shelf-list">
-            {shelved.map((p) => (
-              <div className="shelf-list__row" key={p.id}>
-                {selectMode && (
-                  <button
-                    type="button"
-                    className={`shelf-list__select ${selected.has(p.shelf_id ?? p.id) ? "is-selected" : ""}`}
-                    aria-label={selected.has(p.shelf_id ?? p.id) ? "Снять выбор" : "Выбрать продукт"}
-                    onClick={() => toggleSelect(p.shelf_id ?? p.id)}
-                  >
-                    {selected.has(p.shelf_id ?? p.id) ? "✓" : ""}
-                  </button>
+      <div className="shelf-list">
+        {loading && <p className="empty"><span className="spin" /> Загружаем полку…</p>}
+        {!loading && shelved.map((p) => (
+          <div className="shelf-list__row" key={p.id}>
+            {selectMode && (
+              <button
+                type="button"
+                className={`shelf-list__select ${selected.has(p.shelf_id ?? p.id) ? "is-selected" : ""}`}
+                aria-label={selected.has(p.shelf_id ?? p.id) ? "Снять выбор" : "Выбрать продукт"}
+                onClick={() => toggleSelect(p.shelf_id ?? p.id)}
+              >
+                {selected.has(p.shelf_id ?? p.id) ? "✓" : ""}
+              </button>
+            )}
+            <button type="button" className="shelf-list__main" onClick={() => onOpen(p)}>
+              <ProductImage src={p.image} className="shelf-list__thumb" />
+              <span className="shelf-list__copy">
+                <strong>{p.name}</strong>
+                <small>{[p.brand, p.variant].filter(Boolean).join(" · ") || p.category || "Уход"}</small>
+                <span className="shelf-list__meta">
+                  {p.category && <em>{p.category}</em>}
+                  <span>{STATE_LABEL[p.state ?? "using"]}</span>
+                </span>
+              </span>
+              <span className="shelf-list__check" aria-live="polite">
+                {checkingIds.has(p.id) ? (
+                  <span className="shelf-list__checking"><img src="/loading.gif" alt="" /> Проверяем…</span>
+                ) : p.check?.status === "checked" ? (
+                  <>
+                    <span className="shelf-list__check-badge">Проверено</span>
+                    {p.check.verdict && <span className="shelf-list__verdict">{p.check.verdict}</span>}
+                  </>
+                ) : p.check?.status === "stale" ? (
+                  <span className="shelf-list__check-stale">Данные устарели</span>
+                ) : (
+                  <span className="shelf-list__check-empty">Проверить</span>
                 )}
-                <button type="button" className="shelf-list__main" onClick={() => onOpen(p)}>
-                  <span className="shelf-list__name">
-                    <strong>{p.name}</strong>
-                    <small>{p.brand || p.category || "Уход"}</small>
-                  </span>
-                  <span className="shelf-list__meta">
-                    {p.category && <em>{p.category}</em>}
-                    <span>{STATE_LABEL[p.state ?? "using"]}</span>
-                  </span>
-                  <span className={`shelf-list__score ${p.match?.score == null ? "is-empty" : ""}`}>
-                    {checkingIds.has(p.id) ? "…" : p.match?.score != null ? `${p.match.score}%` : "—"}
-                  </span>
-                </button>
-                {!selectMode && (
-                  <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`}>×</button>
-                )}
-              </div>
-            ))}
-            {shelved.length === 0 && (
-              loading
-                ? <p className="empty"><span className="spin" /> Загружаем полку…</p>
-                : <p className="empty">Полка пуста. Добавьте первое средство.</p>
+              </span>
+              <Icon name="chevron" size={16} />
+            </button>
+            {!selectMode && (
+              <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`}>×</button>
             )}
           </div>
-        ) : (
-        <div className="shelf-rack-wrap" ref={wrapRef}>
-          {groupedShelves.map((shelf, si) => (
-            <div className="shelf" key={si}>
-              <div className="shelf__row">
-                {shelf.map((group, gi) => (
-                  <div className="shelf__group" key={gi}>
-                    <span className="shelf__group-label">{group.cat}</span>
-                    <div className="shelf__group-cards">
-                      {group.cells.map((c) => selectMode
-                        ? <ProductCard key={c.product.id} product={c.product} onSelect={() => toggleSelect(c.product.shelf_id ?? c.product.id)} selected={selected.has(c.product.shelf_id ?? c.product.id)} />
-                        : <ProductCard key={c.product.id} product={c.product} checking={checkingIds.has(c.product.id)} onOpen={() => onOpen(c.product)} onRemove={() => onRemove(c.product)} />)}
-                    </div>
-                  </div>
-                ))}
-                {si === groupedShelves.length - 1 && (
-                  <button type="button" className="shelf-add" onClick={onAdd} aria-label="Добавить продукт"><Icon name="plus" size={26} /></button>
-                )}
-              </div>
-              <div className="shelf-plank" />
-            </div>
-          ))}
-          {shelved.length === 0 && (
-            loading
-              ? <p className="empty"><span className="spin" /> Загружаем полку…</p>
-              : <p className="empty">Полка пуста. Добавьте первое средство.</p>
-          )}
-        </div>
+        ))}
+        {!loading && shelved.length === 0 && (
+          <div className="shelf-empty">
+            <p>Полка пуста. Добавьте первое средство, чтобы хранить его здесь и следить за проверками.</p>
+            <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
+          </div>
         )}
       </div>
       <button type="button" className="shelf-fab" onClick={onAdd} aria-label="Добавить продукт"><Icon name="plus" size={24} /></button>
     </div>
   )
 }
-function CatalogPage({ items, checkingIds, onOpen, query, onQuery, initialCategory = "", loading = false }: {
+
+function CatalogPage({ items, checkingIds, onOpen, query, onQuery, initialCategory = "", loading = false, enrichChecks }: {
   items: Product[]; checkingIds: Set<number>; onOpen: (p: Product) => void; query: string; onQuery: (v: string) => void
-  initialCategory?: string; loading?: boolean
+  initialCategory?: string; loading?: boolean; enrichChecks?: (products: Product[]) => Promise<Product[]>
 }) {
   const [cat, setCat] = useState<string>("Все")
   const [subcat, setSubcat] = useState<string>("Все")
@@ -1534,20 +1493,26 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery, initialCatego
     const t = window.setTimeout(async () => {
       try {
         const res = await api.catalog({ search: q, limit: 200 })
-        setResults((res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт"))
+        const mapped = (res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт")
+        setResults(await (enrichChecks ? enrichChecks(mapped) : Promise.resolve(mapped)))
       } catch { setResults([]) }
       setSearching(false)
     }, 250)
     return () => window.clearTimeout(t)
-  }, [search])
+  }, [search, enrichChecks])
   useEffect(() => {
     if (cat === "Все") { setFetched(null); return }
     let cancelled = false
     api.catalog({ catalog_category: cat, limit: 1000, sort: "popular" })
-      .then((res) => { if (!cancelled) setFetched((res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт")) })
+      .then(async (res) => {
+        if (cancelled) return
+        const mapped = (res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт")
+        const enriched = await (enrichChecks ? enrichChecks(mapped) : Promise.resolve(mapped))
+        if (!cancelled) setFetched(enriched)
+      })
       .catch(() => { if (!cancelled) setFetched([]) })
     return () => { cancelled = true }
-  }, [cat])
+  }, [cat, enrichChecks])
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 400)
     window.addEventListener("scroll", onScroll, { passive: true })
@@ -2636,7 +2601,6 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             <div className="drawer__hero-meta">
               <button type="button" className="drawer__brand-link" onClick={() => onGoToCatalog(product.brand)}>{product.brand}</button>
               <h2>{product.name}</h2>
-              {product.verified && <span className="drawer__verified"><Icon name="check" size={12} /> Проверенный продукт</span>}
               <button type="button" className="drawer__cat drawer__cat--link" onClick={() => onGoToCatalog(product.category, product.category)}>{product.subcategory ? `${product.category} · ${product.subcategory}` : product.category}</button>
             </div>
           </div>
@@ -2647,7 +2611,6 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
               <EvaluationV2Panel
                 productId={product.id}
                 profile={buildProfile()}
-                canRestore={product.verified !== false}
                 onStarted={() => setV2Started(true)}
               />
             </div>
@@ -3708,7 +3671,12 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [toast, setToast] = useState("")
   const [shelfLoading, setShelfLoading] = useState(false)
+  const [shelfError, setShelfError] = useState("")
+  const [shelfMeta, setShelfMeta] = useState<{ plan: Plan; limit: number; count: number } | null>(null)
   const [, setProfileVersion] = useState(0)
+  // Every account change gets a new epoch. A late response from the previous
+  // session is ignored instead of repopulating the new user's cards.
+  const authEpochRef = useRef(0)
 
   useEffect(() => {
     const refreshProfile = () => setProfileVersion((value) => value + 1)
@@ -3786,23 +3754,54 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  // Загрузка реальных продуктов из каталога (фолбэк — mock).
-  useEffect(() => {
-    api.catalog({ limit: 200, sort: "popular" })
-      .then((res) => {
+  const enrichCheckStatuses = useCallback(async (products: Product[], epoch = authEpochRef.current): Promise<Product[]> => {
+    if (!EVALUATION_V2_ENABLED || !getToken() || products.length === 0) return products
+    try {
+      const ids = Array.from(new Set(products.map((product) => product.id)))
+      const result = await api.evaluationProductStatuses(ids, buildProfile())
+      if (epoch !== authEpochRef.current) return products
+      return applyCheckStatuses(products, result.statuses || {})
+    } catch {
+      // An unavailable status endpoint must not turn an unchecked card into a
+      // checked one. Keep the cards neutral and let the drawer retry on open.
+      return products
+    }
+  }, [])
+
+  const loadCatalog = (): Promise<void> => {
+    const epoch = authEpochRef.current
+    setCatalogLoading(true)
+    return api.catalog({ limit: 200, sort: "popular" })
+      .then(async (res) => {
+        if (epoch !== authEpochRef.current) return
         const mapped = (res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт")
-        if (mapped.length) setItems(mapped)
+        if (!mapped.length) return
+        const enriched = await enrichCheckStatuses(mapped, epoch)
+        if (epoch === authEpochRef.current) setItems(enriched)
       })
       .catch(() => {})
-      .finally(() => setCatalogLoading(false))
+      .finally(() => {
+        if (epoch === authEpochRef.current) setCatalogLoading(false)
+      })
+  }
+
+  // Загрузка реальных продуктов и персональных статусов Evaluation V2.
+  useEffect(() => {
+    void loadCatalog()
+    // The auth effect below may resolve the current user slightly later; the
+    // epoch guard prevents a stale catalog request from crossing accounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Полка: грузим реальные шкафы и отмечаем продукты как «использую».
   const loadShelf = (): Promise<void> => {
     if (!getToken()) return Promise.resolve()
+    const epoch = authEpochRef.current
     setShelfLoading(true)
+    setShelfError("")
     return api.shelf()
-      .then((res) => {
+      .then(async (res) => {
+        if (epoch !== authEpochRef.current) return
         const shelfIds = new Set<number>()
         const mapped: Product[] = []
         for (const cab of res.cabinets || []) {
@@ -3813,7 +3812,14 @@ export default function App() {
             }
           }
         }
-        setShelfItems(mapped)
+        const enriched = await enrichCheckStatuses(mapped, epoch)
+        if (epoch !== authEpochRef.current) return
+        setShelfItems(enriched)
+        setShelfMeta({
+          plan: (res.plan === "plus" || res.plan === "pro" ? res.plan : "free") as Plan,
+          limit: typeof res.limit === "number" ? res.limit : mapped.length,
+          count: typeof res.count === "number" ? res.count : mapped.length,
+        })
         // Полка — источник истины для статуса «использую»: то, что с неё убрали
         // (в другой вкладке/устройстве), не должно оставаться «использую» в UI.
         setItems((cur) => cur.map((p) => (
@@ -3822,8 +3828,14 @@ export default function App() {
             : (p.state === "using" ? { ...p, state: undefined, shelf_id: undefined } : p)
         )))
       })
-      .catch(() => {})
-      .finally(() => setShelfLoading(false))
+      .catch((error) => {
+        if (epoch === authEpochRef.current) {
+          setShelfError(error instanceof Error && error.message ? error.message : "Не удалось загрузить полку.")
+        }
+      })
+      .finally(() => {
+        if (epoch === authEpochRef.current) setShelfLoading(false)
+      })
   }
   useEffect(() => { loadShelf() }, [])
   // A profile save can make shelf results stale; reload the actual shelf state
@@ -3997,9 +4009,28 @@ export default function App() {
     }
   }
 
+  const clearPersonalState = () => {
+    setItems((cur) => cur.map((p) => ({
+      ...p,
+      match: undefined,
+      check: undefined,
+      needs_recheck: undefined,
+      state: undefined,
+      shelf_id: undefined,
+    })))
+    setShelfItems([])
+    setShelfMeta(null)
+    setShelfError("")
+    setCheckingIds(new Set())
+    setOpen(null)
+  }
+
   const handleLogin = (u: User) => {
+    authEpochRef.current += 1
+    clearPersonalState()
     setUser(u)
     setAuthModal(null)
+    void loadCatalog()
     void loadShelf()
     // Гость только что прошёл проверку — сохраняем её результат в аккаунт.
     if (guestToken && guestProduct) {
@@ -4015,22 +4046,22 @@ export default function App() {
     }
   }
   const handleAccountDeleted = () => {
+    authEpochRef.current += 1
     setDeleteOpen(false)
     resetGuestFlow()
     setToken(null)
     setUser(null)
-    setShelfItems([])
-    setItems((cur) => cur.map((p) => ({ ...p, match: undefined, state: undefined, shelf_id: undefined })))
+    clearPersonalState()
     setPage("home")
     setToast("Аккаунт удалён")
     window.scrollTo({ top: 0 })
   }
 
   const handleLogout = () => {
+    authEpochRef.current += 1
     setToken(null)
     setUser(null)
-    setShelfItems([])
-    setItems((cur) => cur.map((p) => (p.state === "using" ? { ...p, state: undefined, shelf_id: undefined } : p)))
+    clearPersonalState()
     // Гость видит только главную — после выхода всегда возвращаемся туда.
     setPage("home")
   }
@@ -4040,6 +4071,7 @@ export default function App() {
         const r = await api.subscription(p)
         setUser((u) => (u ? { ...u, plan: p, points: r.balance } : u))
         setToast("Тариф обновлён")
+        void loadShelf()
       } catch (error) {
         setToast(error instanceof Error ? error.message : "Не удалось изменить тариф")
       }
@@ -4197,10 +4229,10 @@ export default function App() {
                 onRestart={resetGuestFlow}
               />
             )}
-            {user && page === "shelf" && <ShelfPage items={shelfItems.length ? shelfItems : items} loading={shelfLoading} limit={PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onBalance={(balance) => setUser((u) => (u ? { ...u, points: balance } : u))} />}
+            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} count={shelfMeta?.count} plan={shelfMeta?.plan ?? user.plan} error={shelfError} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onPricing={() => setPricingOpen(true)} onBalance={(balance) => setUser((u) => (u ? { ...u, points: balance } : u))} />}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
-            {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} />}
+            {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} enrichChecks={enrichCheckStatuses} />}
             {user && page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} onDelete={() => setDeleteOpen(true)} />}
           </div>
         </main>

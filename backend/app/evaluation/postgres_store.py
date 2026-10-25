@@ -831,6 +831,27 @@ class PostgresStore:
                 return dict(candidate_document)
         return None
 
+    def products_with_snapshots(self, user_id: int, product_ids: Sequence[int]) -> set[int]:
+        """Product ids that have at least one saved result for this user.
+
+        This is deliberately a cheap scoping query: it answers only whether the
+        current user has personal history, never which other user owns it. The
+        detailed checked/stale decision is made by ``AnalysisService`` via
+        ``saved_report`` so it uses the same freshness rules as the drawer.
+        """
+        ids = [int(product_id) for product_id in product_ids]
+        if not ids:
+            return set()
+        rows = self._fetchall(
+            f"""
+            select distinct product_id
+            from {self._table('snapshots')}
+            where user_id = %s and product_id = any(%s)
+            """,
+            (int(user_id), ids),
+        )
+        return {int(row["product_id"]) for row in rows}
+
     def get_snapshot(self, snapshot_id: str) -> dict | None:
         row = self._fetchone(
             f"""

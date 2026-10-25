@@ -7,6 +7,8 @@ from __future__ import annotations
 
 SHELF_LIMITS = {"free": 5, "plus": 10, "pro": 15}
 PLAN_SHELF_LIMITS = SHELF_LIMITS
+# Public names. The internal free key is kept for billing compatibility.
+PLAN_TITLES = {"free": "Basic", "plus": "Plus", "pro": "Pro"}
 
 
 def normalize_plan(plan: str | None) -> str:

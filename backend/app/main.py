@@ -165,7 +165,7 @@ async def get_products(q: str = ""):
         [int(p["id"]) for p in products if p.get("id") is not None]
     )
     for product in products:
-        product["verified"] = product.get("id") in verified
+        product["composition_verified"] = product.get("id") in verified
     return {"products": products}
 
 
@@ -240,7 +240,7 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
             "url": product.get("url") or "",
             "barcode": product.get("barcode") or "",
             "variant": product.get("variant") or "",
-            "verified": bool(
+            "composition_verified": bool(
                 product.get("id")
                 and int(product["id"]) in _verified_product_ids([int(product["id"])])
             ),
@@ -1154,7 +1154,7 @@ async def get_catalog(
         [int(p["id"]) for p in products if p.get("id") is not None]
     )
     for p in products:
-        p["verified"] = p.get("id") in verified
+        p["composition_verified"] = p.get("id") in verified
 
     # Отсутствие User Analysis не скрывает продукт из каталога.
     if current_user:

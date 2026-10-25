@@ -1,6 +1,6 @@
 // mapping.ts — преобразование данных backend (FastAPI) в типы фронтенда V2.
-import type { ApiProduct, ShelfItem } from "./api"
-import type { Product, CabinetKey, Verdict, Match } from "./data"
+import type { ApiProduct, ShelfItem, EvaluationPreviewStatus } from "./api"
+import type { Product, CabinetKey, Verdict, Match, PersonalCheck } from "./data"
 
 function placeholderImage(id: number): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#f0f0f0"/><text x="100" y="105" font-size="30" text-anchor="middle" fill="#bbb">${id}</text></svg>`)}`
@@ -115,7 +115,7 @@ export function mapApiProduct(api: ApiProduct): Product {
     image: api.image_url || placeholderImage(api.id),
     tags: category ? [category] : [],
     slug: api.slug,
-    verified: api.verified === true,
+    compositionVerified: api.composition_verified === true,
     ingredients: api.ingredients || "",
     barcode: api.barcode || undefined,
     variant: api.variant || undefined,
@@ -158,7 +158,43 @@ export function mapShelfItem(item: ShelfItem): Product {
     needs_recheck: item.needs_recheck ?? false,
     ingredients: item.ingredients || "",
     match,
+    check: undefined,
   }
+}
+
+function previewCheck(raw: EvaluationPreviewStatus): PersonalCheck {
+  const status = raw.status === "checked" || raw.status === "stale" ? raw.status : "none"
+  return {
+    status,
+    verdict: raw.verdict || undefined,
+    tone: raw.tone || (status === "stale" ? "neutral" : undefined),
+    icon: raw.icon || undefined,
+    checked_at: raw.checked_at || undefined,
+    snapshot_id: raw.snapshot_id || undefined,
+    reason: raw.reason || undefined,
+  }
+}
+
+/**
+ * Attach the backend's user-scoped Evaluation V2 status to cards.
+ *
+ * The status request must be made for the current auth session. A returned
+ * ``none``/``stale`` intentionally clears legacy ``match`` data: an old score
+ * from another profile or another user must never survive on the card.
+ */
+export function applyCheckStatuses(
+  products: Product[],
+  statuses: Record<string, EvaluationPreviewStatus>,
+): Product[] {
+  return products.map((product) => {
+    const raw = statuses[String(product.id)]
+    if (!raw) return product
+    return {
+      ...product,
+      match: undefined,
+      check: previewCheck(raw),
+    }
+  })
 }
 
 export function mapHistoryItem(h: { id: number; product_name?: string; score?: number | null; verdict?: string; slug?: string; image_url?: string }): Product {

@@ -67,6 +67,7 @@ class EvaluationStore(Protocol):
         user_id: int | None,
         profile_fingerprint: Mapping[str, Any],
     ) -> dict | None: ...
+    def products_with_snapshots(self, user_id: int, product_ids: Sequence[int]) -> set[int]: ...
     def enqueue_research(self, composition_id: int, parameter_id: str, method_version: str) -> bool: ...
     def pending_parameters(self, composition_id: int, method_version: str) -> list[str]: ...
     def save_evidence(self, composition_id: int, evidence: Sequence[Evidence]) -> list[int]: ...
@@ -248,6 +249,20 @@ class InMemoryStore:
 
     def snapshot_count(self) -> int:
         return len(self._snapshots)
+
+    def products_with_snapshots(self, user_id: int, product_ids: Sequence[int]) -> set[int]:
+        """Product ids with at least one snapshot belonging to this user."""
+        wanted = {int(pid) for pid in product_ids}
+        if not wanted:
+            return set()
+        found: set[int] = set()
+        for snapshot in self._snapshots.values():
+            if int(snapshot.get("user_id") or 0) != int(user_id):
+                continue
+            product_id = int((snapshot.get("product") or {}).get("id") or 0)
+            if product_id in wanted:
+                found.add(product_id)
+        return found
 
     # -- evidence -----------------------------------------------------------
     def save_evidence(self, composition_id: int, evidence: Sequence[Evidence]) -> list[int]:

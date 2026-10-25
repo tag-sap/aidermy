@@ -805,7 +805,7 @@ export function EvaluationV2Panel({
       ? "Повторить загрузку"
       : restoreReason
         ? "Обновить проверку"
-        : "Проверить для меня"
+        : "Проверить"
     return (
       <div className="evalv2 evalv2--intro">
         <p className="eyebrow">Оценка продукта</p>

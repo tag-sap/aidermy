@@ -148,7 +148,8 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("<EvaluationV2Panel", drawer)
 
     def test_v2_panel_has_one_check_product_action(self):
-        self.assertIn("Проверить для меня", self.panel)
+        self.assertIn("Проверить", self.panel)
+        self.assertNotIn("Проверить для меня", self.panel)
         self.assertNotIn("Проверить продукт", self.panel)
         self.assertNotIn("Оценить продукт", self.panel)
         self.assertNotIn("Проверить состав", self.panel)
@@ -229,6 +230,36 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("evaluationCompositionCheck", self.api)
         self.assertIn("/composition/check", self.api)
         self.assertIn("EvaluationCompositionState", self.api)
+
+    def test_personal_check_status_is_user_scoped_and_exposed(self):
+        self.assertIn("evaluationProductStatuses", self.api)
+        self.assertIn("/products/statuses", self.api)
+        self.assertIn("applyCheckStatuses", self.mapping)
+        self.assertIn("match: undefined", self.mapping)
+        self.assertIn("authEpochRef", self.app)
+        self.assertIn("clearPersonalState", self.app)
+        self.assertIn("check: undefined", self.app)
+        self.assertIn("Проверено", self.app)
+        self.assertIn("Данные устарели", self.app)
+        self.assertIn("Проверить", self.app)
+        # The global composition marker must not be rendered as a personal check.
+        self.assertNotIn("pcard__verified", self.app)
+        self.assertNotIn("Проверенный продукт", self.app)
+
+    def test_shelf_is_a_compact_list_with_real_capacity_copy(self):
+        self.assertIn("shelf-info", self.app)
+        self.assertIn("shelf-info__capacity", self.app)
+        self.assertIn("Добавлено {totalShelved} из {limit} продуктов", self.app)
+        self.assertIn("Осталось ${remaining}", self.app)
+        self.assertIn("Лимит полки достигнут", self.app)
+        self.assertIn("shelf-list__thumb", self.app)
+        self.assertIn("shelf-list__check", self.app)
+        self.assertIn("shelf-empty", self.app)
+        self.assertNotIn("shelf-summary", self.app)
+        self.assertNotIn("средняя совместимость", self.app)
+        self.assertNotIn("как сочетаются средства", self.app)
+        self.assertNotIn("shelf-rack-wrap", self.app)
+        self.assertNotIn("Проверить совместимость", self.app)
 
 
 if __name__ == "__main__":

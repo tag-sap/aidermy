@@ -1349,6 +1349,70 @@ class AnalysisService:
             profile_input=profile,
         )
 
+    def personal_check_statuses(
+        self,
+        *,
+        product_ids: Sequence[int],
+        profile: Mapping[str, Any] | None,
+        user_id: int | None,
+    ) -> dict[int, dict]:
+        """Return the current user's preview status for several products.
+
+        The contract is intentionally narrow:
+
+        * ``checked`` — the same saved report that the drawer would open is
+          still valid for this user/profile/composition/method;
+        * ``stale`` — this user has history for the product, but it can no
+          longer be served as current;
+        * ``none`` — this user has never checked the product.
+
+        A snapshot belonging to another user is invisible here because both the
+        cheap discovery query and ``saved_report`` are scoped by ``user_id``.
+        """
+        ids = sorted({int(product_id) for product_id in product_ids})
+        if not ids:
+            return {}
+        if user_id is None:
+            return {product_id: {"status": "none"} for product_id in ids}
+
+        finder = getattr(self.store, "products_with_snapshots", None)
+        if callable(finder):
+            owned = {int(pid) for pid in finder(int(user_id), ids)}
+        else:
+            # Older stores have no bulk marker. Falling back to every id is
+            # safe: saved_report still checks the user id before returning data.
+            owned = set(ids)
+
+        statuses: dict[int, dict] = {}
+        for product_id in ids:
+            if product_id not in owned:
+                statuses[product_id] = {"status": "none"}
+                continue
+            try:
+                report = self.saved_report(
+                    product_id=product_id,
+                    profile=profile,
+                    user_id=int(user_id),
+                )
+            except Exception:  # noqa: BLE001 - a preview must never leak or crash
+                report = None
+            if report is None or not report.is_final:
+                statuses[product_id] = {
+                    "status": "stale",
+                    "reason": "Данные проверки устарели. Обновите проверку.",
+                }
+                continue
+            overall = report.user_report().get("overall") or {}
+            statuses[product_id] = {
+                "status": "checked",
+                "verdict": str(overall.get("verdict") or "Недостаточно данных"),
+                "tone": str(overall.get("tone") or "neutral"),
+                "icon": str(overall.get("icon") or "neutral"),
+                "checked_at": str(report.snapshot.get("created_at") or ""),
+                "snapshot_id": str(report.snapshot.get("snapshot_id") or ""),
+            }
+        return statuses
+
     def analyze_product(
         self,
         product_id: int,

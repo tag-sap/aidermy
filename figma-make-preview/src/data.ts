@@ -27,6 +27,16 @@ export type Match = {
   inci?: string[]
 }
 
+export type PersonalCheck = {
+  status: "checked" | "stale" | "none"
+  verdict?: string
+  tone?: string
+  icon?: string
+  checked_at?: string
+  snapshot_id?: string
+  reason?: string
+}
+
 export type Product = {
   id: number
   brand: string
@@ -40,11 +50,12 @@ export type Product = {
   slug?: string
   shelf_id?: number
   needs_recheck?: boolean
-  verified?: boolean
+  compositionVerified?: boolean
   ingredients?: string
   barcode?: string
   variant?: string
   match?: Match
+  check?: PersonalCheck
 }
 
 export type Cabinet = { key: CabinetKey; title: string; short: string; hasScoring: boolean; categories: string[] }
@@ -122,7 +133,7 @@ export const skinProfile = {
 }
 
 export const PLANS: { key: Plan; title: string; monthlyPoints: number; shelfLimit: number }[] = [
-  { key: "free", title: "Free", monthlyPoints: 20, shelfLimit: 5 },
+  { key: "free", title: "Basic", monthlyPoints: 20, shelfLimit: 5 },
   { key: "plus", title: "Plus", monthlyPoints: 40, shelfLimit: 10 },
   { key: "pro", title: "Pro", monthlyPoints: 60, shelfLimit: 15 },
 ]
