@@ -289,6 +289,17 @@ class PublicFunctionPurposeTests(unittest.TestCase):
         self.assertIn("только", public["purpose"])
         self.assertIn("после купания", public["purpose"])
 
+    def test_public_reason_does_not_repeat_score_note_caveat(self):
+        from app.evaluation.primary_function import public_primary_function
+
+        public = public_primary_function(
+            build_primary_function(CREAM, {"inci_raw": CREAM["ingredients"]})
+        )
+        self.assertIn("функциональные группы", public["reason"])
+        self.assertNotIn("не подтверждает", public["reason"].casefold())
+        self.assertIn("не подтверждает", public["score_note"].casefold())
+        self.assertFalse(any(row.get("type") == "function" for row in public["basis"]))
+
 
 class CompactUserReportTests(unittest.TestCase):
     def _report(self, primary: dict | None = None) -> AnalysisReport:

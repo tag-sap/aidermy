@@ -521,7 +521,29 @@ def _gap_label(parameter_id: str) -> str:
     return "Параметр профиля"
 
 
-def _overall_verdict(items: Sequence[Mapping], score: float | int | None = None) -> dict:
+_VERDICT_ORDER = {
+    "Не подходит": 0,
+    "Слабо подходит": 1,
+    "Подходит частично": 2,
+    "Хорошо подходит": 3,
+    "Отлично подходит": 4,
+}
+_VERDICT_PRESENTATION = {
+    "Не подходит": ("bad", "dead"),
+    "Слабо подходит": ("warn", "alert"),
+    "Подходит частично": ("neutral", "neutral"),
+    "Хорошо подходит": ("good", "happy"),
+    "Отлично подходит": ("good", "happy"),
+}
+
+
+def _overall_verdict(
+    items: Sequence[Mapping],
+    score: float | int | None = None,
+    *,
+    primary_function: Mapping | None = None,
+    comedogenicity: Mapping | None = None,
+) -> dict:
     """Aggregate conflicts by meaning, not by counting positive cards.
 
     ``score`` is an already calculated deterministic compatibility score, when
@@ -529,6 +551,12 @@ def _overall_verdict(items: Sequence[Mapping], score: float | int | None = None)
     maps the existing 0..19/20..39/40..59/60..79/80..100 bands to user text.
     Without a score, the semantic checklist outcome is mapped to the same five
     labels without inventing a percentage.
+
+    The score remains the compatibility base. The product-level primary
+    function and the separate comedogenicity assessment act only as explicit
+    upper bounds, so they are not added to the score or counted twice. A
+    confirmed personal negative/caution also bounds the label even when the
+    numeric score is high. Missing data never becomes a negative factor.
     """
     assessed = [
         item for item in items
@@ -585,6 +613,75 @@ def _overall_verdict(items: Sequence[Mapping], score: float | int | None = None)
     else:
         verdict, tone, icon = "Отлично подходит", "good", "happy"
         summary = "Все проверенные пункты подтверждают совместимость."
+
+    # Explicit deterministic upper bounds. They are not added as weights and
+    # never raise a lower verdict. The compatibility score itself is untouched.
+    limitations: list[str] = []
+
+    def cap(label: str, text: str) -> None:
+        nonlocal verdict, tone, icon
+        target = _VERDICT_ORDER.get(label)
+        current = _VERDICT_ORDER.get(verdict)
+        if target is None or current is None or target >= current:
+            return
+        verdict = label
+        tone, icon = _VERDICT_PRESENTATION[label]
+        limitations.append(text)
+
+    if verdict in _VERDICT_ORDER:
+        if negative:
+            cap(
+                "Слабо подходит",
+                f"Есть подтверждённый конфликт: {negative[0].get('label')}.",
+            )
+        elif caution:
+            cap(
+                "Подходит частично",
+                f"Есть предупреждение: {caution[0].get('label')} требует осторожности.",
+            )
+
+        primary = dict(primary_function or {})
+        primary_status = str(primary.get("status") or "")
+        primary_score = primary.get("score")
+        if primary_status == "insufficient_evidence":
+            cap(
+                "Подходит частично",
+                "Базовая функция не подтверждена составом; это ограничивает общий вывод.",
+            )
+        elif (
+            primary_status == "assessed"
+            and isinstance(primary_score, (int, float))
+            and not isinstance(primary_score, bool)
+            and primary_score <= 50
+        ):
+            cap(
+                "Хорошо подходит",
+                "Состав минимально поддерживает базовую функцию; это ограничивает верхнюю оценку.",
+            )
+
+        comedo = dict(comedogenicity or {})
+        if comedo.get("applicable", True) and comedo.get("status") == "assessed":
+            level = str(comedo.get("level") or "")
+            if level == "high":
+                cap(
+                    "Подходит частично",
+                    "Выраженный потенциальный фактор риска ограничивает общий вывод.",
+                )
+            elif level in {"elevated", "medium"}:
+                cap(
+                    "Хорошо подходит",
+                    "Есть факторы, требующие внимания.",
+                )
+
+        if unknown and verdict == "Отлично подходит":
+            cap(
+                "Хорошо подходит",
+                "Часть пунктов не проверена; это ограничивает верхнюю оценку.",
+            )
+
+        if limitations:
+            summary = " ".join(limitations[:2])
+
     return {
         "verdict": verdict,
         "tone": tone,
@@ -820,7 +917,12 @@ class AnalysisReport:
         if comedo_names:
             scrub_comedo_fields(primary, comedo_names, fields=("reason", "purpose"))
         name = " ".join(str(self.product.get("name") or "").replace("\n", " ").split())
-        overall = _overall_verdict(personal, score=self.snapshot.get("total"))
+        overall = _overall_verdict(
+            personal,
+            score=self.snapshot.get("total"),
+            primary_function=self.primary_function,
+            comedogenicity=comedo,
+        )
         if comedo_names:
             overall["summary"] = str(
                 scrub_comedo_fields(dict(overall), comedo_names, fields=("summary",)).get("summary") or ""
@@ -832,11 +934,14 @@ class AnalysisReport:
             "personal_compatibility": personal,
             "sources": _source_urls(personal, primary),
         }
-        # A product-level pseudo-status is never shown. The block exists only
-        # when at least one ingredient has a confirmed rating in 1..5; low INCI
-        # coverage does not hide that known evidence.
-        has_flagged = bool(comedo.get("ingredients")) or bool(comedo.get("max_rating"))
-        if comedo and comedo.get("applicable", True) and comedo.get("status") == "assessed" and has_flagged:
+        # The dedicated block is shown for a completed assessment and for an
+        # explicit insufficient-data result. "No factors detected" is a valid
+        # sufficient-coverage outcome; "not applicable" remains omitted.
+        if (
+            comedo
+            and comedo.get("applicable", True)
+            and comedo.get("status") in {"assessed", "insufficient_evidence"}
+        ):
             report["comedogenicity"] = comedo
         return report
 

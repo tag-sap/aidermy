@@ -42,7 +42,7 @@ class ComedogenicityTests(unittest.TestCase):
         self.assertEqual(result["ingredients"][0]["name"], "Glycerin")
         self.assertEqual(result["ingredients"][0]["rating"], 4)
         self.assertIsNone(result["score"])
-        self.assertIn("не доказательство", result["risk"].casefold())
+        self.assertIn("не доказывает", result["risk"].casefold())
         self.assertNotIn("доказанно", result["risk"].casefold())
 
     def test_two_flagged_ingredients_are_listed_together_without_score(self):
@@ -70,12 +70,15 @@ class ComedogenicityTests(unittest.TestCase):
             ingredient_lookup=rows.get,
         )
         self.assertEqual(result["status"], "assessed")
-        self.assertEqual(result["level"], "low")
+        self.assertEqual(result["level"], "none")
+        self.assertEqual(result["verdict"], "positive")
+        self.assertEqual(result["risk_label"], "Комедогенные факторы не выявлены")
+        self.assertTrue(result["coverage_sufficient"])
         self.assertIsNone(result["score"])
         self.assertEqual(result["known_count"], 3)
         self.assertEqual(result["coverage"], 1.0)
 
-    def test_zero_only_records_are_not_a_user_facing_comedo_block(self):
+    def test_zero_only_records_with_low_coverage_are_explicitly_insufficient(self):
         rows = {
             "Water": lookup(0),
             "Glycerin": lookup(0),
@@ -87,13 +90,85 @@ class ComedogenicityTests(unittest.TestCase):
             {"inci_raw": "Water, Glycerin, Unknown One, Unknown Two"},
             ingredient_lookup=rows.get,
         )
-        self.assertEqual(result["status"], "assessed")
-        self.assertEqual(result["level"], "low")
-        self.assertEqual(result["verdict"], "positive")
+        self.assertEqual(result["status"], "insufficient_evidence")
+        self.assertEqual(result["level"], "unknown")
+        self.assertEqual(result["verdict"], "unknown")
+        self.assertEqual(result["risk_label"], "Недостаточно данных")
+        self.assertFalse(result["coverage_sufficient"])
         self.assertEqual(result["known_count"], 2)
         self.assertEqual(result["flagged_count"], 0)
         self.assertEqual(result["ingredients"], [])
         self.assertEqual(result["coverage"], 0.5)
+
+    def test_one_low_rating_is_low_potential_risk(self):
+        result = assess_comedogenicity(
+            {"name": "Cream", "category": "Крем"},
+            {"inci_raw": "Aqua, Glycerin"},
+            ingredient_lookup={"Aqua": lookup(0), "Glycerin": lookup(1)}.get,
+        )
+        self.assertEqual(result["level"], "low")
+        self.assertEqual(result["risk_label"], "Низкий потенциальный риск")
+        self.assertEqual(result["flagged_count"], 1)
+
+    def test_two_or_three_low_ratings_add_caution(self):
+        for count in (2, 3):
+            names = ["Aqua"] + [f"Low {index}" for index in range(count)]
+            rows = {"Aqua": lookup(0)}
+            rows.update({name: lookup(2) for name in names[1:]})
+            with self.subTest(count=count):
+                result = assess_comedogenicity(
+                    {"name": "Cream", "category": "Крем"},
+                    {"inci_raw": ", ".join(names)},
+                    ingredient_lookup=rows.get,
+                )
+                self.assertEqual(result["level"], "medium")
+                self.assertEqual(result["risk_label"], "Есть основания для осторожности")
+                self.assertEqual(result["flagged_count"], count)
+
+    def test_four_low_ratings_are_elevated_by_combination(self):
+        names = ["Aqua", "Low 1", "Low 2", "Low 3", "Low 4"]
+        rows = {"Aqua": lookup(0)}
+        rows.update({name: lookup(1) for name in names[1:]})
+        result = assess_comedogenicity(
+            {"name": "Cream", "category": "Крем"},
+            {"inci_raw": ", ".join(names)},
+            ingredient_lookup=rows.get,
+        )
+        self.assertEqual(result["level"], "elevated")
+        self.assertEqual(result["risk_label"], "Повышенное внимание к комедогенности")
+        self.assertEqual(result["flagged_count"], 4)
+
+    def test_rating_three_is_elevated(self):
+        result = assess_comedogenicity(
+            {"name": "Cream", "category": "Крем"},
+            {"inci_raw": "Aqua, Shea Butter"},
+            ingredient_lookup={"Aqua": lookup(0), "Shea Butter": lookup(3)}.get,
+        )
+        self.assertEqual(result["level"], "elevated")
+        self.assertEqual(result["risk_label"], "Повышенное внимание к комедогенности")
+
+    def test_rating_four_or_five_is_high(self):
+        for rating in (4, 5):
+            with self.subTest(rating=rating):
+                result = assess_comedogenicity(
+                    {"name": "Cream", "category": "Крем"},
+                    {"inci_raw": "Aqua, Coconut Oil"},
+                    ingredient_lookup={"Aqua": lookup(0), "Coconut Oil": lookup(rating)}.get,
+                )
+                self.assertEqual(result["level"], "high")
+                self.assertEqual(result["risk_label"], "Выраженный потенциальный фактор риска")
+
+    def test_confirmed_ratings_include_available_source(self):
+        row = lookup(2, "high", 0.9)
+        row["sources"] = '[{"url": "https://example.com/comedo", "title": "Comedo source"}]'
+        result = assess_comedogenicity(
+            {"name": "Cream", "category": "Крем"},
+            {"inci_raw": "Aqua, Glycerin"},
+            ingredient_lookup={"Aqua": lookup(0), "Glycerin": row}.get,
+        )
+        ingredient = result["ingredients"][0]
+        self.assertEqual(ingredient["source"], "https://example.com/comedo")
+        self.assertEqual(ingredient["source_title"], "Comedo source")
 
     def test_low_inci_coverage_does_not_hide_a_confirmed_rating(self):
         # 39 tokens, only one confirmed positive rating: the old 60% coverage
@@ -143,12 +218,12 @@ class SeparateReportBlockTests(unittest.TestCase):
             comedogenicity=comedo or {},
         )
 
-    def test_comedogenicity_does_not_change_overall_or_primary_function(self):
+    def test_comedo_status_caps_overall_but_does_not_change_primary_or_score(self):
         without = self._report(None).user_report()
         with_comedo = self._report({
             "status": "assessed",
             "applicable": True,
-            "level": "medium",
+            "level": "elevated",
             "verdict": "caution",
             "score": None,
             "reason": "Есть несколько компонентов для контекста.",
@@ -158,10 +233,12 @@ class SeparateReportBlockTests(unittest.TestCase):
             "max_rating": 3,
             "flagged_count": 1,
         }).user_report()
-        self.assertEqual(without["overall"], with_comedo["overall"])
+        self.assertEqual(without["overall"]["verdict"], "Отлично подходит")
+        self.assertEqual(with_comedo["overall"]["verdict"], "Хорошо подходит")
         self.assertEqual(without["primary_function"], with_comedo["primary_function"])
+        self.assertEqual(without["personal_compatibility"], with_comedo["personal_compatibility"])
         self.assertEqual(with_comedo["personal_compatibility"][0]["verdict"], "positive")
-        self.assertEqual(with_comedo["comedogenicity"]["level"], "medium")
+        self.assertEqual(with_comedo["comedogenicity"]["level"], "elevated")
         self.assertEqual(with_comedo["comedogenicity"]["ingredients"][0]["rating"], 3)
         self.assertIsNone(with_comedo["comedogenicity"]["score"])
 
@@ -186,20 +263,24 @@ class SeparateReportBlockTests(unittest.TestCase):
         self.assertIn("comedogenicity", public)
         self.assertLess(public["comedogenicity"]["coverage"], 0.1)
         self.assertEqual(public["comedogenicity"]["ingredients"][0]["rating"], 4)
-        self.assertEqual(public["comedogenicity"]["risk_label"], "Высокий потенциальный риск")
+        self.assertEqual(public["comedogenicity"]["risk_label"], "Выраженный потенциальный фактор риска")
 
-    def test_assessed_without_flagged_ratings_is_hidden(self):
+    def test_assessed_without_flagged_ratings_is_explicit_and_not_hidden(self):
         public = self._report({
             "status": "assessed",
             "applicable": True,
-            "level": "low",
+            "level": "none",
             "verdict": "positive",
             "score": None,
             "reason": "Подтверждённых рейтингов 1–5 нет.",
             "ingredients": [],
             "flagged_count": 0,
+            "risk_label": "Комедогенные факторы не выявлены",
+            "coverage_sufficient": True,
         }).user_report()
-        self.assertNotIn("comedogenicity", public)
+        self.assertIn("comedogenicity", public)
+        self.assertEqual(public["comedogenicity"]["status"], "assessed")
+        self.assertEqual(public["comedogenicity"]["risk_label"], "Комедогенные факторы не выявлены")
 
     def test_dedupe_removes_only_comedogenicity_and_keeps_irritation(self):
         from app.evaluation.comedo_dedupe import dedupe_comedogenicity_text, scrub_comedo_fields
@@ -247,7 +328,7 @@ class SeparateReportBlockTests(unittest.TestCase):
         self.assertIn("раздражение", item["reason"])
         self.assertIn("Cocos Nucifera Oil", public["comedogenicity"]["ingredients"][0]["name"])
 
-    def test_insufficient_comedogenicity_is_hidden_but_retained_for_diagnostics(self):
+    def test_insufficient_comedogenicity_is_explicit_in_user_report(self):
         report = self._report({
             "status": "insufficient_evidence",
             "applicable": True,
@@ -257,10 +338,13 @@ class SeparateReportBlockTests(unittest.TestCase):
             "known_count": 7,
             "total_count": 39,
             "coverage": 0.179,
+            "coverage_sufficient": False,
         })
         public = report.user_report()
         full = report.as_dict()
-        self.assertNotIn("comedogenicity", public)
+        self.assertIn("comedogenicity", public)
+        self.assertEqual(public["comedogenicity"]["status"], "insufficient_evidence")
+        self.assertEqual(public["comedogenicity"]["coverage_sufficient"], False)
         self.assertEqual(full["comedogenicity"]["status"], "insufficient_evidence")
         self.assertEqual(full["comedogenicity"]["known_count"], 7)
 

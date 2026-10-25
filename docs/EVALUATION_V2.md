@@ -755,21 +755,32 @@ These rules are deterministic and do not rely on the LLM:
 - Comedogenicity is a separate product-level signal and is never added to the
   compatibility total. Any confirmed ingredient rating in the catalog's **0–5**
   field is reported when it is **1–5**, even if INCI coverage is low. The block
-  lists every such component with its rating and a potential-risk wording.
+  lists every such component with its rating and available source.
   `known_count` counts confirmed numeric records (including confirmed zeros),
-  `flagged_count` counts ratings 1–5, and `coverage = known_count / total_count`
-  is diagnostic only: it never hides already confirmed evidence.
+  `flagged_count` counts ratings 1–5, and `coverage = known_count / total_count`.
+- Comedogenicity status (`comedogenicity.py` 2.1) is deterministic:
+  - no confirmed 1–5 factors and coverage ≥ 60% → «Комедогенные факторы не выявлены»;
+  - no confirmed 1–5 factors and coverage < 60% → explicit «Недостаточно данных»;
+  - one rating 1–2 → «Низкий потенциальный риск»;
+  - two or three ratings 1–2 → «Есть основания для осторожности»;
+  - a rating 3 or four-plus low ratings → «Повышенное внимание к комедогенности»;
+  - any confirmed rating 4–5 → «Выраженный потенциальный фактор риска».
+  The threshold is only for the “not detected” observation, never for hiding
+  known ratings. Confirmed ratings remain visible at any coverage, with the
+  coverage shown in the row/details and `coverage_sufficient` in the payload.
 - A rating of 0 or an unknown ingredient is not a claim of safety. No confirmed
-  rating 1–5 means no user-facing block; `insufficient_evidence` remains in
-  `AnalysisReport.as_dict()` only. The max rating maps to low (1–2), medium (3)
-  or high (4–5) attention. It never proves that the whole product is
-  comedogenic: concentration and the finished formula are not available.
-- The dedicated block owns ingredient names, ratings and the potential-risk
-  wording. Other report fields are scrubbed only for repeated comedogenicity
-  clauses. Independent irritation, sensitization and barrier risks remain.
+  rating 1–5 with sufficient coverage is reported as “not detected”, not as
+  proof of safety; insufficient coverage is shown explicitly. The max rating
+  never proves that the whole product is comedogenic: concentration and the
+  finished formula are not available.
+- The dedicated block owns ingredient names, ratings, available sources and the
+  potential-risk wording. Other report fields are scrubbed only for repeated
+  comedogenicity clauses. Independent irritation, sensitization and barrier
+  risks remain.
 - The primary-function line shows only the function label for built-in
   categories. A `purpose` is included only when it adds a real mechanism or
-  constraint, not when it paraphrases the label.
+  constraint, not when it paraphrases the label. The UI also suppresses a
+  `score_note` when it repeats the same caveat already present in `reason`.
 
 ## 11. User-facing compatibility verdicts and icons
 
@@ -796,6 +807,39 @@ shown only next to individual parameter rows; the overall product verdict is
 text-only and is not accompanied by a tube. The icon does not change the score.
 A historical payload with old wording is mapped to the current label at display
 time; stored scores and reports are not rewritten.
+
+### 11.1 Overall verdict priority
+
+The compatibility score is still calculated once by the existing deterministic
+engine. `_overall_verdict` does not recalculate it and never calls an LLM. The
+score supplies the base five-band label; already displayed product-level factors
+act only as deterministic **upper bounds** (they cannot raise a verdict or add
+a second numeric contribution):
+
+1. a critical therapy/procedure conflict → «Не подходит»;
+2. any other confirmed personal negative → no higher than «Слабо подходит»;
+3. a personal caution → no higher than «Подходит частично»;
+4. an unconfirmed primary function → no higher than «Подходит частично»;
+5. a high comedogenicity factor (rating 4–5) → no higher than «Подходит частично»;
+6. an elevated/medium comedogenicity status, or minimal primary support (score 50)
+   → no higher than «Хорошо подходит»;
+7. an unverified item prevents «Отлично подходит» but does not become a negative;
+8. otherwise the existing score band is used.
+
+Insufficient comedogenicity data and neutral/no-effect items never lower the
+verdict. The compatibility score itself and the personal values are unchanged;
+the same inputs and rules produce the same result. The UI does not make a second
+LLM request for this aggregation.
+
+### 11.2 Result layout
+
+The first two rows — «Базовая функция» and «Комедогенность» — use the same row
+component and typography as personal rows, inside one thin dashed group with no
+heading, fill or shadow. Personal rows continue the numbering after them.
+Expanding details is available by clicking the whole row; clicks on the info
+button, links and controls are excluded from the row toggle. The collapsed
+legend «Что означают тюбики?» explains the four existing tube icons and does not
+introduce new icons.
 
 
 

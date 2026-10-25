@@ -297,13 +297,13 @@ export type EvaluationComedogenicity = {
   status: "assessed" | "insufficient_evidence" | "not_applicable" | string
   verdict?: "positive" | "caution" | "unknown" | "not_applicable" | string
   applicable?: boolean
-  level?: "low" | "medium" | "high" | "unknown" | string
+  level?: "none" | "low" | "medium" | "elevated" | "high" | "unknown" | string
   score: number | null
   reason: string
   risk?: string
   recommendation?: string
   basis?: Array<{ label: string; value: string }>
-  ingredients?: Array<{ name: string; rating: number; rating_label?: string }>
+  ingredients?: Array<{ name: string; rating: number; rating_label?: string; source?: string; source_title?: string }>
   max_rating?: number | null
   risk_label?: string
   total_count?: number
@@ -311,6 +311,7 @@ export type EvaluationComedogenicity = {
   known_count?: number
   flagged_count?: number
   coverage?: number
+  coverage_sufficient?: boolean
 }
 
 export type EvaluationUserReport = {

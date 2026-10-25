@@ -3685,6 +3685,27 @@ select:focus-visible,
 .evalv2__info-text p { margin: 0 0 4px; }
 .evalv2__info-text p:last-child { margin-bottom: 0; }
 .evalv2__verdicts { list-style: none; margin: 5px 0 0; padding: 0; }
+.evalv2__primary-factors { margin-top: 8px; padding: 0 10px; border: 1px dashed var(--border-strong); border-radius: 10px; }
+.evalv2__primary-factors .evalv2__verdict-row:last-child { border-bottom: 0; }
+.evalv2__primary-factor .evalv2__verdict-text { color: var(--ink); }
+.evalv2__factor-label { color: var(--ink-soft); }
+.evalv2__factor-meta { color: var(--ink-soft); font-size: 11.5px; }
+.evalv2__factor-score { color: var(--ink); font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.evalv2__factor-score small { color: var(--ink-soft); font-size: 9px; font-weight: 600; }
+.evalv2__verdict-row[role="button"] { cursor: pointer; }
+.evalv2__verdict-row[role="button"]:focus-visible { outline: 2px solid var(--good); outline-offset: -2px; border-radius: 4px; }
+.evalv2__info-text { cursor: default; }
+.evalv2__comedo-components { margin: 0 0 7px; }
+.evalv2__comedo-components a { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 2px; }
+.evalv2__comedo-line--elevated strong { color: #a16207; }
+.evalv2__comedo-line--none strong { color: var(--good); }
+.evalv2__comedo-line--unknown strong { color: var(--ink-soft); }
+.evalv2__legend { margin-top: 10px; padding-top: 7px; border-top: 1px solid var(--border); }
+.evalv2__legend > summary { cursor: pointer; color: var(--ink); font-size: 12px; font-weight: 700; }
+.evalv2__legend ul { list-style: none; margin: 7px 0 0; padding: 0; display: grid; gap: 6px; }
+.evalv2__legend li { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 11.5px; line-height: 1.4; }
+.evalv2__legend .evalv2__verdict-icon { width: 18px; height: 31px; }
+.evalv2__legend strong { color: var(--ink); font-weight: 700; }
 .evalv2__verdict-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 22px 27px; align-items: start; gap: 7px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; line-height: 1.4; }
 .evalv2__num { color: var(--ink-faint); font-size: 11px; font-variant-numeric: tabular-nums; padding-top: 2px; }
 .evalv2__verdict-text { min-width: 0; overflow-wrap: anywhere; }
@@ -3718,6 +3739,7 @@ select:focus-visible,
   .evalv2__product-name { font-size: 16px; }
   .evalv2__overall-verdict { font-size: 18px; }
   .evalv2__verdict-row { grid-template-columns: 18px minmax(0, 1fr) 22px 25px; gap: 5px; padding: 7px 0; font-size: 12px; }
+  .evalv2__primary-factors { padding: 0 7px; }
   .evalv2__verdict-text { line-height: 1.35; }
   .evalv2__function-purpose { display: block; margin-top: 1px; }
 }

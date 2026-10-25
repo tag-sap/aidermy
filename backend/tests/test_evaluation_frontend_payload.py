@@ -158,8 +158,11 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("v2Started", self.app)
 
     def test_v2_report_is_a_compact_numbered_verdict_list(self):
-        self.assertIn("Основная функция", self.panel)
+        self.assertIn("Базовая функция", self.panel)
         self.assertIn("evalv2__verdicts", self.panel)
+        self.assertIn("evalv2__primary-factors", self.panel)
+        self.assertIn("number={1}", self.panel)
+        self.assertIn("number={2}", self.panel)
         self.assertIn("evalv2__info", self.panel)
         self.assertIn("aria-expanded", self.panel)
         self.assertIn("Источники", self.panel)
@@ -195,12 +198,16 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("Не удалось загрузить сохранённый отчёт", self.panel)
         self.assertIn("restoreError", self.panel)
 
-    def test_v2_panel_hides_insufficient_comedogenicity_and_labels_formula_support(self):
-        self.assertIn('item.status !== "assessed"', self.panel)
-        self.assertIn('rawComedogenicity?.status === "assessed"', self.panel)
-        self.assertIn('score_label', self.panel)
-        self.assertIn('score_note', self.panel)
-        self.assertIn('Роль продукта', self.panel)
+    def test_v2_panel_shows_explicit_comedo_states_and_legend(self):
+        self.assertIn('status === "insufficient_evidence"', self.panel)
+        self.assertIn("Комедогенные факторы не выявлены", self.panel)
+        self.assertIn("Что означают тюбики?", self.panel)
+        self.assertIn("isRowToggleTarget", self.panel)
+        self.assertIn("isRowToggleTarget(event.target)", self.panel)
+        self.assertIn("duplicateFunctionNote", self.panel)
+        self.assertIn("score_label", self.panel)
+        self.assertIn("score_note", self.panel)
+        self.assertIn("Роль продукта", self.panel)
 
     def test_api_exposes_composition_check(self):
         self.assertIn("evaluationCompositionCheck", self.api)

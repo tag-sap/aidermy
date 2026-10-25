@@ -18,12 +18,18 @@ field; values outside it are ignored rather than rescaled or mixed.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
 from .inci import split_inci
 
-COMEDOGENICITY_VERSION = "2.0.0"
+COMEDOGENICITY_VERSION = "2.1.0"
+# Existing catalogue records are sparse. This threshold is used only to decide
+# whether "no factors found" can be called a sufficient-coverage observation;
+# known 1..5 ratings are always reported, even below this coverage.
+COMEDO_SUFFICIENT_COVERAGE = 0.6
+
 
 
 @dataclass(frozen=True)
@@ -47,6 +53,7 @@ class ComedogenicityAssessment:
     known_count: int = 0
     flagged_count: int = 0
     coverage: float = 0.0
+    coverage_sufficient: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         verdict = (
@@ -74,6 +81,7 @@ class ComedogenicityAssessment:
             "known_count": self.known_count,
             "flagged_count": self.flagged_count,
             "coverage": self.coverage,
+            "coverage_sufficient": self.coverage_sufficient,
         }
 
 
@@ -94,6 +102,7 @@ def _result(
     known_count: int = 0,
     flagged_count: int = 0,
     coverage: float = 0.0,
+    coverage_sufficient: bool = False,
 ) -> ComedogenicityAssessment:
     return ComedogenicityAssessment(
         status=status,
@@ -111,6 +120,7 @@ def _result(
         known_count=known_count,
         flagged_count=flagged_count,
         coverage=coverage,
+        coverage_sufficient=coverage_sufficient,
     )
 
 
@@ -118,6 +128,35 @@ def _rating_text(value: float) -> str:
     """Stable 1..5 display without a trailing .0."""
     rounded = round(float(value), 1)
     return str(int(rounded)) if rounded.is_integer() else f"{rounded:g}"
+
+
+def _source_from_row(row: Mapping[str, Any]) -> dict[str, str]:
+    """Best available source for a confirmed ingredient record.
+
+    Catalogue rows expose a JSON ``sources`` list, while other callers may pass
+    ``source_url``/``source_title`` directly. Nothing is invented when neither
+    is present.
+    """
+    url = str(row.get("source_url") or "").strip()
+    title = str(row.get("source_title") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        url = ""
+    raw = row.get("sources")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) if raw.strip() else []
+        except (TypeError, ValueError):
+            raw = [raw]
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            if isinstance(item, str) and item.strip().startswith(("http://", "https://")):
+                url = url or item.strip()
+            elif isinstance(item, Mapping):
+                url = url or str(item.get("url") or item.get("source_url") or "").strip()
+                title = title or str(item.get("title") or item.get("source_title") or "").strip()
+            if url:
+                break
+    return {"url": url, "title": title}
 
 
 def _is_fragrance(product: Mapping[str, Any]) -> bool:
@@ -216,83 +255,133 @@ def assess_comedogenicity(
     known = len(confirmed_values)
     flagged = len(records)
     coverage = known / total if total else 0.0
+    coverage_sufficient = bool(known and coverage >= COMEDO_SUFFICIENT_COVERAGE)
     max_rating = max((rating for _, rating, _ in records), default=None)
+    low_count = sum(1 for _, rating, _ in records if 1 <= rating <= 2)
+    moderate_count = sum(1 for _, rating, _ in records if rating == 3)
+    high_count = sum(1 for _, rating, _ in records if rating >= 4)
+    coverage_note = (
+        f"Покрытие подтверждёнными записями — {coverage:.0%}."
+        if coverage_sufficient
+        else (
+            f"Покрытие подтверждёнными записями — {coverage:.0%}; "
+            "данных недостаточно для полного вывода."
+        )
+    )
     counts = dict(
         total_count=total,
         resolved_count=resolved,
         known_count=known,
         flagged_count=flagged,
         coverage=round(coverage, 4),
+        coverage_sufficient=coverage_sufficient,
     )
 
     if not records:
-        # No confirmed rating in 1..5 means there is nothing to show. A safe-
-        # looking zero-only record set is still not presented as a pseudo-
-        # verdict, and unknown tokens never become evidence of safety.
-        if known:
+        # A zero-only record set can support "factors not detected" only when
+        # enough of the INCI has confirmed records. Unknown tokens never become
+        # evidence of safety in either case.
+        if coverage_sufficient:
             return _result(
                 "assessed",
-                level="low",
+                level="none",
                 reason=(
-                    "Подтверждённых рейтингов комедогенности 1–5 среди "
-                    "сопоставленных компонентов нет. Это не доказывает "
-                    "безопасность неизвестных компонентов."
+                    f"Среди {known} проверенных компонентов подтверждённых "
+                    "рейтингов комедогенности 1–5 не выявлено. "
+                    f"{coverage_note} Неизвестные компоненты не считаются "
+                    "безопасными."
+                ),
+                risk=(
+                    "Отсутствие подтверждённых факторов в проверенной части "
+                    "состава не доказывает безопасность непроверенных "
+                    "компонентов и готовой формулы."
+                ),
+                recommendation=(
+                    "Учитывайте известные данные и наблюдайте за реакцией кожи; "
+                    "при появлении высыпаний прекратите использование."
                 ),
                 basis=[
+                    {"label": "Подтверждённые рейтинги", "value": "не выявлены"},
                     {"label": "Проверено компонентов", "value": f"{known} из {total}"},
                     {"label": "Покрытие", "value": f"{coverage:.0%}"},
+                    {"label": "Достоверность данных", "value": "покрытие достаточное"},
                 ],
+                risk_label="Комедогенные факторы не выявлены",
                 **counts,
             ).as_dict()
         return _result(
             "insufficient_evidence",
+            level="unknown",
             reason=(
-                "Нет подтверждённых записей о комедогенности с известной "
-                f"шкалой 0–5: сопоставлено {resolved} из {total} компонентов. "
-                "Неизвестные компоненты не считаются ни безопасными, ни "
-                "комедогенными."
+                "Нет достаточного покрытия подтверждёнными записями о "
+                f"комедогенности: известно {known} из {total} компонентов. "
+                "Отсутствие информации не считается ни безопасностью, ни "
+                "доказанным риском."
+            ),
+            risk=(
+                "Нельзя утверждать ни отсутствие комедогенных факторов, ни их "
+                "наличие: у остальных компонентов нет подтверждённых рейтингов."
+            ),
+            recommendation=(
+                "Для более надёжной оценки нужны подтверждённые рейтинги "
+                "компонентов; неизвестные компоненты не считаются безопасными."
             ),
             basis=[
                 {"label": "Сопоставлено с каталогом", "value": f"{resolved} из {total}"},
+                {"label": "Подтверждено рейтингами", "value": f"{known} из {total}"},
                 {"label": "Покрытие", "value": f"{coverage:.0%}"},
+                {"label": "Достоверность данных", "value": "покрытие ограниченное"},
             ],
+            risk_label="Недостаточно данных",
             **counts,
         ).as_dict()
 
-    if max_rating is not None and max_rating >= 4:
+    if high_count or (max_rating is not None and max_rating >= 4):
         level = "high"
-        risk_label = "Высокий потенциальный риск"
+        risk_label = "Выраженный потенциальный фактор риска"
         risk_context = (
-            "Максимальный подтверждённый рейтинг — 5-балльная шкала, "
-            f"{_rating_text(max_rating)} из 5. Это серьёзный потенциальный "
-            "сигнал, но не доказательство появления высыпаний у конкретного "
-            "человека."
+            f"Подтверждены рейтинги 4–5 у {high_count} компонент(ов); "
+            f"максимальный — {_rating_text(max_rating or 0)}/5."
         )
     elif max_rating is not None and max_rating >= 3:
-        level = "medium"
-        risk_label = "Средний потенциальный риск"
+        level = "elevated"
+        risk_label = "Повышенное внимание к комедогенности"
         risk_context = (
             "Максимальный подтверждённый рейтинг — "
-            f"{_rating_text(max_rating)} из 5. Это повод учесть контекст "
-            "формулы, но не диагноз."
+            f"{_rating_text(max_rating)}/5; это значимый фактор формулы."
+        )
+    elif flagged >= 4:
+        level = "elevated"
+        risk_label = "Повышенное внимание к комедогенности"
+        risk_context = (
+            f"Подтверждено {flagged} низких факторов (1–2/5); их сочетание "
+            "требует повышенного внимания."
+        )
+    elif flagged >= 2:
+        level = "medium"
+        risk_label = "Есть основания для осторожности"
+        risk_context = (
+            f"Подтверждено {flagged} компонента с рейтингами 1–2/5; "
+            "совокупность факторов требует осторожности."
         )
     else:
         level = "low"
         risk_label = "Низкий потенциальный риск"
         risk_context = (
-            "Максимальный подтверждённый рейтинг — "
-            f"{_rating_text(max_rating or 0)} из 5. Это минимальный "
-            "потенциальный сигнал, а не доказательство вреда."
+            "Подтверждён один компонент с рейтингом 1–2/5; это минимальный "
+            "потенциальный сигнал."
         )
 
-    listed = [
-        {
+    listed = []
+    for name, rating, row in sorted(records, key=lambda item: (-item[1], item[0].casefold())):
+        source = _source_from_row(row)
+        listed.append({
             "name": name,
             "rating": round(rating, 1),
             "rating_label": f"{_rating_text(rating)}/5",
-        }
-        for name, rating, _ in sorted(records, key=lambda item: (-item[1], item[0].casefold()))
-    ]
+            "source": source["url"],
+            "source_title": source["title"],
+        })
     rating_summary = "; ".join(
         f"{item['name']} — {item['rating_label']}" for item in listed
     )
@@ -301,9 +390,9 @@ def assess_comedogenicity(
         level=level,
         reason=(
             "В составе подтверждены рейтинги комедогенности 1–5 у "
-            f"{len(listed)} компонент(ов). Низкое покрытие состава не скрывает "
-            "эти известные сведения; неизвестные компоненты не считаются ни "
-            "безопасными, ни комедогенными."
+            f"{len(listed)} компонент(ов). {coverage_note} Известные сведения "
+            "показаны независимо от полноты состава; неизвестные компоненты не "
+            "считаются ни безопасными, ни комедогенными."
         ),
         risk=(
             f"{risk_context} Рейтинг отдельного компонента не доказывает, что "
@@ -318,9 +407,15 @@ def assess_comedogenicity(
         basis=[
             {"label": "Подтверждённые рейтинги", "value": rating_summary},
             {"label": "Максимальный рейтинг", "value": f"{_rating_text(max_rating or 0)}/5"},
-            {"label": "Шкала", "value": "0–5, поле комедогенности каталога"},
+            {"label": "Рейтинги 1–2", "value": str(low_count)},
+            {"label": "Рейтинг 3", "value": str(moderate_count)},
+            {"label": "Рейтинги 4–5", "value": str(high_count)},
             {"label": "Проверено компонентов", "value": f"{known} из {total}"},
             {"label": "Покрытие", "value": f"{coverage:.0%}"},
+            {
+                "label": "Достоверность данных",
+                "value": "покрытие достаточное" if coverage_sufficient else "покрытие ограниченное",
+            },
         ],
         ingredients=listed,
         max_rating=round(max_rating, 1) if max_rating is not None else None,

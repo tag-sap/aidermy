@@ -459,15 +459,13 @@ def build_primary_function(
     ]
     if support_count == 1:
         reason = (
-            f"Состав содержит только базовую функциональную группу для функции "
-            f"«{spec.label}»: {', '.join(found_labels)}. Этого достаточно для "
-            "минимального соответствия формуле, но не для вывода об эффективности."
+            f"Состав содержит базовую функциональную группу для функции "
+            f"«{spec.label}»: {', '.join(found_labels)}."
         )
     else:
         reason = (
             f"Состав содержит {support_count} независимые функциональные группы "
-            f"для функции «{spec.label}»: {', '.join(found_labels)}. Это поддержка "
-            "формулы, а не подтверждение концентрации или клинического эффекта."
+            f"для функции «{spec.label}»: {', '.join(found_labels)}."
         )
 
     basis = [
@@ -544,6 +542,9 @@ def public_primary_function(result: Mapping | None) -> dict:
     # title already says it. Only an actual mechanism or constraint survives.
     if not _purpose_adds_extra_detail(label, purpose):
         purpose = ""
+    # The "Что учтено" row repeats the functional groups already named in the
+    # reason. Keep it in the internal result for audit, but not twice in UI.
+    basis = [row for row in (result.get("basis") or []) if row.get("type") != "function"]
     return {
         "label": label,
         "purpose": purpose,
@@ -552,7 +553,7 @@ def public_primary_function(result: Mapping | None) -> dict:
         "score_label": str(result.get("score_label") or PRIMARY_SCORE_LABEL),
         "score_note": str(result.get("score_note") or PRIMARY_SCORE_NOTE),
         "reason": str(result.get("reason") or ""),
-        "basis": list(result.get("basis") or []),
+        "basis": basis,
     }
 
 
