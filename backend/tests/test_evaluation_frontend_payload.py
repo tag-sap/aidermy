@@ -198,16 +198,32 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("Не удалось загрузить сохранённый отчёт", self.panel)
         self.assertIn("restoreError", self.panel)
 
-    def test_v2_panel_shows_explicit_comedo_states_and_legend(self):
-        self.assertIn('status === "insufficient_evidence"', self.panel)
-        self.assertIn("Комедогенные факторы не выявлены", self.panel)
+    def test_v2_panel_shows_human_function_and_comedo_states(self):
+        self.assertIn("Хорошо выполняет свою задачу", self.panel)
+        self.assertIn("Частично выполняет свою задачу", self.panel)
+        self.assertIn("Соответствие не подтверждено", self.panel)
         self.assertIn("Что означают тюбики?", self.panel)
         self.assertIn("isRowToggleTarget", self.panel)
         self.assertIn("isRowToggleTarget(event.target)", self.panel)
         self.assertIn("duplicateFunctionNote", self.panel)
-        self.assertIn("score_label", self.panel)
+        self.assertIn("comedoIcon", self.panel)
+        self.assertIn("<VerdictIcon icon={verdict.icon} />", self.panel)
+        self.assertIn("<VerdictIcon icon={comedoIcon(item)} />", self.panel)
         self.assertIn("score_note", self.panel)
         self.assertIn("Роль продукта", self.panel)
+        self.assertIn('"Недостаточно данных": "Комедогенные факторы не выявлены"', self.panel)
+        self.assertIn('coverage_sufficient === true ? "happy" : "neutral"', self.panel)
+        self.assertIn("COMEDO_HIDDEN_BASIS", self.panel)
+        self.assertIn("stripComedoDataNotes", self.panel)
+        comedo_source = self.panel[
+            self.panel.index("function comedoRiskLabel"):self.panel.index("function VerdictRow")
+        ]
+        self.assertNotIn('"Недостаточно данных"', comedo_source)
+        self.assertIn("Комедогенные факторы не выявлены", comedo_source)
+        self.assertIn("Низкий потенциальный риск", comedo_source)
+        self.assertIn("Есть основания для осторожности", comedo_source)
+        self.assertIn("Повышенное внимание к комедогенности", comedo_source)
+        self.assertIn("Выраженный потенциальный фактор риска", comedo_source)
 
     def test_api_exposes_composition_check(self):
         self.assertIn("evaluationCompositionCheck", self.api)

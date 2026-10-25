@@ -760,19 +760,22 @@ These rules are deterministic and do not rely on the LLM:
   `flagged_count` counts ratings 1–5, and `coverage = known_count / total_count`.
 - Comedogenicity status (`comedogenicity.py` 2.1) is deterministic:
   - no confirmed 1–5 factors and coverage ≥ 60% → «Комедогенные факторы не выявлены»;
-  - no confirmed 1–5 factors and coverage < 60% → explicit «Недостаточно данных»;
+  - no confirmed 1–5 factors and coverage < 60% → backend keeps `insufficient_evidence` for diagnostics;
   - one rating 1–2 → «Низкий потенциальный риск»;
   - two or three ratings 1–2 → «Есть основания для осторожности»;
   - a rating 3 or four-plus low ratings → «Повышенное внимание к комедогенности»;
   - any confirmed rating 4–5 → «Выраженный потенциальный фактор риска».
   The threshold is only for the “not detected” observation, never for hiding
-  known ratings. Confirmed ratings remain visible at any coverage, with the
-  coverage shown in the row/details and `coverage_sufficient` in the payload.
-- A rating of 0 or an unknown ingredient is not a claim of safety. No confirmed
-  rating 1–5 with sufficient coverage is reported as “not detected”, not as
-  proof of safety; insufficient coverage is shown explicitly. The max rating
-  never proves that the whole product is comedogenic: concentration and the
-  finished formula are not available.
+  known ratings. Confirmed ratings remain visible at any coverage. The backend
+  retains `coverage`, `coverage_sufficient` and `insufficient_evidence` for
+  diagnostics, but the user-facing row shows only one of the five agreed
+  statuses; service coverage/insufficiency wording is not displayed.
+- A rating of 0 or an unknown ingredient is not a claim of safety. When data is
+  incomplete, the UI uses the least committal existing status («Комедогенные
+  факторы не выявлены» or the status of confirmed ratings) without a safety
+  claim, and never adds invented ratings. The max rating never proves that the
+  whole product is comedogenic: concentration and the finished formula are not
+  available.
 - The dedicated block owns ingredient names, ratings, available sources and the
   potential-risk wording. Other report fields are scrubbed only for repeated
   comedogenicity clauses. Independent irritation, sensitization and barrier
@@ -834,12 +837,18 @@ LLM request for this aggregation.
 ### 11.2 Result layout
 
 The first two rows — «Базовая функция» and «Комедогенность» — use the same row
-component and typography as personal rows, inside one thin dashed group with no
-heading, fill or shadow. Personal rows continue the numbering after them.
+component, numbering and typography as personal rows, inside one thin dashed
+group with no heading, fill or shadow. Personal rows continue the numbering
+after them. Both rows show the existing tube icon. The base-function row shows a
+human result of the existing formula-support score («Хорошо выполняет свою
+задачу», «Частично выполняет свою задачу», «Соответствие не подтверждено»)
+instead of a percentage. The comedo row shows only one of the five agreed risk
+statuses; diagnostic coverage and insufficiency details stay in the backend.
 Expanding details is available by clicking the whole row; clicks on the info
 button, links and controls are excluded from the row toggle. The collapsed
 legend «Что означают тюбики?» explains the four existing tube icons and does not
-introduce new icons.
+introduce new icons. The dashed group uses zero horizontal padding and a
+one-pixel negative margin so numbers and row widths align with personal rows.
 
 
 

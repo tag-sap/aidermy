@@ -3685,13 +3685,11 @@ select:focus-visible,
 .evalv2__info-text p { margin: 0 0 4px; }
 .evalv2__info-text p:last-child { margin-bottom: 0; }
 .evalv2__verdicts { list-style: none; margin: 5px 0 0; padding: 0; }
-.evalv2__primary-factors { margin-top: 8px; padding: 0 10px; border: 1px dashed var(--border-strong); border-radius: 10px; }
+.evalv2__primary-factors { margin: 8px -1px 0; padding: 0; border: 1px dashed var(--border-strong); border-radius: 10px; }
 .evalv2__primary-factors .evalv2__verdict-row:last-child { border-bottom: 0; }
 .evalv2__primary-factor .evalv2__verdict-text { color: var(--ink); }
 .evalv2__factor-label { color: var(--ink-soft); }
-.evalv2__factor-meta { color: var(--ink-soft); font-size: 11.5px; }
-.evalv2__factor-score { color: var(--ink); font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.2; }
-.evalv2__factor-score small { color: var(--ink-soft); font-size: 9px; font-weight: 600; }
+.evalv2__factor-verdict { color: var(--ink-soft); font-size: 11.5px; }
 .evalv2__verdict-row[role="button"] { cursor: pointer; }
 .evalv2__verdict-row[role="button"]:focus-visible { outline: 2px solid var(--good); outline-offset: -2px; border-radius: 4px; }
 .evalv2__info-text { cursor: default; }
@@ -3739,7 +3737,7 @@ select:focus-visible,
   .evalv2__product-name { font-size: 16px; }
   .evalv2__overall-verdict { font-size: 18px; }
   .evalv2__verdict-row { grid-template-columns: 18px minmax(0, 1fr) 22px 25px; gap: 5px; padding: 7px 0; font-size: 12px; }
-  .evalv2__primary-factors { padding: 0 7px; }
+  .evalv2__primary-factors { padding: 0; }
   .evalv2__verdict-text { line-height: 1.35; }
   .evalv2__function-purpose { display: block; margin-top: 1px; }
 }

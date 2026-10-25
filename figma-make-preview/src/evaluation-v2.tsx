@@ -268,6 +268,12 @@ function ReportHeader({ productName, overall }: { productName: string; overall: 
   )
 }
 
+function functionVerdict(item: EvaluationPrimaryFunction): { label: string; icon: string } {
+  if (item.score == null) return { label: "Соответствие не подтверждено", icon: "neutral" }
+  if (item.score >= 80) return { label: "Хорошо выполняет свою задачу", icon: "happy" }
+  return { label: "Частично выполняет свою задачу", icon: "alert" }
+}
+
 function FunctionLine({
   item,
   number,
@@ -280,6 +286,7 @@ function FunctionLine({
   onToggle: () => void
 }) {
   const reason = item.reason || ""
+  const verdict = functionVerdict(item)
   const showScoreNote = Boolean(item.score_note && !duplicateFunctionNote(reason, item.score_note))
   const basis = (item.basis || []).filter((row) => !(row.type === "function" && reason))
   const hasInfo = Boolean(reason || showScoreNote || basis.length)
@@ -307,18 +314,11 @@ function FunctionLine({
       <span className="evalv2__num" aria-hidden="true">{number}.</span>
       <span className="evalv2__verdict-text">
         <span className="evalv2__factor-label">Базовая функция:</span> <strong>{item.label}</strong>
+        <span className="evalv2__factor-verdict"> · {verdict.label}</span>
         {item.purpose ? <span className="evalv2__function-purpose"> · {item.purpose}</span> : null}
       </span>
       <span className="evalv2__status">
-        {item.score != null && (
-          <span
-            className="evalv2__factor-score"
-            aria-label={`${item.score_label || "Соответствие состава"}: ${item.score} из 100`}
-            title={item.score_note || "Оценка соответствия состава, не клиническая эффективность"}
-          >
-            {item.score}<small>%</small>
-          </span>
-        )}
+        <VerdictIcon icon={verdict.icon} />
       </span>
       {hasInfo && (
         <button
@@ -355,16 +355,76 @@ function FunctionLine({
   )
 }
 
-function comedoRiskLabel(item: EvaluationComedogenicity): string {
-  if (item.risk_label) return item.risk_label
-  if (item.status === "insufficient_evidence") return "Недостаточно данных"
-  if (item.level === "none") return "Комедогенные факторы не выявлены"
-  if (item.level === "high") return "Выраженный потенциальный фактор риска"
-  if (item.level === "elevated") return "Повышенное внимание к комедогенности"
-  if (item.level === "medium") return "Есть основания для осторожности"
-  if (item.level === "low") return "Низкий потенциальный риск"
-  return "Недостаточно данных"
+const COMEDO_LABELS = [
+  "Комедогенные факторы не выявлены",
+  "Низкий потенциальный риск",
+  "Есть основания для осторожности",
+  "Повышенное внимание к комедогенности",
+  "Выраженный потенциальный фактор риска",
+] as const
+
+const COMEDO_LEGACY_LABELS: Record<string, string> = {
+  "Высокий потенциальный риск": "Выраженный потенциальный фактор риска",
+  "Средний потенциальный риск": "Повышенное внимание к комедогенности",
+  "Недостаточно данных": "Комедогенные факторы не выявлены",
 }
+
+function comedoLevel(item: EvaluationComedogenicity): string {
+  if (["none", "low", "medium", "elevated", "high"].includes(item.level || "")) {
+    return item.level || "none"
+  }
+  const label = item.risk_label || ""
+  if (label === "Выраженный потенциальный фактор риска" || label === "Высокий потенциальный риск") return "high"
+  if (label === "Повышенное внимание к комедогенности" || label === "Средний потенциальный риск") return "elevated"
+  if (label === "Есть основания для осторожности") return "medium"
+  if (label === "Низкий потенциальный риск") return "low"
+  return "none"
+}
+
+function comedoRiskLabel(item: EvaluationComedogenicity): string {
+  const mapped = COMEDO_LEGACY_LABELS[item.risk_label || ""] || item.risk_label || ""
+  if ((COMEDO_LABELS as readonly string[]).includes(mapped)) return mapped
+  const level = comedoLevel(item)
+  if (level === "high") return "Выраженный потенциальный фактор риска"
+  if (level === "elevated") return "Повышенное внимание к комедогенности"
+  if (level === "medium") return "Есть основания для осторожности"
+  if (level === "low") return "Низкий потенциальный риск"
+  return "Комедогенные факторы не выявлены"
+}
+
+function comedoIcon(item: EvaluationComedogenicity): string {
+  const level = comedoLevel(item)
+  if (level === "high") return "dead"
+  if (level === "elevated" || level === "medium" || level === "low") return "alert"
+  if (level === "none") {
+    return item.coverage_sufficient === true ? "happy" : "neutral"
+  }
+  return "neutral"
+}
+
+function stripComedoDataNotes(text: string): string {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/покрыт|недостаточ|неизвестн|сопоставлен|проверено компонент|достоверност|нельзя утверждать|отсутствие информации|нет подтверждённых|нужны подтверждённые/i.test(sentence))
+    .join(" ")
+    .trim()
+}
+
+const COMEDO_HIDDEN_BASIS = new Set([
+  "Покрытие",
+  "Проверено компонентов",
+  "Достоверность данных",
+  "Сопоставлено с каталогом",
+  "Подтверждено рейтингами",
+  "Шкала",
+])
+const COMEDO_RATING_BASIS = new Set([
+  "Подтверждённые рейтинги",
+  "Максимальный рейтинг",
+  "Рейтинги 1–2",
+  "Рейтинг 3",
+  "Рейтинги 4–5",
+])
 
 function ComedogenicityLine({
   item,
@@ -378,22 +438,27 @@ function ComedogenicityLine({
   onToggle: () => void
 }) {
   const flagged = item.ingredients || []
+  const level = comedoLevel(item)
   const label = comedoRiskLabel(item)
   const details = uniqueTexts([item.reason, item.risk, item.recommendation])
+    .map(stripComedoDataNotes)
+    .filter(Boolean)
   // The chip list already contains every rated component; do not repeat the
-  // same rating summary in the basis rows.
+  // same rating summary in the basis rows. Coverage/service rows are also
+  // intentionally hidden from the user-facing block.
   const basis = (item.basis || []).filter(
     (row) => !(flagged.length && row.label === "Подтверждённые рейтинги")
+      && !COMEDO_HIDDEN_BASIS.has(row.label)
+      && !(!flagged.length && COMEDO_RATING_BASIS.has(row.label))
   )
   const hasInfo = Boolean(flagged.length || details.length || basis.length)
   const canToggle = hasInfo
-  const tone = item.level === "high" || item.level === "elevated" || item.level === "medium"
+  const tone = level === "high" || level === "elevated" || level === "medium"
     ? "caution"
-    : item.level === "none" ? "positive" : "neutral"
-  const coverage = typeof item.coverage === "number" ? `${Math.round(item.coverage * 100)}%` : ""
+    : level === "none" ? "positive" : "neutral"
   return (
     <li
-      className={`evalv2__verdict-row evalv2__verdict-row--${tone} evalv2__primary-factor evalv2__comedo-factor evalv2__comedo-line--${item.level || "unknown"} ${open ? "is-open" : ""}`.trim()}
+      className={`evalv2__verdict-row evalv2__verdict-row--${tone} evalv2__primary-factor evalv2__comedo-factor evalv2__comedo-line--${level} ${open ? "is-open" : ""}`.trim()}
       role={canToggle ? "button" : undefined}
       tabIndex={canToggle ? 0 : undefined}
       aria-expanded={canToggle ? open : undefined}
@@ -414,11 +479,10 @@ function ComedogenicityLine({
       <span className="evalv2__num" aria-hidden="true">{number}.</span>
       <span className="evalv2__verdict-text">
         <span className="evalv2__factor-label">Комедогенность:</span> <strong>{label}</strong>
-        {coverage && (
-          <span className="evalv2__factor-meta"> · покрытие данных {coverage}</span>
-        )}
       </span>
-      <span className="evalv2__status" />
+      <span className="evalv2__status" aria-label={label}>
+        <VerdictIcon icon={comedoIcon(item)} />
+      </span>
       {hasInfo && (
         <button
           type="button"
