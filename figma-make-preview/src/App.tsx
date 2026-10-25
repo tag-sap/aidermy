@@ -1409,8 +1409,8 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
         </div>
       </section>
 
-      {refreshCandidates.length > 0 && (
-        <div className={`shelf-refresh ${batchBusy ? "is-busy" : ""}`} role="status" aria-live="polite">
+      {!loading && refreshCandidates.length > 0 && (
+        <div className={`shelf-refresh ${batchBusy ? "is-busy" : ""}`} role="status" aria-live="polite" aria-busy={batchBusy}>
           <div>
             <strong>{batchBusy ? `Обновляем проверки: ${batchDone} из ${batchTotal}` : "Пакетное обновление проверок"}</strong>
             <span>
