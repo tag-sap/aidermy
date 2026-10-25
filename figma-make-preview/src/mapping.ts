@@ -152,7 +152,7 @@ export function mapShelfItem(item: ShelfItem): Product {
     subcategory: item.subcategory || "",
     image: item.image_url || placeholderImage(item.product_id),
     tags: item.category ? [item.category] : [],
-    state: "using",
+    state: item.state === "want" ? "want" : "using",
     slug: item.slug,
     shelf_id: item.shelf_id,
     needs_recheck: item.needs_recheck ?? false,

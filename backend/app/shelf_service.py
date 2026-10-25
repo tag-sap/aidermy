@@ -1332,6 +1332,7 @@ def build_cabinet_payload(user: Dict[str, Any], shelf_items: List[Dict[str, Any]
             "cabinet": cabinet,
             "category": category,
             "subcategory": subcategory,
+            "state": s.get("shelf_status") or "using",
             "added_at": s.get("added_at") or "",
             "name": (p.get("name") or "").replace("\n", " "),
             "brand": p.get("brand") or "",

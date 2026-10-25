@@ -7,6 +7,8 @@ import {
   api,
   ApiError,
   EVALUATION_V2_ENABLED,
+  compatApi,
+  type CompatibilityTask,
   type EvaluationComedogenicity,
   type EvaluationOverall,
   type EvaluationPersonalParameter,
@@ -647,6 +649,7 @@ export function EvaluationV2Panel({
   const [restoreAttempt, setRestoreAttempt] = useState(0)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [pendingTask, setPendingTask] = useState<CompatibilityTask | null>(null)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [functionInfoOpen, setFunctionInfoOpen] = useState(false)
   const [comedoOpen, setComedoOpen] = useState(false)
@@ -697,6 +700,53 @@ export function EvaluationV2Panel({
     return () => { cancelled = true }
   }, [productId, profileKey, enabled, canRestore, restoreAttempt])
 
+  useEffect(() => {
+    if (!EVALUATION_V2_ENABLED || !enabled) return
+    let cancelled = false
+    void compatApi.individualTask(productId)
+      .then((result) => {
+        if (cancelled || !result.task) return
+        if (["queued", "running", "waiting_for_products", "analyzing_compatibility"].includes(result.task.status)) {
+          setPendingTask(result.task)
+          setStarted(true)
+          setLoading(false)
+          setNotice("Проверка уже выполняется. Можно закрыть карточку, результат сохранится и появится в уведомлениях.")
+        }
+      })
+      .catch(() => { /* the regular saved-report / start flow remains available */ })
+    return () => { cancelled = true }
+  }, [productId, enabled, restoreAttempt])
+
+  useEffect(() => {
+    if (!pendingTask) return
+    if (["completed", "failed", "cancelled"].includes(pendingTask.status)) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const next = await compatApi.task(pendingTask.id)
+        if (cancelled) return
+        setPendingTask(next.task)
+        if (next.task.status === "completed") {
+          setPendingTask(null)
+          setLoading(false)
+          setNotice("Проверка завершена. Загружаем сохранённый отчёт.")
+          setRestoreAttempt((value) => value + 1)
+        } else if (next.task.status === "failed" || next.task.status === "cancelled") {
+          setPendingTask(null)
+          setLoading(false)
+          setStarted(false)
+          setError(next.task.error || "Не удалось завершить проверку. Попробуйте ещё раз.")
+        }
+      } catch {
+        // Keep the durable task id and retry on the next tick. A transient
+        // network error must not turn a running check into a failure.
+      }
+    }
+    void poll()
+    const timer = window.setInterval(() => void poll(), 2000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [pendingTask?.id, pendingTask?.status])
+
   const start = async () => {
     if (!EVALUATION_V2_ENABLED || !enabled) return
     setStarted(true)
@@ -707,18 +757,24 @@ export function EvaluationV2Panel({
     setRestoreReason("")
     setRestoreError("")
     setReport(null)
+    setPendingTask(null)
     try {
-      const checked = await api.evaluationCompositionCheck(productId)
-      if (!checked.composition_state?.usable) {
-        setNotice(checked.message || "Не удалось подтвердить состав продукта.")
-        return
-      }
-      const data = await api.evaluationProductEvaluate(
+      const queued = await compatApi.startIndividual(
         productId,
         JSON.parse(profileKey)
       )
-      setReport(data)
+      setLoading(false)
+      if (queued.task.status === "completed") {
+        setNotice("Проверка завершена. Загружаем сохранённый отчёт.")
+        setRestoreAttempt((value) => value + 1)
+      } else {
+        setPendingTask(queued.task)
+        setNotice(
+          "Проверка запущена. Можете закрыть карточку, мы уведомим вас, когда отчёт будет готов."
+        )
+      }
     } catch (e) {
+      setLoading(false)
       const statusCode = e instanceof ApiError ? e.status : 0
       if (statusCode === 401) {
         setError("Войдите, чтобы проверить продукт.")
@@ -727,10 +783,8 @@ export function EvaluationV2Panel({
       } else if (statusCode === 409) {
         setError(e instanceof ApiError ? e.message : "Проверка не запущена: недостаточно баллов.")
       } else {
-        setError("Не удалось проверить продукт. Попробуйте позже.")
+        setError("Не удалось запустить проверку. Попробуйте позже.")
       }
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -800,6 +854,18 @@ export function EvaluationV2Panel({
     )
   }
 
+  if (pendingTask) {
+    return (
+      <div className="evalv2 evalv2--intro">
+        <p className="eyebrow">Проверка запущена</p>
+        <p className="evalv2__hint">
+          {notice || "Анализируем продукт в фоне. Можете закрыть карточку, результат сохранится и появится в уведомлениях."}
+        </p>
+        <LoadingState label="Проверяем продукт" />
+      </div>
+    )
+  }
+
   if (!started) {
     const actionLabel = restoreError
       ? "Повторить загрузку"
@@ -809,6 +875,9 @@ export function EvaluationV2Panel({
     return (
       <div className="evalv2 evalv2--intro">
         <p className="eyebrow">Оценка продукта</p>
+        {error && !restoreError && (
+          <p className="evalv2__error" role="status">{error}</p>
+        )}
         {restoreError ? (
           <p className="evalv2__error" role="status">{restoreError}</p>
         ) : (

@@ -153,8 +153,10 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertNotIn("Проверить продукт", self.panel)
         self.assertNotIn("Оценить продукт", self.panel)
         self.assertNotIn("Проверить состав", self.panel)
-        self.assertIn("evaluationCompositionCheck", self.panel)
-        self.assertIn("evaluationProductEvaluate", self.panel)
+        self.assertIn("compatApi.startIndividual", self.panel)
+        self.assertIn("compatApi.task", self.panel)
+        self.assertIn("Проверка запущена", self.panel)
+        self.assertNotIn("evaluationProductEvaluate", self.panel)
         self.assertNotIn("evaluationProductAnalyze", self.panel)
         self.assertIn("v2Started", self.app)
 
@@ -240,6 +242,10 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertIn("clearPersonalState", self.app)
         self.assertIn("resetUserProfile", self.app)
         self.assertIn("resetUserProfile", self.mapping)
+        self.assertIn("export const compatApi", self.api)
+        self.assertIn("startCompatibility", self.api)
+        self.assertIn("startIndividual", self.api)
+        self.assertIn("async notifications", self.api)
         self.assertIn("check: undefined", self.app)
         self.assertIn("Проверено", self.app)
         self.assertIn("Данные устарели", self.app)
@@ -248,12 +254,24 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertNotIn("pcard__verified", self.app)
         self.assertNotIn("Проверенный продукт", self.app)
 
-    def test_shelf_batch_refresh_uses_current_user_evaluation(self):
-        self.assertIn("handleBatchRefresh", self.app)
-        self.assertIn("refreshCandidates", self.app)
-        self.assertIn("evaluationProductEvaluate", self.app)
-        self.assertIn("Обновить проверки", self.app)
-        self.assertNotIn("Есть устаревшие результаты", self.app)
+    def test_shelf_compatibility_selection_and_async_task_contract(self):
+        self.assertIn("compatApi.startCompatibility", self.app)
+        self.assertIn("onTaskStarted", self.app)
+        self.assertIn("shelf-tab", self.app)
+        self.assertIn("shelf-search", self.app)
+        self.assertIn("shelf-list__collect", self.app)
+        self.assertIn("shelf-list__state", self.app)
+        self.assertIn("updateShelfState", self.api)
+        self.assertIn("＋ В набор", self.app)
+        self.assertIn("✓ В наборе", self.app)
+        self.assertIn("compat-cart", self.app)
+        self.assertIn("CompatibilityReportView", self.app)
+        self.assertIn("COMPAT_STATUS_LABEL", self.app)
+        self.assertIn("/icons/to_my_shelf.svg", self.app)
+        self.assertIn("compatApi.startIndividual", self.panel)
+        # The check action starts a durable server task, not a long HTTP check.
+        self.assertNotIn("handleBatchRefresh", self.app)
+        self.assertNotIn("Не закрывайте раздел до завершения", self.app)
         # Remove controls are centered SVG icons, not a baseline-shifted glyph.
         self.assertIn('className="shelf-list__remove"', self.app)
         self.assertIn('<Icon name="close" size={15} />', self.app)
@@ -271,7 +289,6 @@ class EvaluationV2UiContractTests(unittest.TestCase):
         self.assertNotIn("средняя совместимость", self.app)
         self.assertNotIn("как сочетаются средства", self.app)
         self.assertNotIn("shelf-rack-wrap", self.app)
-        self.assertNotIn("Проверить совместимость", self.app)
 
 
 if __name__ == "__main__":

@@ -257,6 +257,10 @@ def init_db():
         # Индивидуальный Product Compatibility % (deterministic Score Engine),
         # сохраняемый при добавлении на полку, чтобы не терять уже рассчитанный скор.
         cursor.execute('ALTER TABLE shelf_products ADD COLUMN score INTEGER')
+    if 'shelf_status' not in shelf_columns:
+        # using — сейчас использую; want — хочу попробовать. Старые записи
+        # остаются в прежнем статусе using.
+        cursor.execute("ALTER TABLE shelf_products ADD COLUMN shelf_status TEXT DEFAULT 'using'")
     
     # Миграция: сгруппировать ранее добавленные продукты (с notes) в подборы
     cursor.execute("SELECT DISTINCT user_id, notes FROM shelf_products WHERE notes IS NOT NULL AND notes != '' AND routine_id IS NULL")
@@ -1103,7 +1107,7 @@ def get_product_by_id(product_id: int):
     conn.close()
     return dict(row) if row else None
 
-def add_product_to_shelf(user_id: int, product_id: int, category: str = "", notes: str = "", routine_id: int = None, cabinet: str = "face", score: int = None):
+def add_product_to_shelf(user_id: int, product_id: int, category: str = "", notes: str = "", routine_id: int = None, cabinet: str = "face", score: int = None, shelf_status: str = "using"):
     """Add exactly one shelf row, atomically enforcing the plan capacity.
 
     The duplicate fast-path is intentionally checked before the capacity check:
@@ -1138,10 +1142,18 @@ def add_product_to_shelf(user_id: int, product_id: int, category: str = "", note
             conn.rollback()
             raise ShelfLimitError(plan, limit, count)
 
-        cursor.execute('''
-            INSERT INTO shelf_products (user_id, product_id, category, notes, routine_id, cabinet, score)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (user_id, product_id, category, notes, routine_id, cabinet or "face", score))
+        shelf_columns = [row[1] for row in cursor.execute("PRAGMA table_info(shelf_products)").fetchall()]
+        if "shelf_status" in shelf_columns:
+            cursor.execute('''
+                INSERT INTO shelf_products (user_id, product_id, category, notes, routine_id, cabinet, score, shelf_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, product_id, category, notes, routine_id, cabinet or "face", score, shelf_status if shelf_status in {"using", "want"} else "using"))
+        else:
+            # Existing installations may not have the additive migration yet.
+            cursor.execute('''
+                INSERT INTO shelf_products (user_id, product_id, category, notes, routine_id, cabinet, score)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, product_id, category, notes, routine_id, cabinet or "face", score))
         conn.commit()
         row = cursor.execute(
             "SELECT * FROM shelf_products WHERE user_id = ? AND product_id = ?",
@@ -1235,6 +1247,24 @@ def update_shelf_product_category(user_id: int, shelf_id: int, category: str):
     cursor = conn.cursor()
     cursor.execute("UPDATE shelf_products SET category = ? WHERE id = ? AND user_id = ?", (category, shelf_id, user_id))
     conn.commit()
+    cursor.execute("SELECT * FROM shelf_products WHERE id = ? AND user_id = ?", (shelf_id, user_id))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_shelf_product_status(user_id: int, shelf_id: int, state: str):
+    if state not in {"using", "want"}:
+        state = "using"
+    conn = get_connection(AIDERMY_DB)
+    cursor = conn.cursor()
+    columns = [row[1] for row in cursor.execute("PRAGMA table_info(shelf_products)").fetchall()]
+    if "shelf_status" in columns:
+        cursor.execute(
+            "UPDATE shelf_products SET shelf_status = ? WHERE id = ? AND user_id = ?",
+            (state, shelf_id, user_id),
+        )
+        conn.commit()
     cursor.execute("SELECT * FROM shelf_products WHERE id = ? AND user_id = ?", (shelf_id, user_id))
     row = cursor.fetchone()
     conn.close()

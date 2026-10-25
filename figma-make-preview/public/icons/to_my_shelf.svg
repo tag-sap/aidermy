@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160">
+  <defs>
+    <style>
+      @keyframes bookmarkJump {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-5px); }
+      }
+      .bm-anim { animation: bookmarkJump 2.5s ease-in-out infinite; }
+      .bg-card { fill: #F8FAFC; stroke: #E2E8F0; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <!-- Круглый фон -->
+  <circle cx="80" cy="80" r="70" class="bg-card" />
+
+  <!-- Анимированная закладка -->
+  <g class="bm-anim">
+    <!-- Тело закладки (Фиолетовый: 149, 132, 255) -->
+    <path d="M56,44 L104,44 C108,44 112,48 112,52 L112,116 L80,98 L48,116 L48,52 C48,48 52,44 56,44 Z" fill="#9584FF" stroke="#334155" stroke-width="3.5" stroke-linejoin="round" />
+    
+    <!-- Вытянутое сердечко внутри (Салатовый: 214, 242, 100) -->
+    <path d="M80,94 C80,94 63,80 63,70 C63,61 71,58 76,65 C80,70 80,70 80,70 C80,70 80,70 84,65 C89,58 97,61 97,70 C97,80 80,94 80,94 Z" fill="#D6F264" stroke="#334155" stroke-width="2" stroke-linejoin="round" />
+  </g>
+</svg>

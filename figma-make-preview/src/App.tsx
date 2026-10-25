@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, 
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
-import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review } from "./api"
+import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review, compatApi, type CompatibilityTask, type UserNotification, type CompatibilitySetSummary, type CompatibilityReport } from "./api"
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, resetUserProfile, getUserProfile, applyCheckStatuses } from "./mapping"
@@ -24,7 +24,7 @@ type IconName =
   | "home" | "shelf" | "scan" | "search" | "chart" | "user"
   | "arrow" | "chevron" | "close" | "check" | "plus" | "sparkle"
   | "drop" | "shield" | "file" | "bookmark" | "box" | "alert" | "camera" | "upload" | "back"
-  | "link" | "pencil" | "coins" | "crown" | "logout" | "lock" | "send" | "mail" | "credits"
+  | "link" | "pencil" | "coins" | "crown" | "logout" | "lock" | "send" | "mail" | "credits" | "bell"
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -58,6 +58,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     lock: (<><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>),
     send: (<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7z" /></>),
     mail: (<><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m2 6 10 7 10-7" /></>),
+    bell: (<><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>),
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -382,8 +383,9 @@ function Sidebar({ page, onNavigate, user, onAuth, onPricing, onPoints }: {
   )
 }
 
-function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout, onNavigate, onOpen, onHelp }: {
-  query: string; onQuery: (v: string) => void; user: User | null; onAuth: () => void; onPricing: () => void; onPoints: () => void; onLogout: () => void; onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onHelp: () => void
+function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout, onNavigate, onOpen, onHelp, notificationsUnread, notificationsOpen, onNotifications }: {
+  query: string; onQuery: (v: string) => void; user: User | null; onAuth: () => void; onPricing: () => void; onPoints: () => void; onLogout: () => void; onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onHelp: () => void;
+  notificationsUnread: number; notificationsOpen: boolean; onNotifications: () => void
 }) {
   const [focused, setFocused] = useState(false)
   const [matches, setMatches] = useState<Product[]>([])
@@ -420,6 +422,7 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
         <button type="button" className="icon-btn icon-btn--help" onClick={onHelp} aria-label="Помощь"><span className="help-mark">?</span></button>
         {user ? (
           <>
+            <NotificationBell unread={notificationsUnread} open={notificationsOpen} onToggle={onNotifications} />
             <button type="button" className="points-chip" onClick={onPoints}><Icon name="credits" size={16} /><strong>{user.points}</strong><span>баллов · {PLANS.find((p) => p.key === user.plan)?.title}</span></button>
             <button type="button" className="icon-btn" onClick={onLogout} aria-label="Выйти"><Icon name="logout" size={18} /></button>
           </>
@@ -431,8 +434,9 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
   )
 }
 
-function Topbar({ page, onNavigate, onHelp, user, onAuth, onPoints }: {
-  page: Page; onNavigate: (p: Page) => void; onHelp: () => void; user: User | null; onAuth: () => void; onPoints: () => void
+function Topbar({ page, onNavigate, onHelp, user, onAuth, onPoints, notificationsUnread, notificationsOpen, onNotifications }: {
+  page: Page; onNavigate: (p: Page) => void; onHelp: () => void; user: User | null; onAuth: () => void; onPoints: () => void;
+  notificationsUnread: number; notificationsOpen: boolean; onNotifications: () => void
 }) {
   const title = NAV.find((n) => n.id === page)?.label ?? ""
   return (
@@ -443,6 +447,7 @@ function Topbar({ page, onNavigate, onHelp, user, onAuth, onPoints }: {
         {user && (
           <button type="button" className="topbar__points" onClick={onPoints} aria-label="Пополнить баллы"><Icon name="credits" size={15} /><strong>{user.points}</strong></button>
         )}
+        {user && <NotificationBell unread={notificationsUnread} open={notificationsOpen} onToggle={onNotifications} />}
         <button type="button" className="icon-btn icon-btn--help" onClick={onHelp} aria-label="Помощь"><span className="help-mark">?</span></button>
         {user ? (
           <button type="button" className="icon-btn" onClick={() => onNavigate("profile")} aria-label="Профиль"><Avatar size={28} initials={user.initials} /></button>
@@ -451,6 +456,58 @@ function Topbar({ page, onNavigate, onHelp, user, onAuth, onPoints }: {
         )}
       </div>
     </header>
+  )
+}
+
+function NotificationBell({ unread, open, onToggle }: { unread: number; open: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" className={`icon-btn notification-bell ${open ? "is-open" : ""}`} onClick={onToggle} aria-label="Уведомления">
+      <Icon name="bell" size={18} />
+      {unread > 0 && <span className="notification-bell__count">{unread > 9 ? "9+" : unread}</span>}
+    </button>
+  )
+}
+
+function NotificationCenter({ items, open, onClose, onRead, onReadAll, onOpen }: {
+  items: UserNotification[]
+  open: boolean
+  onClose: () => void
+  onRead: (id: number) => void
+  onReadAll: () => void
+  onOpen: (item: UserNotification) => void
+}) {
+  if (!open) return null
+  return (
+    <aside className="notification-center" aria-label="Уведомления">
+      <div className="notification-center__head">
+        <strong>Уведомления</strong>
+        <div className="notification-center__actions">
+          {items.some((item) => !item.read_at) && <button type="button" onClick={onReadAll}>Прочитать все</button>}
+          <button type="button" onClick={onClose} aria-label="Закрыть уведомления"><Icon name="close" size={16} /></button>
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <p className="notification-center__empty">Здесь появятся результаты фоновых проверок.</p>
+      ) : (
+        <div className="notification-center__list">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`notification-item ${item.read_at ? "" : "is-unread"}`}
+              onClick={() => { onRead(item.id); onOpen(item) }}
+            >
+              <span className="notification-item__dot" aria-hidden="true" />
+              <span className="notification-item__copy">
+                <strong>{item.title}</strong>
+                <span>{item.body}</span>
+                {item.created_at && <small>{new Date(item.created_at).toLocaleString("ru-RU")}</small>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </aside>
   )
 }
 
@@ -1284,89 +1341,243 @@ function GuestResultScreen({ product, guestToken, onSignup, onLogin, onRestart }
 }
 
 
-function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan = "free", balance, error = "", onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onPricing, onBalance }: {
+const COMPAT_STATUS_LABEL: Record<string, string> = {
+  queued: "Ожидает проверки",
+  running: "Проверяем",
+  waiting_for_products: "Проверяем продукты",
+  analyzing_compatibility: "Анализируем совместимость",
+  completed: "Отчёт готов",
+  failed: "Не удалось завершить",
+  cancelled: "Отменено",
+}
+
+function CompatibilityReportView({ report }: { report: CompatibilityReport }) {
+  const sections: Array<[string, string, Array<{ title: string; detail: string }> | undefined]> = [
+    ["keep", "Что можно оставить", report.keep],
+    ["changes", "Что стоит изменить", report.changes],
+    ["cautions", "Что требует осторожности", report.cautions],
+    ["gaps", "Чего не хватает в уходе", report.gaps],
+    ["why", "Почему система пришла к выводу", report.why],
+  ]
+  return (
+    <div className="compat-report">
+      <div className="compat-report__head">
+        <div>
+          <p className="eyebrow">Проверенный набор</p>
+          <h2>{report.overall.verdict}</h2>
+          <p>{report.overall.summary}</p>
+        </div>
+        {report.score != null && <div className={`compat-report__score compat-report__score--${report.overall.tone}`}><strong>{report.score}</strong><span>из 100</span></div>}
+      </div>
+      <div className="compat-report__products">
+        {(report.products || []).map((product) => (
+          <span key={product.product_id} className="compat-report__product">
+            <strong>{product.name}</strong>
+            {product.score != null && <small>{product.score}%</small>}
+          </span>
+        ))}
+      </div>
+      {sections.map(([key, title, items]) => items && items.length > 0 ? (
+        <section key={key} className="compat-report__section">
+          <h3>{title}</h3>
+          <ul>{items.map((item, index) => <li key={`${key}-${index}`}><strong>{item.title}</strong><span>{item.detail}</span></li>)}</ul>
+        </section>
+      ) : null)}
+      {report.limitations.length > 0 && (
+        <details className="compat-report__limits">
+          <summary>Ограничения анализа</summary>
+          <ul>{report.limitations.map((item, index) => <li key={index}>{item}</li>)}</ul>
+        </details>
+      )}
+    </div>
+  )
+}
+function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan = "free", balance, error = "", focusSetId, onFocusSetConsumed, onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onPricing, onTaskStarted, onStateChange }: {
   items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; count?: number; plan?: Plan; balance?: number; error?: string;
+  focusSetId?: number | null; onFocusSetConsumed?: () => void;
   onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void;
-  onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onPricing?: () => void; onBalance?: (balance: number) => void
+  onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onPricing?: () => void;
+  onTaskStarted?: (task: CompatibilityTask) => void;
+  onStateChange?: (product: Product, state: "using" | "want") => void
 }) {
-  const [active, setActive] = useState<CabinetKey>("face")
+  type ShelfTab = "all" | "using" | "want" | "sets"
+  const [tab, setTab] = useState<ShelfTab>("all")
+  const [search, setSearch] = useState("")
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [batchBusy, setBatchBusy] = useState(false)
-  const [batchDone, setBatchDone] = useState(0)
-  const [batchTotal, setBatchTotal] = useState(0)
-  const [batchCurrent, setBatchCurrent] = useState<number | null>(null)
-  const [refreshMessage, setRefreshMessage] = useState("")
+  const [compatSelected, setCompatSelected] = useState<Set<number>>(new Set())
+  const [compatBusy, setCompatBusy] = useState(false)
+  const [compatMessage, setCompatMessage] = useState("")
+  const [sets, setSets] = useState<CompatibilitySetSummary[]>([])
+  const [setsLoading, setSetsLoading] = useState(false)
+  const [setsError, setSetsError] = useState("")
+  const [setDetail, setSetDetail] = useState<CompatibilitySetSummary | null>(null)
 
-  const toggleSelect = (shelfId: number) => {
-    setSelected((prev) => { const next = new Set(prev); if (next.has(shelfId)) next.delete(shelfId); else next.add(shelfId); return next })
-  }
-
-  const refreshCandidates = items.filter((item) => {
-    if (!item.state || checkingIds.has(item.id)) return false
-    const status = item.check?.status
-    return status === "stale" || status === "none" || item.needs_recheck === true
-  })
-
-  const handleBatchRefresh = async () => {
-    if (batchBusy || refreshCandidates.length === 0) return
-    const candidates = [...refreshCandidates]
-    setBatchBusy(true)
-    setBatchDone(0)
-    setBatchTotal(candidates.length)
-    setBatchCurrent(null)
-    setRefreshMessage("")
-    let updated = 0
-    const failures: string[] = []
-
-    for (let index = 0; index < candidates.length; index += 1) {
-      const item = candidates[index]
-      setBatchCurrent(item.id)
-      try {
-        const composition = await api.evaluationCompositionCheck(item.id)
-        if (!composition.composition_state?.usable) {
-          failures.push(`${item.name}: ${composition.message || "состав не подтверждён"}`)
-        } else {
-          const report = await api.evaluationProductEvaluate(item.id, buildProfile())
-          if (report.analysis?.is_final) {
-            updated += 1
-          } else {
-            failures.push(`${item.name}: недостаточно данных для итоговой проверки`)
-          }
-        }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : "ошибка проверки"
-        failures.push(`${item.name}: ${reason}`)
-      }
-      setBatchDone(index + 1)
-    }
-
-    setBatchCurrent(null)
-    setBatchBusy(false)
-    const failureText = failures.length
-      ? ` Не удалось обновить ${failures.length}: ${failures.slice(0, 2).join("; ")}${failures.length > 2 ? "…" : ""}.`
-      : ""
-    setRefreshMessage(`Обновлено ${updated} из ${candidates.length}.${failureText}`)
-    if (updated > 0) {
-      try {
-        const nextBalance = await api.balance()
-        onBalance?.(nextBalance.balance)
-      } catch {
-        // Status refresh below is more important than a balance badge update.
-      }
-      onRefresh?.()
-    }
-  }
-
-  const shelved = items.filter((p) => p.state && p.cabinet === active)
+  const faceItems = items.filter((p) => p.state && p.cabinet === "face")
+  const usingItems = faceItems.filter((p) => (p.state ?? "using") === "using")
+  const wantItems = faceItems.filter((p) => p.state === "want")
   const totalShelved = count ?? items.filter((p) => p.state).length
   const planLabel = plan === "plus" ? "Plus" : plan === "pro" ? "Pro" : "Basic"
   const nextPlan = plan === "free" ? "Plus" : plan === "plus" ? "Pro" : null
   const remaining = Math.max(0, limit - totalShelved)
   const atLimit = totalShelved >= limit
+  const capacityPercent = limit > 0 ? Math.min(100, Math.round((totalShelved / limit) * 100)) : 0
+
+  const loadSets = async () => {
+    setSetsLoading(true)
+    setSetsError("")
+    try {
+      const result = await compatApi.sets()
+      setSets(result.sets || [])
+    } catch (e) {
+      setSetsError(e instanceof Error ? e.message : "Не удалось загрузить наборы.")
+    } finally {
+      setSetsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (tab === "sets") void loadSets()
+    // The list is server-owned; reload when switching to the tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
+
+  useEffect(() => {
+    if (tab !== "sets") return
+    let alive = true
+    const tick = async () => {
+      if (document.hidden) return
+      try {
+        const result = await compatApi.sets()
+        if (alive) setSets(result.sets || [])
+      } catch { /* the explicit reload button surfaces errors */ }
+    }
+    const timer = window.setInterval(() => void tick(), 5000)
+    const onVisibility = () => { if (!document.hidden) void tick() }
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => { alive = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisibility) }
+  }, [tab])
+
+  useEffect(() => {
+    if (focusSetId == null) return
+    setTab("sets")
+    void compatApi.set(focusSetId)
+      .then((result) => setSetDetail(result.set))
+      .catch(() => setSetsError("Не удалось открыть набор."))
+      .finally(() => onFocusSetConsumed?.())
+  }, [focusSetId])
+
+  useEffect(() => {
+    if (!setDetail) return
+    if (["completed", "failed", "cancelled"].includes(setDetail.status)) return
+    let alive = true
+    const timer = window.setInterval(async () => {
+      if (document.hidden) return
+      try {
+        const result = await compatApi.set(setDetail.id)
+        if (alive) setSetDetail(result.set)
+      } catch { /* keep current state */ }
+    }, 3000)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [setDetail?.id, setDetail?.status])
+
+  const toggleSelect = (shelfId: number) => {
+    setSelected((prev) => { const next = new Set(prev); if (next.has(shelfId)) next.delete(shelfId); else next.add(shelfId); return next })
+  }
+
+  const toggleCompat = (productId: number) => {
+    setCompatSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(productId)) next.delete(productId)
+      else if (next.size < 15) next.add(productId)
+      return next
+    })
+  }
+
+  const startCompatibility = async () => {
+    if (compatBusy) return
+    const ids = Array.from(compatSelected)
+    if (ids.length < 2) return
+    setCompatBusy(true)
+    setCompatMessage("")
+    try {
+      const result = await compatApi.startCompatibility(ids, buildProfile())
+      setCompatSelected(new Set())
+      setCompatMessage(
+        result.reused
+          ? "Эта проверка уже выполняется. Набор открыт во вкладке «Наборы»."
+          : "Проверка совместимости запущена. Можно закрыть страницу — уведомим, когда отчёт будет готов.",
+      )
+      if (result.task) onTaskStarted?.(result.task)
+      setTab("sets")
+      await loadSets()
+    } catch (e) {
+      setCompatMessage(e instanceof Error ? e.message : "Не удалось запустить проверку совместимости.")
+    } finally {
+      setCompatBusy(false)
+    }
+  }
+
+  const openSet = async (setId: number) => {
+    setSetsError("")
+    try {
+      const result = await compatApi.set(setId)
+      setSetDetail(result.set)
+    } catch {
+      setSetsError("Не удалось открыть набор.")
+    }
+  }
+
+  const removeSet = async (setId: number) => {
+    if (!window.confirm("Удалить набор? Продукты на полке и их индивидуальные проверки останутся.")) return
+    try {
+      await compatApi.deleteSet(setId)
+      setSets((current) => current.filter((item) => item.id !== setId))
+      if (setDetail?.id === setId) setSetDetail(null)
+      setCompatMessage("Набор удалён. Продукты и индивидуальные проверки сохранены.")
+    } catch {
+      setSetsError("Не удалось удалить набор.")
+    }
+  }
+
+  const retrySet = async (setId: number) => {
+    try {
+      const result = await compatApi.retrySet(setId, buildProfile())
+      setSetDetail(null)
+      setSets((current) => current.map((item) => item.id === setId ? result.set : item))
+      if (result.task) onTaskStarted?.(result.task)
+      setCompatMessage("Проверка набора запущена повторно.")
+    } catch {
+      setSetsError("Не удалось запустить повторную проверку.")
+    }
+  }
+
+  const visibleItems = faceItems.filter((product) => {
+    if (tab === "using" && product.state !== "using") return false
+    if (tab === "want" && product.state !== "want") return false
+    const query = search.trim().toLowerCase()
+    if (!query) return true
+    return [product.name, product.brand, product.category, product.subcategory].filter(Boolean).join(" ").toLowerCase().includes(query)
+  })
+  const groupedItems = Array.from(
+    visibleItems.reduce((map, product) => {
+      const group = product.category || product.subcategory || "Другое"
+      if (!map.has(group)) map.set(group, [])
+      map.get(group)!.push(product)
+      return map
+    }, new Map<string, Product[]>()),
+  ).sort(([left], [right]) => {
+    const order = FACE_TAXONOMY.map((item) => item.title)
+    const li = order.indexOf(left)
+    const ri = order.indexOf(right)
+    return (li < 0 ? 999 : li) - (ri < 0 ? 999 : ri)
+  })
+  const selectedProducts = Array.from(compatSelected)
+    .map((id) => faceItems.find((product) => product.id === id))
+    .filter((product): product is Product => Boolean(product))
 
   return (
-    <div className="page">
+    <div className={`page shelf-page ${compatSelected.size > 0 ? "shelf-page--with-cart" : ""}`}>
       <PageHeading eyebrow="Уход" title="Моя полка" lead="Средства, которые вы используете, и их персональные проверки."
         action={<div className="page-head__actions">
           {selectMode ? (
@@ -1377,112 +1588,250 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
           ) : (
             <>
               <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
-              {shelved.length > 0 && <Button variant="ghost" onClick={() => setSelectMode(true)}>Выбрать</Button>}
-              {shelved.length > 0 && <Button variant="ghost" onClick={() => onClear(active)}>Очистить полку</Button>}
+              {faceItems.length > 0 && <Button variant="ghost" onClick={() => setSelectMode(true)}>Выбрать</Button>}
+              {faceItems.length > 0 && <Button variant="ghost" onClick={() => onClear("face")}>Очистить полку</Button>}
             </>
           )}
         </div>} />
 
-      <div className="cabinet-tabs">
-        {CABINETS.filter((c) => c.key === "face" || c.key === "makeup").map((c) => {
-          const itemCount = items.filter((p) => p.state && p.cabinet === c.key).length
-          return (
-            <button key={c.key} type="button" className={`cabinet-tab ${active === c.key ? "cabinet-tab--active" : ""}`} onClick={() => setActive(c.key)}>
-              {c.short}<span>{itemCount}</span>
-            </button>
-          )
-        })}
-      </div>
-
       <section className="shelf-info" aria-label="Информация о полке">
         <div className="shelf-info__copy">
           <p className="eyebrow">Ваша полка</p>
-          <p>Храните свои средства и следите за их персональными проверками.</p>
+          <p>Выбирайте средства для проверки совместимости. Индивидуальные проверки сохраняются отдельно.</p>
         </div>
         <div className="shelf-info__capacity">
           <span className="shelf-info__plan">Тариф {planLabel}</span>
           <strong>Добавлено {totalShelved} из {limit} продуктов</strong>
+          <div className="shelf-capacity" role="progressbar" aria-label="Вместимость полки" aria-valuemin={0} aria-valuemax={limit} aria-valuenow={totalShelved}>
+            <span style={{ width: `${capacityPercent}%` }} />
+          </div>
           <span>{remaining > 0 ? `Осталось ${remaining}` : "Лимит полки достигнут"}</span>
+          <button type="button" className="shelf-info__upgrade" onClick={onPricing}>О тарифах →</button>
           {atLimit && nextPlan && onPricing && (
             <button type="button" className="shelf-info__upgrade" onClick={onPricing}>Перейти на {nextPlan}</button>
           )}
         </div>
       </section>
 
-      {!loading && refreshCandidates.length > 0 && (
-        <div className={`shelf-refresh ${batchBusy ? "is-busy" : ""}`} role="status" aria-live="polite" aria-busy={batchBusy}>
-          <div>
-            <strong>{batchBusy ? `Обновляем проверки: ${batchDone} из ${batchTotal}` : "Пакетное обновление проверок"}</strong>
-            <span>
-              {batchBusy
-                ? "Проверяем состав и пересчитываем персональный результат. Не закрывайте раздел до завершения."
-                : `Проверим ${refreshCandidates.length} ${refreshCandidates.length === 1 ? "средство" : "средств"} с устаревшими или отсутствующими проверками. Стоимость — 1 балл за успешно обновлённый продукт${typeof balance === "number" ? ` · баланс ${balance}` : ""}.`}
-            </span>
-          </div>
-          <Button variant="secondary" small onClick={() => void handleBatchRefresh()} disabled={batchBusy}>
-            {batchBusy ? "Обновляем…" : `Обновить проверки (${refreshCandidates.length})`}
-          </Button>
+      <nav className="shelf-tabs" aria-label="Разделы полки">
+        {([
+          ["all", "Все", faceItems.length],
+          ["using", "Сейчас использую", usingItems.length],
+          ["want", "Хочу попробовать", wantItems.length],
+          ["sets", "Наборы", sets.length],
+        ] as const).map(([key, label, count]) => (
+          <button key={key} type="button" className={`shelf-tab ${tab === key ? "is-active" : ""}`} onClick={() => { setTab(key); setSetDetail(null); setSearch("") }}>
+            {label}<span>{count}</span>
+          </button>
+        ))}
+      </nav>
+
+      {tab !== "sets" && (
+        <div className="shelf-search">
+          <Icon name="search" size={17} />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Найти средство…" aria-label="Найти средство" />
+          {search && <button type="button" onClick={() => setSearch("")} aria-label="Очистить поиск"><Icon name="close" size={15} /></button>}
         </div>
       )}
-      {refreshMessage && <p className="shelf-refresh__message" role="status">{refreshMessage}</p>}
+
       {error && (
         <p className="shelf-error" role="alert">
           {error} <button type="button" className="guest-link" onClick={onRefresh}>Повторить</button>
         </p>
       )}
 
-      <div className="shelf-list">
-        {loading && <p className="empty"><span className="spin" /> Загружаем полку…</p>}
-        {!loading && shelved.map((p) => (
-          <div className="shelf-list__row" key={p.id}>
-            {selectMode && (
-              <button
-                type="button"
-                className={`shelf-list__select ${selected.has(p.shelf_id ?? p.id) ? "is-selected" : ""}`}
-                aria-label={selected.has(p.shelf_id ?? p.id) ? "Снять выбор" : "Выбрать продукт"}
-                onClick={() => toggleSelect(p.shelf_id ?? p.id)}
-              >
-                {selected.has(p.shelf_id ?? p.id) ? <Icon name="check" size={14} /> : ""}
-              </button>
-            )}
-            <button type="button" className="shelf-list__main" onClick={() => onOpen(p)}>
-              <ProductImage src={p.image} className="shelf-list__thumb" />
-              <span className="shelf-list__copy">
-                <strong>{p.name}</strong>
-                <small>{[p.brand, p.variant].filter(Boolean).join(" · ") || p.category || "Уход"}</small>
-                <span className="shelf-list__meta">
-                  {p.category && <em>{p.category}</em>}
-                  <span>{STATE_LABEL[p.state ?? "using"]}</span>
+      {tab === "sets" ? (
+        <div className="shelf-sets">
+          {setsError && <p className="shelf-error" role="alert">{setsError} <button type="button" className="guest-link" onClick={() => void loadSets()}>Повторить</button></p>}
+          {setsLoading && !sets.length && <p className="empty"><span className="spin" /> Загружаем наборы…</p>}
+          {setDetail ? (
+            <div className="shelf-set-detail">
+              <button type="button" className="shelf-set-detail__back" onClick={() => setSetDetail(null)}><Icon name="back" size={16} /> К наборам</button>
+              <div className="shelf-set-detail__head">
+                <div>
+                  <p className="eyebrow">Набор средств</p>
+                  <h2>{setDetail.name}</h2>
+                  <span className={`shelf-set-status shelf-set-status--${setDetail.status}`}>{COMPAT_STATUS_LABEL[setDetail.status] || setDetail.status}</span>
+                </div>
+                <div className="shelf-set-detail__actions">
+                  {setDetail.status === "failed" && <Button variant="secondary" small onClick={() => void retrySet(setDetail.id)}>Повторить</Button>}
+                  {setDetail.status === "completed" && <Button variant="secondary" small onClick={() => void retrySet(setDetail.id)}>Проверить снова</Button>}
+                  <Button variant="ghost" small onClick={() => void removeSet(setDetail.id)}>Удалить набор</Button>
+                </div>
+              </div>
+              {setDetail.error && <p className="shelf-error" role="alert">{setDetail.error}</p>}
+              {setDetail.report ? (
+                <CompatibilityReportView report={setDetail.report} />
+              ) : setDetail.status === "failed" ? (
+                <div className="shelf-set-pending">
+                  <div>
+                    <strong>Не удалось завершить проверку</strong>
+                    <p>{setDetail.error || "Проверка не была завершена. Запустите её повторно."}</p>
+                    <Button variant="secondary" small onClick={() => void retrySet(setDetail.id)}>Повторить</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="shelf-set-pending">
+                  <img src="/loading.gif" alt="" />
+                  <div>
+                    <strong>{COMPAT_STATUS_LABEL[setDetail.status] || "Проверка выполняется"}</strong>
+                    <p>Набор уже сохранён. Можно закрыть страницу — результат появится здесь и в уведомлениях.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : sets.length === 0 && !setsLoading ? (
+            <div className="shelf-empty">
+              <p>Здесь появятся проверенные наборы. Выберите минимум два средства на полке и запустите проверку совместимости.</p>
+              <Button variant="secondary" onClick={() => setTab("all")}>Перейти к средствам</Button>
+            </div>
+          ) : (
+            <div className="shelf-sets__list">
+              {sets.map((set) => {
+                const overall = set.report_summary?.overall
+                return (
+                  <article className="shelf-set-card" key={set.id}>
+                    <div className="shelf-set-card__top">
+                      <div>
+                        <h3>{set.name}</h3>
+                        <span className={`shelf-set-status shelf-set-status--${set.status}`}>{COMPAT_STATUS_LABEL[set.status] || set.status}</span>
+                      </div>
+                      {set.report_summary?.score != null && <strong className={`shelf-set-card__score shelf-set-card__score--${overall?.tone || "neutral"}`}>{set.report_summary.score}%</strong>}
+                    </div>
+                    <div className="shelf-set-card__products">
+                      {set.product_ids.map((id) => {
+                        const product = faceItems.find((item) => item.id === id)
+                        const reported = set.report_summary?.products?.find((item) => item.product_id === id)
+                        return <span key={id}>{reported ? `${reported.brand ? `${reported.brand} · ` : ""}${reported.name}` : product ? `${product.brand ? `${product.brand} · ` : ""}${product.name}` : `Средство #${id}`}</span>
+                      })}
+                    </div>
+                    {overall?.summary && <p className="shelf-set-card__summary">{overall.summary}</p>}
+                    {set.error && <p className="shelf-set-card__error">{set.error}</p>}
+                    <div className="shelf-set-card__footer">
+                      <small>{set.checked_at ? `Проверено ${new Date(set.checked_at).toLocaleDateString("ru-RU")}` : "Проверка ещё не завершена"}</small>
+                      <div>
+                        <button type="button" className="shelf-set-action" onClick={() => void openSet(set.id)}>Открыть →</button>
+                        {set.status === "failed" && <button type="button" className="shelf-set-action" onClick={() => void retrySet(set.id)}>Повторить</button>}
+                       {set.status === "completed" && <button type="button" className="shelf-set-action" onClick={() => void retrySet(set.id)}>Проверить снова</button>}
+                        <button type="button" className="shelf-set-action shelf-set-action--danger" onClick={() => void removeSet(set.id)}>Удалить</button>
+                      </div>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="shelf-list">
+          {loading && <p className="empty"><span className="spin" /> Загружаем полку…</p>}
+          {!loading && groupedItems.map(([group, groupProducts]) => (
+            <section className="shelf-group" key={group}>
+              <h2 className="shelf-group__title">{group}</h2>
+              {groupProducts.map((p) => (
+                <div className="shelf-list__row" key={p.id}>
+                  {selectMode && (
+                    <button
+                      type="button"
+                      className={`shelf-list__select ${selected.has(p.shelf_id ?? p.id) ? "is-selected" : ""}`}
+                      aria-label={selected.has(p.shelf_id ?? p.id) ? "Снять выбор" : "Выбрать продукт"}
+                      onClick={() => toggleSelect(p.shelf_id ?? p.id)}
+                    >
+                      {selected.has(p.shelf_id ?? p.id) ? <Icon name="check" size={14} /> : ""}
+                    </button>
+                  )}
+                  <button type="button" className="shelf-list__main" onClick={() => onOpen(p)}>
+                    <ProductImage src={p.image} className="shelf-list__thumb" />
+                    <span className="shelf-list__copy">
+                      <strong>{p.name}</strong>
+                      <small>{[p.brand, p.variant].filter(Boolean).join(" · ") || p.category || "Уход"}</small>
+                      <span className="shelf-list__meta">
+                        {p.category && <em>{p.category}</em>}
+                        <span>{STATE_LABEL[p.state ?? "using"]}</span>
+                      </span>
+                    </span>
+                    <span className="shelf-list__check" aria-live="polite">
+                      {checkingIds.has(p.id) ? (
+                        <span className="shelf-list__checking"><img src="/loading.gif" alt="" /> Проверяем…</span>
+                      ) : p.check?.status === "checked" ? (
+                        <>
+                          <span className="shelf-list__check-badge">Проверено</span>
+                          {p.check.verdict && <span className="shelf-list__verdict">{p.check.verdict}</span>}
+                        </>
+                      ) : p.check?.status === "stale" ? (
+                        <span className="shelf-list__check-stale">Данные устарели</span>
+                      ) : (
+                        <span className="shelf-list__check-empty">Проверить</span>
+                      )}
+                    </span>
+                  </button>
+                  {!selectMode && (
+                    <button
+                      type="button"
+                      className={`shelf-list__state ${p.state === "want" ? "is-want" : ""}`}
+                      onClick={() => onStateChange?.(p, p.state === "want" ? "using" : "want")}
+                      aria-label={p.state === "want" ? "Отметить как «Сейчас использую»" : "Отметить как «Хочу попробовать»"}
+                      title={p.state === "want" ? "Сейчас использую" : "Хочу попробовать"}
+                    >
+                      <Icon name={p.state === "want" ? "check" : "bookmark"} size={14} />
+                    </button>
+                  )}
+                  {!selectMode && (
+                    <button
+                      type="button"
+                      className={`shelf-list__collect ${compatSelected.has(p.id) ? "is-selected" : ""}`}
+                      onClick={() => toggleCompat(p.id)}
+                      aria-pressed={compatSelected.has(p.id)}
+                    >
+                      {compatSelected.has(p.id) ? "✓ В наборе" : "＋ В набор"}
+                    </button>
+                  )}
+                  {!selectMode && (
+                    <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`} title="Убрать с полки"><Icon name="close" size={15} /></button>
+                  )}
+                </div>
+              ))}
+            </section>
+          ))}
+          {!loading && visibleItems.length === 0 && (
+            <div className="shelf-empty">
+              <p>{search ? "Ничего не найдено. Измените поисковый запрос." : tab === "want" ? "В этом списке пока нет средств." : "Полка пуста. Добавьте первое средство, чтобы хранить его здесь и следить за проверками."}</p>
+              <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {compatMessage && <p className="shelf-compat-message" role="status">{compatMessage}</p>}
+      {compatSelected.size > 0 && (
+        <aside className="compat-cart" aria-label="Набор для проверки совместимости">
+          <div className="compat-cart__inner">
+            <div className="compat-cart__head">
+              <div>
+                <strong>Набор для совместимости</strong>
+                <span>{compatSelected.size} {compatSelected.size === 1 ? "средство" : "средств"}</span>
+              </div>
+              <button type="button" className="compat-cart__clear" onClick={() => setCompatSelected(new Set())}>Очистить</button>
+            </div>
+            <div className="compat-cart__items">
+              {selectedProducts.map((product) => (
+                <span className="compat-cart__item" key={product.id}>
+                  <span>{product.brand ? `${product.brand} · ` : ""}{product.name}</span>
+                  <button type="button" onClick={() => toggleCompat(product.id)} aria-label={`Убрать ${product.name} из набора`}><Icon name="close" size={13} /></button>
                 </span>
-              </span>
-              <span className="shelf-list__check" aria-live="polite">
-                {checkingIds.has(p.id) || (batchBusy && batchCurrent === p.id) ? (
-                  <span className="shelf-list__checking"><img src="/loading.gif" alt="" /> Проверяем…</span>
-                ) : p.check?.status === "checked" ? (
-                  <>
-                    <span className="shelf-list__check-badge">Проверено</span>
-                    {p.check.verdict && <span className="shelf-list__verdict">{p.check.verdict}</span>}
-                  </>
-                ) : p.check?.status === "stale" ? (
-                  <span className="shelf-list__check-stale">Данные устарели</span>
-                ) : (
-                  <span className="shelf-list__check-empty">Проверить</span>
-                )}
-              </span>
-              <Icon name="chevron" size={16} />
-            </button>
-            {!selectMode && (
-              <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`} title="Убрать с полки"><Icon name="close" size={15} /></button>
-            )}
+              ))}
+            </div>
+            <div className="compat-cart__foot">
+              <span>{compatSelected.size < 2 ? "Добавьте ещё одно средство" : "Можно запускать проверку"}</span>
+              <Button variant="secondary" onClick={() => void startCompatibility()} disabled={compatSelected.size < 2 || compatBusy}>
+                {compatBusy ? "Запускаем…" : "Проверить совместимость →"}
+              </Button>
+            </div>
           </div>
-        ))}
-        {!loading && shelved.length === 0 && (
-          <div className="shelf-empty">
-            <p>Полка пуста. Добавьте первое средство, чтобы хранить его здесь и следить за проверками.</p>
-            <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
-          </div>
-        )}
-      </div>
+        </aside>
+      )}
+
+
       <button type="button" className="shelf-fab" onClick={onAdd} aria-label="Добавить продукт"><Icon name="plus" size={24} /></button>
     </div>
   )
@@ -2792,7 +3141,10 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
             {product.shelf_id ? (
               <Button variant="ghost" onClick={() => onRemove(product)}>Убрать с полки</Button>
             ) : (
-              <Button variant="secondary" icon="plus" onClick={addToShelf} disabled={adding}>{adding ? "Сохраняем…" : "На полку"}</Button>
+              <button type="button" className="btn btn--secondary drawer__shelf-button" onClick={addToShelf} disabled={adding}>
+                <img src="/icons/to_my_shelf.svg" alt="" className="drawer__shelf-icon" />
+                {adding ? "Сохраняем…" : "На полку"}
+              </button>
             )}
             <Button variant="ghost" onClick={close}>Закрыть</Button>
           </div>
@@ -3698,6 +4050,11 @@ export default function App() {
   const [query, setQuery] = useState("")
   const [helpOpen, setHelpOpen] = useState(false)
   const [toast, setToast] = useState("")
+  const [notifications, setNotifications] = useState<UserNotification[]>([])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [notificationUnread, setNotificationUnread] = useState(0)
+  const [shelfFocusSetId, setShelfFocusSetId] = useState<number | null>(null)
+  const lastNotificationIdRef = useRef(0)
   const [shelfLoading, setShelfLoading] = useState(false)
   const [shelfError, setShelfError] = useState("")
   const [shelfMeta, setShelfMeta] = useState<{ plan: Plan; limit: number; count: number } | null>(null)
@@ -3713,6 +4070,42 @@ export default function App() {
   }, [])
   useEffect(() => { const t = window.setTimeout(() => setLoading(false), 1200); return () => window.clearTimeout(t) }, [])
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(""), 2200); return () => window.clearTimeout(t) }, [toast])
+
+  useEffect(() => {
+    if (!user) {
+      setNotifications([])
+      setNotificationUnread(0)
+      setNotificationsOpen(false)
+      return
+    }
+    let alive = true
+    const load = async () => {
+      if (document.hidden) return
+      try {
+        const result = await compatApi.notifications()
+        if (!alive) return
+        const newest = (result.notifications || [])[0]
+        if (newest && newest.id > lastNotificationIdRef.current) {
+          lastNotificationIdRef.current = newest.id
+          if (!newest.read_at) setToast(newest.title)
+        }
+        setNotifications(result.notifications || [])
+        setNotificationUnread(result.unread || 0)
+      } catch {
+        // Notification polling is best-effort; task/set pages still reconcile
+        // their state through explicit server requests.
+      }
+    }
+    void load()
+    const timer = window.setInterval(() => void load(), 5000)
+    const onVisibility = () => { if (!document.hidden) void load() }
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [user?.name])
 
   // Восстановление сессии по сохранённому токену (в т.ч. Google OAuth ?token=).
   useEffect(() => {
@@ -4049,6 +4442,11 @@ export default function App() {
 
   const clearPersonalState = () => {
     resetUserProfile()
+    setNotifications([])
+    setNotificationUnread(0)
+    setNotificationsOpen(false)
+    setShelfFocusSetId(null)
+    lastNotificationIdRef.current = 0
     setItems((cur) => cur.map((p) => ({
       ...p,
       match: undefined,
@@ -4063,6 +4461,44 @@ export default function App() {
     setCheckingIds(new Set())
     setOpen(null)
   }
+
+  const markNotificationRead = async (id: number) => {
+    const current = notifications.find((item) => item.id === id)
+    if (current?.read_at) return
+    setNotifications((items) => items.map((item) => (
+      item.id === id ? { ...item, read_at: item.read_at || new Date().toISOString() } : item
+    )))
+    setNotificationUnread((value) => Math.max(0, value - 1))
+    try { await compatApi.readNotification(id) } catch { /* polling reconciles */ }
+  }
+
+  const markAllNotificationsRead = async () => {
+    const stamp = new Date().toISOString()
+    setNotifications((current) => current.map((item) => ({ ...item, read_at: item.read_at || stamp })))
+    setNotificationUnread(0)
+    try { await compatApi.readAllNotifications() } catch { /* polling reconciles */ }
+  }
+
+  const handleNotificationOpen = (item: UserNotification) => {
+    setNotificationsOpen(false)
+    if (item.target_type === "compatibility_set" && item.target_id != null) {
+      setPage("shelf")
+      setShelfFocusSetId(item.target_id)
+      window.scrollTo({ top: 0 })
+      return
+    }
+    if (item.target_type === "product" && item.target_id != null) {
+      const product = shelfItems.find((p) => p.id === item.target_id) || items.find((p) => p.id === item.target_id)
+      if (product) {
+        setPage("shelf")
+        setOpen(product)
+      } else {
+        setPage("shelf")
+      }
+      window.scrollTo({ top: 0 })
+    }
+  }
+
 
   const handleLogin = (u: User) => {
     authEpochRef.current += 1
@@ -4134,8 +4570,26 @@ export default function App() {
       setUser((u) => (u ? { ...u, plan: p } : u))
     }
   }
+  const handleShelfStateChange = async (p: Product, state: "using" | "want") => {
+    if (!p.shelf_id || !getToken()) return
+    const previous = p.state
+    const apply = (product: Product): Product => product.id === p.id ? { ...product, state } : product
+    setItems((cur) => cur.map(apply))
+    setShelfItems((cur) => cur.map(apply))
+    setOpen((current) => (current && current.id === p.id ? apply(current) : current))
+    try {
+      await api.updateShelfState(p.shelf_id, state)
+      setToast(state === "want" ? "Отмечено как «Хочу попробовать»" : "Отмечено как «Сейчас использую»")
+    } catch {
+      setItems((cur) => cur.map((product) => product.id === p.id ? { ...product, state: previous } : product))
+      setShelfItems((cur) => cur.map((product) => product.id === p.id ? { ...product, state: previous } : product))
+      setToast("Не удалось изменить статус продукта")
+    }
+  }
+
   const handleAddToShelf = async (p: Product): Promise<boolean> => {
     const id = p.id
+    const shelfState: ProductState = p.state === "want" ? "want" : "using"
     let shelfId: number | undefined
     let error: string | null = null
     if (!p?.slug) {
@@ -4149,7 +4603,7 @@ export default function App() {
       // /check перед сохранением — иначе добавление задерживается и может
       // выглядеть «не сработавшим».
       try {
-        const res = await api.addToShelf(p.slug, p.category || "", p.cabinet || "face")
+        const res = await api.addToShelf(p.slug, p.category || "", p.cabinet || "face", shelfState)
         if (res.status !== "ok" || (res.item?.id == null && !res.duplicate)) {
           throw new Error("Сервер не подтвердил сохранение на полке.")
         }
@@ -4159,14 +4613,14 @@ export default function App() {
       }
     }
     if (error) { setToast(error); throw new Error(error) }
-    setItems((cur) => cur.map((x) => (x.id === id ? { ...x, state: "using", shelf_id: shelfId ?? x.shelf_id } : x)))
+    setItems((cur) => cur.map((x) => (x.id === id ? { ...x, state: shelfState, shelf_id: shelfId ?? x.shelf_id } : x)))
     // Оптимистично добавляем на полку, чтобы карточка появилась сразу,
     // а затем сверяемся с сервером (он вернёт канонический shelf_id/категорию).
     setShelfItems((cur) => {
       const withoutDup = cur.filter((x) => x.id !== id)
-      return [...withoutDup, { ...p, state: "using", shelf_id: shelfId ?? p.shelf_id, cabinet: (p.cabinet || "face") as CabinetKey }]
+      return [...withoutDup, { ...p, state: shelfState, shelf_id: shelfId ?? p.shelf_id, cabinet: (p.cabinet || "face") as CabinetKey }]
     })
-    setOpen((o) => (o && o.id === id ? { ...o, state: "using", shelf_id: shelfId ?? o.shelf_id } : o))
+    setOpen((o) => (o && o.id === id ? { ...o, state: shelfState, shelf_id: shelfId ?? o.shelf_id } : o))
     setAddModalOpen(false)
     setToast("Добавлено на полку ✓")
     void loadShelf()
@@ -4247,8 +4701,8 @@ export default function App() {
       <LoadingScreen done={!loading} />
       {user && <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} />}
       <div className="workspace">
-        {user && <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} onPoints={() => setPointsOpen(true)} />}
-        {user && <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} />}
+        {user && <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} onPoints={() => setPointsOpen(true)} notificationsUnread={notificationUnread} notificationsOpen={notificationsOpen} onNotifications={() => setNotificationsOpen((v) => !v)} />}
+        {user && <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} notificationsUnread={notificationUnread} notificationsOpen={notificationsOpen} onNotifications={() => setNotificationsOpen((v) => !v)} />}
         <main className="main-content">
           <div key={user ? page : `guest-${guestStage}`} className="page-anim">
             {user && page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} shelfItems={shelfItems} />}
@@ -4284,7 +4738,7 @@ export default function App() {
                 onRestart={resetGuestFlow}
               />
             )}
-            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} count={shelfMeta?.count} plan={shelfMeta?.plan ?? user.plan} balance={user.points} error={shelfError} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onPricing={() => setPricingOpen(true)} onBalance={(balance) => setUser((u) => (u ? { ...u, points: balance } : u))} />}
+            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} count={shelfMeta?.count} plan={shelfMeta?.plan ?? user.plan} balance={user.points} error={shelfError} focusSetId={shelfFocusSetId} onFocusSetConsumed={() => setShelfFocusSetId(null)} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onPricing={() => setPricingOpen(true)} onStateChange={(p, state) => void handleShelfStateChange(p, state)} onTaskStarted={(task) => { setToast(task.status === "completed" ? "Проверка уже завершена" : "Проверка запущена — результат появится в уведомлениях") }} />}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} enrichChecks={enrichCheckStatuses} />}
@@ -4294,6 +4748,7 @@ export default function App() {
         <SiteFooter onNavigate={openLegal} />
       </div>
       {user && <BottomNav page={page} onNavigate={navigate} />}
+      {user && <NotificationCenter items={notifications} open={notificationsOpen} onClose={() => setNotificationsOpen(false)} onRead={(id) => void markNotificationRead(id)} onReadAll={() => void markAllNotificationsRead()} onOpen={handleNotificationOpen} />}
       {open && <ProductDrawer key={open.id} product={open} morphOrigin={morphOrigin} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onCheckFinished={onCheckFinished} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}

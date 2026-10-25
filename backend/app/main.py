@@ -142,6 +142,14 @@ try:
 except Exception as exc:  # noqa: BLE001 - readiness must not break the app
     logger.exception("[EVALUATION] setup failed: %s", exc)
 
+# Compatibility sets/tasks reuse the Evaluation V2 service after it is wired.
+try:
+    from .compat_routes import setup_compat_routes
+
+    setup_compat_routes(app)
+except Exception as exc:  # noqa: BLE001 - compatibility must not break the existing app
+    logger.exception("[COMPAT] routes are unavailable: %s", exc)
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "deepseek": "connected" if DEEPSEEK_API_KEY else "missing"}
@@ -1347,10 +1355,15 @@ class ShelfAddRequest(BaseModel):
     slug: str
     category: str = ""
     cabinet: str = "face"
+    state: str = "using"
 
 
 class ShelfUpdateRequest(BaseModel):
     category: str = ""
+
+
+class ShelfStateRequest(BaseModel):
+    state: str = "using"
 
 
 class ShelfRecommendRequest(BaseModel):
@@ -1966,7 +1979,7 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
         score = get_personalized_score(current_user, product)
 
     try:
-        item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet, score=score)
+        item = add_product_to_shelf(current_user["id"], product["id"], category, cabinet=cabinet, score=score, shelf_status=request.state)
     except ShelfLimitError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
@@ -2540,6 +2553,15 @@ async def guest_claim_endpoint(
 
     finalize_guest_claim(claim["session_id"], analysis_id)
     return {"status": "ok", "analysis_id": analysis_id, "already_claimed": False}
+
+
+@app.patch("/api/shelf/{shelf_id}/state")
+async def update_shelf_state(shelf_id: int, request: ShelfStateRequest, current_user: dict = Depends(get_current_user)):
+    from .database import update_shelf_product_status
+    updated = update_shelf_product_status(current_user["id"], shelf_id, request.state)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Не найдено")
+    return {"status": "ok", "state": updated.get("shelf_status") or "using"}
 
 
 @app.patch("/api/shelf/{shelf_id}")

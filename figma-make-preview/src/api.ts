@@ -402,6 +402,7 @@ export type ShelfItem = {
   recommendation_status?: string | null
   verdict?: string | null
   has_report?: boolean
+  state?: string
   needs_recheck?: boolean
   caution_ingredients?: string[]
 }
@@ -626,10 +627,10 @@ export const api = {
   async shelf() {
     return request<{ cabinets: ShelfCabinet[]; plan?: string; limit?: number; count?: number }>("/shelf")
   },
-  async addToShelf(slug: string, category: string, cabinet: string) {
+  async addToShelf(slug: string, category: string, cabinet: string, state = "using") {
     return request<{ status: string; duplicate?: boolean; item?: { id?: number; product_id?: number } }>("/shelf", {
       method: "POST",
-      body: JSON.stringify({ slug, category, cabinet }),
+      body: JSON.stringify({ slug, category, cabinet, state }),
     })
   },
   async removeFromShelf(shelfId: number) {
@@ -677,6 +678,12 @@ export const api = {
   },
   async updateShelfCategory(shelfId: number, category: string) {
     return request(`/shelf/${shelfId}`, { method: "PATCH", body: JSON.stringify({ category }) })
+  },
+  async updateShelfState(shelfId: number, state: "using" | "want") {
+    return request<{ status: string; state: string }>(`/shelf/${shelfId}/state`, {
+      method: "PATCH",
+      body: JSON.stringify({ state }),
+    })
   },
   async shelfRecommend(cabinet: string, category: string) {
     return request<{ cabinet: string; category: string; recommendations: ApiProduct[] }>("/shelf/recommend", { method: "POST", body: JSON.stringify({ cabinet, category }) })
@@ -970,5 +977,135 @@ export const careSetsApi = {
       `/care-set-templates/${slug}/candidates`,
       { method: "POST", body: JSON.stringify({ step_index: stepIndex, exclude_slugs: excludeSlugs }) },
     )
+  },
+}
+
+
+// ===== совместимость набора и фоновые задачи =====
+export type CompatTaskStatus =
+  | "queued"
+  | "running"
+  | "waiting_for_products"
+  | "analyzing_compatibility"
+  | "completed"
+  | "failed"
+  | "cancelled"
+
+export type CompatibilityTask = {
+  id: number
+  kind: "individual" | "compatibility" | string
+  status: CompatTaskStatus
+  product_ids: number[]
+  set_id?: number | null
+  error?: string
+  attempts?: number
+  created_at?: string
+  updated_at?: string
+  started_at?: string | null
+  finished_at?: string | null
+  result_snapshot_id?: string | null
+}
+
+export type CompatibilityReportItem = { title: string; detail: string }
+export type CompatibilityProductResult = {
+  product_id: number
+  name: string
+  brand: string
+  score: number | null
+  verdict: string
+  tone: string
+  snapshot_id?: string
+}
+
+export type CompatibilityReport = {
+  version: string
+  generated_at: string
+  source: string
+  score: number | null
+  overall: { verdict: string; tone: string; summary: string }
+  products: CompatibilityProductResult[]
+  keep?: CompatibilityReportItem[]
+  changes?: CompatibilityReportItem[]
+  cautions?: CompatibilityReportItem[]
+  gaps?: CompatibilityReportItem[]
+  why?: CompatibilityReportItem[]
+  limitations: string[]
+  deterministic?: Record<string, unknown>
+}
+
+export type CompatibilitySetSummary = {
+  id: number
+  name: string
+  product_ids: number[]
+  status: CompatTaskStatus
+  created_at?: string
+  updated_at?: string
+  checked_at?: string
+  task_id?: number | null
+  error?: string
+  report?: CompatibilityReport | null
+  report_summary?: {
+    score: number | null
+    overall: { verdict?: string; tone?: string; summary?: string }
+    product_count: number
+    products?: CompatibilityProductResult[]
+  } | null
+}
+
+export type UserNotification = {
+  id: number
+  user_id: number
+  event_key: string
+  kind: string
+  title: string
+  body: string
+  target_type: string
+  target_id: number | null
+  read_at?: string | null
+  created_at?: string
+}
+
+export const compatApi = {
+  async startIndividual(productId: number, profile: Record<string, unknown>) {
+    return request<{ task: CompatibilityTask; reused: boolean }>("/v1/compatibility/tasks/individual", {
+      method: "POST",
+      body: JSON.stringify({ product_id: productId, profile }),
+    })
+  },
+  async startCompatibility(productIds: number[], profile: Record<string, unknown>, name = "") {
+    return request<{ task: CompatibilityTask; set: CompatibilitySetSummary | null; reused: boolean }>(
+      "/v1/compatibility/tasks/compatibility",
+      { method: "POST", body: JSON.stringify({ product_ids: productIds, profile, name }) },
+    )
+  },
+  async task(taskId: number) {
+    return request<{ task: CompatibilityTask }>(`/v1/compatibility/tasks/${taskId}`)
+  },
+  async individualTask(productId: number) {
+    return request<{ task: CompatibilityTask | null }>(`/v1/compatibility/tasks/individual/${productId}`)
+  },
+  async sets() {
+    return request<{ sets: CompatibilitySetSummary[] }>("/v1/compatibility/sets")
+  },
+  async set(setId: number) {
+    return request<{ set: CompatibilitySetSummary }>(`/v1/compatibility/sets/${setId}`)
+  },
+  async deleteSet(setId: number) {
+    return request<{ status: string; deleted?: number }>(`/v1/compatibility/sets/${setId}`, { method: "DELETE" })
+  },
+  async retrySet(setId: number, profile: Record<string, unknown>) {
+    return request<{ task: CompatibilityTask; set: CompatibilitySetSummary; reused: boolean }>(
+      `/v1/compatibility/sets/${setId}/retry`,
+      { method: "POST", body: JSON.stringify({ profile }) },
+    )
+  },
+  async notifications() {
+    return request<{ notifications: UserNotification[]; unread: number }>("/v1/notifications")
+  },
+  async readNotification(id: number) {
+    return request<{ status: string }>(`/v1/notifications/${id}/read`, { method: "POST", body: "{}" })
+  },
+  async readAllNotifications() {
+    return request<{ updated: number }>("/v1/notifications/read-all", { method: "POST", body: "{}" })
   },
 }
