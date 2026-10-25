@@ -101,6 +101,15 @@ class OverallPriorityTests(unittest.TestCase):
                 self.assertEqual(result["verdict"], "Хорошо подходит")
                 self.assertIn("требующие внимания", result["summary"])
 
+    def test_comedo_caveat_is_present_even_when_base_is_already_good(self):
+        result = _overall_verdict(
+            [POSITIVE],
+            score=65,
+            comedogenicity={"status": "assessed", "applicable": True, "level": "medium"},
+        )
+        self.assertEqual(result["verdict"], "Хорошо подходит")
+        self.assertIn("требующие внимания", result["summary"])
+
     def test_low_or_absent_comedo_factors_do_not_cap(self):
         for level in ("none", "low"):
             with self.subTest(level=level):

@@ -622,11 +622,13 @@ def _overall_verdict(
         nonlocal verdict, tone, icon
         target = _VERDICT_ORDER.get(label)
         current = _VERDICT_ORDER.get(verdict)
-        if target is None or current is None or target >= current:
+        if target is None or current is None or target > current:
             return
-        verdict = label
-        tone, icon = _VERDICT_PRESENTATION[label]
-        limitations.append(text)
+        if target < current:
+            verdict = label
+            tone, icon = _VERDICT_PRESENTATION[label]
+        if text not in limitations:
+            limitations.append(text)
 
     if verdict in _VERDICT_ORDER:
         if negative:
