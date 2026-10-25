@@ -155,6 +155,19 @@ class PostgresStore:
         )
         return dict(row) if row else None
 
+    def active_composition(self, product_id: int) -> dict | None:
+        row = self._fetchone(
+            f"""
+            select {_COMPOSITION_FIELDS}
+            from {self._table('product_compositions')}
+            where product_id = %s and status = 'active'
+            order by created_at desc
+            limit 1
+            """,
+            (int(product_id),),
+        )
+        return dict(row) if row else None
+
     def verified_product_ids(self, product_ids: Sequence[int]) -> set[int]:
         """Read-only marker for catalog cards: product has an active composition."""
         ids = [int(product_id) for product_id in product_ids]
@@ -851,6 +864,90 @@ class PostgresStore:
             (int(user_id), ids),
         )
         return {int(row["product_id"]) for row in rows}
+
+    def preview_status_data(
+        self,
+        *,
+        user_id: int,
+        product_ids: Sequence[int],
+        profile_fingerprint: Mapping[str, Any],
+        method_version: str,
+    ) -> dict[int, dict]:
+        """Batch data for the personal-check preview, in one connection.
+
+        The card status endpoint may receive hundreds of catalog ids. Calling
+        ``active_composition``/``latest_snapshot``/``current_evaluations`` per
+        card would open a Supabase connection per product and make the page
+        unusably slow. This method reads the same records in three queries.
+        """
+        ids = [int(product_id) for product_id in product_ids]
+        if not ids:
+            return {}
+        with closing(self._connect()) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    select distinct on (product_id)
+                           id, product_id, composition_hash, inci_raw, source,
+                           verified_at, status, created_at
+                    from {self._table('product_compositions')}
+                    where product_id = any(%s) and status = 'active'
+                    order by product_id, created_at desc
+                    """,
+                    (ids,),
+                )
+                compositions = {int(row["product_id"]): dict(row) for row in cur.fetchall()}
+                if not compositions:
+                    return {}
+                composition_ids = [int(row["id"]) for row in compositions.values()]
+                cur.execute(
+                    f"""
+                    select distinct on (s.product_id)
+                           s.product_id, s.document
+                    from {self._table('snapshots')} s
+                    join {self._table('product_compositions')} c on c.id = s.composition_id
+                    where s.user_id = %s
+                      and s.product_id = any(%s)
+                      and s.composition_id = any(%s)
+                      and c.status = 'active'
+                      and s.profile_fingerprint = %s::jsonb
+                    order by s.product_id, s.created_at desc
+                    """,
+                    (int(user_id), ids, composition_ids, _as_json(dict(profile_fingerprint))),
+                )
+                snapshots = {
+                    int(row["product_id"]): dict(row["document"])
+                    for row in cur.fetchall()
+                    if isinstance(row.get("document"), Mapping)
+                }
+                cur.execute(
+                    f"""
+                    select e.id, e.composition_id, e.parameter_id, e.status, e.value,
+                           e.confidence, e.rationale, e.limitations, e.evidence_ids,
+                           e.evaluated_at, e.valid_until, e.method_version,
+                           c.product_id, c.composition_hash
+                    from {self._table('parameter_evaluations')} e
+                    join {self._table('product_compositions')} c on c.id = e.composition_id
+                    where c.product_id = any(%s)
+                      and e.method_version = %s
+                      and e.superseded_by is null
+                    order by c.product_id, e.parameter_id
+                    """,
+                    (ids, str(method_version)),
+                )
+                evaluations: dict[int, list] = {}
+                for row in cur.fetchall():
+                    evaluations.setdefault(int(row["product_id"]), []).append(
+                        row_to_evaluation(row)
+                    )
+        return {
+            product_id: {
+                "composition": composition,
+                "snapshot": snapshots.get(product_id),
+                "evaluations": tuple(evaluations.get(product_id, ())),
+            }
+            for product_id, composition in compositions.items()
+        }
 
     def get_snapshot(self, snapshot_id: str) -> dict | None:
         row = self._fetchone(

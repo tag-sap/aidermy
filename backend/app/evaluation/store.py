@@ -51,6 +51,7 @@ def composition_status(composition: Mapping[str, Any]) -> str:
 
 class EvaluationStore(Protocol):
     def get_composition(self, product_id: int, composition_hash: str) -> dict | None: ...
+    def active_composition(self, product_id: int) -> dict | None: ...
     def verified_product_ids(self, product_ids: Sequence[int]) -> set[int]: ...
     def upsert_composition(self, composition: dict) -> dict: ...
     def verify_composition(self, composition_id: int, verified_at: str, source: str = "") -> dict: ...
@@ -157,6 +158,16 @@ class InMemoryStore:
             if record["product_id"] == product_id and record["composition_hash"] == composition_hash:
                 return record
         return None
+
+    def active_composition(self, product_id: int) -> dict | None:
+        matches = [
+            record for record in self._compositions.values()
+            if int(record["product_id"]) == int(product_id)
+            and str(record.get("status") or "") == COMPOSITION_ACTIVE
+        ]
+        if not matches:
+            return None
+        return max(matches, key=lambda item: str(item.get("created_at") or ""))
 
     def verified_product_ids(self, product_ids: Sequence[int]) -> set[int]:
         wanted = {int(product_id) for product_id in product_ids}

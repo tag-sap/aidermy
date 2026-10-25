@@ -38,7 +38,7 @@ from .comedogenicity import assess_comedogenicity
 from .comedo_dedupe import comedo_ingredient_names, scrub_comedo_fields
 from .verdicts import VERDICT_ICON_BY_STATUS, verdict_band
 from .research import ResearchProvider
-from .snapshot import profile_fingerprint, verify_snapshot
+from .snapshot import profile_fingerprint, profile_compatible, verify_snapshot
 from .timing import StageTimer
 from .research_service import (
     DEFAULT_MAX_ATTEMPTS,
@@ -1360,14 +1360,17 @@ class AnalysisService:
 
         The contract is intentionally narrow:
 
-        * ``checked`` — the same saved report that the drawer would open is
-          still valid for this user/profile/composition/method;
+        * ``checked`` — the saved snapshot is still current for this user/profile/
+          composition/method and the same values are present in the shared
+          evaluations;
         * ``stale`` — this user has history for the product, but it can no
           longer be served as current;
         * ``none`` — this user has never checked the product.
 
-        A snapshot belonging to another user is invisible here because both the
-        cheap discovery query and ``saved_report`` are scoped by ``user_id``.
+        A snapshot belonging to another user is invisible here because the
+        discovery query, ``latest_snapshot`` and ``current_evaluations`` are all
+        scoped by ``user_id``/composition. This is a compact read model for
+        cards; opening the product still uses the full ``saved_report`` path.
         """
         ids = sorted({int(product_id) for product_id in product_ids})
         if not ids:
@@ -1379,38 +1382,122 @@ class AnalysisService:
         if callable(finder):
             owned = {int(pid) for pid in finder(int(user_id), ids)}
         else:
-            # Older stores have no bulk marker. Falling back to every id is
-            # safe: saved_report still checks the user id before returning data.
             owned = set(ids)
 
+        fingerprint = profile_fingerprint(profile)
+        bulk_reader = getattr(self.store, "preview_status_data", None)
+        bundles = (
+            bulk_reader(
+                user_id=int(user_id),
+                product_ids=sorted(owned),
+                profile_fingerprint=fingerprint,
+                method_version=self.method_version,
+            )
+            if callable(bulk_reader)
+            else None
+        )
         statuses: dict[int, dict] = {}
         for product_id in ids:
             if product_id not in owned:
                 statuses[product_id] = {"status": "none"}
                 continue
-            try:
-                report = self.saved_report(
-                    product_id=product_id,
-                    profile=profile,
-                    user_id=int(user_id),
-                )
-            except Exception:  # noqa: BLE001 - a preview must never leak or crash
-                report = None
-            if report is None or not report.is_final:
-                statuses[product_id] = {
-                    "status": "stale",
-                    "reason": "Данные проверки устарели. Обновите проверку.",
-                }
-                continue
-            overall = report.user_report().get("overall") or {}
-            statuses[product_id] = {
-                "status": "checked",
-                "verdict": str(overall.get("verdict") or "Недостаточно данных"),
-                "tone": str(overall.get("tone") or "neutral"),
-                "icon": str(overall.get("icon") or "neutral"),
-                "checked_at": str(report.snapshot.get("created_at") or ""),
-                "snapshot_id": str(report.snapshot.get("snapshot_id") or ""),
+
+            stale = {
+                "status": "stale",
+                "reason": "Данные проверки устарели. Обновите проверку.",
             }
+            try:
+                if bundles is not None:
+                    bundle = bundles.get(product_id)
+                    if not bundle:
+                        statuses[product_id] = stale
+                        continue
+                    record = bundle.get("composition")
+                    snapshot = bundle.get("snapshot")
+                    stored = bundle.get("evaluations") or ()
+                else:
+                    # Use the current active composition and the saved snapshot.
+                    # No catalog/product enrichment is loaded here: that is the
+                    # expensive path used only when the drawer opens a full report.
+                    if not hasattr(self.store, "active_composition"):
+                        statuses[product_id] = stale
+                        continue
+                    record = self.store.active_composition(product_id)
+                    if record is None:
+                        statuses[product_id] = stale
+                        continue
+                    snapshot = self.store.latest_snapshot(
+                        product_id=product_id,
+                        composition_hash=str(record["composition_hash"]),
+                        user_id=int(user_id),
+                        profile_fingerprint=fingerprint,
+                    )
+                    stored = self.store.current_evaluations(
+                        int(record["id"]), self.method_version
+                    )
+                if record is None or str(record.get("status") or "") != COMPOSITION_ACTIVE:
+                    statuses[product_id] = stale
+                    continue
+                if snapshot is None or not verify_snapshot(snapshot):
+                    statuses[product_id] = stale
+                    continue
+                if str(snapshot.get("rule_version") or "") != self.rules.version:
+                    statuses[product_id] = stale
+                    continue
+                if not profile_compatible(snapshot.get("profile"), fingerprint):
+                    statuses[product_id] = stale
+                    continue
+                scan = scan_parameters(
+                    evaluations=stored,
+                    profile=profile,
+                    composition_hash=str(record["composition_hash"]),
+                    method_version=self.method_version,
+                    composition=record,
+                    review_after_days=self.review_after_days,
+                )
+                if scan.needed or scan.stale:
+                    statuses[product_id] = stale
+                    continue
+                saved_values = {
+                    str(row.get("parameter_id") or ""): row.get("value")
+                    for row in snapshot.get("parameters") or []
+                    if row.get("included") and row.get("value") is not None
+                }
+                current_values = {
+                    item.parameter_id: item.value
+                    for item in scan.current
+                    if item.status == "assessed" and item.value is not None
+                }
+                if set(saved_values) != set(current_values) or any(
+                    abs(float(value) - float(current_values[parameter_id])) > 1e-9
+                    for parameter_id, value in saved_values.items()
+                ):
+                    statuses[product_id] = stale
+                    continue
+                state = analysis_state(scan=scan, blocked=False)
+                report = AnalysisReport(
+                    product=dict(snapshot.get("product") or {}),
+                    composition=dict(record),
+                    snapshot=snapshot,
+                    analysis=state,
+                    primary_function={},
+                    comedogenicity={},
+                    profile_input=profile,
+                )
+                if not report.is_final:
+                    statuses[product_id] = stale
+                    continue
+                overall = report.user_report().get("overall") or {}
+                statuses[product_id] = {
+                    "status": "checked",
+                    "verdict": str(overall.get("verdict") or "Недостаточно данных"),
+                    "tone": str(overall.get("tone") or "neutral"),
+                    "icon": str(overall.get("icon") or "neutral"),
+                    "checked_at": str(snapshot.get("created_at") or ""),
+                    "snapshot_id": str(snapshot.get("snapshot_id") or ""),
+                }
+            except Exception:  # noqa: BLE001 - a preview must never leak or crash
+                statuses[product_id] = stale
         return statuses
 
     def analyze_product(
