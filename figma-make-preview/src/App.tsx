@@ -4631,10 +4631,21 @@ export default function App() {
           count: typeof res.count === "number" ? res.count : mapped.length,
         }
         // Сначала показываем базовые карточки, затем дополняем статусами.
-        setShelfItems(mapped)
+        // Keep the last known check while the fresh status request is running:
+        // a cached shelf must not flash back to «Проверить» on every refresh.
+        const cachedChecks = new Map(
+          [...(readShelfCache(userId)?.items || []), ...shelfItems]
+            .filter((item) => item.check)
+            .map((item) => [item.id, item.check] as const),
+        )
+        const base = mapped.map((item) => ({
+          ...item,
+          check: cachedChecks.get(item.id) || item.check,
+        }))
+        setShelfItems(base)
         setShelfMeta(meta)
         setShelfLoading(false)
-        writeShelfCache(userId, mapped, meta)
+        writeShelfCache(userId, base, meta)
         setItems((cur) => cur.map((p) => (
           shelfIds.has(p.id)
             ? { ...p, state: "using" as ProductState }
