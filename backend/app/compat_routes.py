@@ -20,7 +20,6 @@ from .database import (
     get_user_shelf,
 )
 from .compat_service import compatibility_cost
-from .plans import compatibility_set_limit
 from .evaluation.snapshot import profile_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -244,15 +243,6 @@ async def start_compatibility_task(
         set_row = compat_store.get_set(int(user["id"]), int(active["set_id"])) if active.get("set_id") else None
         return {"set": _public_set(set_row) if set_row else None, "task": _public_task(active), "reused": True}
 
-    set_limit = compatibility_set_limit(user.get("plan"))
-    if len(compat_store.list_sets(int(user["id"]))) >= set_limit:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"На тарифе {str(user.get('plan') or 'free').capitalize()} можно хранить "
-                f"до {set_limit} наборов. Удалите старый набор и повторите проверку."
-            ),
-        )
     cost = compatibility_cost(len(product_ids))
     _require_balance(int(user["id"]), cost)
     name = (payload.name or "").strip()[:120] or _default_set_name(product_ids)
