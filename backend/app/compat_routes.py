@@ -594,7 +594,7 @@ async def product_thumb(path: str, w: int = 160):
         return FileResponse(
             cache_path,
             media_type="image/webp",
-            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            headers={"Cache-Control": "public, max-age=86400"},
         )
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
@@ -611,7 +611,7 @@ async def product_thumb(path: str, w: int = 160):
         return FileResponse(
             cache_path,
             media_type="image/webp",
-            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            headers={"Cache-Control": "public, max-age=86400"},
         )
     except Exception:
         logger.exception("[IMAGE] thumbnail generation failed; serving original")

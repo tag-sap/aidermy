@@ -437,7 +437,7 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
           <div className="autocomplete">
             {matches.map((p) => (
               <button key={p.id} type="button" className="autocomplete__item" onMouseDown={(e) => { e.preventDefault(); onOpen(p); onQuery(""); setFocused(false) }}>
-                <img src={p.image} alt="" />
+                <img src={optimizedImageSrc(p.image, 64)} alt="" loading="lazy" decoding="async" width={32} height={32} />
                 <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
               </button>
             ))}
@@ -949,9 +949,12 @@ function AutoPickCarousel({
                 Добавляем →
               </div>
               <img
-                src={product.image}
+                src={optimizedImageSrc(product.image, 480)}
                 alt=""
                 loading="lazy"
+                decoding="async"
+                width={480}
+                height={480}
                 draggable={false}
               />
 
@@ -1254,7 +1257,7 @@ function GuestSelectScreen({ onPick, onScan, busy, error }: {
               onClick={() => onPick(item)}
               disabled={busy}
             >
-              <img src={mapApiProduct(item).image} alt="" />
+              <img src={optimizedImageSrc(mapApiProduct(item).image, 160)} alt="" loading="lazy" decoding="async" width={160} height={160} />
               <span>
                 <strong>{item.name}</strong>
                 <small>{[item.brand, item.catalog_category].filter(Boolean).join(" · ")}</small>
@@ -2664,7 +2667,7 @@ function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
         <div className="rec-list">
           {want.map((p) => (
             <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
-              <img src={p.image} alt="" loading="lazy" />
+              <img src={optimizedImageSrc(p.image, 160)} alt="" loading="lazy" decoding="async" width={160} height={160} />
               <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
               {p.match && <ScoreBadge score={p.match.score} verdict={p.match.verdict} recommendationStatus={p.match.recommendation_status} />}
             </button>
@@ -4200,7 +4203,7 @@ function ShelfAddModal({
                   ) : list.map((p) => (
                     <div key={p.id} className="rec">
                       <button type="button" className="rec__main" onClick={() => onOpen(p)}>
-                        <img src={p.image} alt="" loading="lazy" />
+                        <img src={optimizedImageSrc(p.image, 160)} alt="" loading="lazy" decoding="async" width={160} height={160} />
                         <span>
                           <strong>{p.name}</strong>
                           <small>{p.brand} · {p.category}</small>
