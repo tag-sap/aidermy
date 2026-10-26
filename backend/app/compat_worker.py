@@ -294,12 +294,20 @@ class CompatWorker:
             updated_at=_now(),
             finished_at=_now(),
         )
+        product_name = " ".join(str(product.get("name") or "").split()) or "Продукт"
+        score = product_score(report)
+        body = (
+            f"{product_name}: {score_text(score)}/100. "
+            "Откройте карточку, чтобы посмотреть персональный отчёт."
+            if score is not None
+            else f"{product_name}: отчёт готов. Откройте карточку, чтобы посмотреть результат."
+        )
         _notify(
             user_id=user_id,
             event_key=f"individual:{user_id}:{task.get('context_key') or task_id}:completed",
             kind="individual_completed",
             title="Продукт проверен. Отчёт готов",
-            body="Можно открыть карточку продукта и посмотреть персональный результат.",
+            body=body,
             target_type="product",
             target_id=product_id,
         )

@@ -221,6 +221,8 @@ class CompatibilityTaskTests(unittest.TestCase):
         self.assertEqual(note["target_type"], "product")
         self.assertEqual(note["target_id"], 7)
         self.assertEqual(note["title"], "Продукт проверен. Отчёт готов")
+        self.assertIn("Product 7", note["body"])
+        self.assertIn("70/100", note["body"])
 
     def test_report_has_no_empty_sections_and_marks_data_limits(self):
         report = build_compatibility_report(
