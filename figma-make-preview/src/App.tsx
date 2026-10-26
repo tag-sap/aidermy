@@ -4426,6 +4426,7 @@ export default function App() {
   // session is ignored instead of repopulating the new user's cards.
   const authEpochRef = useRef(0)
   const shelfRequestRef = useRef<Promise<void> | null>(null)
+  const shelfRequestIdRef = useRef(0)
   const statusRequestRef = useRef<Map<string, Promise<Record<string, EvaluationPreviewStatus>>>>(new Map())
 
   useEffect(() => {
@@ -4528,13 +4529,14 @@ export default function App() {
       .finally(() => setAuthReady(true))
     api.getProfile()
       .then((r) => {
-        const p = (r.profile || {}) as { skinType?: string; age?: string; concerns?: string[]; allergies?: string[]; structuredProfile?: unknown }
-        if (p.skinType || p.age || p.concerns?.length || p.allergies?.length || p.structuredProfile) {
+        const p = (r.profile || {}) as { skinType?: string; age?: string; concerns?: string[]; allergies?: string[]; intolerances?: string[]; structuredProfile?: unknown }
+        if (p.skinType || p.age || p.concerns?.length || p.allergies?.length || p.intolerances?.length || p.structuredProfile) {
           const pd = {
             skinType: p.skinType || getUserProfile().skinType,
             age: p.age || getUserProfile().age,
             concerns: p.concerns || [],
             allergies: p.allergies || [],
+            intolerances: p.intolerances || [],
             structured: p.structuredProfile || null,
           }
           setUserProfile(pd)
@@ -4600,16 +4602,18 @@ export default function App() {
   }, [])
 
   // Полка: кеш сразу, сервер в фоне. API остаётся источником истины.
-  const loadShelf = (userIdOverride?: number): Promise<void> => {
+  const loadShelf = (userIdOverride?: number, force = false): Promise<void> => {
     if (!getToken()) return Promise.resolve()
-    if (shelfRequestRef.current) return shelfRequestRef.current
+    if (shelfRequestRef.current && !force) return shelfRequestRef.current
     const epoch = authEpochRef.current
+    const requestId = ++shelfRequestIdRef.current
+    const isCurrent = () => epoch === authEpochRef.current && requestId === shelfRequestIdRef.current
     const userId = userIdOverride ?? user?.id
     setShelfError("")
     if (shelfItems.length === 0) setShelfLoading(true)
     const request = api.shelf()
       .then((res) => {
-        if (epoch !== authEpochRef.current) return
+        if (!isCurrent()) return
         const shelfIds = new Set<number>()
         const mapped: Product[] = []
         for (const cab of res.cabinets || []) {
@@ -4637,18 +4641,18 @@ export default function App() {
             : (p.state === "using" ? { ...p, state: undefined, shelf_id: undefined } : p)
         )))
         void enrichCheckStatuses(mapped, epoch).then((enriched) => {
-          if (epoch !== authEpochRef.current) return
+          if (!isCurrent()) return
           setShelfItems(enriched)
           writeShelfCache(userId, enriched, meta)
         })
       })
       .catch((error) => {
-        if (epoch === authEpochRef.current) {
+        if (isCurrent()) {
           setShelfError(error instanceof Error && error.message ? error.message : "Не удалось загрузить полку.")
         }
       })
       .finally(() => {
-        if (epoch === authEpochRef.current) setShelfLoading(false)
+        if (isCurrent()) setShelfLoading(false)
         if (shelfRequestRef.current === request) shelfRequestRef.current = null
       })
     shelfRequestRef.current = request
@@ -4682,7 +4686,10 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     void loadCatalog()
-    void loadShelf()
+    // Force a new shelf request: the first one may have been sent with the
+    // default profile before /auth/profile/me resolved its structured answers.
+    shelfRequestRef.current = null
+    void loadShelf(undefined, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileVersion])
 
@@ -4999,13 +5006,14 @@ export default function App() {
     // may still hold the previous account's profile after an account switch.
     void api.getProfile()
       .then((r) => {
-        const p = (r.profile || {}) as { skinType?: string; age?: string; concerns?: string[]; allergies?: string[]; structuredProfile?: unknown }
-        if (p.skinType || p.age || p.concerns?.length || p.allergies?.length || p.structuredProfile) {
+        const p = (r.profile || {}) as { skinType?: string; age?: string; concerns?: string[]; allergies?: string[]; intolerances?: string[]; structuredProfile?: unknown }
+        if (p.skinType || p.age || p.concerns?.length || p.allergies?.length || p.intolerances?.length || p.structuredProfile) {
           setUserProfile({
             skinType: p.skinType || getUserProfile().skinType,
             age: p.age || getUserProfile().age,
             concerns: p.concerns || [],
             allergies: p.allergies || [],
+            intolerances: p.intolerances || [],
             structured: p.structuredProfile || null,
           })
         }
