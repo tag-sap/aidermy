@@ -425,7 +425,12 @@ class CompatWorker:
             products=products,
             reports=reports,
         )
-        cost = int(task.get("cost") or compatibility_cost(len(product_ids)))
+        task_cost = task.get("cost")
+        cost = (
+            int(task_cost)
+            if task_cost is not None
+            else compatibility_cost(len(product_ids))
+        )
         if not charge_compatibility_set(
             user_id=user_id, task_id=task_id, cost=cost
         ):
