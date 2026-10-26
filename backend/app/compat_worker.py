@@ -25,6 +25,7 @@ from .compat_service import (
     compatibility_cost,
     get_or_analyze_product,
     product_score,
+    score_text,
     user_profile_changed,
 )
 from .database import get_product_by_id
@@ -454,12 +455,19 @@ class CompatWorker:
             updated_at=_now(),
             finished_at=_now(),
         )
+        overall = report.get("overall") or {}
+        notification_body = str(overall.get("summary") or "").strip()
+        if not notification_body:
+            notification_body = (
+                f"{score_text(report.get('score'))}/100 — "
+                f"{str(overall.get('verdict') or '').strip()}."
+            ).strip()
         _notify(
             user_id=user_id,
             event_key=f"compat:{int(set_id)}:{task_id}:completed",
             kind="compatibility_completed",
             title="Совместимость проверена. Отчёт по набору готов",
-            body="Откройте вкладку «Наборы», чтобы посмотреть рекомендации.",
+            body=notification_body or "Откройте вкладку «Наборы», чтобы посмотреть рекомендации.",
             target_type="compatibility_set",
             target_id=int(set_id),
         )

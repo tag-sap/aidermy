@@ -214,6 +214,26 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def score_text(value: Any) -> str:
+    """Format a numeric score without a floating ``.0`` suffix."""
+    if isinstance(value, (int, float)) and float(value).is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _plural(count: int, one: str, few: str, many: str) -> str:
+    """Russian plural form for a count used in user-facing report text."""
+    number = abs(int(count)) % 100
+    if 11 <= number <= 14:
+        return many
+    tail = number % 10
+    if tail == 1:
+        return one
+    if 2 <= tail <= 4:
+        return few
+    return many
+
+
 def build_compatibility_report(
     *,
     set_name: str,
@@ -346,6 +366,11 @@ def build_compatibility_report(
                 }
             )
 
+    gap_steps = [
+        step
+        for step in missing_steps
+        if step in {"Очищение", "Тонизация", "Сыворотки", "Увлажнение", "SPF"}
+    ]
     gaps = [
         {
             "title": f"Нет этапа «{step}»",
@@ -354,8 +379,7 @@ def build_compatibility_report(
                 "набора; добавляйте средство только если оно действительно нужно вашему профилю."
             ),
         }
-        for step in missing_steps
-        if step in {"Очищение", "Тонизация", "Сыворотки", "Увлажнение", "SPF"}
+        for step in gap_steps
     ]
 
     why = []
@@ -410,16 +434,39 @@ def build_compatibility_report(
         )
 
     verdict, tone = _verdict(score)
-    if conflicts or irritation or duplicates:
-        summary = (
-            f"В наборе есть {len(conflicts)} потенциальных сочетаний по правилам Aidermy. "
-            "Ниже — что можно оставить, что стоит изменить и где нужна осторожность."
+    count = len(entries)
+    base = result.get("base")
+    summary_parts = [
+        f"Набор из {count} {_plural(count, 'средства', 'средств', 'средств')}: "
+        f"{score_text(score)}/100 — {verdict}."
+    ]
+    if isinstance(base, int):
+        summary_parts.append(f"Средний индивидуальный балл — {base}%.")
+    if conflicts:
+        summary_parts.append(
+            f"Правила Aidermy отмечают {len(conflicts)} "
+            f"{_plural(len(conflicts), 'потенциальное сочетание', 'потенциальных сочетания', 'потенциальных сочетаний')}."
         )
-    else:
-        summary = (
-            "По актуальным индивидуальным результатам и доступным правилам сочетаемости "
-            "выраженных конфликтов не найдено. Учитывайте переносимость и режим применения."
+    if duplicates:
+        summary_parts.append(
+            f"Повторяющихся активов — {len(duplicates)}."
         )
+    if irritation:
+        summary_parts.append(
+            f"Компонентов, требующих повышенного внимания, — {len(irritation)}."
+        )
+    if gap_steps:
+        summary_parts.append(
+            "Не представлены этапы: " + ", ".join(gap_steps) + "."
+        )
+    if not conflicts and not irritation and not duplicates:
+        summary_parts.append(
+            "Выраженных конфликтов по доступным правилам не найдено."
+        )
+    summary_parts.append(
+        "Ниже — что можно оставить, что стоит изменить и где нужна осторожность."
+    )
+    summary = " ".join(summary_parts)
 
     report = {
         "version": "compat-1",

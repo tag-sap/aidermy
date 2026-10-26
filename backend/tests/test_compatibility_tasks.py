@@ -121,7 +121,10 @@ class CompatibilityTaskTests(unittest.TestCase):
         self.assertEqual(len(report["products"]), 2)
         self.assertEqual(service.calls, [1, 2])
         self.assertEqual(compat_store.get_task(1, task["id"])["status"], "completed")
-        self.assertEqual(len(compat_store.list_notifications(1)), 1)
+        notifications = compat_store.list_notifications(1)
+        self.assertEqual(len(notifications), 1)
+        self.assertIn("70/100", notifications[0]["body"])
+        self.assertIn("Набор из 2", notifications[0]["body"])
 
     def test_individual_failure_does_not_start_compatibility_report(self):
         set_row, task = self._set_and_task()
@@ -193,6 +196,32 @@ class CompatibilityTaskTests(unittest.TestCase):
         self.assertEqual(compat_store.get_task(1, task["id"])["status"], "completed")
         self.assertEqual(service.calls, [1, 2])
 
+    def test_individual_task_notifies_with_the_exact_product_target(self):
+        individual = compat_store.create_task(
+            user_id=1,
+            kind="individual",
+            product_ids=[7],
+            profile={"skin_type": "dry"},
+            profile_updated_at="2026-01-01",
+            context_key="individual-notify",
+            active_key="individual-notify-active",
+        )
+        service = _Service()
+        with patch("app.compat_worker.get_product_by_id", side_effect=self._product), \
+                patch("app.compat_worker.user_profile_changed", return_value=False), \
+                patch("app.compat_worker.charge_saved_report", return_value=None):
+            self.assertTrue(CompatWorker(lambda: service).run_once(kind="individual"))
+
+        task = compat_store.get_task(1, individual["id"])
+        self.assertEqual(task["status"], "completed")
+        notifications = compat_store.list_notifications(1)
+        self.assertEqual(len(notifications), 1)
+        note = notifications[0]
+        self.assertEqual(note["kind"], "individual_completed")
+        self.assertEqual(note["target_type"], "product")
+        self.assertEqual(note["target_id"], 7)
+        self.assertEqual(note["title"], "Продукт проверен. Отчёт готов")
+
     def test_report_has_no_empty_sections_and_marks_data_limits(self):
         report = build_compatibility_report(
             set_name="Набор",
@@ -206,6 +235,9 @@ class CompatibilityTaskTests(unittest.TestCase):
             if key in report:
                 self.assertTrue(report[key])
         self.assertNotIn("Недостаточно данных", str(report["overall"]))
+        self.assertIn("Набор из 2 средств", report["overall"]["summary"])
+        self.assertIn("70/100", report["overall"]["summary"])
+        self.assertIn("Средний индивидуальный балл", report["overall"]["summary"])
 
     def test_legacy_snapshot_score_falls_back_to_included_parameter_values(self):
         class LegacyReport(_Report):

@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -32,6 +32,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/compatibility", tags=["compatibility"])
 notifications_router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 image_router = APIRouter(prefix="/api/images", tags=["images"])
+
+# A valid image response for missing product photos. The frontend also has a
+# data-URI fallback, but direct API consumers must never receive broken JSON
+# from an image URL.
+_IMAGE_PLACEHOLDER = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" '
+    'viewBox="0 0 200 200" role="img" aria-label="Изображение недоступно">'
+    '<rect width="200" height="200" fill="#f0f0ef"/>'
+    '<path d="M62 126h76l-10-42H72z" fill="#d5d4ce"/>'
+    '<circle cx="100" cy="72" r="13" fill="#d5d4ce"/>'
+    '<text x="100" y="160" font-family="sans-serif" font-size="11" '
+    'text-anchor="middle" fill="#9d9b93">нет фото</text></svg>'
+).encode("utf-8")
+
+
+def _image_placeholder(status_code: int = 404) -> Response:
+    return Response(
+        content=_IMAGE_PLACEHOLDER,
+        media_type="image/svg+xml",
+        status_code=status_code,
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "X-Aidermy-Image": "placeholder",
+        },
+    )
 
 
 class ProfileRequest(BaseModel):
@@ -563,13 +588,19 @@ async def delete_all_notifications(user: dict = Depends(get_current_user)) -> di
     return {"status": "ok", "deleted": compat_store.delete_all_notifications(int(user["id"]))}
 
 
+@image_router.get("/placeholder")
+async def product_image_placeholder() -> Response:
+    """Stable placeholder for missing product photos (always a valid image)."""
+    return _image_placeholder(200)
+
+
 @image_router.get("/thumb")
-async def product_thumb(path: str, w: int = 160):
+async def product_thumb(path: str = "", w: int = 160):
     """Serve a small cached preview for product images stored in our S3 bucket.
 
     The browser should never download a full processed PNG for a 64px card.
     The endpoint only accepts our own object prefixes (no arbitrary URL fetch),
-    and on any image-processing failure falls back to the original object.
+    and returns an image placeholder with HTTP 404 when the object is missing.
     """
     clean = (path or "").strip().lstrip("/")
     if (
@@ -577,7 +608,7 @@ async def product_thumb(path: str, w: int = 160):
         or ".." in clean.split("/")
         or not clean.startswith(("processed/", "product_source/"))
     ):
-        raise HTTPException(status_code=404, detail="Изображение не найдено.")
+        return _image_placeholder(404)
     width = max(64, min(int(w or 160), 640))
     from .image_storage import S3_BUCKET
 
@@ -613,6 +644,12 @@ async def product_thumb(path: str, w: int = 160):
             media_type="image/webp",
             headers={"Cache-Control": "public, max-age=86400"},
         )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in {404, 410}:
+            logger.info("[IMAGE] source object is missing; serving placeholder path=%s", clean)
+            return _image_placeholder(404)
+        logger.exception("[IMAGE] thumbnail generation failed; serving original")
+        return RedirectResponse(source, status_code=307)
     except Exception:
         logger.exception("[IMAGE] thumbnail generation failed; serving original")
         return RedirectResponse(source, status_code=307)
