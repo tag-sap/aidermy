@@ -82,6 +82,28 @@ class _PgCursor:
     def rowcount(self):
         return self._cursor.rowcount
 
+    @property
+    def description(self):
+        """Expose a sqlite3-compatible description.
+
+        ``product_dedup`` and other legacy SQLite callers read ``d[0]`` for
+        column names. psycopg returns Column objects, so normalize both
+        representations instead of leaking a provider-specific API.
+        """
+        description = getattr(self._cursor, "description", None)
+        if not description:
+            return None
+        columns = []
+        for column in description:
+            name = getattr(column, "name", None)
+            if name is None:
+                try:
+                    name = column[0]
+                except (TypeError, IndexError, KeyError):
+                    name = ""
+            columns.append((name, None, None, None, None, None, None))
+        return columns
+
     def execute(self, sql, params=()):
         self._buffer = None
         if sql.lstrip().upper().startswith("PRAGMA"):

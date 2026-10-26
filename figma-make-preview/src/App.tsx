@@ -2360,6 +2360,12 @@ function extractUrl(raw: string): string {
   if (http) return http[0].replace(/[)\].,;:!]+$/, "")
   const www = text.match(/www\.[^\s<>"']+/i)
   if (www) return `https://${www[0].replace(/[)\].,;:!]+$/, "")}`
+  // Users often paste "shop.example/product" without a scheme. Accept it
+  // instead of sending a value the backend must reject as an invalid URL.
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i.test(text) && !/\s/.test(text)) {
+    return `https://${text.replace(/[)\]}.,;:!]+$/, "")}`
+  }
+
   return text
 }
 
@@ -2395,6 +2401,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
   const [imageUrl, setImageUrl] = useState("")
   const [busy, setBusy] = useState(false)
   const [scanError, setScanError] = useState("")
+  const [scanNotice, setScanNotice] = useState("")
 
   const METHODS: { id: ScanMethod; title: string; desc: string; icon: IconName }[] = [
     { id: "photo", title: "Скан по фото", desc: "Лицевая и задняя стороны упаковки", icon: "camera" },
@@ -2431,6 +2438,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
     if (!canRun) return
     setPhase("recognizing")
     setScanError("")
+    setScanNotice("")
     const skinType = getUserProfile().skinType
     const profile = buildProfile()
     try {
@@ -2439,14 +2447,19 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
         const prod = res.product || {}
         const b = prod.brand || brand.trim()
         const n = prod.name || name.trim()
-        setBrand(b); setName(n); setInci(prod.ingredients_raw || "")
-        let checkRes
-        if (prod.ingredients_raw) {
-          checkRes = await api.checkWithIngredients({ product_name: n, skin_type: skinType, profile, ingredients: prod.ingredients_raw, guest_token: guestToken })
-        } else {
-          checkRes = await api.check({ product_name: n, skin_type: skinType, profile, guest_token: guestToken })
+        const pageInci = (prod.ingredients_raw || "").trim()
+        const hasInci = prod.has_inci === true || (prod.has_inci === undefined && pageInci.length > 0)
+        setBrand(b); setName(n); setInci(pageInci)
+        if (!hasInci) {
+          // The page identified the product but did not publish a reliable
+          // composition. Never substitute a search result or invent an INCI.
+          setScanNotice("Товар распознан, но состав на странице не опубликован. Введите INCI вручную или сфотографируйте упаковку, чтобы получить оценку.")
+          setResult(buildResult(b, n, prod.image_url || "", prod.slug, "", undefined, typeof prod.id === "number" ? prod.id : undefined))
+          setPhase("ready")
+          return
         }
-        setResult(buildResult(b, n, prod.image_url || "", prod.slug, prod.ingredients_raw || "", checkRes as { score?: number | null; verdict?: string; analysis_id?: number }, typeof prod.id === "number" ? prod.id : undefined))
+        const checkRes = await api.checkWithIngredients({ product_name: n, skin_type: skinType, profile, ingredients: pageInci, guest_token: guestToken })
+        setResult(buildResult(b, n, prod.image_url || "", prod.slug, pageInci, checkRes as { score?: number | null; verdict?: string; analysis_id?: number }, typeof prod.id === "number" ? prod.id : undefined))
       } else if (method === "photo") {
         const checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile, guest_token: guestToken })
         setResult(buildResult(brand.trim(), name.trim(), imageUrl || checkRes.image_url || "", slug || checkRes.slug, "", checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
@@ -2658,6 +2671,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
       {phase === "ready" && result && (
         <div className="scan-ready panel">
           <p className="eyebrow">Продукт определён</p>
+          {scanNotice && <p className="panel__note" role="status">{scanNotice}</p>}
           <div className="scan-ready__row">
             <img src={productImageSrc(result.image, 160)} alt="" onError={onProductImageError} />
             <div>

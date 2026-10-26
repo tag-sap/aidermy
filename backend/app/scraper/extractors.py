@@ -20,6 +20,10 @@ class ProductPageBlocked(Exception):
     """Страница вернула антибот/JS-заглушку вместо карточки товара."""
 
 
+class UnsupportedPageFormat(Exception):
+    """URL отдал не HTML-документ (JSON/PDF/картинку и т.п.)."""
+
+
 def is_blocked_page(text: str | None) -> bool:
     haystack = (text or "").lower()
     return any(marker in haystack for marker in _BLOCKED_PAGE_MARKERS)

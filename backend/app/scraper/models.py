@@ -22,9 +22,16 @@ class ProductImportResult:
     def has_product_data(self) -> bool:
         if not self.name:
             return False
-        # Заголовок сайта («Brand | Slogan») — не название конкретного продукта.
+        # A site title such as "COSRX | EXPECTING TOMORROW" is not a product,
+        # but "Brand | Product Name" is a valid product title on many stores.
         if "|" in self.name:
-            return False
+            title_markers = (
+                "official site", "official store", "official shop",
+                "expecting tomorrow", "shop all", "онлайн-магазин", "интернет-магазин",
+            )
+            parts = [part.strip().lower() for part in self.name.split("|") if part.strip()]
+            if any(part == "home" or any(marker in part for marker in title_markers) for part in parts):
+                return False
         # «Состав» = весь текст страницы (не INCI) — не валидные данные товара.
         if self.ingredients_raw and len(self.ingredients_raw) > 15000:
             return False

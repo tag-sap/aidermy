@@ -6,7 +6,9 @@ import socket
 import sys
 from urllib.parse import urlparse
 
-from .extractors import ProductPageBlocked, extract_product
+import httpx
+
+from .extractors import ProductPageBlocked, UnsupportedPageFormat, extract_product
 from .models import ProductImportResult
 
 logger = logging.getLogger(__name__)
@@ -100,29 +102,115 @@ def _expand_ingredients(page: object) -> None:
 
 
 class ProductImportError(Exception):
-    """A user-facing product import failure with safe technical logging."""
+    """A user-facing product import failure with safe technical logging.
 
-    def __init__(self, message: str, technical: str | None = None):
+    ``code`` and ``status_code`` let the API distinguish an invalid link, a
+    site that blocks automation, a timeout, no product data and an upstream
+    failure without exposing provider internals to the client.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        technical: str | None = None,
+        *,
+        code: str = "import_failed",
+        status_code: int = 422,
+        provider: str | None = None,
+    ):
         super().__init__(message)
         self.technical = technical or message
+        self.code = code
+        self.status_code = int(status_code)
+        self.provider = provider
 
 
 def validate_public_url(value: str) -> str:
     parsed = urlparse(value.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
-        raise ProductImportError("Введите корректную ссылку на товар.")
+        raise ProductImportError(
+            "Введите корректную ссылку на товар.",
+            code="invalid_url",
+            status_code=400,
+        )
     host = parsed.hostname.rstrip(".").lower()
     if host in {"localhost", "metadata.google.internal"} or host.endswith(".local"):
-        raise ProductImportError("Ссылка на этот адрес недоступна.")
+        raise ProductImportError(
+            "Ссылка на этот адрес недоступна.",
+            code="invalid_url",
+            status_code=400,
+        )
     try:
         addresses = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
     except OSError as exc:
-        raise ProductImportError("Не удалось открыть сайт по этой ссылке.", str(exc)) from exc
+        raise ProductImportError(
+            "Не удалось открыть сайт по этой ссылке.",
+            str(exc),
+            code="network_error",
+            status_code=502,
+        ) from exc
     for address in addresses:
         ip = ipaddress.ip_address(address[4][0])
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
-            raise ProductImportError("Ссылка на этот адрес недоступна.")
+            raise ProductImportError(
+                "Ссылка на этот адрес недоступна.",
+                code="invalid_url",
+                status_code=400,
+            )
     return parsed.geturl()
+
+
+def _error_for_status(status: int, provider: str) -> ProductImportError:
+    """Map an upstream HTTP status to a user-facing, non-retrying result."""
+    if status in {401, 403}:
+        return ProductImportError(
+            "Сайт запретил автоматическое получение карточки (нужен вход или доступ ограничен). "
+            "Используйте фото состава или ручной ввод.",
+            f"HTTP {status}",
+            code="access_denied",
+            status_code=422,
+            provider=provider,
+        )
+    if status == 429:
+        return ProductImportError(
+            "Сайт ограничил частоту запросов. Попробуйте позже или используйте фото/ручной ввод.",
+            f"HTTP {status}",
+            code="rate_limited",
+            status_code=429,
+            provider=provider,
+        )
+    if status == 422:
+        return ProductImportError(
+            "Сайт вернул страницу проверки устройства вместо карточки товара. "
+            "Автоматический импорт остановлен; используйте распознавание по фото или ручной ввод.",
+            f"HTTP {status}",
+            code="anti_bot",
+            status_code=422,
+            provider=provider,
+        )
+    if status in {404, 410}:
+        return ProductImportError(
+            "Страница товара не найдена. Проверьте ссылку.",
+            f"HTTP {status}",
+            code="not_found",
+            status_code=404,
+            provider=provider,
+        )
+    if status >= 500:
+        return ProductImportError(
+            "Сайт временно вернул ошибку. Попробуйте позже или используйте фото/ручной ввод.",
+            f"HTTP {status}",
+            code="upstream_error",
+            status_code=502,
+            provider=provider,
+        )
+    return ProductImportError(
+        "Сайт не отдал страницу товара.",
+        f"HTTP {status}",
+        code="upstream_error",
+        status_code=422,
+        provider=provider,
+    )
 
 
 def _fetch(fetcher: str, url: str) -> object:
@@ -148,7 +236,7 @@ def _try_extract(fetcher: str, url: str) -> ProductImportResult:
     page = _fetch(fetcher, url)
     status = getattr(page, "status", None)
     if status is not None and int(status) >= 400:
-        raise ProductImportError("Сайт недоступен.", f"HTTP status {status}")
+        raise _error_for_status(int(status), fetcher)
     return extract_product(page, url)
 
 
@@ -157,6 +245,9 @@ async def import_product(url: str) -> ProductImportResult:
     logger.info("[SCRAPER] Import started")
     last_error: Exception | None = None
     best_result: ProductImportResult | None = None
+    best_provider: str | None = None
+    blocked_error: ProductImportError | None = None
+    observed_errors: list[ProductImportError] = []
 
     # Free fast path: plain HTML first. It is opt-in so existing deployments
     # can keep the proven Scrapling order until the provider is enabled.
@@ -173,10 +264,53 @@ async def import_product(url: str) -> ProductImportResult:
                     logger.info("[SCRAPER] Ingredients found via httpx")
                     return result
                 best_result = result
+                best_provider = "httpx"
                 logger.info("[SCRAPER] httpx: no ingredients, trying browser fallback")
         except asyncio.TimeoutError:
+            last_error = ProductImportError(
+                "Сайт слишком долго отвечает. Попробуйте позже или используйте фото/ручной ввод.",
+                "httpx timeout",
+                code="timeout",
+                status_code=504,
+                provider="httpx",
+            )
+            observed_errors.append(last_error)
             logger.info("[SCRAPER] httpx timed out")
+        except httpx.HTTPStatusError as exc:
+            last_error = _error_for_status(exc.response.status_code, "httpx")
+            observed_errors.append(last_error)
+            logger.info("[SCRAPER] httpx rejected: %s", last_error.technical)
+        except UnsupportedPageFormat as exc:
+            last_error = ProductImportError(
+                "Ссылка ведёт не на HTML-страницу товара (например, PDF или изображение). "
+                "Укажите страницу товара или используйте фото/ручной ввод.",
+                repr(exc),
+                code="unsupported_format",
+                status_code=422,
+                provider="httpx",
+            )
+            observed_errors.append(last_error)
+            logger.info("[SCRAPER] httpx unsupported format: %s", exc)
+        except ProductPageBlocked as exc:
+            last_error = ProductImportError(
+                "Сайт вернул страницу проверки устройства вместо карточки товара. "
+                "Автоматический импорт остановлен; используйте распознавание по фото или ручной ввод.",
+                repr(exc),
+                code="anti_bot",
+                status_code=422,
+                provider="httpx",
+            )
+            observed_errors.append(last_error)
+            logger.info("[SCRAPER] httpx blocked by challenge page")
         except Exception as exc:  # noqa: BLE001 - fallback remains available
+            last_error = ProductImportError(
+                "Не удалось загрузить страницу товара.",
+                f"{type(exc).__name__}: {exc}",
+                code="network_error",
+                status_code=502,
+                provider="httpx",
+            )
+            observed_errors.append(last_error)
             logger.info("[SCRAPER] httpx rejected: %s", exc)
 
     # Optional Crawl4AI browser pass for JavaScript-rendered product pages.
@@ -192,7 +326,9 @@ async def import_product(url: str) -> ProductImportResult:
                 if result.ingredients_raw:
                     logger.info("[SCRAPER] Ingredients found via Crawl4AI")
                     return result
-                best_result = best_result or result
+                if best_result is None:
+                    best_result = result
+                    best_provider = "crawl4ai"
         except asyncio.TimeoutError:
             logger.info("[SCRAPER] Crawl4AI timed out")
         except Exception as exc:  # noqa: BLE001 - optional dependency
@@ -207,36 +343,84 @@ async def import_product(url: str) -> ProductImportResult:
             if result.has_product_data():
                 if best_result is None:
                     best_result = result
+                    best_provider = fetcher
                 if result.ingredients_raw:
                     logger.info("[SCRAPER] Ingredients found via %s", fetcher)
-                    logger.info("[SCRAPER] Product normalized")
+                    logger.info("[SCRAPER] Product normalized provider=%s", fetcher)
                     return result
                 logger.info("[SCRAPER] %s: no ingredients, trying next fetcher", fetcher)
         except asyncio.TimeoutError:
-            last_error = ProductImportError(f"{fetcher} fetch timed out")
+            last_error = ProductImportError(
+                "Сайт слишком долго отвечает. Попробуйте позже или используйте фото/ручной ввод.",
+                f"{fetcher} timeout",
+                code="timeout",
+                status_code=504,
+                provider=fetcher,
+            )
+            observed_errors.append(last_error)
             logger.info("[SCRAPER] %s timed out after %.0fs", fetcher.capitalize(), SCRAPER_FETCH_TIMEOUT)
         except ProductPageBlocked as exc:
             logger.warning("[SCRAPER] %s blocked by site challenge", fetcher.capitalize())
-            raise ProductImportError(
-                "Сайт не отдал карточку товара и запросил проверку устройства. "
+            blocked_error = ProductImportError(
+                "Сайт вернул страницу проверки устройства вместо карточки товара. "
                 "Автоматический импорт остановлен; используйте распознавание по фото или ручной ввод.",
                 repr(exc),
-            ) from exc
+                code="anti_bot",
+                status_code=422,
+                provider=fetcher,
+            )
+            # Do not try to bypass or repeat an explicit challenge.
+            break
         except ProductImportError as exc:
             last_error = exc
+            observed_errors.append(last_error)
             logger.info("[SCRAPER] %s rejected: %s", fetcher.capitalize(), exc.technical)
         except Exception as exc:
-            last_error = exc
-            logger.exception("[SCRAPER] %s fetch failed", fetcher.capitalize())
+            last_error = ProductImportError(
+                "Не удалось запустить браузерный fallback для этой страницы.",
+                f"{fetcher}: {type(exc).__name__}: {exc}",
+                code="provider_unavailable",
+                status_code=502,
+                provider=fetcher,
+            )
+            observed_errors.append(last_error)
+            logger.info("[SCRAPER] %s unavailable: %s", fetcher.capitalize(), exc)
     if best_result is not None:
-        logger.info("[SCRAPER] Product normalized (no ingredients)")
+        logger.info("[SCRAPER] Product normalized provider=%s (no ingredients)", best_provider or "unknown")
         return best_result
+    candidates = ([blocked_error] if blocked_error is not None else []) + observed_errors
+    # Prefer the most actionable classification. A missing headless browser
+    # must not hide an upstream 403/422/timeout from the user.
+    for code in (
+        "anti_bot",
+        "access_denied",
+        "rate_limited",
+        "unsupported_format",
+        "timeout",
+        "not_found",
+        "upstream_error",
+        "network_error",
+    ):
+        for error in candidates:
+            if error.code == code:
+                raise error
     if isinstance(last_error, ProductImportError):
-        raise ProductImportError(
-            "Не удалось автоматически получить данные товара: сайт отклонил автоматический запрос (антибот или ограничение доступа). Проверьте ссылку или найдите товар по названию.",
-            repr(last_error),
-        )
+        # Preserve the useful classification (timeout/403/404) instead of
+        # collapsing every failure into a generic anti-bot message.
+        if last_error.code == "provider_unavailable":
+            raise ProductImportError(
+                "Страница загрузилась, но не удалось найти карточку товара или состав. "
+                "Проверьте ссылку, сфотографируйте состав или введите его вручную.",
+                last_error.technical,
+                code="no_product_data",
+                status_code=422,
+                provider=last_error.provider,
+            ) from last_error
+        raise last_error
     raise ProductImportError(
-        "Не удалось автоматически получить данные товара. Проверьте ссылку или найдите товар по названию.",
+        "Страница загрузилась, но не удалось найти карточку товара или состав. "
+        "Проверьте ссылку, сфотографируйте состав или введите его вручную.",
         repr(last_error),
+        code="no_product_data",
+        status_code=422,
     )

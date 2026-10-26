@@ -152,15 +152,23 @@ def match_score(a: Dict[str, Any], b: Dict[str, Any]) -> Optional[float]:
 
     containment, jaccard = _similarity(a_tokens, b_tokens)
 
+    # "COSRX" and "COSRX official" denote the same brand; an exact normalized
+    # equality is too strict for retailer metadata.
     if a_brand and b_brand and a_brand != b_brand:
-        return None
+        if not (a_brand in b_brand or b_brand in a_brand):
+            return None
     if a_vol and b_vol and a_vol != b_vol:
         return None
 
     a_cat = _category_key(a.get("category"))
     b_cat = _category_key(b.get("category"))
     if a_cat and b_cat and a_cat != b_cat:
-        return None
+        # Catalog categories can disagree (essence stored as toner, etc.).
+        # Allow this only for an almost identical name; unrelated products
+        # with different categories must still stay separate.
+        same_exact_product = containment >= 0.9 and jaccard >= 0.75
+        if not same_exact_product:
+            return None
 
     a_inci = normalize_inci(a.get("ingredients"))
     b_inci = normalize_inci(b.get("ingredients"))
@@ -298,7 +306,27 @@ def _slugify(name: str, salt: str = "") -> str:
 
 
 def _columns(cursor) -> List[str]:
-    return [d[0] for d in cursor.description]
+    """Return column names from either sqlite3 or the PostgreSQL adapter."""
+    description = getattr(cursor, "description", None) or []
+    columns: List[str] = []
+    for item in description:
+        name = getattr(item, "name", None)
+        if name is None:
+            try:
+                name = item[0]
+            except (TypeError, IndexError, KeyError):
+                name = ""
+        columns.append(str(name))
+    return columns
+
+
+def _row_to_dict(cursor, row) -> Dict[str, Any]:
+    """Normalize a sqlite3 tuple / psycopg dict row to a plain dict."""
+    if row is None:
+        return {}
+    if isinstance(row, dict):
+        return dict(row)
+    return dict(zip(_columns(cursor), row))
 
 
 def _infer_source_type(payload: Dict[str, Any]) -> str:
@@ -316,7 +344,7 @@ def _resolve_canonical(cursor, row: Dict[str, Any]) -> Dict[str, Any]:
     if cid:
         r = cursor.execute("SELECT * FROM products WHERE id = ?", (cid,)).fetchone()
         if r:
-            return dict(zip(_columns(cursor), r))
+            return _row_to_dict(cursor, r)
     return row
 
 
@@ -364,7 +392,7 @@ def find_or_create_canonical_product(payload: Dict[str, Any]) -> Dict[str, Any]:
     cursor = conn.cursor()
     rows = cursor.execute("SELECT * FROM products").fetchall()
     cols = _columns(cursor)
-    candidates = [dict(zip(cols, row)) for row in rows]
+    candidates = [dict(row) if isinstance(row, dict) else dict(zip(cols, row)) for row in rows]
     conn.close()
 
     best: Optional[Tuple[float, Dict[str, Any]]] = None
@@ -462,8 +490,7 @@ def find_or_create_canonical_product(payload: Dict[str, Any]) -> Dict[str, Any]:
 
         conn.commit()
         refreshed = cursor.execute("SELECT * FROM products WHERE id = ?", (canonical["id"],)).fetchone()
-        cols = _columns(cursor)
-        result = dict(zip(cols, refreshed)) if refreshed else canonical
+        result = _row_to_dict(cursor, refreshed) if refreshed else canonical
         result["is_new"] = False
         result["was_merged"] = True
         return result
@@ -493,7 +520,7 @@ def _insert_canonical(cursor, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     new_id = cursor.lastrowid
     row = cursor.execute("SELECT * FROM products WHERE id = ?", (new_id,)).fetchone()
-    return dict(zip(_columns(cursor), row))
+    return _row_to_dict(cursor, row)
 
 
 def _update_canonical(cursor, canonical_id: int, fields: Dict[str, Any]) -> None:

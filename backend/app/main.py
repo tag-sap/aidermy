@@ -299,6 +299,7 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
                 ))
             except Exception:
                 pass
+        saved_ingredients = saved.get("ingredients") or ""
         product = {
             "name": saved.get("name"),
             "brand": saved.get("brand"),
@@ -309,17 +310,37 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
             "volume": imported.volume,
             "category": saved.get("category"),
             "description": imported.description,
-            "ingredients_raw": saved.get("ingredients"),
+            "ingredients_raw": saved_ingredients,
+            "has_inci": has_reliable_inci({"ingredients": saved_ingredients}),
+            "ingredients_source": (
+                "page" if imported.ingredients_raw
+                else "database" if saved_ingredients
+                else "missing"
+            ),
+            "composition_verified": bool(
+                saved.get("id")
+                and int(saved["id"]) in _verified_product_ids([int(saved["id"])])
+            ),
             "source_url": saved.get("url"),
             "slug": saved.get("slug"),
             "id": saved.get("id"),
         }
         return {"success": True, "product": product}
     except ProductImportError as exc:
-        print(f"[SCRAPER] Import failed: {exc.technical}")
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Preserve classification: timeout -> 504, invalid URL -> 400,
+        # access/anti-bot/no content -> 422, missing page -> 404.
+        logger.info(
+            "[SCRAPER] Import classified code=%s provider=%s status=%s",
+            getattr(exc, "code", "import_failed"),
+            getattr(exc, "provider", None),
+            getattr(exc, "status_code", 422),
+        )
+        raise HTTPException(
+            status_code=int(getattr(exc, "status_code", 422)),
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
-        print(f"[SCRAPER] Import failed unexpectedly: {exc!r}")
+        logger.exception("[SCRAPER] Import failed unexpectedly")
         raise HTTPException(status_code=502, detail="Не удалось автоматически получить данные товара. Проверьте ссылку или найдите товар по названию.") from exc
 
 @app.post("/api/composition/recognize")
