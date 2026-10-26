@@ -20,8 +20,9 @@ _CYR_TO_LAT = {
     "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
 }
 # A user may type a Latin product name while the Russian keyboard layout is on.
+# This is the inverse of the standard Russian QWERTY layout.
 _RU_KEYBOARD = {
-    "й": "q", "ц": "w", "у": "e", "к": "r", "е": "e", "н": "y", "г": "u",
+    "й": "q", "ц": "w", "у": "e", "к": "r", "е": "t", "н": "y", "г": "u",
     "ш": "i", "щ": "o", "з": "p", "х": "[", "ъ": "]",
     "ф": "a", "ы": "s", "в": "d", "а": "f", "п": "g", "р": "h", "о": "j",
     "л": "k", "д": "l", "ж": ";", "э": "'",
@@ -45,7 +46,11 @@ def _fold(value: Any) -> str:
     return re.sub(r"[^0-9a-zа-я]+", " ", text).strip()
 
 
-def _translit(value: str) -> str:
+def _translit(value: str, *, brand_style: bool = False) -> str:
+    if brand_style:
+        # Russian users commonly transliterate foreign brands with «с» → c
+        # (Celimax, CeraVe), while the ordinary BGN-style mapping uses s.
+        value = value.replace("с", "c")
     return "".join(_CYR_TO_LAT.get(char, char) for char in value.casefold())
 
 
@@ -58,7 +63,12 @@ def _variants(value: str) -> set[str]:
     folded = _fold(value)
     if not folded:
         return set()
-    variants = {folded, _fold(_translit(folded)), _fold(_keyboard(folded))}
+    variants = {
+        folded,
+        _fold(_translit(folded)),
+        _fold(_translit(folded, brand_style=True)),
+        _fold(_keyboard(folded)),
+    }
     return {item for item in variants if item}
 
 
@@ -82,7 +92,7 @@ def _row_text(row: dict[str, Any]) -> str:
     )
 
 
-def _score_row(query_variants: set[str], query_tokens: list[str], row: dict[str, Any]) -> float:
+def _score_row(query_variants: set[str], row: dict[str, Any]) -> float:
     text = _row_text(row)
     candidate_variants = _variants(text)
     if not candidate_variants:
@@ -90,6 +100,9 @@ def _score_row(query_variants: set[str], query_tokens: list[str], row: dict[str,
 
     best = 0.0
     for query in query_variants:
+        query_tokens = _tokens(query)
+        if not query_tokens:
+            continue
         candidate = max(candidate_variants, key=lambda value: _ratio(query, value))
         phrase = _ratio(query, candidate)
         candidate_tokens = _tokens(candidate)
@@ -127,13 +140,12 @@ def rank_products(
     if len(query) < 2:
         return [], 0
     variants = _variants(query)
-    tokens = _tokens(query)
-    if not variants or not tokens:
+    if not variants or not _tokens(query):
         return [], 0
 
     scored: list[tuple[float, int, dict[str, Any]]] = []
     for row in rows:
-        score = _score_row(variants, tokens, row)
+        score = _score_row(variants, row)
         # A low confidence match is worse than an honest empty result.
         if score < 0.32:
             continue
