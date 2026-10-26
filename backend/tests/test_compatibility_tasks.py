@@ -4,7 +4,11 @@ import unittest
 from unittest.mock import patch
 
 from app import compat_store
-from app.compat_service import build_compatibility_report, compatibility_cost
+from app.compat_service import (
+    build_compatibility_report,
+    charge_compatibility_set,
+    compatibility_cost,
+)
 from app.compat_worker import CompatWorker
 
 
@@ -232,6 +236,16 @@ class CompatibilityTaskTests(unittest.TestCase):
             [compatibility_cost(count) for count in range(1, 11)],
             expected,
         )
+
+    def test_compatibility_charge_is_idempotent_by_task_id(self):
+        with patch("app.database.change_balance", return_value=9) as change:
+            self.assertTrue(charge_compatibility_set(user_id=1, task_id=42, cost=1))
+        self.assertEqual(change.call_args.kwargs["idempotency_key"], "compatibility:42")
+        self.assertEqual(change.call_args.args[:2], (1, -1))
+
+    def test_compatibility_charge_reports_insufficient_balance(self):
+        with patch("app.database.change_balance", return_value=None):
+            self.assertFalse(charge_compatibility_set(user_id=1, task_id=42, cost=1))
 
 
 if __name__ == "__main__":
