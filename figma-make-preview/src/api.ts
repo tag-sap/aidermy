@@ -1056,6 +1056,17 @@ export type CompatibilitySetSummary = {
   } | null
 }
 
+export type CompatibilityBatchQuote = {
+  product_count: number
+  missing_product_ids: number[]
+  missing_count: number
+  reused_count: number
+  cost: number
+  unit: string
+  balance: number
+  sufficient: boolean
+}
+
 export type UserNotification = {
   id: number
   user_id: number
@@ -1076,10 +1087,19 @@ export const compatApi = {
       body: JSON.stringify({ product_id: productId, profile }),
     })
   },
-  async startCompatibility(productIds: number[], profile: Record<string, unknown>, name = "") {
-    return request<{ task: CompatibilityTask; set: CompatibilitySetSummary | null; reused: boolean; cost?: number }>(
+  async startCompatibility(productIds: number[], profile: Record<string, unknown>, name = "", onlyMissing = false) {
+    return request<{
+      task: CompatibilityTask | null; set: CompatibilitySetSummary | null;
+      reused: boolean; cost?: number; missing_count?: number; reused_count?: number
+    }>(
       "/v1/compatibility/tasks/compatibility",
-      { method: "POST", body: JSON.stringify({ product_ids: productIds, profile, name }) },
+      { method: "POST", body: JSON.stringify({ product_ids: productIds, profile, name, only_missing: onlyMissing }) },
+    )
+  },
+  async batchQuote(productIds: number[], profile: Record<string, unknown>) {
+    return request<CompatibilityBatchQuote>(
+      "/v1/compatibility/batch/quote",
+      { method: "POST", body: JSON.stringify({ product_ids: productIds, profile }) },
     )
   },
   async pricing(productCount: number) {
@@ -1098,6 +1118,12 @@ export const compatApi = {
   },
   async set(setId: number) {
     return request<{ set: CompatibilitySetSummary }>(`/v1/compatibility/sets/${setId}`)
+  },
+  async renameSet(setId: number, name: string) {
+    return request<{ set: CompatibilitySetSummary }>(`/v1/compatibility/sets/${setId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    })
   },
   async deleteSet(setId: number) {
     return request<{ status: string; deleted?: number }>(`/v1/compatibility/sets/${setId}`, { method: "DELETE" })

@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, 
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
-import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review, compatApi, type CompatibilityTask, type UserNotification, type CompatibilitySetSummary, type CompatibilityReport } from "./api"
+import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review, compatApi, type CompatibilityTask, type UserNotification, type CompatibilitySetSummary, type CompatibilityReport, type CompatibilityBatchQuote, type EvaluationPreviewStatus } from "./api"
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, resetUserProfile, getUserProfile, applyCheckStatuses } from "./mapping"
 import { PhotoScan } from "./photo-scan"
 import { ReportDetails } from "./report-details"
+import { readShelfCache, writeShelfCache, clearShelfCache, type ShelfMeta } from "./shelf-cache"
 import { EvaluationV2Panel } from "./evaluation-v2"
 import { VerdictIcon } from "./evaluation-v2"
 import { AnimatedBorderWrapper } from "./components/ui/moving-border"
@@ -19,7 +20,7 @@ import {
   type QuizBranch, type QuizOption,
 } from "./data"
 
-type User = { name: string; initials: string; plan: Plan; points: number }
+type User = { id?: number; name: string; initials: string; plan: Plan; points: number }
 
 type IconName =
   | "home" | "shelf" | "scan" | "search" | "chart" | "user"
@@ -223,7 +224,25 @@ const PRODUCT_IMAGE_FALLBACK = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#f0f0ef"/><path d="M62 126h76l-10 -42H72z" fill="#d5d4ce"/><circle cx="100" cy="72" r="13" fill="#d5d4ce"/><text x="100" y="160" font-family="sans-serif" font-size="11" text-anchor="middle" fill="#9d9b93">нет фото</text></svg>'
 )}`
 
-function ProductImage({ src, alt = "", className = "" }: { src: string; alt?: string; className?: string }) {
+function optimizedImageSrc(src: string, width: number): string {
+  if (!src || src.startsWith("data:")) return src
+  try {
+    const url = new URL(src)
+    if (url.hostname === "images.unsplash.com") {
+      url.searchParams.set("w", String(width))
+      url.searchParams.set("q", "72")
+      url.searchParams.set("auto", "format")
+      return url.toString()
+    }
+  } catch {
+    // Relative URLs and placeholders are used as-is.
+  }
+  return src
+}
+
+function ProductImage({ src, alt = "", className = "", imgWidth = 320, eager = false }: {
+  src: string; alt?: string; className?: string; imgWidth?: number; eager?: boolean
+}) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
   useEffect(() => {
@@ -234,9 +253,12 @@ function ProductImage({ src, alt = "", className = "" }: { src: string; alt?: st
     <span className={`pimg ${loaded ? "pimg--loaded" : ""} ${className}`}>
       {!loaded && <span className="pimg__skeleton" aria-hidden="true" />}
       <img
-        src={failed || !src ? PRODUCT_IMAGE_FALLBACK : src}
+        src={failed || !src ? PRODUCT_IMAGE_FALLBACK : optimizedImageSrc(src, imgWidth)}
         alt={alt}
-        loading="lazy"
+        width={imgWidth}
+        height={imgWidth}
+        loading={eager ? "eager" : "lazy"}
+        fetchPriority={eager ? "high" : "low"}
         decoding="async"
         className="pimg__img"
         onLoad={() => setLoaded(true)}
@@ -962,79 +984,90 @@ function AutoPickCarousel({
   )
 }
 
-function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
-  onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]; shelfItems: Product[]
+function HomePage({ onNavigate, onScan, onCheckSet, user, shelfItems, shelfMeta }: {
+  onNavigate: (p: Page) => void
+  onScan: () => void
+  onCheckSet: () => void
+  user: User | null
+  shelfItems: Product[]
+  shelfMeta: ShelfMeta | null
 }) {
-  const using = (shelfItems.length ? shelfItems : items.filter((p) => p.state)).slice(0, 4)
-  const recent = items
-    .filter((p) => p.check?.status === "checked" || (!EVALUATION_V2_ENABLED && p.match))
-    .slice(0, 6)
-  // Тот же источник результата, что и «Моя полка» (shelfItems) — без отдельного расчёта для Home.
-  const shelfSource = shelfItems.length ? shelfItems : items.filter((p) => p.state)
-  const checkedOnShelf = shelfSource.filter((p) => p.check?.status === "checked").length
-  // Реальные рекомендации: в V2 — продукты без актуальной проверки; старый
-  // Match-ранкинг используется только когда Evaluation V2 выключен.
-  const recommended = EVALUATION_V2_ENABLED
-    ? items.filter((p) => !p.state && p.check?.status !== "checked").slice(0, 3)
-    : items.filter((p) => p.match != null && !p.state).sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 3)
+  // The dashboard is a read-only projection of already loaded server data.
+  // It never starts a paid check or invents a number when the shelf is empty.
+  const shelfCount = shelfMeta?.count ?? shelfItems.length
+  const checked = shelfItems.filter((p) => p.check?.status === "checked").length
+  const needsCheck = shelfItems.filter((p) => p.check?.status !== "checked").length
+  const faceCount = shelfItems.filter((p) => p.state && p.cabinet === "face").length
+  const planTitle = PLANS.find((p) => p.key === user?.plan)?.title ?? "Free"
+  const hasShelfData = shelfCount > 0 || shelfItems.length > 0
+  const actions = [
+    { key: "shelf", title: "Моя полка", hint: "Средства и проверки", icon: "shelf" as IconName, onClick: () => onNavigate("shelf") },
+    { key: "scan", title: "Сканировать средство", hint: "Камера или ссылка", icon: "camera" as IconName, onClick: onScan },
+    { key: "check", title: "Проверить средство", hint: "Найти состав в каталоге", icon: "search" as IconName, onClick: () => onNavigate("catalog") },
+    { key: "set", title: "Проверить набор", hint: "Совместимость средств", icon: "sparkle" as IconName, onClick: onCheckSet, disabled: faceCount < 2 },
+  ]
   return (
-    <div className="page">
-      <section className="hero">
-        <ParticleCanvas />
-        <div className="hero__inner">
-          <p className="eyebrow">{user ? `Доброе утро, ${user.name}` : "Добро пожаловать"}</p>
-          <h1 className="hero__title">Косметика, которая<br />действительно подходит</h1>
-          <p className="hero__lead">айдерми связывает состав с вашей кожей и показывает, что сработает, а что нет.</p>
-          <div className="hero__actions">
-            <Button icon="camera" onClick={onScan}>Сканировать упаковку</Button>
-            <Button variant="secondary" icon="search" onClick={() => onNavigate("catalog")}>Найти в каталоге</Button>
-          </div>
-        </div>
-      </section>
-
-      <div className="grid-2">
-        <section className="panel panel--click" onClick={() => onNavigate("shelf")}>
-          <p className="eyebrow">Моя полка · сводка</p>
-          <div className="report-preview">
-            <div className="report-preview__num"><strong>{checkedOnShelf}</strong><span>из {shelfSource.length}</span></div>
-            <p className="report-preview__label">продуктов с актуальной проверкой</p>
-          </div>
-        </section>
-
-        <section className="panel">
-          <p className="eyebrow">Профиль кожи</p>
-          <h3 className="panel__h3">{getUserProfile().skinType}</h3>
-          <div className="chips">
-            {getUserProfile().concerns.slice(0, 3).map((g) => <span key={g} className="chip">{g}</span>)}
-            {getUserProfile().allergies.slice(0, 2).map((t) => <span key={t} className="chip">{t}</span>)}
-            {getUserProfile().concerns.length === 0 && getUserProfile().allergies.length === 0 && <span className="chip">Профиль не заполнен</span>}
-          </div>
-          <Button variant="ghost" small icon="user" onClick={() => onNavigate("profile")} className="mt">Перепройти опрос</Button>
-        </section>
+    <div className="page dashboard">
+      <PageHeading
+        eyebrow="Обзор"
+        title={user ? `Здравствуйте, ${user.name}` : "Главная"}
+        lead="Короткий путь к уходу, который подходит вашей коже."
+      />
+      <div className="dashboard-actions">
+        {actions.map((action) => (
+          <button
+            key={action.key}
+            type="button"
+            className="dashboard-action"
+            onClick={action.onClick}
+            disabled={action.disabled}
+          >
+            <span className="dashboard-action__icon"><Icon name={action.icon} size={22} /></span>
+            <span className="dashboard-action__copy">
+              <strong>{action.title}</strong>
+              <small>{action.hint}</small>
+            </span>
+            <Icon name="arrow" size={17} />
+          </button>
+        ))}
       </div>
 
-      <section className="block">
-        <SectionHead eyebrow="Недавно" title="Проверенные продукты" action={() => onNavigate("catalog")} actionLabel="Все" />
-        <HScroll>{recent.map((p) => <ProductCard key={p.id} product={p} onOpen={() => onOpen(p)} />)}</HScroll>
-      </section>
+      <div className="dashboard-widgets">
+        {hasShelfData && (
+          <button type="button" className="dashboard-widget" onClick={() => onNavigate("shelf")}>
+            <span className="dashboard-widget__label">На полке</span>
+            <strong>{shelfCount}</strong>
+            <small>{shelfCount === 1 ? "средство" : "средств"}</small>
+          </button>
+        )}
+        {hasShelfData && (
+          <button type="button" className="dashboard-widget" onClick={() => onNavigate("shelf")}>
+            <span className="dashboard-widget__label">Требуют проверки</span>
+            <strong>{needsCheck}</strong>
+            <small>{needsCheck === 1 ? "средство" : "средств"}</small>
+          </button>
+        )}
+        {hasShelfData && (
+          <button type="button" className="dashboard-widget" onClick={() => onNavigate("shelf")}>
+            <span className="dashboard-widget__label">Актуальные результаты</span>
+            <strong>{checked}</strong>
+            <small>из {shelfCount}</small>
+          </button>
+        )}
+        {user && (
+          <button type="button" className="dashboard-widget dashboard-widget--balance" onClick={() => onNavigate("profile")}>
+            <span className="dashboard-widget__label">Баланс · {planTitle}</span>
+            <strong>{user.points}</strong>
+            <small>баллов</small>
+          </button>
+        )}
+      </div>
 
-      <section className="block">
-        <SectionHead eyebrow="Моя полка" title="Средства на полке" action={() => onNavigate("shelf")} actionLabel="Полка" />
-        <HScroll>{using.map((p) => <ProductCard key={p.id} product={p} onOpen={() => onOpen(p)} />)}</HScroll>
-      </section>
-
-      <section className="block">
-        <SectionHead eyebrow="Рекомендации" title="Проверьте ещё" action={() => onNavigate("catalog")} actionLabel="Каталог" />
-        <div className="rec-list">
-          {recommended.map((p) => (
-            <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
-              <img src={p.image} alt="" loading="lazy" />
-              <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
-              {p.match && <ScoreBadge score={p.match.score} verdict={p.match.verdict} recommendationStatus={p.match.recommendation_status} />}
-            </button>
-          ))}
-        </div>
-      </section>
+      {!hasShelfData && (
+        <p className="dashboard-empty">
+          Добавьте первое средство на полку — здесь появятся ваши проверки и актуальные результаты.
+        </p>
+      )}
     </div>
   )
 }
@@ -1403,7 +1436,7 @@ function CompatibilityReportView({ report, onRetry }: { report: CompatibilityRep
           <div className="compat-report__products">
             {(report.products || []).map((product) => (
               <article key={product.product_id} className="compat-report__product" title={`${product.brand ? `${product.brand} · ` : ""}${product.name}`}>
-                <ProductImage src={product.image || ""} alt={product.name} className="compat-report__thumb" />
+                <ProductImage src={product.image || ""} alt={product.name} className="compat-report__thumb" imgWidth={160} />
                 <div className="compat-report__product-copy">
                   <strong>{product.name}</strong>
                   <small>{product.brand || "Уход"}</small>
@@ -1519,15 +1552,206 @@ function CompatibilityReportDrawer({
   )
 }
 
-function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 5, count, error = "", focusSetId, onFocusSetConsumed, onOpen, onAdd, onRemove, onDeleteBatch, onRefresh, onTaskStarted }: {
+function CompatibilitySetReportPage({
+  set,
+  loading,
+  error,
+  onBack,
+  onRetry,
+  onDelete,
+}: {
+  set: CompatibilitySetSummary | null
+  loading: boolean
+  error: string
+  onBack: () => void
+  onRetry: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="page compat-report-page">
+      <button type="button" className="compat-report-page__back" onClick={onBack}>
+        <Icon name="back" size={16} /> К наборам
+      </button>
+      {loading && !set && <p className="empty"><span className="spin" /> Загружаем отчёт…</p>}
+      {error && !set && (
+        <p className="shelf-error" role="alert">
+          {error} <button type="button" className="guest-link" onClick={onBack}>Вернуться к наборам</button>
+        </p>
+      )}
+      {set && (
+        <>
+          <header className="compat-report-page__head">
+            <div>
+              <p className="eyebrow">Проверенный набор</p>
+              <h1>{set.name || "Мой набор"}</h1>
+              <span className={`shelf-set-status shelf-set-status--${set.status}`}>
+                {set.status === "completed" ? "Проверено" : set.status === "failed" ? "Ошибка" : "Проверяется"}
+              </span>
+            </div>
+            <div className="compat-report-page__actions">
+              {(set.status === "completed" || set.status === "failed") && (
+                <Button variant="secondary" small onClick={onRetry}>
+                  {set.status === "failed" ? "Повторить проверку" : "Проверить снова"}
+                </Button>
+              )}
+              <Button variant="ghost" small onClick={onDelete}>Удалить набор</Button>
+            </div>
+          </header>
+          {set.error && <p className="shelf-error" role="alert">{set.error}</p>}
+          {set.report ? (
+            <CompatibilityReportView report={set.report} onRetry={onRetry} />
+          ) : set.status === "failed" ? (
+            <div className="shelf-set-pending">
+              <div>
+                <strong>Не удалось завершить проверку</strong>
+                <p>{set.error || "Проверка не была завершена. Запустите её повторно."}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="shelf-set-pending">
+              <div>
+                <strong>Проверяется<span className="loading-dots" aria-hidden="true"><i /><i /><i /></span></strong>
+                <p>Проверяем актуальные индивидуальные результаты и совместимость. Можно вернуться позже — отчёт сохранится.</p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function CompatibilitySetCard({
+  set,
+  products,
+  onOpen,
+  onDelete,
+  onRename,
+}: {
+  set: CompatibilitySetSummary
+  products: Product[]
+  onOpen: () => void
+  onDelete: () => void
+  onRename: (name: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(set.name || "Мой набор")
+  const [saving, setSaving] = useState(false)
+  const [renameError, setRenameError] = useState("")
+  useEffect(() => {
+    if (!editing) setName(set.name || "Мой набор")
+  }, [set.name, editing])
+
+  const reported = set.report_summary?.products || []
+  const images = set.product_ids.slice(0, 4).map((id) => {
+    const reportProduct = reported.find((item) => item.product_id === id)
+    return reportProduct?.image || products.find((item) => item.id === id)?.image || ""
+  })
+  const primary = images.slice(0, 3)
+  const extra = set.product_ids.length - 3
+  const active = !["completed", "failed", "cancelled"].includes(set.status)
+  const failed = set.status === "failed"
+  const verdict = set.report_summary?.overall?.verdict
+  const createdAt = set.created_at || set.updated_at
+  const createdLabel = createdAt
+    ? new Date(createdAt).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    : ""
+
+  const saveName = async () => {
+    const next = name.trim()
+    if (!next || next === (set.name || "Мой набор")) {
+      setEditing(false)
+      setName(set.name || "Мой набор")
+      return
+    }
+    setSaving(true)
+    setRenameError("")
+    try {
+      await onRename(next)
+      setEditing(false)
+    } catch (error) {
+      setRenameError(error instanceof Error ? error.message : "Не удалось переименовать набор.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <article className={`shelf-set-card ${active ? "is-active" : ""}`}>
+      <div
+        className="shelf-set-card__main"
+        role="button"
+        tabIndex={0}
+        onClick={() => { if (!editing) onOpen() }}
+        onKeyDown={(event) => { if (!editing && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onOpen() } }}
+      >
+        <div className="shelf-set-card__preview" aria-hidden="true">
+          {primary.map((src, index) => (
+            <ProductImage key={`${set.id}-${index}`} src={src} className="shelf-set-card__preview-image" imgWidth={160} />
+          ))}
+          {extra > 0 && (
+            <span className="shelf-set-card__more">
+              <ProductImage src={images[3] || primary[0] || ""} className="shelf-set-card__preview-image" imgWidth={160} />
+              <strong>+{extra}</strong>
+            </span>
+          )}
+        </div>
+        <div className="shelf-set-card__copy">
+          <div className="shelf-set-card__title-row">
+            {editing ? (
+              <input
+                className="shelf-set-card__name-input"
+                value={name}
+                maxLength={120}
+                autoFocus
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => setName(event.target.value)}
+                onBlur={() => void saveName()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") { event.preventDefault(); void saveName() }
+                  if (event.key === "Escape") { setEditing(false); setName(set.name || "Мой набор") }
+                }}
+              />
+            ) : (
+              <h3>{set.name || "Мой набор"}</h3>
+            )}
+            {!editing && (
+              <button
+                type="button"
+                className="shelf-set-card__rename"
+                onClick={(event) => { event.stopPropagation(); setEditing(true) }}
+                aria-label="Переименовать набор"
+                title="Переименовать набор"
+              >
+                <Icon name="pencil" size={13} />
+              </button>
+            )}
+          </div>
+          {createdLabel && <small className="shelf-set-card__date">{createdLabel}</small>}
+          <span className={`shelf-set-status shelf-set-status--${set.status}`}>
+            {active ? <>Проверяется<span className="loading-dots" aria-hidden="true"><i /><i /><i /></span></> : failed ? "Ошибка" : "Проверено"}
+          </span>
+          {!active && !failed && verdict && <strong className="shelf-set-card__verdict">{verdict}</strong>}
+          {renameError && <span className="shelf-set-card__rename-error">{renameError}</span>}
+        </div>
+      </div>
+      <button type="button" className="shelf-set-card__remove" onClick={onDelete} aria-label={`Удалить набор ${set.name || "Мой набор"}`} title="Удалить набор" disabled={saving}>
+        <Icon name="close" size={15} />
+      </button>
+    </article>
+  )
+}
+
+function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 5, count, error = "", initialTab = "items", onOpenReport, onOpen, onAdd, onRemove, onDeleteBatch, onRefresh, onTaskStarted }: {
   items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; setLimit?: number; count?: number; error?: string;
-  focusSetId?: number | null; onFocusSetConsumed?: () => void;
+  initialTab?: "items" | "sets";
+  onOpenReport: (setId: number) => void;
   onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void;
   onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void;
   onTaskStarted?: (task: CompatibilityTask) => void;
 }) {
   type ShelfTab = "items" | "sets"
-  const [tab, setTab] = useState<ShelfTab>("items")
+  const [tab, setTab] = useState<ShelfTab>(initialTab)
   const [search, setSearch] = useState("")
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -1535,12 +1759,17 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
   const [compatCost, setCompatCost] = useState<number | null>(null)
   const [compatBusy, setCompatBusy] = useState(false)
   const [compatMessage, setCompatMessage] = useState("")
+  const [batchQuote, setBatchQuote] = useState<CompatibilityBatchQuote | null>(null)
+  const [batchBusy, setBatchBusy] = useState(false)
+  const batchBusyRef = useRef(false)
+  const [batchMessage, setBatchMessage] = useState("")
+  const [batchSetId, setBatchSetId] = useState<number | null>(null)
   const [sets, setSets] = useState<CompatibilitySetSummary[]>([])
   const [setsLoading, setSetsLoading] = useState(false)
   const [setsError, setSetsError] = useState("")
-  const [reportSet, setReportSet] = useState<CompatibilitySetSummary | null>(null)
 
   const faceItems = items.filter((p) => p.state && p.cabinet === "face")
+  const batchQuoteKey = faceItems.map((p) => `${p.id}:${p.check?.status || ""}`).join(",")
   const totalShelved = count ?? items.filter((p) => p.state).length
 
   const loadSets = async () => {
@@ -1557,14 +1786,19 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
   }
 
   useEffect(() => {
+    setTab(initialTab)
+  }, [initialTab])
+
+  useEffect(() => {
     void loadSets()
     // The set count is shown in the tab before the user visits «Наборы».
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    if (tab === "sets") void loadSets()
-    // The list is server-owned; reload when switching to the tab.
+    if (tab !== "sets" || sets.length > 0) return
+    void loadSets()
+    // An empty list is loaded on demand; a populated list is already current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
@@ -1585,27 +1819,48 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
   }, [tab])
 
   useEffect(() => {
-    if (focusSetId == null) return
-    setTab("sets")
-    void compatApi.set(focusSetId)
-      .then((result) => setReportSet(result.set))
-      .catch(() => setSetsError("Не удалось открыть набор."))
-      .finally(() => onFocusSetConsumed?.())
-  }, [focusSetId])
+    if (faceItems.length < 2) {
+      setBatchQuote(null)
+      return
+    }
+    let alive = true
+    const ids = faceItems.map((p) => p.id)
+    const timer = window.setTimeout(() => {
+      compatApi.batchQuote(ids, buildProfile())
+        .then((quote) => { if (alive) setBatchQuote(quote) })
+        .catch(() => {
+          if (!alive) return
+          setBatchQuote(null)
+          setBatchMessage("Не удалось рассчитать стоимость пакетного анализа. Обновите полку.")
+        })
+    }, 120)
+    return () => { alive = false; window.clearTimeout(timer) }
+    // Statuses intentionally refresh only when the shelf composition/status changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchQuoteKey])
 
   useEffect(() => {
-    if (reportSet == null) return
-    if (["completed", "failed", "cancelled"].includes(reportSet.status)) return
+    if (!batchSetId) return
     let alive = true
     const timer = window.setInterval(async () => {
       if (document.hidden) return
       try {
-        const result = await compatApi.set(reportSet.id)
-        if (alive) setReportSet(result.set)
-      } catch { /* keep current state */ }
+        const result = await compatApi.set(batchSetId)
+        if (!alive) return
+        if (["completed", "failed", "cancelled"].includes(result.set.status)) {
+          setBatchSetId(null)
+          setBatchMessage(
+            result.set.status === "completed"
+              ? "Пакетный анализ завершён. Результаты на полке обновлены."
+              : "Пакетный анализ завершился с ошибкой. Откройте набор, чтобы повторить.",
+          )
+          onRefresh?.()
+          await loadSets()
+        }
+      } catch { /* keep the current state and retry on next tick */ }
     }, 3000)
     return () => { alive = false; window.clearInterval(timer) }
-  }, [reportSet?.id, reportSet?.status])
+  }, [batchSetId])
 
   useEffect(() => {
     if (compatSelected.size < 2) {
@@ -1658,13 +1913,39 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
     }
   }
 
-  const openReport = async (setId: number) => {
-    setSetsError("")
+  const startBatch = async () => {
+    if (batchBusyRef.current) return
+    if (!batchQuote || faceItems.length < 2) return
+    if (!batchQuote.sufficient) {
+      setBatchMessage(
+        `Для пакетного анализа нужно ${batchQuote.cost} балл(ов), на балансе ${batchQuote.balance}. Пополните баланс.`,
+      )
+      return
+    }
+    batchBusyRef.current = true
+    setBatchBusy(true)
+    setBatchMessage("")
     try {
-      const result = await compatApi.set(setId)
-      setReportSet(result.set)
-    } catch {
-      setSetsError("Не удалось открыть набор.")
+      const ids = faceItems.map((p) => p.id)
+      const result = await compatApi.startCompatibility(ids, buildProfile(), "Мой набор", true)
+      if (!result.set || result.cost === 0) {
+        setBatchMessage("Все результаты уже актуальны — платить и запускать анализ не нужно.")
+        return
+      }
+      setBatchSetId(result.set.id)
+      setTab("sets")
+      setBatchMessage(
+        result.reused
+          ? "Пакетный анализ уже выполняется. Открыли текущий набор."
+          : `Пакетный анализ запущен. Спишется ${result.cost ?? batchQuote.cost} балл(ов) после успешной проверки.`,
+      )
+      if (result.task) onTaskStarted?.(result.task)
+      await loadSets()
+    } catch (e) {
+      setBatchMessage(e instanceof Error ? e.message : "Не удалось запустить пакетный анализ.")
+    } finally {
+      batchBusyRef.current = false
+      setBatchBusy(false)
     }
   }
 
@@ -1673,22 +1954,9 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
     try {
       await compatApi.deleteSet(setId)
       setSets((current) => current.filter((item) => item.id !== setId))
-      if (reportSet?.id === setId) setReportSet(null)
       setCompatMessage("Набор удалён. Продукты и индивидуальные проверки сохранены.")
     } catch {
       setSetsError("Не удалось удалить набор.")
-    }
-  }
-
-  const retrySet = async (setId: number) => {
-    try {
-      const result = await compatApi.retrySet(setId, buildProfile())
-      setReportSet(result.set)
-      setSets((current) => current.map((item) => item.id === setId ? result.set : item))
-      if (result.task) onTaskStarted?.(result.task)
-      setCompatMessage("Проверка набора запущена повторно. Стоимость будет списана после успешного завершения.")
-    } catch {
-      setSetsError("Не удалось запустить повторную проверку.")
     }
   }
 
@@ -1706,7 +1974,21 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
     <div className="page shelf-page">
       <PageHeading eyebrow="Уход" title="Моя полка" />
       <section className="shelf-toolbar" aria-label="Управление полкой">
-        <Button icon="plus" onClick={onAdd} className="shelf-toolbar__add">Добавить средство</Button>
+        <div className="shelf-toolbar__buttons">
+          <Button icon="plus" onClick={onAdd} className="shelf-toolbar__add">Добавить средство</Button>
+          <button
+            type="button"
+            className="shelf-toolbar__batch"
+            onClick={() => void startBatch()}
+            disabled={faceItems.length < 2 || batchBusy || !batchQuote || batchQuote.missing_count === 0}
+            title={faceItems.length < 2 ? "Для пакетного анализа нужно минимум два средства ухода за лицом" : undefined}
+          >
+            <Icon name="sparkle" size={16} />
+            {batchBusy
+              ? "Пакетный анализ · запускаем…"
+              : `Пакетный анализ · ${batchQuote ? `${batchQuote.cost} ${batchQuote.cost === 1 ? "балл" : batchQuote.cost < 5 ? "балла" : "баллов"}` : "…"}`}
+          </button>
+        </div>
       </section>
 
       <nav className="shelf-tabs shelf-tabs--two" aria-label="Разделы полки">
@@ -1767,45 +2049,26 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
             </div>
           ) : (
             <div className="shelf-sets__list">
-              {sets.map((set) => {
-                const overall = set.report_summary?.overall
-                return (
-                  <article className="shelf-set-card" key={set.id}>
-                    <div className="shelf-set-card__top">
-                      <div>
-                        <h3>{set.name}</h3>
-                        <span className={`shelf-set-status shelf-set-status--${set.status}`}>{COMPAT_STATUS_LABEL[set.status] || set.status}</span>
-                      </div>
-                      {set.report_summary?.score != null && <strong className={`shelf-set-card__score shelf-set-card__score--${overall?.tone || "neutral"}`}>{set.report_summary.score}%</strong>}
-                    </div>
-                    <div className="shelf-set-card__products">
-                      {set.product_ids.map((id) => {
-                        const product = faceItems.find((item) => item.id === id)
-                        const reported = set.report_summary?.products?.find((item) => item.product_id === id)
-                        return <span key={id}>{reported ? `${reported.brand ? `${reported.brand} · ` : ""}${reported.name}` : product ? `${product.brand ? `${product.brand} · ` : ""}${product.name}` : `Средство #${id}`}</span>
-                      })}
-                    </div>
-                    {overall?.summary && <p className="shelf-set-card__summary">{overall.summary}</p>}
-                    {set.error && <p className="shelf-set-card__error">{set.error}</p>}
-                    <div className="shelf-set-card__footer">
-                      <small>{set.checked_at ? `Проверено ${new Date(set.checked_at).toLocaleDateString("ru-RU")}` : "Проверка ещё не завершена"}</small>
-                      <div>
-                        <button type="button" className="shelf-set-action" onClick={() => void openReport(set.id)}>Открыть →</button>
-                        {set.status === "failed" && <button type="button" className="shelf-set-action" onClick={() => void retrySet(set.id)}>Повторить</button>}
-                       {set.status === "completed" && <button type="button" className="shelf-set-action" onClick={() => void retrySet(set.id)}>Проверить снова</button>}
-                        <button type="button" className="shelf-set-action shelf-set-action--danger" onClick={() => void removeSet(set.id)}>Удалить</button>
-                      </div>
-                    </div>
-                  </article>
-                )
-              })}
+              {sets.map((set) => (
+                <CompatibilitySetCard
+                  key={set.id}
+                  set={set}
+                  products={faceItems}
+                  onOpen={() => onOpenReport(set.id)}
+                  onDelete={() => void removeSet(set.id)}
+                  onRename={async (name) => {
+                    const result = await compatApi.renameSet(set.id, name)
+                    setSets((current) => current.map((item) => item.id === set.id ? result.set : item))
+                  }}
+                />
+              ))}
             </div>
           )}
         </div>
       ) : (
         <div className="shelf-list">
-          {loading && <p className="empty"><span className="spin" /> Загружаем полку…</p>}
-          {!loading && visibleItems.map((p) => (
+          {loading && visibleItems.length === 0 && <p className="empty"><span className="spin" /> Загружаем полку…</p>}
+          {visibleItems.map((p) => (
                 <div className="shelf-list__row" key={p.id}>
                   {selectMode && (
                     <button
@@ -1818,7 +2081,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
                     </button>
                   )}
                   <button type="button" className="shelf-list__main" onClick={() => onOpen(p)}>
-                    <ProductImage src={p.image} className="shelf-list__thumb" />
+                    <ProductImage src={p.image} className="shelf-list__thumb" imgWidth={160} />
                     <span className="shelf-list__copy">
                       <strong title={p.name}>{p.name}</strong>
                       <small>{[p.brand, p.variant].filter(Boolean).join(" · ") || p.category || "Уход"}</small>
@@ -1865,7 +2128,9 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
         </div>
       )}
 
-      {compatMessage && <p className="shelf-compat-message" role="status">{compatMessage}</p>}
+      {(compatMessage || batchMessage) && (
+        <p className="shelf-compat-message" role="status">{compatMessage || batchMessage}</p>
+      )}
       {compatSelected.size > 0 && (
         <aside className="compat-cart" aria-label="Набор для проверки совместимости">
           <div className="compat-cart__inner">
@@ -1879,7 +2144,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
             <div className="compat-cart__items">
               {selectedProducts.map((product) => (
                 <span className="compat-cart__item" key={product.id} title={`${product.brand ? `${product.brand} · ` : ""}${product.name}`}>
-                  <ProductImage src={product.image} alt={product.name} className="compat-cart__thumb" />
+                  <ProductImage src={product.image} alt={product.name} className="compat-cart__thumb" imgWidth={128} />
                   <button type="button" className="compat-cart__remove" onClick={() => toggleCompat(product.id)} aria-label={`Убрать ${product.name} из набора`}><Icon name="close" size={12} /></button>
                 </span>
               ))}
@@ -1896,15 +2161,6 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
             </div>
           </div>
         </aside>
-      )}
-
-      {reportSet && (
-        <CompatibilityReportDrawer
-          set={reportSet}
-          onClose={() => { setReportSet(null); }}
-          onRetry={() => void retrySet(reportSet.id)}
-          onDelete={() => void removeSet(reportSet.id)}
-        />
       )}
 
     </div>
@@ -3047,7 +3303,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
         <button type="button" className="drawer__close" onClick={close} aria-label="Закрыть"><Icon name="close" size={18} /></button>
         <div className="drawer__scroll" ref={drawerScrollRef}>
           <div className="drawer__hero">
-            <ProductImage src={product.image} className="drawer__hero-image" />
+            <ProductImage src={product.image} className="drawer__hero-image" imgWidth={480} />
 
             <div className="drawer__hero-meta">
               <button type="button" className="drawer__brand-link" onClick={() => onGoToCatalog(product.brand)}>{product.brand}</button>
@@ -3255,14 +3511,14 @@ function AuthModal({ mode, onClose, onSuccess, onSwitch }: {
         setToken(res.access_token)
         const displayName = res.user.name || email.trim().split("@")[0]
         const plan: Plan = res.user.plan === "pro" || res.user.plan === "plus" ? res.user.plan : "free"
-        onSuccess({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: res.user.balance || 0 })
+        onSuccess({ id: res.user.id, name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: res.user.balance || 0 })
       } else {
         const res = await api.register(email.trim(), pass, name.trim(), acceptOffer)
         if (res.access_token) {
           setToken(res.access_token)
           const displayName = (res.user && res.user.name) || name.trim() || email.trim().split("@")[0]
           const plan: Plan = res.user && (res.user.plan === "pro" || res.user.plan === "plus") ? res.user.plan : "free"
-          onSuccess({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: (res.user && res.user.balance) || 0 })
+          onSuccess({ id: res.user?.id, name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: (res.user && res.user.balance) || 0 })
         } else {
           setSent(true)
         }
@@ -3455,6 +3711,26 @@ function PricingModal({ user, onClose, onSelectPlan }: {
             <Button variant="ghost" onClick={onClose}>Закрыть</Button>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function AuthBootScreen() {
+  return (
+    <div className="auth-boot" role="status" aria-label="Проверяем сессию">
+      <div className="auth-boot__sidebar">
+        <strong>айдерми</strong>
+        <span className="auth-boot__line" />
+        <span className="auth-boot__line auth-boot__line--short" />
+        <span className="auth-boot__line" />
+      </div>
+      <div className="auth-boot__main">
+        <div className="auth-boot__skeleton auth-boot__skeleton--title" />
+        <div className="auth-boot__actions">
+          <span /><span /><span /><span />
+        </div>
+        <div className="auth-boot__skeleton auth-boot__skeleton--panel" />
       </div>
     </div>
   )
@@ -4118,7 +4394,7 @@ export default function App() {
   const [autoPickResults, setAutoPickResults] = useState<Product[] | null>(null)
   const [pointsOpen, setPointsOpen] = useState(false)
   const [scanMethod, setScanMethod] = useState<ScanMethod | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [authReady, setAuthReady] = useState(false)
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogCategory, setCatalogCategory] = useState("")
   const [query, setQuery] = useState("")
@@ -4127,22 +4403,26 @@ export default function App() {
   const [notifications, setNotifications] = useState<UserNotification[]>([])
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationUnread, setNotificationUnread] = useState(0)
-  const [shelfFocusSetId, setShelfFocusSetId] = useState<number | null>(null)
   const lastNotificationIdRef = useRef(0)
   const [shelfLoading, setShelfLoading] = useState(false)
   const [shelfError, setShelfError] = useState("")
-  const [shelfMeta, setShelfMeta] = useState<{ plan: Plan; limit: number; setLimit: number; count: number } | null>(null)
+  const [shelfMeta, setShelfMeta] = useState<ShelfMeta | null>(null)
+  const [shelfTabRequest, setShelfTabRequest] = useState<"items" | "sets">("items")
+  const [activeReportSet, setActiveReportSet] = useState<CompatibilitySetSummary | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState("")
   const [profileVersion, setProfileVersion] = useState(0)
   // Every account change gets a new epoch. A late response from the previous
   // session is ignored instead of repopulating the new user's cards.
   const authEpochRef = useRef(0)
+  const shelfRequestRef = useRef<Promise<void> | null>(null)
+  const statusRequestRef = useRef<Map<string, Promise<Record<string, EvaluationPreviewStatus>>>>(new Map())
 
   useEffect(() => {
     const refreshProfile = () => setProfileVersion((value) => value + 1)
     window.addEventListener("aidermy-profile-updated", refreshProfile)
     return () => window.removeEventListener("aidermy-profile-updated", refreshProfile)
   }, [])
-  useEffect(() => { const t = window.setTimeout(() => setLoading(false), 1200); return () => window.clearTimeout(t) }, [])
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(""), 2200); return () => window.clearTimeout(t) }, [toast])
 
   useEffect(() => {
@@ -4217,12 +4497,15 @@ export default function App() {
       )
     }
     const token = getToken()
-    if (!token) return
+    if (!token) {
+      setAuthReady(true)
+      return
+    }
     api.me()
       .then((u) => {
         const displayName = u.name || u.email?.split("@")[0] || "Пользователь"
         const plan: Plan = u.plan === "pro" || u.plan === "plus" ? u.plan : "free"
-        setUser({ name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: u.balance || 0 })
+        setUser({ id: u.id, name: displayName, initials: displayName.slice(0, 2).toUpperCase(), plan, points: u.balance || 0 })
         // Скользящая сессия: продлеваем токен, пока пользователь активен.
         // Если пользователь успел выйти, пока шёл refresh, токен не возвращаем.
         api.refresh().then((r) => { if (getToken()) setToken(r.access_token) }).catch(() => {})
@@ -4232,6 +4515,7 @@ export default function App() {
         // Сетевой сбой / временный 5xx не должен выкидывать пользователя.
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) setToken(null)
       })
+      .finally(() => setAuthReady(true))
     api.getProfile()
       .then((r) => {
         const p = (r.profile || {}) as { skinType?: string; age?: string; concerns?: string[]; allergies?: string[]; structuredProfile?: unknown }
@@ -4252,10 +4536,22 @@ export default function App() {
   const enrichCheckStatuses = useCallback(async (products: Product[], epoch = authEpochRef.current): Promise<Product[]> => {
     if (!EVALUATION_V2_ENABLED || !getToken() || products.length === 0) return products
     try {
-      const ids = Array.from(new Set(products.map((product) => product.id)))
-      const result = await api.evaluationProductStatuses(ids, buildProfile())
+      const ids = Array.from(new Set(products.map((product) => product.id))).sort((a, b) => a - b)
+      // Shelf and catalog often request the same statuses at boot. Share the
+      // in-flight read instead of sending two identical POSTs.
+      const key = `${epoch}|${JSON.stringify(buildProfile())}|${ids.join(",")}`
+      let pending = statusRequestRef.current.get(key)
+      if (!pending) {
+        pending = api.evaluationProductStatuses(ids, buildProfile())
+          .then((result) => result.statuses || {})
+          .catch(() => ({}))
+          .finally(() => { statusRequestRef.current.delete(key) })
+        statusRequestRef.current.set(key, pending)
+      }
+      const statuses = await pending
       if (epoch !== authEpochRef.current) return products
-      return applyCheckStatuses(products, result.statuses || {})
+      if (!Object.keys(statuses).length) return products
+      return applyCheckStatuses(products, statuses)
     } catch {
       // An unavailable status endpoint must not turn an unchecked card into a
       // checked one. Keep the cards neutral and let the drawer retry on open.
@@ -4267,12 +4563,17 @@ export default function App() {
     const epoch = authEpochRef.current
     setCatalogLoading(true)
     return api.catalog({ limit: 200, sort: "popular" })
-      .then(async (res) => {
+      .then((res) => {
         if (epoch !== authEpochRef.current) return
         const mapped = (res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт")
         if (!mapped.length) return
-        const enriched = await enrichCheckStatuses(mapped, epoch)
-        if (epoch === authEpochRef.current) setItems(enriched)
+        // Paint the catalog from the API response first; personal statuses are
+        // an enhancement and must not hold the whole page behind another call.
+        setItems(mapped)
+        setCatalogLoading(false)
+        void enrichCheckStatuses(mapped, epoch).then((enriched) => {
+          if (epoch === authEpochRef.current) setItems(enriched)
+        })
       })
       .catch(() => {})
       .finally(() => {
@@ -4288,14 +4589,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Полка: грузим реальные шкафы и отмечаем продукты как «использую».
-  const loadShelf = (): Promise<void> => {
+  // Полка: кеш сразу, сервер в фоне. API остаётся источником истины.
+  const loadShelf = (userIdOverride?: number): Promise<void> => {
     if (!getToken()) return Promise.resolve()
+    if (shelfRequestRef.current) return shelfRequestRef.current
     const epoch = authEpochRef.current
-    setShelfLoading(true)
+    const userId = userIdOverride ?? user?.id
     setShelfError("")
-    return api.shelf()
-      .then(async (res) => {
+    if (shelfItems.length === 0) setShelfLoading(true)
+    const request = api.shelf()
+      .then((res) => {
         if (epoch !== authEpochRef.current) return
         const shelfIds = new Set<number>()
         const mapped: Product[] = []
@@ -4307,22 +4610,27 @@ export default function App() {
             }
           }
         }
-        const enriched = await enrichCheckStatuses(mapped, epoch)
-        if (epoch !== authEpochRef.current) return
-        setShelfItems(enriched)
-        setShelfMeta({
+        const meta: ShelfMeta = {
           plan: (res.plan === "plus" || res.plan === "pro" ? res.plan : "free") as Plan,
           limit: typeof res.limit === "number" ? res.limit : mapped.length,
           setLimit: typeof res.set_limit === "number" ? res.set_limit : 5,
           count: typeof res.count === "number" ? res.count : mapped.length,
-        })
-        // Полка — источник истины для статуса «использую»: то, что с неё убрали
-        // (в другой вкладке/устройстве), не должно оставаться «использую» в UI.
+        }
+        // Сначала показываем базовые карточки, затем дополняем статусами.
+        setShelfItems(mapped)
+        setShelfMeta(meta)
+        setShelfLoading(false)
+        writeShelfCache(userId, mapped, meta)
         setItems((cur) => cur.map((p) => (
           shelfIds.has(p.id)
             ? { ...p, state: "using" as ProductState }
             : (p.state === "using" ? { ...p, state: undefined, shelf_id: undefined } : p)
         )))
+        void enrichCheckStatuses(mapped, epoch).then((enriched) => {
+          if (epoch !== authEpochRef.current) return
+          setShelfItems(enriched)
+          writeShelfCache(userId, enriched, meta)
+        })
       })
       .catch((error) => {
         if (epoch === authEpochRef.current) {
@@ -4331,9 +4639,26 @@ export default function App() {
       })
       .finally(() => {
         if (epoch === authEpochRef.current) setShelfLoading(false)
+        if (shelfRequestRef.current === request) shelfRequestRef.current = null
       })
+    shelfRequestRef.current = request
+    return request
   }
-  useEffect(() => { loadShelf() }, [])
+
+  // Restore the last server snapshot for this exact account before painting
+  // the shelf. The effect then refreshes it silently in the background.
+  useEffect(() => {
+    if (!user?.id) return
+    const cached = readShelfCache(user.id)
+    if (cached) {
+      setShelfItems(cached.items)
+      setShelfMeta(cached.meta)
+      setShelfLoading(false)
+    }
+    void loadShelf(user.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
   // A profile save can make shelf results stale; reload the actual shelf state
   // whenever the user opens it, not only after a full page refresh.
   useEffect(() => {
@@ -4390,12 +4715,74 @@ export default function App() {
     window.scrollTo({ top: 0 })
   }
 
-  const navigate = (p: Page) => {
+  const openCompatibilityReport = async (setId: number) => {
+    setPage("report")
+    window.scrollTo({ top: 0 })
+    setReportLoading(true)
+    setReportError("")
+    try {
+      const result = await compatApi.set(setId)
+      setActiveReportSet(result.set)
+    } catch (error) {
+      setActiveReportSet(null)
+      setReportError(error instanceof Error ? error.message : "Не удалось открыть набор.")
+    } finally {
+      setReportLoading(false)
+    }
+  }
+
+  const retryActiveReport = async () => {
+    if (!activeReportSet) return
+    try {
+      const result = await compatApi.retrySet(activeReportSet.id, buildProfile())
+      setActiveReportSet(result.set)
+      setToast("Проверка набора запущена. Стоимость спишется после успешного завершения.")
+    } catch (error) {
+      setReportError(error instanceof Error ? error.message : "Не удалось запустить повторную проверку.")
+    }
+  }
+
+  const deleteActiveReport = async () => {
+    if (!activeReportSet) return
+    if (!window.confirm("Удалить набор? Продукты на полке и их индивидуальные проверки останутся.")) return
+    try {
+      await compatApi.deleteSet(activeReportSet.id)
+      setActiveReportSet(null)
+      setShelfTabRequest("sets")
+      setPage("shelf")
+      setToast("Набор удалён")
+    } catch (error) {
+      setReportError(error instanceof Error ? error.message : "Не удалось удалить набор.")
+    }
+  }
+
+  useEffect(() => {
+    if (!activeReportSet) return
+    if (["completed", "failed", "cancelled"].includes(activeReportSet.status)) return
+    let alive = true
+    const timer = window.setInterval(async () => {
+      if (document.hidden) return
+      try {
+        const result = await compatApi.set(activeReportSet.id)
+        if (!alive) return
+        setActiveReportSet(result.set)
+        if (result.set.status === "completed") void loadShelf()
+      } catch { /* keep the last known state */ }
+    }, 3000)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [activeReportSet?.id, activeReportSet?.status])
+
+  const navigate = (p: Page, shelfTab: "items" | "sets" = "items") => {
     // Гостю доступна только «Главная»: остальные разделы требуют входа.
     if (!user && p !== "home") { setAuthModal("login"); return }
     if (p === "sets") { setPage("home"); window.scrollTo({ top: 0 }); return }
     if (p === "shelf" && !user) { setAuthModal("login"); return }
-    if (p === "report") { setToast("Раздел «Отчёт» скоро появится"); return }
+    if (p === "shelf") setShelfTabRequest(shelfTab)
+    if (p === "report") {
+      if (activeReportSet) { setPage("report"); window.scrollTo({ top: 0 }); return }
+      setToast("Выберите набор на полке")
+      return
+    }
     if (p === "scan") setScanMethod(null)
     if (p === "catalog") setCatalogCategory("")
     setPage(p)
@@ -4520,7 +4907,11 @@ export default function App() {
     setNotifications([])
     setNotificationUnread(0)
     setNotificationsOpen(false)
-    setShelfFocusSetId(null)
+    clearShelfCache(user?.id)
+    statusRequestRef.current.clear()
+    setActiveReportSet(null)
+    setReportError("")
+    setShelfTabRequest("items")
     lastNotificationIdRef.current = 0
     setItems((cur) => cur.map((p) => ({
       ...p,
@@ -4570,9 +4961,7 @@ export default function App() {
   const handleNotificationOpen = (item: UserNotification) => {
     setNotificationsOpen(false)
     if (item.target_type === "compatibility_set" && item.target_id != null) {
-      setPage("shelf")
-      setShelfFocusSetId(item.target_id)
-      window.scrollTo({ top: 0 })
+      void openCompatibilityReport(item.target_id)
       return
     }
     if (item.target_type === "product" && item.target_id != null) {
@@ -4591,6 +4980,9 @@ export default function App() {
   const handleLogin = (u: User) => {
     authEpochRef.current += 1
     clearPersonalState()
+    shelfRequestRef.current = null
+    statusRequestRef.current.clear()
+    setShelfTabRequest("items")
     setUser(u)
     setAuthModal(null)
     // Load the server profile before asking for personal statuses. The browser
@@ -4610,7 +5002,7 @@ export default function App() {
       })
       .catch(() => {})
     void loadCatalog()
-    void loadShelf()
+    void loadShelf(u.id)
     // Гость только что прошёл проверку — сохраняем её результат в аккаунт.
     if (guestToken && guestProduct) {
       const token = guestToken
@@ -4626,6 +5018,7 @@ export default function App() {
   }
   const handleAccountDeleted = () => {
     authEpochRef.current += 1
+    shelfRequestRef.current = null
     setDeleteOpen(false)
     resetGuestFlow()
     setToken(null)
@@ -4638,6 +5031,7 @@ export default function App() {
 
   const handleLogout = () => {
     authEpochRef.current += 1
+    shelfRequestRef.current = null
     setToken(null)
     setUser(null)
     clearPersonalState()
@@ -4767,16 +5161,19 @@ export default function App() {
     return <LegalPage slug={legalPath} onNavigate={openLegal} />
   }
 
+  if (!authReady) {
+    return <AuthBootScreen />
+  }
+
   return (
     <div className={`app-shell ${user ? "" : "app-shell--guest"}`}>
-      <LoadingScreen done={!loading} />
       {user && <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} />}
       <div className="workspace">
         {user && <Topbar onHelp={() => setHelpOpen(true)} onProfile={() => navigate("profile")} user={user} onAuth={() => setAuthModal("login")} onPoints={() => setPointsOpen(true)} notificationsUnread={notificationUnread} notificationsOpen={notificationsOpen} onNotifications={() => setNotificationsOpen((v) => !v)} />}
         {user && <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} notificationsUnread={notificationUnread} notificationsOpen={notificationsOpen} onNotifications={() => setNotificationsOpen((v) => !v)} />}
         <main className="main-content">
           <div key={user ? page : `guest-${guestStage}`} className="page-anim">
-            {user && page === "home" && <HomePage onNavigate={navigate} onOpen={setOpen} onScan={() => navigate("scan")} user={user} items={items} shelfItems={shelfItems} />}
+            {user && page === "home" && <HomePage onNavigate={navigate} onScan={() => navigate("scan")} onCheckSet={() => navigate("shelf", "sets")} user={user} shelfItems={shelfItems} shelfMeta={shelfMeta} />}
             {!user && guestStage === "home" && (
               <GuestHomePage onAuth={() => setAuthModal("login")} onStart={startGuestFlow} />
             )}
@@ -4809,7 +5206,17 @@ export default function App() {
                 onRestart={resetGuestFlow}
               />
             )}
-            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} setLimit={shelfMeta?.setLimit ?? 5} count={shelfMeta?.count} error={shelfError} focusSetId={shelfFocusSetId} onFocusSetConsumed={() => setShelfFocusSetId(null)} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onTaskStarted={(task) => { setToast(task.status === "completed" ? "Проверка уже завершена" : "Проверка запущена — результат появится в уведомлениях") }} />}
+            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} setLimit={shelfMeta?.setLimit ?? 5} count={shelfMeta?.count} error={shelfError} initialTab={shelfTabRequest} onOpenReport={(setId) => void openCompatibilityReport(setId)} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onTaskStarted={(task) => { setToast(task.status === "completed" ? "Проверка уже завершена" : "Проверка запущена — результат появится в уведомлениях") }} />}
+            {user && page === "report" && (
+              <CompatibilitySetReportPage
+                set={activeReportSet}
+                loading={reportLoading}
+                error={reportError}
+                onBack={() => { setShelfTabRequest("sets"); setPage("shelf"); window.scrollTo({ top: 0 }) }}
+                onRetry={() => void retryActiveReport()}
+                onDelete={() => void deleteActiveReport()}
+              />
+            )}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} enrichChecks={enrichCheckStatuses} />}
