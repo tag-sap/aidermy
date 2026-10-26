@@ -4804,6 +4804,23 @@ export default function App() {
     return () => window.removeEventListener("popstate", onPop)
   }, [])
 
+  // Content pages are rendered inside the SPA, so their title/description
+  // must be updated explicitly for browser history and search previews.
+  useEffect(() => {
+    if (!legalPath) return
+    const doc = LEGAL_DOCS[legalPath]
+    if (!doc) return
+    const previousTitle = document.title
+    const meta = document.querySelector('meta[name="description"]')
+    const previousDescription = meta?.getAttribute("content") || ""
+    document.title = `${doc.title} — айдерми`
+    if (meta) meta.setAttribute("content", doc.subtitle)
+    return () => {
+      document.title = previousTitle
+      if (meta) meta.setAttribute("content", previousDescription)
+    }
+  }, [legalPath])
+
   const openLegal = (path: string) => {
     const slug = (path || "/").replace(/^\/+/, "").replace(/\/+$/, "")
     if (!slug) {
