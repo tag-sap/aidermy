@@ -1814,7 +1814,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
             <div className="compat-cart__head">
               <div>
                 <strong>Набор для совместимости</strong>
-                <span>{compatSelected.size} {compatSelected.size === 1 ? "средство" : "средств"}</span>
+                <span>{compatSelected.size} {compatSelected.size === 1 ? "средство" : "средств"} · до {Math.min(limit, 15)}</span>
               </div>
               <button type="button" className="compat-cart__clear" onClick={() => setCompatSelected(new Set())}>Очистить</button>
             </div>
