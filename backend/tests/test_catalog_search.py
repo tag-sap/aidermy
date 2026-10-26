@@ -70,6 +70,10 @@ class CatalogSearchTests(unittest.TestCase):
         self.assertEqual(set(ids[:3]), {241, 220, 242})
         self.assertIn(241, self._ids("dual barrier wearable"))
 
+    def test_standalone_brand_typo_and_keyboard_layout(self):
+        for query in ("celimx", "celimaks", "судшьфч", "судишфч"):
+            self.assertIn(self._ids(query)[0], {220, 241}, query)
+
     def test_similar_products_are_not_merged(self):
         ids = self._ids("celimax watery sun cream")
         self.assertEqual(ids[0], 242)

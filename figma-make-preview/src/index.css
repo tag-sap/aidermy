@@ -621,12 +621,17 @@ input, select, textarea,
   .globalbar { display: none; }
   .topbar {
     display: flex;
-    position: sticky;
-    top: 0;
+    position: fixed;
+    inset: 0 0 auto;
     z-index: 50;
     padding-top: calc(12px + env(safe-area-inset-top, 0px));
     padding-bottom: 12px;
+    background: rgba(255,255,255,0.94);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
   }
+  .workspace { padding-top: calc(63px + env(safe-area-inset-top, 0px)); }
+  .app-shell--guest .workspace { padding-top: 0; }
   .bottom-nav { display: grid; }
   .main-content { padding: 20px 18px calc(96px + env(safe-area-inset-bottom, 0px)); }
   .hscroll-arrow { display: none; }
