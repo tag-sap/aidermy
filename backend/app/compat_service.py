@@ -328,16 +328,7 @@ def build_compatibility_report(
             }
         )
 
-    cautions = [
-        {
-            "title": _text(item.get("label")) or "Потенциальное взаимодействие",
-            "detail": (
-                " ".join(_text(name) for name in item.get("products") or [])
-                + " — обоснованное ограничение по действующим правилам Aidermy."
-            ).strip(),
-        }
-        for item in conflicts
-    ]
+    cautions = []
     for entry in entries:
         if entry["score"] is not None and entry["score"] < 40 and entry["name"] not in conflict_names:
             cautions.append(
