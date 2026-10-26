@@ -14,10 +14,12 @@ from . import compat_store
 from .auth import get_current_user
 from .compat_worker import ensure_worker
 from .database import (
+    get_balance,
     get_product_by_id,
     get_user_profile_updated_at,
     get_user_shelf,
 )
+from .compat_service import compatibility_cost
 from .evaluation.snapshot import profile_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -59,7 +61,7 @@ def _public_task(task: dict | None) -> dict | None:
     fields = (
         "id", "kind", "status", "product_ids", "set_id", "error",
         "attempts", "created_at", "updated_at", "started_at", "finished_at",
-        "result_snapshot_id",
+        "result_snapshot_id", "cost",
     )
     return {key: task.get(key) for key in fields}
 
@@ -90,6 +92,7 @@ def _public_set(set_row: dict, *, detail: bool = False) -> dict:
         "updated_at": set_row.get("updated_at") or "",
         "checked_at": set_row.get("checked_at") or "",
         "task_id": set_row.get("task_id"),
+        "cost": int(set_row.get("cost") or 0),
         "error": set_row.get("error") or "",
         "report": report if detail else None,
         "report_summary": (
@@ -152,6 +155,40 @@ def _default_set_name(product_ids: list[int]) -> str:
     return " + ".join(names) if names else "Набор для проверки"
 
 
+def _require_balance(user_id: int, cost: int) -> None:
+    """Fail before creating a task when the fixed set price cannot be paid."""
+    try:
+        balance = int((get_balance(int(user_id)) or {}).get("balance") or 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[COMPAT] balance lookup failed")
+        raise HTTPException(status_code=503, detail="Не удалось проверить баланс.") from exc
+    if balance < int(cost):
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Для проверки нужно {int(cost)} балл(ов), на балансе {balance}. "
+                "Пополните баланс и повторите проверку."
+            ),
+        )
+
+
+@router.get("/pricing")
+async def compatibility_pricing(
+    product_count: int = 2,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    if product_count < 1 or product_count > 15:
+        raise HTTPException(
+            status_code=422,
+            detail="Количество продуктов должно быть от 1 до 15.",
+        )
+    return {
+        "product_count": int(product_count),
+        "cost": compatibility_cost(int(product_count)),
+        "unit": "points",
+    }
+
+
 @router.post("/tasks/individual")
 async def start_individual_task(
     payload: IndividualRequest,
@@ -206,6 +243,8 @@ async def start_compatibility_task(
         set_row = compat_store.get_set(int(user["id"]), int(active["set_id"])) if active.get("set_id") else None
         return {"set": _public_set(set_row) if set_row else None, "task": _public_task(active), "reused": True}
 
+    cost = compatibility_cost(len(product_ids))
+    _require_balance(int(user["id"]), cost)
     name = (payload.name or "").strip()[:120] or _default_set_name(product_ids)
     set_row: dict | None = None
     try:
@@ -216,6 +255,7 @@ async def start_compatibility_task(
             profile=profile,
             profile_updated_at=str(get_user_profile_updated_at(int(user["id"])) or ""),
             context_key=context,
+            cost=cost,
         )
         task = compat_store.create_task(
             user_id=int(user["id"]),
@@ -226,6 +266,7 @@ async def start_compatibility_task(
             context_key=context,
             set_id=int(set_row["id"]),
             active_key=active_key,
+            cost=cost,
         )
         compat_store.update_set(int(set_row["id"]), task_id=int(task["id"]))
         set_row = compat_store.get_set(int(user["id"]), int(set_row["id"])) or set_row
@@ -242,7 +283,7 @@ async def start_compatibility_task(
             return {"set": _public_set(set_row) if set_row else None, "task": _public_task(active), "reused": True}
         logger.exception("[COMPAT] failed to create set task")
         raise HTTPException(status_code=503, detail="Не удалось создать проверку набора.")
-    return {"set": _public_set(set_row), "task": _public_task(task), "reused": False}
+    return {"set": _public_set(set_row), "task": _public_task(task), "reused": False, "cost": cost}
 
 
 @router.get("/sets")
@@ -289,10 +330,13 @@ async def retry_compatibility_set(
     active = compat_store.find_active_task_by_key(active_key)
     if active:
         return {"task": _public_task(active), "set": _public_set(row), "reused": True}
+    cost = compatibility_cost(len(product_ids))
+    _require_balance(int(user["id"]), cost)
     now = datetime.now(timezone.utc).isoformat()
     compat_store.update_set(
         int(set_id),
         status="queued",
+        cost=cost,
         report_json=None,
         error="",
         checked_at=None,
@@ -309,12 +353,14 @@ async def retry_compatibility_set(
         context_key=context,
         set_id=int(set_id),
         active_key=active_key,
+        cost=cost,
     )
     compat_store.update_set(int(set_id), task_id=int(task["id"]))
     return {
         "task": _public_task(task),
         "set": _public_set(compat_store.get_set(int(user["id"]), int(set_id)) or row),
         "reused": False,
+        "cost": cost,
     }
 
 

@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from app import compat_store
-from app.compat_service import build_compatibility_report
+from app.compat_service import build_compatibility_report, compatibility_cost
 from app.compat_worker import CompatWorker
 
 
@@ -45,6 +45,11 @@ class CompatibilityTaskTests(unittest.TestCase):
         for item in self.patches:
             item.start()
             self.addCleanup(item.stop)
+        self.charge_patch = patch(
+            "app.compat_worker.charge_compatibility_set", return_value=True
+        )
+        self.charge_patch.start()
+        self.addCleanup(self.charge_patch.stop)
         compat_store.ensure_schema()
 
     def _product(self, product_id):
@@ -148,6 +153,42 @@ class CompatibilityTaskTests(unittest.TestCase):
         self.assertIn("Профиль", compat_store.get_task(1, task["id"])["error"])
         self.assertEqual(service.calls, [])
 
+    def test_worker_waits_for_an_existing_individual_task_without_duplicate(self):
+        set_row, task = self._set_and_task()
+        individual = compat_store.create_task(
+            user_id=1,
+            kind="individual",
+            product_ids=[1],
+            profile={"skin_type": "dry"},
+            profile_updated_at="2026-01-01",
+            context_key="individual-ctx",
+            active_key="individual-active",
+        )
+
+        class WaitingService(_Service):
+            def __init__(self):
+                super().__init__()
+                self.ready = {}
+
+            def saved_report(self, **kwargs):
+                return self.ready.get(int(kwargs["product_id"]))
+
+            def analyze_product(self, product_id, **kwargs):
+                self.calls.append(int(product_id))
+                report = _Report(70)
+                self.ready[int(product_id)] = report
+                return report
+
+        service = WaitingService()
+        worker = CompatWorker(lambda: service)
+        with patch("app.compat_worker.get_product_by_id", side_effect=self._product), \
+                patch("app.compat_worker.user_profile_changed", return_value=False):
+            self.assertTrue(worker.run_once())
+
+        self.assertEqual(compat_store.get_task(1, individual["id"])["status"], "completed")
+        self.assertEqual(compat_store.get_task(1, task["id"])["status"], "completed")
+        self.assertEqual(service.calls, [1, 2])
+
     def test_report_has_no_empty_sections_and_marks_data_limits(self):
         report = build_compatibility_report(
             set_name="Набор",
@@ -160,6 +201,37 @@ class CompatibilityTaskTests(unittest.TestCase):
         for key in ("keep", "changes", "cautions", "gaps", "why"):
             if key in report:
                 self.assertTrue(report[key])
+        self.assertNotIn("Недостаточно данных", str(report["overall"]))
+
+    def test_legacy_snapshot_score_falls_back_to_included_parameter_values(self):
+        class LegacyReport(_Report):
+            def __init__(self):
+                self.analysis = _Analysis()
+                self.snapshot = {
+                    "snapshot_id": "legacy",
+                    "total": None,
+                    "parameters": [
+                        {"included": True, "value": 50.0},
+                        {"included": True, "value": 75.0},
+                        {"included": False, "value": 0.0},
+                    ],
+                }
+
+        report = build_compatibility_report(
+            set_name="Набор",
+            products=[self._product(1), self._product(2)],
+            reports=[LegacyReport(), LegacyReport()],
+        )
+        self.assertEqual(report["score"], 62)
+        self.assertTrue(all(item["score"] == 62 for item in report["products"]))
+        self.assertTrue(all(item["image"] == "" for item in report["products"]))
+
+    def test_compatibility_cost_matches_the_required_table(self):
+        expected = [1, 1, 2, 3, 3, 4, 5, 5, 6, 7]
+        self.assertEqual(
+            [compatibility_cost(count) for count in range(1, 11)],
+            expected,
+        )
 
 
 if __name__ == "__main__":

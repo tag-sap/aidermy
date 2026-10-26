@@ -185,7 +185,7 @@ function VerdictFace({ name }: { name: VerdictName }) {
   )
 }
 
-function VerdictIcon({
+export function VerdictIcon({
   verdict,
   icon,
   className = "",

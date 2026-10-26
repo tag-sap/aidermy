@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import Any, Callable
 
 from . import compat_store
@@ -19,8 +20,11 @@ from .compat_service import (
     _analysis_service_from_app,
     _profile,
     build_compatibility_report,
+    charge_compatibility_set,
     charge_saved_report,
+    compatibility_cost,
     get_or_analyze_product,
+    product_score,
     user_profile_changed,
 )
 from .database import get_product_by_id
@@ -102,10 +106,10 @@ class CompatWorker:
                 worked = False
             self._stop.wait(0.1 if worked else self._poll_interval)
 
-    def run_once(self) -> bool:
+    def run_once(self, kind: str | None = None, *, charge_individual: bool = True) -> bool:
         """Claim and process one task. Exposed for deterministic tests."""
         compat_store.recover_stale_tasks()
-        task = compat_store.claim_next_task()
+        task = compat_store.claim_next_task(kind=kind)
         if not task:
             return False
         try:
@@ -115,7 +119,7 @@ class CompatWorker:
             return True
         try:
             if task.get("kind") == "individual":
-                self._run_individual(task, service)
+                self._run_individual(task, service, charge=charge_individual)
             elif task.get("kind") == "compatibility":
                 self._run_compatibility(task, service)
             else:
@@ -186,7 +190,68 @@ class CompatWorker:
                 target_id=product_id,
             )
 
-    def _run_individual(self, task: dict, service) -> None:
+    def _wait_for_individual(
+        self,
+        service,
+        parent_task: dict,
+        individual_task: dict,
+        product_id: int,
+    ):
+        """Wait for an already-running individual check without duplicating it.
+
+        A single application worker processes queued individual tasks while the
+        compatibility task is waiting. This avoids a deadlock and keeps the
+        preparation stage visible as ``waiting_for_products``.
+        """
+        task_id = int(individual_task["id"])
+        user_id = int(parent_task["user_id"])
+        profile = _profile(parent_task)
+        deadline = time.monotonic() + 15 * 60
+        while time.monotonic() < deadline:
+            current = compat_store.get_task_any(task_id)
+            if not current:
+                raise TaskFailed("Задача индивидуальной проверки больше недоступна.")
+            status = str(current.get("status") or "")
+            if user_profile_changed(parent_task):
+                raise TaskContextChanged(
+                    "Профиль кожи изменился во время проверки набора. Запустите проверку "
+                    "заново, чтобы отчёт соответствовал актуальному профилю."
+                )
+            if status == "completed":
+                report = service.saved_report(
+                    product_id=int(product_id), profile=profile, user_id=user_id
+                )
+                if (
+                    report is None
+                    or product_score(report) is None
+                    or not (
+                        getattr(report, "is_final", False)
+                        or getattr(getattr(report, "analysis", None), "is_final", False)
+                    )
+                ):
+                    raise TaskFailed(
+                        "Индивидуальная проверка завершилась без пригодного результата. "
+                        "Повторите проверку набора."
+                    )
+                return report
+            if status in {"failed", "cancelled"}:
+                detail = str(current.get("error") or "").strip()
+                raise TaskFailed(
+                    detail
+                    or "Не удалось завершить индивидуальную проверку продукта. "
+                    "Повторите проверку набора."
+                )
+            if status == "queued":
+                # Process only individual work while waiting; do not claim
+                # another compatibility task recursively.
+                self.run_once(kind="individual", charge_individual=False)
+            time.sleep(0.4)
+        raise TaskFailed(
+            "Индивидуальная проверка продукта выполняется слишком долго. "
+            "Повторите проверку набора позже."
+        )
+
+    def _run_individual(self, task: dict, service, *, charge: bool = True) -> None:
         task_id = int(task["id"])
         user_id = int(task["user_id"])
         product_ids = task.get("product_ids") or []
@@ -211,7 +276,8 @@ class CompatWorker:
             profile=_profile(task),
             user_id=user_id,
         )
-        charge_saved_report(user_id=user_id, report=report, profile=_profile(task))
+        if charge:
+            charge_saved_report(user_id=user_id, report=report, profile=_profile(task))
         if user_profile_changed(task):
             raise TaskContextChanged(
                 "Профиль кожи изменился во время проверки. Результат не сохранён "
@@ -289,13 +355,44 @@ class CompatWorker:
             product = get_product_by_id(int(product_id))
             if not product:
                 raise TaskFailed("Один из продуктов набора больше недоступен в каталоге.")
-            report = get_or_analyze_product(
-                service,
-                product_id=int(product_id),
-                profile=profile,
-                user_id=user_id,
+            saved = service.saved_report(
+                product_id=int(product_id), profile=profile, user_id=user_id
             )
-            charge_saved_report(user_id=user_id, report=report, profile=profile)
+            if (
+                saved is not None
+                and product_score(saved) is not None
+                and (
+                    getattr(saved, "is_final", False)
+                    or getattr(getattr(saved, "analysis", None), "is_final", False)
+                )
+            ):
+                report = saved
+            else:
+                active_individual = compat_store.find_active_individual_task(
+                    user_id=user_id, product_id=int(product_id)
+                )
+                if (
+                    active_individual
+                    and _profile(active_individual) == profile
+                ):
+                    report = self._wait_for_individual(
+                        service, task, active_individual, int(product_id)
+                    )
+                else:
+                    # No separate individual task exists: prepare the result in
+                    # this task. It is included in the set price and is not
+                    # charged as a separate individual check.
+                    report = get_or_analyze_product(
+                        service,
+                        product_id=int(product_id),
+                        profile=profile,
+                        user_id=user_id,
+                    )
+            if product_score(report) is None:
+                raise TaskFailed(
+                    "Для одного из продуктов нет числовой индивидуальной оценки. "
+                    "Отчёт по набору не сформирован; повторите проверку."
+                )
             products.append(product)
             reports.append(report)
 
@@ -328,9 +425,18 @@ class CompatWorker:
             products=products,
             reports=reports,
         )
+        cost = int(task.get("cost") or compatibility_cost(len(product_ids)))
+        if not charge_compatibility_set(
+            user_id=user_id, task_id=task_id, cost=cost
+        ):
+            raise TaskFailed(
+                "Не удалось списать стоимость проверки набора. Проверьте баланс "
+                "и повторите проверку; отчёт не сохранён."
+            )
         compat_store.update_set(
             int(set_id),
             status="completed",
+            cost=cost,
             report_json=report,
             checked_at=_now(),
             error="",

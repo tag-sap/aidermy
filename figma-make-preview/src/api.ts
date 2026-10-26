@@ -997,6 +997,7 @@ export type CompatibilityTask = {
   status: CompatTaskStatus
   product_ids: number[]
   set_id?: number | null
+  cost?: number
   error?: string
   attempts?: number
   created_at?: string
@@ -1011,6 +1012,7 @@ export type CompatibilityProductResult = {
   product_id: number
   name: string
   brand: string
+  image?: string
   score: number | null
   verdict: string
   tone: string
@@ -1019,6 +1021,7 @@ export type CompatibilityProductResult = {
 
 export type CompatibilityReport = {
   version: string
+  set_name?: string
   generated_at: string
   source: string
   score: number | null
@@ -1042,6 +1045,7 @@ export type CompatibilitySetSummary = {
   updated_at?: string
   checked_at?: string
   task_id?: number | null
+  cost?: number
   error?: string
   report?: CompatibilityReport | null
   report_summary?: {
@@ -1073,9 +1077,14 @@ export const compatApi = {
     })
   },
   async startCompatibility(productIds: number[], profile: Record<string, unknown>, name = "") {
-    return request<{ task: CompatibilityTask; set: CompatibilitySetSummary | null; reused: boolean }>(
+    return request<{ task: CompatibilityTask; set: CompatibilitySetSummary | null; reused: boolean; cost?: number }>(
       "/v1/compatibility/tasks/compatibility",
       { method: "POST", body: JSON.stringify({ product_ids: productIds, profile, name }) },
+    )
+  },
+  async pricing(productCount: number) {
+    return request<{ product_count: number; cost: number; unit: string }>(
+      `/v1/compatibility/pricing?product_count=${encodeURIComponent(String(productCount))}`,
     )
   },
   async task(taskId: number) {

@@ -6,16 +6,18 @@ second Score Engine or regenerate reports when a saved result is opened.
 
 ## Persistence
 
-Apply `migrations/20261027_compatibility_sets.sql` to PostgreSQL/Supabase. It
-creates:
+Apply `migrations/20261027_compatibility_sets.sql` and
+`migrations/20261028_compatibility_cost.sql` to PostgreSQL/Supabase. They
+create:
 
-* `public.compatibility_sets` — automatically saved shelf sets;
-* `public.compatibility_tasks` — durable individual/compatibility jobs;
+* `public.compatibility_sets` — automatically saved shelf sets and fixed price;
+* `public.compatibility_tasks` — durable individual/compatibility jobs and fixed price;
 * `public.user_notifications` — persistent in-app notifications;
-* `public.shelf_products.shelf_status` — `using` / `want`.
+* `public.shelf_products.shelf_status` — `using` / `want` (kept for compatibility;
+  the current UI no longer exposes the switch).
 
 SQLite creates the same compatibility tables lazily via
-`app.compat_store.ensure_schema()`.
+`app.compat_store.ensure_schema()` and adds missing `cost` columns in place.
 
 ## Background worker
 
@@ -32,8 +34,35 @@ The worker:
 4. records a safe error and notifies the user when an individual stage fails;
 5. ignores a set that was deleted while its task was running.
 
+## Price
+
+The backend owns the price table and stores the fixed amount on both the set and
+the task:
+
+| products | points |
+|---:|---:|
+| 1 | 1 |
+| 2 | 1 |
+| 3 | 2 |
+| 4 | 3 |
+| 5 | 3 |
+| 6 | 4 |
+| 7 | 5 |
+| 8 | 5 |
+| 9 | 6 |
+| 10 | 7 |
+
+`compatibility_cost(count)` continues the same `floor((2n+1)/3)` pattern for
+the allowed 15-product maximum. The frontend reads the amount from
+`GET /api/v1/compatibility/pricing?product_count=...`; it never duplicates the
+formula. Individual checks performed as preparation are included in this price
+and are not charged separately. The charge uses the existing idempotent
+`change_balance` path with the task id as the idempotency key, so retries cannot
+double-charge. Reopening a saved report performs no charge.
+
 ## API
 
+* `GET /api/v1/compatibility/pricing?product_count=N`
 * `POST /api/v1/compatibility/tasks/individual`
 * `GET /api/v1/compatibility/tasks/individual/{product_id}`
 * `POST /api/v1/compatibility/tasks/compatibility`

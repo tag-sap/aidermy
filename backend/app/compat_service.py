@@ -45,12 +45,68 @@ def _profile(task: dict) -> dict:
         return {}
 
 
+def compatibility_cost(product_count: int) -> int:
+    """Central compatibility-set price table.
+
+    1 -> 1, 2 -> 1, 3 -> 2, 4 -> 3, 5 -> 3, 6 -> 4, 7 -> 5, 8 -> 5,
+    9 -> 6, 10 -> 7 ... The pattern continues for the allowed shelf size.
+    """
+    count = max(0, int(product_count))
+    if count == 0:
+        return 0
+    return (2 * count + 1) // 3
+
+
 def product_score(report) -> int | None:
-    total = (getattr(report, "snapshot", None) or {}).get("total")
-    try:
-        return int(round(float(total))) if total is not None else None
-    except (TypeError, ValueError):
+    """Read the saved deterministic score, including older snapshots.
+
+    Some historical snapshots were stored with ``total = null`` while their
+    parameter values are complete.  In that case the engine's own documented
+    arithmetic mean is used instead of turning the whole set into a null result.
+    No value is invented: the fallback only averages included, numeric values
+    that are already present in the saved snapshot.
+    """
+    snapshot = getattr(report, "snapshot", None) or {}
+    total = snapshot.get("total")
+    if total is not None:
+        try:
+            return int(round(float(total)))
+        except (TypeError, ValueError):
+            pass
+    values: list[float] = []
+    for row in snapshot.get("parameters") or []:
+        if not isinstance(row, dict) or not row.get("included"):
+            continue
+        value = row.get("value")
+        if value is None or isinstance(value, bool):
+            continue
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    if not values:
         return None
+    return int(round(sum(values) / len(values)))
+
+
+def charge_compatibility_set(*, user_id: int, task_id: int, cost: int) -> bool:
+    """Charge the fixed set price once, using the existing balance service."""
+    amount = max(0, int(cost))
+    if amount == 0:
+        return True
+    try:
+        from .database import change_balance
+
+        balance = change_balance(
+            int(user_id),
+            -amount,
+            "compatibility_check",
+            "Проверка совместимости набора",
+            idempotency_key=f"compatibility:{int(task_id)}",
+        )
+        return balance is not None
+    except Exception:  # noqa: BLE001 - the worker must never publish a free report
+        return False
 
 
 def product_overall(report) -> dict:
@@ -96,7 +152,14 @@ def get_or_analyze_product(
     saved = service.saved_report(
         product_id=int(product_id), profile=profile, user_id=int(user_id)
     )
-    if saved is not None:
+    if (
+        saved is not None
+        and product_score(saved) is not None
+        and (
+            getattr(saved, "is_final", False)
+            or getattr(getattr(saved, "analysis", None), "is_final", False)
+        )
+    ):
         return saved
     report = service.analyze_product(
         int(product_id),
@@ -112,6 +175,11 @@ def get_or_analyze_product(
         raise TaskFailed(
             "Не удалось получить итоговый результат: в доступных данных есть пробелы."
         )
+    if product_score(report) is None:
+        raise TaskFailed(
+            "Не удалось получить числовую индивидуальную оценку продукта. "
+            "Повторите проверку позже; отчёт по набору не сформирован."
+        )
     return report
 
 
@@ -126,9 +194,7 @@ def charge_saved_report(*, user_id: int, report, profile: dict) -> None:
         return
 
 
-def _verdict(score: int | None) -> tuple[str, str]:
-    if score is None:
-        return "Недостаточно данных", "muted"
+def _verdict(score: int) -> tuple[str, str]:
     if score >= 80:
         return "Отлично подходит", "good"
     if score >= 60:
@@ -154,21 +220,40 @@ def build_compatibility_report(
     from .shelf_compatibility import compute_shelf_compatibility
 
     entries = []
+    missing_scores: list[str] = []
     for product, report in zip(products, reports):
         score = product_score(report)
+        if score is None:
+            missing_scores.append(_text(product.get("name")) or f"#{product.get('id')}")
         overall = product_overall(report)
+        individual_verdict = _text(overall.get("verdict"))
+        if not individual_verdict or "Недостаточно данных" in individual_verdict:
+            individual_verdict = _verdict(score)[0] if score is not None else "Оценка недоступна"
+        individual_tone = _text(overall.get("tone"))
+        if not individual_tone:
+            individual_tone = _verdict(score)[1] if score is not None else "neutral"
         entries.append(
             {
                 "product_id": int(product.get("id") or 0),
                 "name": _text(product.get("name")).replace("\n", " "),
                 "brand": _text(product.get("brand")),
+                "image": _text(
+                    product.get("image_url")
+                    or product.get("image")
+                ),
                 "score": score,
-                "verdict": _text(overall.get("verdict")) or _verdict(score)[0],
-                "tone": _text(overall.get("tone")) or _verdict(score)[1],
+                "verdict": individual_verdict,
+                "tone": individual_tone,
                 "snapshot_id": _text(
                     (getattr(report, "snapshot", None) or {}).get("snapshot_id")
                 ),
             }
+        )
+    if missing_scores:
+        raise TaskFailed(
+            "Не удалось получить индивидуальную оценку для: "
+            + ", ".join(missing_scores)
+            + ". Отчёт по набору не сформирован; повторите проверку."
         )
 
     result = compute_shelf_compatibility(
@@ -178,6 +263,11 @@ def build_compatibility_report(
         ]
     )
     score = result.get("score")
+    if score is None:
+        raise TaskFailed(
+            "Не удалось рассчитать совместимость набора по актуальным индивидуальным "
+            "результатам. Повторите проверку."
+        )
     conflicts = list(result.get("conflicts") or [])
     duplicates = list(result.get("duplicate_actives") or [])
     irritation = list(result.get("irritation") or [])
@@ -314,13 +404,6 @@ def build_compatibility_report(
     )
 
     limitations: list[str] = []
-    missing_scores = [entry["name"] for entry in entries if entry["score"] is None]
-    if missing_scores:
-        limitations.append(
-            "Не для всех средств есть итоговая индивидуальная оценка: "
-            + ", ".join(missing_scores)
-            + "."
-        )
     limitations.append(
         "Отчёт не является медицинской рекомендацией и не подтверждает отсутствие "
         "индивидуальной реакции кожи."
@@ -332,12 +415,7 @@ def build_compatibility_report(
         )
 
     verdict, tone = _verdict(score)
-    if score is None:
-        summary = (
-            "Для части средств не хватает итоговых данных, поэтому общий вывод "
-            "ограничен. Сохранённые индивидуальные результаты не подменялись оценками."
-        )
-    elif conflicts or irritation or duplicates:
+    if conflicts or irritation or duplicates:
         summary = (
             f"В наборе есть {len(conflicts)} потенциальных сочетаний по правилам Aidermy. "
             "Ниже — что можно оставить, что стоит изменить и где нужна осторожность."

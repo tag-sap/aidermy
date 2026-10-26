@@ -9,6 +9,7 @@ import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVe
 import { PhotoScan } from "./photo-scan"
 import { ReportDetails } from "./report-details"
 import { EvaluationV2Panel } from "./evaluation-v2"
+import { VerdictIcon } from "./evaluation-v2"
 import { AnimatedBorderWrapper } from "./components/ui/moving-border"
 import {
   products, skinProfile, shelfReport, CABINETS, FACE_TAXONOMY, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
@@ -131,8 +132,6 @@ function ParticleCanvas({ tint = "rgba(214,242,100," }: { tint?: string }) {
   }, [tint])
   return <canvas ref={ref} aria-hidden="true" className="particles" />
 }
-
-const STATE_LABEL: Record<ProductState, string> = { using: "Сейчас использую", want: "Хочу попробовать", finished: "Закончились" }
 
 function Button({ children, onClick, variant = "primary", icon, small, className = "", disabled }: {
   children: ReactNode; onClick?: () => void; variant?: "primary" | "secondary" | "ghost"; icon?: IconName; small?: boolean; className?: string; disabled?: boolean
@@ -297,7 +296,6 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
               <Icon name="alert" size={11} /> Данные устарели
             </span>
           )}
-          {product.state && <span className={`pcard__state pcard__state--${product.state}`} />}
         </div>
         <div className="pcard__body">
           <p className="pcard__brand">{product.brand}</p>
@@ -434,15 +432,13 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
   )
 }
 
-function Topbar({ page, onNavigate, onHelp, user, onAuth, onPoints, notificationsUnread, notificationsOpen, onNotifications }: {
-  page: Page; onNavigate: (p: Page) => void; onHelp: () => void; user: User | null; onAuth: () => void; onPoints: () => void;
+function Topbar({ onHelp, onProfile, user, onAuth, onPoints, notificationsUnread, notificationsOpen, onNotifications }: {
+  onHelp: () => void; onProfile: () => void; user: User | null; onAuth: () => void; onPoints: () => void;
   notificationsUnread: number; notificationsOpen: boolean; onNotifications: () => void
 }) {
-  const title = NAV.find((n) => n.id === page)?.label ?? ""
   return (
     <header className="topbar">
       <span className="topbar__brand"><strong>айдерми</strong></span>
-      <span className="topbar__title">{title}</span>
       <div className="topbar__actions">
         {user && (
           <button type="button" className="topbar__points" onClick={onPoints} aria-label="Пополнить баллы"><Icon name="credits" size={15} /><strong>{user.points}</strong></button>
@@ -450,7 +446,7 @@ function Topbar({ page, onNavigate, onHelp, user, onAuth, onPoints, notification
         {user && <NotificationBell unread={notificationsUnread} open={notificationsOpen} onToggle={onNotifications} />}
         <button type="button" className="icon-btn icon-btn--help" onClick={onHelp} aria-label="Помощь"><span className="help-mark">?</span></button>
         {user ? (
-          <button type="button" className="icon-btn" onClick={() => onNavigate("profile")} aria-label="Профиль"><Avatar size={28} initials={user.initials} /></button>
+          <button type="button" className="icon-btn" onClick={onProfile} aria-label="Профиль"><Avatar size={28} initials={user.initials} /></button>
         ) : (
           <button type="button" className="icon-btn" onClick={onAuth} aria-label="Войти"><Icon name="user" size={19} /></button>
         )}
@@ -1009,7 +1005,7 @@ function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
       </section>
 
       <section className="block">
-        <SectionHead eyebrow="Моя полка" title="Сейчас использую" action={() => onNavigate("shelf")} actionLabel="Полка" />
+        <SectionHead eyebrow="Моя полка" title="Средства на полке" action={() => onNavigate("shelf")} actionLabel="Полка" />
         <HScroll>{using.map((p) => <ProductCard key={p.id} product={p} onOpen={() => onOpen(p)} />)}</HScroll>
       </section>
 
@@ -1351,77 +1347,114 @@ const COMPAT_STATUS_LABEL: Record<string, string> = {
   cancelled: "Отменено",
 }
 
-function CompatibilityReportView({ report }: { report: CompatibilityReport }) {
-  const sections: Array<[string, string, Array<{ title: string; detail: string }> | undefined]> = [
-    ["keep", "Что можно оставить", report.keep],
-    ["changes", "Что стоит изменить", report.changes],
-    ["cautions", "Что требует осторожности", report.cautions],
-    ["gaps", "Чего не хватает в уходе", report.gaps],
-    ["why", "Почему система пришла к выводу", report.why],
+function CompatibilityReportView({ report, onRetry }: { report: CompatibilityReport; onRetry?: () => void }) {
+  const clean = (value: string | undefined | null) =>
+    (value || "").replace(/Недостаточно данных/gi, "Требуется повторная проверка")
+  const sections: Array<[string, string, string, Array<{ title: string; detail: string }> | undefined]> = [
+    ["keep", "Что можно оставить", "happy", report.keep],
+    ["changes", "Что стоит изменить", "alert", report.changes],
+    ["cautions", "Что требует осторожности", "alert", report.cautions],
+    ["gaps", "Чего не хватает в уходе", "neutral", report.gaps],
+    ["why", "Почему система пришла к выводу", "neutral", report.why],
   ]
-  return (
-    <div className="compat-report">
-      <div className="compat-report__head">
+  if (report.score == null) {
+    return (
+      <div className="shelf-set-pending">
         <div>
-          <p className="eyebrow">Проверенный набор</p>
-          <h2>{report.overall.verdict}</h2>
-          <p>{report.overall.summary}</p>
+          <strong>Не удалось подтвердить общий результат</strong>
+          <p>Отчёт не сформирован по актуальным индивидуальным данным. Запустите проверку ещё раз — сохранённые результаты будут переиспользованы.</p>
+          {onRetry && <Button variant="secondary" small onClick={onRetry}>Повторить проверку</Button>}
         </div>
-        {report.score != null && <div className={`compat-report__score compat-report__score--${report.overall.tone}`}><strong>{report.score}</strong><span>из 100</span></div>}
       </div>
-      <div className="compat-report__products">
-        {(report.products || []).map((product) => (
-          <span key={product.product_id} className="compat-report__product">
-            <strong>{product.name}</strong>
-            {product.score != null && <small>{product.score}%</small>}
-          </span>
-        ))}
-      </div>
-      {sections.map(([key, title, items]) => items && items.length > 0 ? (
-        <section key={key} className="compat-report__section">
-          <h3>{title}</h3>
-          <ul>{items.map((item, index) => <li key={`${key}-${index}`}><strong>{item.title}</strong><span>{item.detail}</span></li>)}</ul>
+    )
+  }
+  const tone = report.overall.tone || "neutral"
+  return (
+    <div className="evalv2 compat-report">
+      <section className="evalv2__report">
+        <header className="evalv2__report-head">
+          <p className="eyebrow">Проверенный набор</p>
+          <h4 className="evalv2__product-name">{report.set_name || "Набор средств"}</h4>
+          <div className={`evalv2__overall evalv2__overall--${tone}`}>
+            <div className="evalv2__overall-main">
+              <strong className={`evalv2__overall-verdict evalv2__overall-verdict--${tone}`}>{clean(report.overall.verdict)}</strong>
+              <span className={`compat-report__score compat-report__score--${tone}`}><strong>{report.score}</strong><span>из 100</span></span>
+            </div>
+            <p className="evalv2__overall-summary">{clean(report.overall.summary)}</p>
+          </div>
+        </header>
+
+        <section className="compat-report__product-section" aria-label="Средства в наборе">
+          <p className="evalv2__section-label">Средства в наборе</p>
+          <div className="compat-report__products">
+            {(report.products || []).map((product) => (
+              <article key={product.product_id} className="compat-report__product" title={`${product.brand ? `${product.brand} · ` : ""}${product.name}`}>
+                <ProductImage src={product.image || ""} alt={product.name} className="compat-report__thumb" />
+                <div className="compat-report__product-copy">
+                  <strong>{product.name}</strong>
+                  <small>{product.brand || "Уход"}</small>
+                  {product.score != null && <span className="compat-report__product-score">{product.score}% · {product.verdict}</span>}
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
-      ) : null)}
-      {report.limitations.length > 0 && (
-        <details className="compat-report__limits">
-          <summary>Ограничения анализа</summary>
-          <ul>{report.limitations.map((item, index) => <li key={index}>{item}</li>)}</ul>
-        </details>
-      )}
+
+        <div className="compat-report__section-stack">
+          {sections.map(([key, title, sectionIcon, items]) => items && items.length > 0 ? (
+            <section key={key} className="evalv2__report-section">
+              <p className="evalv2__section-label">{title}</p>
+              <ul className="evalv2__verdicts compat-report__list">
+                {items.map((item, index) => (
+                  <li key={`${key}-${index}`} className="evalv2__verdict-row evalv2__verdict-row--neutral">
+                    <span className="evalv2__num" aria-hidden="true">{index + 1}.</span>
+                    <span className="evalv2__verdict-text">
+                      <strong>{clean(item.title)}</strong>
+                      <span>{clean(item.detail)}</span>
+                    </span>
+                    <span className="evalv2__status" aria-hidden="true"><VerdictIcon icon={sectionIcon} /></span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null)}
+        </div>
+
+        {report.limitations.length > 0 && (
+          <details className="evalv2__evidence compat-report__limits">
+            <summary>Ограничения анализа</summary>
+            <ul>{report.limitations.map((item, index) => <li key={index}>{clean(item)}</li>)}</ul>
+          </details>
+        )}
+      </section>
     </div>
   )
 }
-function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan = "free", balance, error = "", focusSetId, onFocusSetConsumed, onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onPricing, onTaskStarted, onStateChange }: {
+function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan = "free", balance, error = "", focusSetId, onFocusSetConsumed, onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onPricing, onTaskStarted }: {
   items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; count?: number; plan?: Plan; balance?: number; error?: string;
   focusSetId?: number | null; onFocusSetConsumed?: () => void;
   onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void;
   onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onPricing?: () => void;
   onTaskStarted?: (task: CompatibilityTask) => void;
-  onStateChange?: (product: Product, state: "using" | "want") => void
 }) {
-  type ShelfTab = "all" | "using" | "want" | "sets"
-  const [tab, setTab] = useState<ShelfTab>("all")
+  type ShelfTab = "items" | "sets"
+  const [tab, setTab] = useState<ShelfTab>("items")
   const [search, setSearch] = useState("")
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [compatSelected, setCompatSelected] = useState<Set<number>>(new Set())
+  const [compatCost, setCompatCost] = useState<number | null>(null)
   const [compatBusy, setCompatBusy] = useState(false)
   const [compatMessage, setCompatMessage] = useState("")
   const [sets, setSets] = useState<CompatibilitySetSummary[]>([])
   const [setsLoading, setSetsLoading] = useState(false)
   const [setsError, setSetsError] = useState("")
-  const [setDetail, setSetDetail] = useState<CompatibilitySetSummary | null>(null)
+  const [reportSet, setReportSet] = useState<CompatibilitySetSummary | null>(null)
 
   const faceItems = items.filter((p) => p.state && p.cabinet === "face")
-  const usingItems = faceItems.filter((p) => (p.state ?? "using") === "using")
-  const wantItems = faceItems.filter((p) => p.state === "want")
   const totalShelved = count ?? items.filter((p) => p.state).length
   const planLabel = plan === "plus" ? "Plus" : plan === "pro" ? "Pro" : "Basic"
-  const nextPlan = plan === "free" ? "Plus" : plan === "plus" ? "Pro" : null
   const remaining = Math.max(0, limit - totalShelved)
-  const atLimit = totalShelved >= limit
-  const capacityPercent = limit > 0 ? Math.min(100, Math.round((totalShelved / limit) * 100)) : 0
 
   const loadSets = async () => {
     setSetsLoading(true)
@@ -1462,24 +1495,36 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
     if (focusSetId == null) return
     setTab("sets")
     void compatApi.set(focusSetId)
-      .then((result) => setSetDetail(result.set))
+      .then((result) => setReportSet(result.set))
       .catch(() => setSetsError("Не удалось открыть набор."))
       .finally(() => onFocusSetConsumed?.())
   }, [focusSetId])
 
   useEffect(() => {
-    if (!setDetail) return
-    if (["completed", "failed", "cancelled"].includes(setDetail.status)) return
+    if (reportSet == null) return
+    if (["completed", "failed", "cancelled"].includes(reportSet.status)) return
     let alive = true
     const timer = window.setInterval(async () => {
       if (document.hidden) return
       try {
-        const result = await compatApi.set(setDetail.id)
-        if (alive) setSetDetail(result.set)
+        const result = await compatApi.set(reportSet.id)
+        if (alive) setReportSet(result.set)
       } catch { /* keep current state */ }
     }, 3000)
     return () => { alive = false; window.clearInterval(timer) }
-  }, [setDetail?.id, setDetail?.status])
+  }, [reportSet?.id, reportSet?.status])
+
+  useEffect(() => {
+    if (compatSelected.size < 2) {
+      setCompatCost(null)
+      return
+    }
+    let alive = true
+    compatApi.pricing(compatSelected.size)
+      .then((result) => { if (alive) setCompatCost(result.cost) })
+      .catch(() => { if (alive) setCompatCost(null) })
+    return () => { alive = false }
+  }, [compatSelected.size])
 
   const toggleSelect = (shelfId: number) => {
     setSelected((prev) => { const next = new Set(prev); if (next.has(shelfId)) next.delete(shelfId); else next.add(shelfId); return next })
@@ -1503,6 +1548,8 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
     try {
       const result = await compatApi.startCompatibility(ids, buildProfile())
       setCompatSelected(new Set())
+      const nextCost = result.cost ?? result.set?.cost
+      if (nextCost != null) setCompatCost(nextCost)
       setCompatMessage(
         result.reused
           ? "Эта проверка уже выполняется. Набор открыт во вкладке «Наборы»."
@@ -1518,11 +1565,11 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
     }
   }
 
-  const openSet = async (setId: number) => {
+  const openReport = async (setId: number) => {
     setSetsError("")
     try {
       const result = await compatApi.set(setId)
-      setSetDetail(result.set)
+      setReportSet(result.set)
     } catch {
       setSetsError("Не удалось открыть набор.")
     }
@@ -1533,7 +1580,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
     try {
       await compatApi.deleteSet(setId)
       setSets((current) => current.filter((item) => item.id !== setId))
-      if (setDetail?.id === setId) setSetDetail(null)
+      if (reportSet?.id === setId) setReportSet(null)
       setCompatMessage("Набор удалён. Продукты и индивидуальные проверки сохранены.")
     } catch {
       setSetsError("Не удалось удалить набор.")
@@ -1543,43 +1590,72 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
   const retrySet = async (setId: number) => {
     try {
       const result = await compatApi.retrySet(setId, buildProfile())
-      setSetDetail(null)
+      setReportSet(result.set)
       setSets((current) => current.map((item) => item.id === setId ? result.set : item))
       if (result.task) onTaskStarted?.(result.task)
-      setCompatMessage("Проверка набора запущена повторно.")
+      setCompatMessage("Проверка набора запущена повторно. Стоимость будет списана после успешного завершения.")
     } catch {
       setSetsError("Не удалось запустить повторную проверку.")
     }
   }
 
   const visibleItems = faceItems.filter((product) => {
-    if (tab === "using" && product.state !== "using") return false
-    if (tab === "want" && product.state !== "want") return false
     const query = search.trim().toLowerCase()
     if (!query) return true
     return [product.name, product.brand, product.category, product.subcategory].filter(Boolean).join(" ").toLowerCase().includes(query)
   })
-  const groupedItems = Array.from(
-    visibleItems.reduce((map, product) => {
-      const group = product.category || product.subcategory || "Другое"
-      if (!map.has(group)) map.set(group, [])
-      map.get(group)!.push(product)
-      return map
-    }, new Map<string, Product[]>()),
-  ).sort(([left], [right]) => {
-    const order = FACE_TAXONOMY.map((item) => item.title)
-    const li = order.indexOf(left)
-    const ri = order.indexOf(right)
-    return (li < 0 ? 999 : li) - (ri < 0 ? 999 : ri)
-  })
   const selectedProducts = Array.from(compatSelected)
     .map((id) => faceItems.find((product) => product.id === id))
     .filter((product): product is Product => Boolean(product))
+  const compatCostLabel = compatCost == null ? "Стоимость уточняется" : `${compatCost} ${compatCost === 1 ? "балл" : compatCost < 5 ? "балла" : "баллов"}`
+
+  if (reportSet) {
+    return (
+      <div className="page shelf-page shelf-report-page">
+        <button type="button" className="shelf-set-detail__back" onClick={() => { setReportSet(null); setTab("sets") }}>
+          <Icon name="back" size={16} /> К наборам
+        </button>
+        <PageHeading
+          eyebrow="Проверенный набор"
+          title={reportSet.name}
+          action={(
+            <div className="shelf-set-detail__actions">
+              {reportSet.status === "failed" && <Button variant="secondary" small onClick={() => void retrySet(reportSet.id)}>Повторить</Button>}
+              {reportSet.status === "completed" && <Button variant="secondary" small onClick={() => void retrySet(reportSet.id)}>Проверить снова</Button>}
+              <Button variant="ghost" small onClick={() => void removeSet(reportSet.id)}>Удалить набор</Button>
+            </div>
+          )}
+        />
+        <span className={`shelf-set-status shelf-set-status--${reportSet.status}`}>{COMPAT_STATUS_LABEL[reportSet.status] || reportSet.status}</span>
+        {reportSet.error && <p className="shelf-error" role="alert">{reportSet.error}</p>}
+        {reportSet.report ? (
+          <CompatibilityReportView report={reportSet.report} onRetry={() => void retrySet(reportSet.id)} />
+        ) : reportSet.status === "failed" ? (
+          <div className="shelf-set-pending">
+            <div>
+              <strong>Не удалось завершить проверку</strong>
+              <p>{reportSet.error || "Проверка не была завершена. Запустите её повторно."}</p>
+              <Button variant="secondary" small onClick={() => void retrySet(reportSet.id)}>Повторить</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="shelf-set-pending">
+            <img src="/loading.gif" alt="" />
+            <div>
+              <strong>{COMPAT_STATUS_LABEL[reportSet.status] || "Проверка выполняется"}</strong>
+              <p>Проверяем индивидуальные результаты выбранных средств, затем рассчитаем совместимость. Можно закрыть страницу — результат появится здесь и в уведомлениях.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className={`page shelf-page ${compatSelected.size > 0 ? "shelf-page--with-cart" : ""}`}>
-      <PageHeading eyebrow="Уход" title="Моя полка" lead="Средства, которые вы используете, и их персональные проверки."
-        action={<div className="page-head__actions">
+      <PageHeading eyebrow="Уход" title="Моя полка" />
+      <section className="shelf-toolbar" aria-label="Управление полкой">
+        <div className="shelf-toolbar__actions">
           {selectMode ? (
             <>
               <Button variant="ghost" onClick={() => { onDeleteBatch(Array.from(selected)); setSelectMode(false); setSelected(new Set()) }} disabled={selected.size === 0}>Удалить выбранные ({selected.size})</Button>
@@ -1588,45 +1664,29 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
           ) : (
             <>
               <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
-              {faceItems.length > 0 && <Button variant="ghost" onClick={() => setSelectMode(true)}>Выбрать</Button>}
-              {faceItems.length > 0 && <Button variant="ghost" onClick={() => onClear("face")}>Очистить полку</Button>}
+              {faceItems.length > 0 && <button type="button" className="shelf-toolbar__link" onClick={() => setSelectMode(true)}>Выбрать</button>}
+              {faceItems.length > 0 && <button type="button" className="shelf-toolbar__link" onClick={() => onClear("face")}>Очистить</button>}
             </>
           )}
-        </div>} />
-
-      <section className="shelf-info" aria-label="Информация о полке">
-        <div className="shelf-info__copy">
-          <p className="eyebrow">Ваша полка</p>
-          <p>Выбирайте средства для проверки совместимости. Индивидуальные проверки сохраняются отдельно.</p>
         </div>
-        <div className="shelf-info__capacity">
-          <span className="shelf-info__plan">Тариф {planLabel}</span>
-          <strong>Добавлено {totalShelved} из {limit} продуктов</strong>
-          <div className="shelf-capacity" role="progressbar" aria-label="Вместимость полки" aria-valuemin={0} aria-valuemax={limit} aria-valuenow={totalShelved}>
-            <span style={{ width: `${capacityPercent}%` }} />
-          </div>
-          <span>{remaining > 0 ? `Осталось ${remaining}` : "Лимит полки достигнут"}</span>
-          <button type="button" className="shelf-info__upgrade" onClick={onPricing}>О тарифах →</button>
-          {atLimit && nextPlan && onPricing && (
-            <button type="button" className="shelf-info__upgrade" onClick={onPricing}>Перейти на {nextPlan}</button>
-          )}
+        <div className="shelf-toolbar__meta">
+          <span className="shelf-toolbar__plan">Тариф <strong>{planLabel}</strong></span>
+          <span className="shelf-toolbar__count"><strong>{totalShelved}</strong> / {limit}</span>
+          <span className="shelf-toolbar__remaining">{remaining > 0 ? `осталось ${remaining}` : "лимит достигнут"}</span>
+          {onPricing && <button type="button" className="shelf-toolbar__pricing" onClick={onPricing}>Тарифы →</button>}
         </div>
       </section>
 
-      <nav className="shelf-tabs" aria-label="Разделы полки">
-        {([
-          ["all", "Все", faceItems.length],
-          ["using", "Сейчас использую", usingItems.length],
-          ["want", "Хочу попробовать", wantItems.length],
-          ["sets", "Наборы", sets.length],
-        ] as const).map(([key, label, count]) => (
-          <button key={key} type="button" className={`shelf-tab ${tab === key ? "is-active" : ""}`} onClick={() => { setTab(key); setSetDetail(null); setSearch("") }}>
-            {label}<span>{count}</span>
-          </button>
-        ))}
+      <nav className="shelf-tabs shelf-tabs--two" aria-label="Разделы полки">
+        <button type="button" className={`shelf-tab ${tab === "items" ? "is-active" : ""}`} onClick={() => { setTab("items"); setSearch("") }}>
+          Средства<span>{faceItems.length}</span>
+        </button>
+        <button type="button" className={`shelf-tab ${tab === "sets" ? "is-active" : ""}`} onClick={() => { setTab("sets"); setSearch("") }}>
+          Наборы<span>{sets.length}</span>
+        </button>
       </nav>
 
-      {tab !== "sets" && (
+      {tab === "items" && (
         <div className="shelf-search">
           <Icon name="search" size={17} />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Найти средство…" aria-label="Найти средство" />
@@ -1644,46 +1704,10 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
         <div className="shelf-sets">
           {setsError && <p className="shelf-error" role="alert">{setsError} <button type="button" className="guest-link" onClick={() => void loadSets()}>Повторить</button></p>}
           {setsLoading && !sets.length && <p className="empty"><span className="spin" /> Загружаем наборы…</p>}
-          {setDetail ? (
-            <div className="shelf-set-detail">
-              <button type="button" className="shelf-set-detail__back" onClick={() => setSetDetail(null)}><Icon name="back" size={16} /> К наборам</button>
-              <div className="shelf-set-detail__head">
-                <div>
-                  <p className="eyebrow">Набор средств</p>
-                  <h2>{setDetail.name}</h2>
-                  <span className={`shelf-set-status shelf-set-status--${setDetail.status}`}>{COMPAT_STATUS_LABEL[setDetail.status] || setDetail.status}</span>
-                </div>
-                <div className="shelf-set-detail__actions">
-                  {setDetail.status === "failed" && <Button variant="secondary" small onClick={() => void retrySet(setDetail.id)}>Повторить</Button>}
-                  {setDetail.status === "completed" && <Button variant="secondary" small onClick={() => void retrySet(setDetail.id)}>Проверить снова</Button>}
-                  <Button variant="ghost" small onClick={() => void removeSet(setDetail.id)}>Удалить набор</Button>
-                </div>
-              </div>
-              {setDetail.error && <p className="shelf-error" role="alert">{setDetail.error}</p>}
-              {setDetail.report ? (
-                <CompatibilityReportView report={setDetail.report} />
-              ) : setDetail.status === "failed" ? (
-                <div className="shelf-set-pending">
-                  <div>
-                    <strong>Не удалось завершить проверку</strong>
-                    <p>{setDetail.error || "Проверка не была завершена. Запустите её повторно."}</p>
-                    <Button variant="secondary" small onClick={() => void retrySet(setDetail.id)}>Повторить</Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="shelf-set-pending">
-                  <img src="/loading.gif" alt="" />
-                  <div>
-                    <strong>{COMPAT_STATUS_LABEL[setDetail.status] || "Проверка выполняется"}</strong>
-                    <p>Набор уже сохранён. Можно закрыть страницу — результат появится здесь и в уведомлениях.</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : sets.length === 0 && !setsLoading ? (
+          {sets.length === 0 && !setsLoading ? (
             <div className="shelf-empty">
               <p>Здесь появятся проверенные наборы. Выберите минимум два средства на полке и запустите проверку совместимости.</p>
-              <Button variant="secondary" onClick={() => setTab("all")}>Перейти к средствам</Button>
+              <Button variant="secondary" onClick={() => setTab("items")}>Перейти к средствам</Button>
             </div>
           ) : (
             <div className="shelf-sets__list">
@@ -1710,7 +1734,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
                     <div className="shelf-set-card__footer">
                       <small>{set.checked_at ? `Проверено ${new Date(set.checked_at).toLocaleDateString("ru-RU")}` : "Проверка ещё не завершена"}</small>
                       <div>
-                        <button type="button" className="shelf-set-action" onClick={() => void openSet(set.id)}>Открыть →</button>
+                        <button type="button" className="shelf-set-action" onClick={() => void openReport(set.id)}>Открыть →</button>
                         {set.status === "failed" && <button type="button" className="shelf-set-action" onClick={() => void retrySet(set.id)}>Повторить</button>}
                        {set.status === "completed" && <button type="button" className="shelf-set-action" onClick={() => void retrySet(set.id)}>Проверить снова</button>}
                         <button type="button" className="shelf-set-action shelf-set-action--danger" onClick={() => void removeSet(set.id)}>Удалить</button>
@@ -1725,10 +1749,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
       ) : (
         <div className="shelf-list">
           {loading && <p className="empty"><span className="spin" /> Загружаем полку…</p>}
-          {!loading && groupedItems.map(([group, groupProducts]) => (
-            <section className="shelf-group" key={group}>
-              <h2 className="shelf-group__title">{group}</h2>
-              {groupProducts.map((p) => (
+          {!loading && visibleItems.map((p) => (
                 <div className="shelf-list__row" key={p.id}>
                   {selectMode && (
                     <button
@@ -1743,12 +1764,9 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
                   <button type="button" className="shelf-list__main" onClick={() => onOpen(p)}>
                     <ProductImage src={p.image} className="shelf-list__thumb" />
                     <span className="shelf-list__copy">
-                      <strong>{p.name}</strong>
+                      <strong title={p.name}>{p.name}</strong>
                       <small>{[p.brand, p.variant].filter(Boolean).join(" · ") || p.category || "Уход"}</small>
-                      <span className="shelf-list__meta">
-                        {p.category && <em>{p.category}</em>}
-                        <span>{STATE_LABEL[p.state ?? "using"]}</span>
-                      </span>
+                      {p.category && <span className="shelf-list__meta"><em>{p.category}</em></span>}
                     </span>
                     <span className="shelf-list__check" aria-live="polite">
                       {checkingIds.has(p.id) ? (
@@ -1766,36 +1784,23 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
                     </span>
                   </button>
                   {!selectMode && (
-                    <button
-                      type="button"
-                      className={`shelf-list__state ${p.state === "want" ? "is-want" : ""}`}
-                      onClick={() => onStateChange?.(p, p.state === "want" ? "using" : "want")}
-                      aria-label={p.state === "want" ? "Отметить как «Сейчас использую»" : "Отметить как «Хочу попробовать»"}
-                      title={p.state === "want" ? "Сейчас использую" : "Хочу попробовать"}
-                    >
-                      <Icon name={p.state === "want" ? "check" : "bookmark"} size={14} />
-                    </button>
-                  )}
-                  {!selectMode && (
-                    <button
-                      type="button"
-                      className={`shelf-list__collect ${compatSelected.has(p.id) ? "is-selected" : ""}`}
-                      onClick={() => toggleCompat(p.id)}
-                      aria-pressed={compatSelected.has(p.id)}
-                    >
-                      {compatSelected.has(p.id) ? "✓ В наборе" : "＋ В набор"}
-                    </button>
-                  )}
-                  {!selectMode && (
-                    <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`} title="Убрать с полки"><Icon name="close" size={15} /></button>
+                    <div className="shelf-list__actions">
+                      <button
+                        type="button"
+                        className={`shelf-list__collect ${compatSelected.has(p.id) ? "is-selected" : ""}`}
+                        onClick={() => toggleCompat(p.id)}
+                        aria-pressed={compatSelected.has(p.id)}
+                      >
+                        {compatSelected.has(p.id) ? "✓ В наборе" : "＋ В набор"}
+                      </button>
+                      <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`} title="Убрать с полки"><Icon name="close" size={15} /></button>
+                    </div>
                   )}
                 </div>
-              ))}
-            </section>
           ))}
           {!loading && visibleItems.length === 0 && (
             <div className="shelf-empty">
-              <p>{search ? "Ничего не найдено. Измените поисковый запрос." : tab === "want" ? "В этом списке пока нет средств." : "Полка пуста. Добавьте первое средство, чтобы хранить его здесь и следить за проверками."}</p>
+              <p>{search ? "Ничего не найдено. Измените поисковый запрос." : "Полка пуста. Добавьте первое средство, чтобы хранить его здесь и следить за проверками."}</p>
               <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
             </div>
           )}
@@ -1815,14 +1820,14 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
             </div>
             <div className="compat-cart__items">
               {selectedProducts.map((product) => (
-                <span className="compat-cart__item" key={product.id}>
-                  <span>{product.brand ? `${product.brand} · ` : ""}{product.name}</span>
-                  <button type="button" onClick={() => toggleCompat(product.id)} aria-label={`Убрать ${product.name} из набора`}><Icon name="close" size={13} /></button>
+                <span className="compat-cart__item" key={product.id} title={`${product.brand ? `${product.brand} · ` : ""}${product.name}`}>
+                  <ProductImage src={product.image} alt={product.name} className="compat-cart__thumb" />
+                  <button type="button" className="compat-cart__remove" onClick={() => toggleCompat(product.id)} aria-label={`Убрать ${product.name} из набора`}><Icon name="close" size={12} /></button>
                 </span>
               ))}
             </div>
             <div className="compat-cart__foot">
-              <span>{compatSelected.size < 2 ? "Добавьте ещё одно средство" : "Можно запускать проверку"}</span>
+              <span>{compatSelected.size < 2 ? "Добавьте ещё одно средство" : `${compatCostLabel} · спишется после успешной проверки`}</span>
               <Button variant="secondary" onClick={() => void startCompatibility()} disabled={compatSelected.size < 2 || compatBusy}>
                 {compatBusy ? "Запускаем…" : "Проверить совместимость →"}
               </Button>
@@ -1831,8 +1836,6 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
         </aside>
       )}
 
-
-      <button type="button" className="shelf-fab" onClick={onAdd} aria-label="Добавить продукт"><Icon name="plus" size={24} /></button>
     </div>
   )
 }
@@ -4570,23 +4573,6 @@ export default function App() {
       setUser((u) => (u ? { ...u, plan: p } : u))
     }
   }
-  const handleShelfStateChange = async (p: Product, state: "using" | "want") => {
-    if (!p.shelf_id || !getToken()) return
-    const previous = p.state
-    const apply = (product: Product): Product => product.id === p.id ? { ...product, state } : product
-    setItems((cur) => cur.map(apply))
-    setShelfItems((cur) => cur.map(apply))
-    setOpen((current) => (current && current.id === p.id ? apply(current) : current))
-    try {
-      await api.updateShelfState(p.shelf_id, state)
-      setToast(state === "want" ? "Отмечено как «Хочу попробовать»" : "Отмечено как «Сейчас использую»")
-    } catch {
-      setItems((cur) => cur.map((product) => product.id === p.id ? { ...product, state: previous } : product))
-      setShelfItems((cur) => cur.map((product) => product.id === p.id ? { ...product, state: previous } : product))
-      setToast("Не удалось изменить статус продукта")
-    }
-  }
-
   const handleAddToShelf = async (p: Product): Promise<boolean> => {
     const id = p.id
     const shelfState: ProductState = p.state === "want" ? "want" : "using"
@@ -4701,7 +4687,7 @@ export default function App() {
       <LoadingScreen done={!loading} />
       {user && <Sidebar page={page} onNavigate={navigate} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} />}
       <div className="workspace">
-        {user && <Topbar page={page} onNavigate={navigate} onHelp={() => setHelpOpen(true)} user={user} onAuth={() => setAuthModal("login")} onPoints={() => setPointsOpen(true)} notificationsUnread={notificationUnread} notificationsOpen={notificationsOpen} onNotifications={() => setNotificationsOpen((v) => !v)} />}
+        {user && <Topbar onHelp={() => setHelpOpen(true)} onProfile={() => navigate("profile")} user={user} onAuth={() => setAuthModal("login")} onPoints={() => setPointsOpen(true)} notificationsUnread={notificationUnread} notificationsOpen={notificationsOpen} onNotifications={() => setNotificationsOpen((v) => !v)} />}
         {user && <GlobalBar query={query} onQuery={setQuery} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onPoints={() => setPointsOpen(true)} onLogout={handleLogout} onNavigate={navigate} onOpen={setOpen} onHelp={() => setHelpOpen(true)} notificationsUnread={notificationUnread} notificationsOpen={notificationsOpen} onNotifications={() => setNotificationsOpen((v) => !v)} />}
         <main className="main-content">
           <div key={user ? page : `guest-${guestStage}`} className="page-anim">
@@ -4738,7 +4724,7 @@ export default function App() {
                 onRestart={resetGuestFlow}
               />
             )}
-            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} count={shelfMeta?.count} plan={shelfMeta?.plan ?? user.plan} balance={user.points} error={shelfError} focusSetId={shelfFocusSetId} onFocusSetConsumed={() => setShelfFocusSetId(null)} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onPricing={() => setPricingOpen(true)} onStateChange={(p, state) => void handleShelfStateChange(p, state)} onTaskStarted={(task) => { setToast(task.status === "completed" ? "Проверка уже завершена" : "Проверка запущена — результат появится в уведомлениях") }} />}
+            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} count={shelfMeta?.count} plan={shelfMeta?.plan ?? user.plan} balance={user.points} error={shelfError} focusSetId={shelfFocusSetId} onFocusSetConsumed={() => setShelfFocusSetId(null)} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onPricing={() => setPricingOpen(true)} onTaskStarted={(task) => { setToast(task.status === "completed" ? "Проверка уже завершена" : "Проверка запущена — результат появится в уведомлениях") }} />}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} enrichChecks={enrichCheckStatuses} />}

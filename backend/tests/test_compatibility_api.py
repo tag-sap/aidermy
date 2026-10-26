@@ -43,7 +43,8 @@ class CompatibilityApiTests(unittest.TestCase):
     def test_start_creates_set_immediately_and_checks_owner(self):
         with patch("app.compat_routes.get_user_shelf", return_value=self.shelf), \
                 patch("app.compat_routes.get_product_by_id", side_effect=self._product), \
-                patch("app.compat_routes.get_user_profile_updated_at", return_value="now"):
+                patch("app.compat_routes.get_user_profile_updated_at", return_value="now"), \
+                patch("app.compat_routes.get_balance", return_value={"balance": 10}):
             with self._client() as client:
                 response = client.post(
                     "/api/v1/compatibility/tasks/compatibility",
@@ -53,6 +54,8 @@ class CompatibilityApiTests(unittest.TestCase):
                 body = response.json()
                 self.assertEqual(body["set"]["status"], "queued")
                 self.assertEqual(body["set"]["product_ids"], [1, 2])
+                self.assertEqual(body["set"]["cost"], 1)
+                self.assertEqual(body["cost"], 1)
                 set_id = body["set"]["id"]
                 second = client.post(
                     "/api/v1/compatibility/tasks/compatibility",
@@ -104,6 +107,24 @@ class CompatibilityApiTests(unittest.TestCase):
                 self.assertEqual(body["task"]["kind"], "individual")
                 self.assertEqual(body["task"]["status"], "queued")
                 self.assertFalse(body["reused"])
+
+    def test_pricing_endpoint_and_insufficient_balance(self):
+        with self._client() as client:
+            response = client.get("/api/v1/compatibility/pricing?product_count=10")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["cost"], 7)
+
+        with patch("app.compat_routes.get_user_shelf", return_value=self.shelf), \
+                patch("app.compat_routes.get_product_by_id", side_effect=self._product), \
+                patch("app.compat_routes.get_user_profile_updated_at", return_value="now"), \
+                patch("app.compat_routes.get_balance", return_value={"balance": 0}):
+            with self._client() as client:
+                response = client.post(
+                    "/api/v1/compatibility/tasks/compatibility",
+                    json={"product_ids": [1, 2], "profile": {}},
+                )
+                self.assertEqual(response.status_code, 402)
+                self.assertIn("баланс", response.json()["detail"])
 
     def test_notification_can_be_marked_read_by_owner_only(self):
         notification = compat_store.create_notification(

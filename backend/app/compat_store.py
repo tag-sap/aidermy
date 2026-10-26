@@ -88,6 +88,7 @@ def ensure_schema() -> None:
                     profile_updated_at TEXT DEFAULT '',
                     context_key TEXT DEFAULT '',
                     task_id INTEGER,
+                    cost INTEGER NOT NULL DEFAULT 0,
                     error TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -110,6 +111,7 @@ def ensure_schema() -> None:
                     context_key TEXT DEFAULT '',
                     active_key TEXT,
                     result_snapshot_id TEXT,
+                    cost INTEGER NOT NULL DEFAULT 0,
                     error TEXT DEFAULT '',
                     attempts INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -151,6 +153,17 @@ def ensure_schema() -> None:
                 "CREATE INDEX IF NOT EXISTS idx_compat_sets_user "
                 "ON compatibility_sets (user_id, created_at)"
             )
+            # Keep local SQLite databases created by the previous release
+            # compatible without running a destructive rebuild.
+            for table in ("compatibility_sets", "compatibility_tasks"):
+                columns = {
+                    str(row["name"])
+                    for row in cursor.execute(f"PRAGMA table_info({table})").fetchall()
+                }
+                if "cost" not in columns:
+                    cursor.execute(
+                        f"ALTER TABLE {table} ADD COLUMN cost INTEGER NOT NULL DEFAULT 0"
+                    )
             conn.commit()
             _SCHEMA_READY = True
         finally:
@@ -167,6 +180,7 @@ def create_set(
     profile_updated_at: str,
     context_key: str,
     status: str = "queued",
+    cost: int = 0,
 ) -> dict:
     ensure_schema()
     conn = get_connection(AIDERMY_DB)
@@ -176,8 +190,8 @@ def create_set(
             """
             INSERT INTO compatibility_sets
                 (user_id, name, product_ids, status, profile_json,
-                 profile_updated_at, context_key, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                 profile_updated_at, context_key, cost, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
                 int(user_id),
@@ -187,6 +201,7 @@ def create_set(
                 _dump(profile),
                 profile_updated_at,
                 context_key,
+                max(0, int(cost)),
             ),
         )
         set_id = int(cursor.lastrowid)
@@ -256,7 +271,7 @@ def find_set_by_context(user_id: int, context_key: str) -> dict | None:
 def update_set(set_id: int, **fields: Any) -> None:
     allowed = {
         "name", "status", "report_json", "profile_json", "task_id", "error",
-        "checked_at", "updated_at", "deleted_at", "product_ids",
+        "checked_at", "updated_at", "deleted_at", "product_ids", "cost",
     }
     values = []
     assignments = []
@@ -321,6 +336,7 @@ def create_task(
     context_key: str,
     set_id: int | None = None,
     active_key: str | None = None,
+    cost: int = 0,
 ) -> dict:
     ensure_schema()
     conn = get_connection(AIDERMY_DB)
@@ -330,8 +346,8 @@ def create_task(
             """
             INSERT INTO compatibility_tasks
                 (user_id, kind, status, product_ids, set_id, profile_json,
-                 profile_updated_at, context_key, active_key, created_at, updated_at)
-            VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                 profile_updated_at, context_key, active_key, cost, created_at, updated_at)
+            VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
                 int(user_id),
@@ -342,6 +358,7 @@ def create_task(
                 profile_updated_at,
                 context_key,
                 active_key,
+                max(0, int(cost)),
             ),
         )
         task_id = int(cursor.lastrowid)
@@ -388,6 +405,31 @@ def find_individual_task(user_id: int, product_id: int) -> dict | None:
         conn.close()
 
 
+def find_active_individual_task(user_id: int, product_id: int) -> dict | None:
+    """Return a queued/running individual check for this user's product.
+
+    The compatibility worker must wait for this task instead of launching a
+    duplicate analysis. Completed/failed tasks are intentionally ignored.
+    """
+    ensure_schema()
+    conn = get_connection(AIDERMY_DB)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM compatibility_tasks "
+            "WHERE user_id = ? AND kind = 'individual' "
+            "AND status IN ('queued','running','waiting_for_products','analyzing_compatibility') "
+            "ORDER BY id DESC LIMIT 50",
+            (int(user_id),),
+        ).fetchall()
+        for row in rows:
+            task = _json_fields(_row_dict(row), ("product_ids", "profile_json"))
+            if int(product_id) in [int(pid) for pid in (task.get("product_ids") or [])]:
+                return task
+        return None
+    finally:
+        conn.close()
+
+
 def find_task_by_context(user_id: int, kind: str, context_key: str) -> dict | None:
     ensure_schema()
     conn = get_connection(AIDERMY_DB)
@@ -421,7 +463,7 @@ def find_active_task_by_key(active_key: str) -> dict | None:
 def update_task(task_id: int, **fields: Any) -> None:
     allowed = {
         "status", "active_key", "result_snapshot_id", "error", "attempts",
-        "updated_at", "started_at", "finished_at", "set_id",
+        "updated_at", "started_at", "finished_at", "set_id", "cost",
     }
     values = []
     assignments = []
@@ -444,24 +486,39 @@ def update_task(task_id: int, **fields: Any) -> None:
         conn.close()
 
 
-def claim_next_task() -> dict | None:
+def claim_next_task(kind: str | None = None) -> dict | None:
     """Atomically claim one queued task from any application worker."""
     ensure_schema()
     conn = get_connection(AIDERMY_DB)
     try:
-        row = conn.execute(
-            "SELECT id FROM compatibility_tasks WHERE status = 'queued' "
-            "ORDER BY id ASC LIMIT 1"
-        ).fetchone()
+        if kind:
+            row = conn.execute(
+                "SELECT id FROM compatibility_tasks WHERE status = 'queued' AND kind = ? "
+                "ORDER BY id ASC LIMIT 1",
+                (str(kind),),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT id FROM compatibility_tasks WHERE status = 'queued' "
+                "ORDER BY id ASC LIMIT 1"
+            ).fetchone()
         if not row:
             return None
         task_id = int(row["id"])
-        updated = conn.execute(
-            "UPDATE compatibility_tasks SET status = 'running', "
-            "started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, "
-            "attempts = attempts + 1 WHERE id = ? AND status = 'queued'",
-            (task_id,),
-        )
+        if kind:
+            updated = conn.execute(
+                "UPDATE compatibility_tasks SET status = 'running', "
+                "started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, "
+                "attempts = attempts + 1 WHERE id = ? AND status = 'queued' AND kind = ?",
+                (task_id, str(kind)),
+            )
+        else:
+            updated = conn.execute(
+                "UPDATE compatibility_tasks SET status = 'running', "
+                "started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, "
+                "attempts = attempts + 1 WHERE id = ? AND status = 'queued'",
+                (task_id,),
+            )
         conn.commit()
         if not updated.rowcount:
             return None
