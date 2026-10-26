@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import os
 import re
 import logging
+import threading
+import time
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
@@ -23,6 +27,40 @@ _WEBSEARCH_UA = (
 )
 # Маркеры рекламных результатов DuckDuckGo — их пропускаем (нужен органический URL).
 _AD_MARKERS = ("ad_domain", "ad_provider", "doubleclick", "bing.com/aclick", "aclick")
+_WEB_SEARCH_CACHE: dict[str, tuple[float, Dict[str, Any]]] = {}
+_WEB_SEARCH_LOCK = threading.Lock()
+
+
+def _search_cache_key(brand: str, name: str, variant: Optional[str], allow_unreliable_inci: bool) -> str:
+    return "|".join((
+        _normalize(brand), _normalize(name), _normalize(variant or ""),
+        "unreliable" if allow_unreliable_inci else "strict",
+    ))
+
+
+def _search_cache_get(key: str) -> Optional[Dict[str, Any]]:
+    # Disabled by default so tests/dev do not reuse stale third-party data;
+    # production enables it explicitly with WEB_SEARCH_CACHE_TTL.
+    ttl = float(os.getenv("WEB_SEARCH_CACHE_TTL", "0"))
+    with _WEB_SEARCH_LOCK:
+        item = _WEB_SEARCH_CACHE.get(key)
+        if not item:
+            return None
+        saved_at, value = item
+        if ttl <= 0 or time.monotonic() - saved_at > ttl:
+            _WEB_SEARCH_CACHE.pop(key, None)
+            return None
+        return copy.deepcopy(value)
+
+
+def _search_cache_set(key: str, value: Dict[str, Any]) -> None:
+    if float(os.getenv("WEB_SEARCH_CACHE_TTL", "0")) <= 0:
+        return
+    with _WEB_SEARCH_LOCK:
+        if len(_WEB_SEARCH_CACHE) >= 256:
+            oldest = min(_WEB_SEARCH_CACHE, key=lambda item: _WEB_SEARCH_CACHE[item][0])
+            _WEB_SEARCH_CACHE.pop(oldest, None)
+        _WEB_SEARCH_CACHE[key] = (time.monotonic(), copy.deepcopy(value))
 
 
 def _normalize(s: str) -> str:
@@ -116,6 +154,41 @@ def has_reliable_inci(product: Optional[Dict[str, Any]]) -> bool:
     return len(ings) >= 2
 
 
+async def _search_searxng(query: str, *, limit: int = 10) -> list[str]:
+    """Read-only SearXNG JSON search; no API key and no admin surface."""
+    base = os.getenv("SEARXNG_URL", "").strip().rstrip("/")
+    if not base:
+        return []
+    timeout = float(os.getenv("SEARXNG_TIMEOUT", "12").strip() or "12")
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            response = await client.get(
+                f"{base}/search",
+                params={"q": query, "format": "json", "categories": "general"},
+                headers={"Accept": "application/json", "User-Agent": _WEBSEARCH_UA},
+            )
+        if response.status_code != 200:
+            logger.warning("[SEARXNG] status=%s query=%r", response.status_code, query)
+            return []
+        payload = response.json()
+        urls: list[str] = []
+        for item in payload.get("results") or []:
+            url = str(item.get("url") or "").strip()
+            if not url.startswith(("http://", "https://")):
+                continue
+            if any(marker in url.lower() for marker in _AD_MARKERS):
+                continue
+            if url not in urls:
+                urls.append(url)
+            if len(urls) >= limit:
+                break
+        logger.info("[SEARXNG] query=%r -> %d urls", query, len(urls))
+        return urls
+    except Exception as exc:  # noqa: BLE001 - optional local service
+        logger.warning("[SEARXNG] unavailable/invalid response: %s", exc)
+        return []
+
+
 async def search_web_urls(query: str, *, limit: int = 10) -> list[str]:
     """Публичный органический поиск: возвращает только URL, без разбора INCI.
 
@@ -126,6 +199,11 @@ async def search_web_urls(query: str, *, limit: int = 10) -> list[str]:
     query = " ".join(str(query or "").split())
     if not query:
         return []
+    # Local SearXNG is preferred; if it is not configured/down, the existing
+    # DuckDuckGo HTML path remains a free fallback.
+    searx = await _search_searxng(query, limit=limit)
+    if searx:
+        return searx
     found: list[str] = []
     for attempt in range(3):
         try:
@@ -274,6 +352,12 @@ async def web_search_product(
     """
     from .scraper import import_product
 
+    cache_key = _search_cache_key(brand, name, variant, allow_unreliable_inci)
+    cached = _search_cache_get(cache_key)
+    if cached is not None:
+        logger.info("[WEBSEARCH] cache hit key=%s", cache_key)
+        return cached
+
     urls = await _search_product_urls(brand, name, variant)
     if not urls:
         return None
@@ -316,5 +400,6 @@ async def web_search_product(
             logger.warning("[WEBSEARCH] unreliable INCI for url=%s (%d chars)", url, len(ingredients))
             continue
         logger.info("[WEBSEARCH] saved product %r (%d INCI chars) url=%s", imported.name, len(ingredients), url)
+        _search_cache_set(cache_key, result)
         return result
     return None

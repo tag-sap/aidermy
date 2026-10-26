@@ -1,0 +1,14 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: aidermy-searxng
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: "http://127.0.0.1:8888/"
+      SEARXNG_SECRET: "${SEARXNG_SECRET:?set SEARXNG_SECRET in deploy/searxng/.env}"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+    ports:
+      # Local-only: never expose the search/admin surface to the internet.
+      - "127.0.0.1:8888:8080"
+    mem_limit: 512m

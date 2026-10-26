@@ -157,6 +157,47 @@ async def import_product(url: str) -> ProductImportResult:
     logger.info("[SCRAPER] Import started")
     last_error: Exception | None = None
     best_result: ProductImportResult | None = None
+
+    # Free fast path: plain HTML first. It is opt-in so existing deployments
+    # can keep the proven Scrapling order until the provider is enabled.
+    if os.getenv("SCRAPER_HTTPX_ENABLED", "0").strip().lower() in {"1", "true", "yes"}:
+        try:
+            from .html_provider import fetch_http
+
+            result = await asyncio.wait_for(
+                fetch_http(source_url),
+                timeout=float(os.getenv("SCRAPER_HTTPX_TIMEOUT", "20")),
+            )
+            if result.has_product_data():
+                if result.ingredients_raw:
+                    logger.info("[SCRAPER] Ingredients found via httpx")
+                    return result
+                best_result = result
+                logger.info("[SCRAPER] httpx: no ingredients, trying browser fallback")
+        except asyncio.TimeoutError:
+            logger.info("[SCRAPER] httpx timed out")
+        except Exception as exc:  # noqa: BLE001 - fallback remains available
+            logger.info("[SCRAPER] httpx rejected: %s", exc)
+
+    # Optional Crawl4AI browser pass for JavaScript-rendered product pages.
+    if os.getenv("CRAWL4AI_ENABLED", "0").strip().lower() in {"1", "true", "yes"}:
+        try:
+            from .html_provider import fetch_crawl4ai
+
+            result = await asyncio.wait_for(
+                fetch_crawl4ai(source_url),
+                timeout=float(os.getenv("CRAWL4AI_TIMEOUT", "90")),
+            )
+            if result.has_product_data():
+                if result.ingredients_raw:
+                    logger.info("[SCRAPER] Ingredients found via Crawl4AI")
+                    return result
+                best_result = best_result or result
+        except asyncio.TimeoutError:
+            logger.info("[SCRAPER] Crawl4AI timed out")
+        except Exception as exc:  # noqa: BLE001 - optional dependency
+            logger.info("[SCRAPER] Crawl4AI unavailable/rejected: %s", exc)
+
     for fetcher in ("basic", "dynamic", "stealth"):
         try:
             result = await asyncio.wait_for(
