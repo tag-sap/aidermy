@@ -7,8 +7,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from . import compat_store
 from .auth import get_current_user
@@ -38,6 +39,13 @@ class IndividualRequest(ProfileRequest):
 class CompatibilityRequest(ProfileRequest):
     product_ids: list[int]
     name: str = ""
+    # Batch mode pays only for products without a current individual result.
+    # The regular cart flow keeps its historical full-set quote.
+    only_missing: bool = False
+
+
+class RenameSetRequest(BaseModel):
+    name: str
 
 
 def _context_key(kind: str, profile: dict, product_ids: list[int]) -> str:
@@ -189,6 +197,72 @@ async def compatibility_pricing(
     }
 
 
+async def _missing_product_ids(
+    request: Request,
+    *,
+    user_id: int,
+    product_ids: list[int],
+    profile: dict,
+) -> list[int]:
+    """Return only products without a current individual result.
+
+    The status decision is the same one the product drawer uses. It is never
+    inferred from a score in the catalog, so another profile or another user's
+    result cannot make a check look current.
+    """
+    from .compat_service import _analysis_service_from_app
+
+    try:
+        service = _analysis_service_from_app(request.app)
+        statuses = await run_in_threadpool(
+            service.personal_check_statuses,
+            product_ids=list(product_ids),
+            profile=profile,
+            user_id=int(user_id),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - quote must fail closed
+        logger.exception("[COMPAT] batch status lookup failed")
+        raise HTTPException(
+            status_code=503,
+            detail="Не удалось проверить актуальность результатов. Попробуйте ещё раз.",
+        ) from exc
+    return [
+        int(pid)
+        for pid in product_ids
+        if str((statuses.get(int(pid)) or {}).get("status") or "") != "checked"
+    ]
+
+
+@router.post("/batch/quote")
+async def compatibility_batch_quote(
+    payload: CompatibilityRequest,
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Preview a batch analysis without creating a task or spending points."""
+    product_ids = _validate_products(int(user["id"]), payload.product_ids)
+    missing = await _missing_product_ids(
+        request,
+        user_id=int(user["id"]),
+        product_ids=product_ids,
+        profile=payload.profile or {},
+    )
+    cost = compatibility_cost(len(missing))
+    balance = int((get_balance(int(user["id"])) or {}).get("balance") or 0)
+    return {
+        "product_count": len(product_ids),
+        "missing_product_ids": missing,
+        "missing_count": len(missing),
+        "reused_count": len(product_ids) - len(missing),
+        "cost": cost,
+        "unit": "points",
+        "balance": balance,
+        "sufficient": balance >= cost,
+    }
+
+
 @router.post("/tasks/individual")
 async def start_individual_task(
     payload: IndividualRequest,
@@ -225,17 +299,26 @@ async def start_individual_task(
 @router.post("/tasks/compatibility")
 async def start_compatibility_task(
     payload: CompatibilityRequest,
+    request: Request,
     user: dict = Depends(get_current_user),
 ) -> dict:
     product_ids = _validate_products(int(user["id"]), payload.product_ids)
     profile = payload.profile or {}
     context = _context_key("compatibility", profile, product_ids)
+    missing = product_ids
+    if payload.only_missing:
+        missing = await _missing_product_ids(
+            request,
+            user_id=int(user["id"]),
+            product_ids=product_ids,
+            profile=profile,
+        )
     existing = compat_store.find_set_by_context(int(user["id"]), context)
     if existing:
         task = compat_store.get_task(int(user["id"]), int(existing["task_id"])) if existing.get("task_id") else None
         if task and task.get("status") in compat_store.ACTIVE_TASK_STATUSES:
             return {"set": _public_set(existing), "task": _public_task(task), "reused": True}
-        if existing.get("status") == "completed":
+        if existing.get("status") == "completed" and not (payload.only_missing and missing):
             return {"set": _public_set(existing), "task": _public_task(task), "reused": True}
     active_key = _active_key(int(user["id"]), "compatibility", context)
     active = compat_store.find_active_task_by_key(active_key)
@@ -243,7 +326,20 @@ async def start_compatibility_task(
         set_row = compat_store.get_set(int(user["id"]), int(active["set_id"])) if active.get("set_id") else None
         return {"set": _public_set(set_row) if set_row else None, "task": _public_task(active), "reused": True}
 
-    cost = compatibility_cost(len(product_ids))
+    if payload.only_missing:
+        cost = compatibility_cost(len(missing))
+        if cost == 0:
+            # Nothing needs analysis. Do not create another paid/empty set.
+            return {
+                "set": _public_set(existing) if existing else None,
+                "task": _public_task(task) if existing else None,
+                "reused": True,
+                "cost": 0,
+                "missing_count": 0,
+                "reused_count": len(product_ids),
+            }
+    else:
+        cost = compatibility_cost(len(product_ids))
     _require_balance(int(user["id"]), cost)
     name = (payload.name or "").strip()[:120] or _default_set_name(product_ids)
     set_row: dict | None = None
@@ -283,7 +379,16 @@ async def start_compatibility_task(
             return {"set": _public_set(set_row) if set_row else None, "task": _public_task(active), "reused": True}
         logger.exception("[COMPAT] failed to create set task")
         raise HTTPException(status_code=503, detail="Не удалось создать проверку набора.")
-    return {"set": _public_set(set_row), "task": _public_task(task), "reused": False, "cost": cost}
+    response = {
+        "set": _public_set(set_row),
+        "task": _public_task(task),
+        "reused": False,
+        "cost": cost,
+    }
+    if payload.only_missing:
+        response["missing_count"] = len(missing)
+        response["reused_count"] = len(product_ids) - len(missing)
+    return response
 
 
 @router.get("/sets")
@@ -303,6 +408,25 @@ async def get_compatibility_set(
     return {"set": _public_set(row, detail=True)}
 
 
+@router.patch("/sets/{set_id}")
+async def rename_compatibility_set(
+    set_id: int,
+    payload: RenameSetRequest,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Название набора не может быть пустым.")
+    if len(name) > 120:
+        raise HTTPException(status_code=422, detail="Название набора слишком длинное.")
+    row = compat_store.get_set(int(user["id"]), int(set_id))
+    if not row:
+        raise HTTPException(status_code=404, detail="Набор не найден.")
+    compat_store.update_set(int(set_id), name=name, updated_at=datetime.now(timezone.utc).isoformat())
+    updated = compat_store.get_set(int(user["id"]), int(set_id)) or row
+    return {"set": _public_set(updated)}
+
+
 @router.delete("/sets/{set_id}")
 async def delete_compatibility_set(
     set_id: int,
@@ -317,6 +441,7 @@ async def delete_compatibility_set(
 async def retry_compatibility_set(
     set_id: int,
     payload: ProfileRequest,
+    request: Request,
     user: dict = Depends(get_current_user),
 ) -> dict:
     row = compat_store.get_set(int(user["id"]), int(set_id))
@@ -325,12 +450,18 @@ async def retry_compatibility_set(
     product_ids = [int(pid) for pid in (row.get("product_ids") or [])]
     _validate_products(int(user["id"]), product_ids)
     profile = payload.profile or {}
+    missing = await _missing_product_ids(
+        request,
+        user_id=int(user["id"]),
+        product_ids=product_ids,
+        profile=profile,
+    )
     context = _context_key("compatibility", profile, product_ids)
     active_key = _active_key(int(user["id"]), "compatibility", context)
     active = compat_store.find_active_task_by_key(active_key)
     if active:
         return {"task": _public_task(active), "set": _public_set(row), "reused": True}
-    cost = compatibility_cost(len(product_ids))
+    cost = compatibility_cost(len(missing))
     _require_balance(int(user["id"]), cost)
     now = datetime.now(timezone.utc).isoformat()
     compat_store.update_set(

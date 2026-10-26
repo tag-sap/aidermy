@@ -1,7 +1,7 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -125,6 +125,77 @@ class CompatibilityApiTests(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 402)
                 self.assertIn("баланс", response.json()["detail"])
+
+    def test_batch_quote_and_start_charge_only_missing_products(self):
+        shelf = [{"product_id": pid, "cabinet": "face"} for pid in (1, 2, 3, 4, 5)]
+        with patch("app.compat_routes.get_user_shelf", return_value=shelf), \
+                patch("app.compat_routes.get_product_by_id", side_effect=self._product), \
+                patch("app.compat_routes.get_user_profile_updated_at", return_value="now"), \
+                patch("app.compat_routes.get_balance", return_value={"balance": 10}), \
+                patch("app.compat_routes._missing_product_ids", new=AsyncMock(return_value=[4, 5])):
+            with self._client() as client:
+                quote = client.post(
+                    "/api/v1/compatibility/batch/quote",
+                    json={"product_ids": [1, 2, 3, 4, 5], "profile": {"skin_type": "dry"}},
+                )
+                self.assertEqual(quote.status_code, 200)
+                body = quote.json()
+                self.assertEqual(body["missing_product_ids"], [4, 5])
+                self.assertEqual(body["reused_count"], 3)
+                self.assertEqual(body["cost"], 1)
+                self.assertTrue(body["sufficient"])
+
+                started = client.post(
+                    "/api/v1/compatibility/tasks/compatibility",
+                    json={
+                        "product_ids": [1, 2, 3, 4, 5],
+                        "profile": {"skin_type": "dry"},
+                        "name": "Мой набор",
+                        "only_missing": True,
+                    },
+                )
+                self.assertEqual(started.status_code, 200)
+                result = started.json()
+                self.assertEqual(result["cost"], 1)
+                self.assertEqual(result["set"]["cost"], 1)
+                self.assertEqual(result["set"]["name"], "Мой набор")
+
+    def test_batch_with_all_current_results_does_not_create_a_paid_set(self):
+        with patch("app.compat_routes.get_user_shelf", return_value=self.shelf), \
+                patch("app.compat_routes.get_product_by_id", side_effect=self._product), \
+                patch("app.compat_routes.get_user_profile_updated_at", return_value="now"), \
+                patch("app.compat_routes.get_balance", return_value={"balance": 10}), \
+                patch("app.compat_routes._missing_product_ids", new=AsyncMock(return_value=[])):
+            with self._client() as client:
+                started = client.post(
+                    "/api/v1/compatibility/tasks/compatibility",
+                    json={"product_ids": [1, 2], "profile": {}, "only_missing": True},
+                )
+                self.assertEqual(started.status_code, 200)
+                self.assertEqual(started.json()["cost"], 0)
+                self.assertIsNone(started.json()["set"])
+
+    def test_set_can_be_renamed_by_owner(self):
+        row = compat_store.create_set(
+            user_id=1,
+            name="Старое имя",
+            product_ids=[1, 2],
+            profile={},
+            profile_updated_at="now",
+            context_key="rename",
+        )
+        with self._client() as client:
+            response = client.patch(
+                f"/api/v1/compatibility/sets/{row['id']}",
+                json={"name": "Новое имя"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["set"]["name"], "Новое имя")
+            self.app.dependency_overrides[get_current_user] = lambda: {"id": 2, "plan": "plus"}
+            self.assertEqual(
+                client.patch(f"/api/v1/compatibility/sets/{row['id']}", json={"name": "Чужое"}).status_code,
+                404,
+            )
 
     def test_notification_can_be_marked_read_by_owner_only(self):
         notification = compat_store.create_notification(
