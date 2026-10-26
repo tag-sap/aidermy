@@ -13,9 +13,30 @@ docker compose up -d
 curl 'http://127.0.0.1:8888/search?q=celimax&format=json'
 ```
 
-If `docker compose` is unavailable, run the equivalent container with
-`docker run`, mount `settings.yml` read-only and publish
-`127.0.0.1:8888:8080`.
+If the Docker Compose plugin is unavailable (for example on the current
+Ubuntu host), run the equivalent container directly:
+
+```bash
+docker run -d --name aidermy-searxng --restart unless-stopped \
+  --env-file .env \
+  -v "$PWD/settings.yml:/etc/searxng/settings.yml:ro" \
+  -p 127.0.0.1:8888:8080 \
+  --memory 512m \
+  searxng/searxng:latest
+```
+
+The `.env` file must contain at least:
+
+```env
+SEARXNG_SECRET=<long-random-value>
+SEARXNG_BASE_URL=http://127.0.0.1:8888/
+```
+
+Check it before enabling `SEARXNG_URL` in the backend:
+
+```bash
+curl 'http://127.0.0.1:8888/search?q=celimax&format=json'
+```
 
 ## Aidermy backend
 
