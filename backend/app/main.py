@@ -1067,23 +1067,51 @@ async def get_catalog(
     if use_postgres:
         from .postgres_catalog import get_catalog_page
 
-        result = get_catalog_page(
-            category=category,
-            subcategory=subcategory,
-            catalog_category=catalog_category,
-            catalog_subcategory=catalog_subcategory,
-            brand=brand,
-            cat=cat,
-            search=search,
-            letter=letter,
-            shelf_category=shelf_category,
-            cabinet=cabinet,
-            limit=limit,
-            offset=offset,
-            sort=sort,
-        )
-        products = [dict(row) for row in result["products"]]
-        total = result["total"]
+        search_query = (search or "").strip()
+        if search_query:
+            # Fetch a bounded candidate pool with all non-search filters, then
+            # rank in Python. This supports typos/transliteration without
+            # changing the catalog or adding a search server.
+            pool = get_catalog_page(
+                category=category,
+                subcategory=subcategory,
+                catalog_category=catalog_category,
+                catalog_subcategory=catalog_subcategory,
+                brand=brand,
+                cat=cat,
+                letter=letter,
+                shelf_category=shelf_category,
+                cabinet=cabinet,
+                limit=5000,
+                offset=0,
+                sort=sort,
+            )
+            from .catalog_search import rank_products
+
+            products, total = rank_products(
+                [dict(row) for row in pool["products"]],
+                search_query,
+                limit=limit,
+                offset=offset,
+            )
+        else:
+            result = get_catalog_page(
+                category=category,
+                subcategory=subcategory,
+                catalog_category=catalog_category,
+                catalog_subcategory=catalog_subcategory,
+                brand=brand,
+                cat=cat,
+                search=None,
+                letter=letter,
+                shelf_category=shelf_category,
+                cabinet=cabinet,
+                limit=limit,
+                offset=offset,
+                sort=sort,
+            )
+            products = [dict(row) for row in result["products"]]
+            total = result["total"]
     else:
         conn = get_connection(PRODUCTS_DB)
         cursor = conn.cursor()
@@ -1123,26 +1151,36 @@ async def get_catalog(
         if brand:
             where.append("lower_ru(name) LIKE ?")
             params.append(f"{brand.lower()}%")
-        if search:
-            for word in search.strip().lower().split():
-                where.append("lower_ru(name) LIKE ?")
-                params.append(f"%{word}%")
-        if letter:
+        search_query = (search or "").strip()
+        # Search is ranked in Python below; keeping the SQL search in this
+        # branch would make a single missing word exclude every result.
+        if not search_query:
+            if letter:
+                where.append(f"lower_ru(SUBSTR({TITLE_SQL}, 1, 1)) = ?")
+                params.append(letter.lower())
+        elif letter:
             where.append(f"lower_ru(SUBSTR({TITLE_SQL}, 1, 1)) = ?")
             params.append(letter.lower())
 
         where_sql = " AND ".join(where)
         order_sql = f"{TITLE_SQL} COLLATE NOCASE_RU ASC" if sort == "alpha" else "name ASC"
 
+        query_limit = 5000 if search_query else limit
+        query_offset = 0 if search_query else offset
         cursor.execute(
             f"SELECT id, name, slug, image_url, ingredients, category, subcategory, taxonomy_category, brand, barcode, variant "
             f"FROM products WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
-            params + [limit, offset],
+            params + [query_limit, query_offset],
         )
-        products = [dict(row) for row in cursor.fetchall()]
+        rows = [dict(row) for row in cursor.fetchall()]
+        if search_query:
+            from .catalog_search import rank_products
 
-        cursor.execute(f"SELECT COUNT(*) FROM products WHERE {where_sql}", params)
-        total = cursor.fetchone()[0]
+            products, total = rank_products(rows, search_query, limit=limit, offset=offset)
+        else:
+            products = rows
+            cursor.execute(f"SELECT COUNT(*) FROM products WHERE {where_sql}", params)
+            total = cursor.fetchone()[0]
         conn.close()
 
     try:
@@ -1206,7 +1244,7 @@ async def get_catalog_letters():
                         SELECT DISTINCT
                             lower(substring(({POSTGRES_TITLE_SQL}) from 1 for 1)) AS letter
                         FROM public.products
-                        WHERE is_canonical = 1 AND name IS NOT NULL AND name <> '' AND catalog_category IS NOT NULL AND btrim(catalog_category) <> '' AND catalog_category <> 'Уход за губами'
+                        WHERE is_canonical = 1 AND name IS NOT NULL AND name <> ''
                     ) AS distinct_letters
                     ORDER BY letter COLLATE "C"
                 """)

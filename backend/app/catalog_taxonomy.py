@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 TAXONOMY: List[Dict[str, Any]] = [
@@ -924,6 +925,14 @@ _TARGET_EXCLUDED_TERMS = (
     "makeup", "декоратив", "тушь", "mascara", "пудр", "powder",
     "тональ", "foundation", "консилер", "concealer", "румян", "blush",
 )
+# Stems such as «ног» must match «ноги», «ногти», but not the middle of
+# «кожного». English terms are matched from a word boundary as well.
+_TARGET_EXCLUDED_RE = re.compile(
+    r"(?<![а-яa-z])(?:"
+    + "|".join(re.escape(term) for term in _TARGET_EXCLUDED_TERMS)
+    + r")",
+    re.IGNORECASE,
+)
 
 
 def paginate_target_products(
@@ -964,4 +973,4 @@ def is_target_skincare(product: Dict[str, Any]) -> bool:
         "catalog_category", "catalog_subcategory",
     )).lower()
     text += " " + category
-    return not any(term in text for term in _TARGET_EXCLUDED_TERMS)
+    return not bool(_TARGET_EXCLUDED_RE.search(text))

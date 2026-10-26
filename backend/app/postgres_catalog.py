@@ -34,18 +34,11 @@ def _build_catalog_query(
 ) -> tuple[str, list[Any], str, list[Any]]:
     """Строит параметризованные запросы каталога и общего количества."""
 
-    from .face_taxonomy import main_face_category_titles
-
-    _face_titles = main_face_category_titles()
-    _face_ph = ", ".join(["%s"] * len(_face_titles))
-    where = [
-        "is_canonical = 1",
-        f"catalog_category IN ({_face_ph})",
-        "btrim(catalog_category) <> ''",
-        "catalog_subcategory IS NOT NULL",
-        "btrim(catalog_subcategory) <> ''",
-    ]
-    params: list[Any] = list(_face_titles)
+    # Do not hide canonical products that lack a newly introduced taxonomy
+    # value. The category/subcategory filters below still apply when the user
+    # explicitly selects a category.
+    where = ["is_canonical = 1"]
+    params: list[Any] = []
 
     if category:
         where.append("taxonomy_category = %s")
@@ -151,6 +144,11 @@ def get_catalog_page(
     if limit < 1 or offset < 0:
         raise ValueError("limit должен быть больше 0, offset не может быть отрицательным")
 
+    search_query = (search or "").strip()
+    # Fetch a bounded pool with the non-search filters, then use the shared
+    # catalog ranker. This keeps exact/normalized matches and adds typo,
+    # transliteration and token matching without introducing another catalog.
+    pool_limit = min(100000, max(5000, int(limit))) if search_query else limit
     select_sql, select_params, count_sql, count_params = _build_catalog_query(
         category=category,
         subcategory=subcategory,
@@ -158,12 +156,12 @@ def get_catalog_page(
         catalog_subcategory=catalog_subcategory,
         brand=brand,
         cat=cat,
-        search=search,
+        search=None,
         letter=letter,
         shelf_category=shelf_category,
         cabinet=cabinet,
-        limit=limit,
-        offset=offset,
+        limit=pool_limit,
+        offset=0 if search_query else offset,
         sort=sort,
     )
 
@@ -173,8 +171,19 @@ def get_catalog_page(
             cur.execute(select_sql, select_params)
             products = cur.fetchall()
 
-            cur.execute(count_sql, count_params)
-            total = cur.fetchone()["total"]
+            if search_query:
+                from .catalog_search import rank_products
+
+                ranked, total = rank_products(
+                    [dict(row) for row in products],
+                    search_query,
+                    limit=limit,
+                    offset=offset,
+                )
+                products = ranked
+            else:
+                cur.execute(count_sql, count_params)
+                total = cur.fetchone()["total"]
 
         conn.rollback()
 
