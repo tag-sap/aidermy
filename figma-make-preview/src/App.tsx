@@ -1828,7 +1828,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
             </div>
             <div className="compat-cart__foot">
               <span>{compatSelected.size < 2 ? "Добавьте ещё одно средство" : `${compatCostLabel} · спишется после успешной проверки`}</span>
-              <Button variant="secondary" onClick={() => void startCompatibility()} disabled={compatSelected.size < 2 || compatBusy}>
+              <Button variant="secondary" onClick={() => void startCompatibility()} disabled={compatSelected.size < 2 || compatBusy || compatCost == null}>
                 {compatBusy ? "Запускаем…" : "Проверить совместимость →"}
               </Button>
             </div>
