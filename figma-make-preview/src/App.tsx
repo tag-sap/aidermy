@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type SyntheticEvent } from "react"
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
 import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review, compatApi, type CompatibilityTask, type UserNotification, type CompatibilitySetSummary, type CompatibilityReport, type CompatibilityBatchQuote, type EvaluationPreviewStatus } from "./api"
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
+import { LEGAL_DOCS } from "./legal-content"
 import { CareSetsPage } from "./careSets"
 import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, resetUserProfile, getUserProfile, applyCheckStatuses } from "./mapping"
 import { PhotoScan } from "./photo-scan"
@@ -12,6 +13,7 @@ import { readShelfCache, writeShelfCache, clearShelfCache, type ShelfMeta } from
 import { EvaluationV2Panel } from "./evaluation-v2"
 import { VerdictIcon } from "./evaluation-v2"
 import { AnimatedBorderWrapper } from "./components/ui/moving-border"
+import { ProductJsonLd, WebPageJsonLd } from "./json-ld"
 import {
   products, skinProfile, shelfReport, CABINETS, FACE_TAXONOMY, PLANS, SUBSCRIPTION_ROWS, EXTRA_POINTS_NOTE,
   SKIN_TYPE_OPTIONS, AGE_OPTIONS, CONCERN_CARDS, THERAPY_OPTIONS, RETINOID_OPTIONS,
@@ -223,6 +225,20 @@ function ScoreRing({ score, label = "совместимость" }: { score: num
 const PRODUCT_IMAGE_FALLBACK = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#f0f0ef"/><path d="M62 126h76l-10 -42H72z" fill="#d5d4ce"/><circle cx="100" cy="72" r="13" fill="#d5d4ce"/><text x="100" y="160" font-family="sans-serif" font-size="11" text-anchor="middle" fill="#9d9b93">нет фото</text></svg>'
 )}`
+
+// Raw product <img> elements (autocomplete, guest picker, scan result) share
+// the same graceful fallback as ProductImage. Without this, a 404 from the
+// image API leaves a broken-image icon in the middle of the layout.
+function onProductImageError(event: SyntheticEvent<HTMLImageElement>) {
+  const image = event.currentTarget
+  if (image.dataset.fallbackApplied === "1") return
+  image.dataset.fallbackApplied = "1"
+  image.src = PRODUCT_IMAGE_FALLBACK
+}
+
+function productImageSrc(src: string, width: number): string {
+  return src ? optimizedImageSrc(src, width) : PRODUCT_IMAGE_FALLBACK
+}
 
 function optimizedImageSrc(src: string, width: number): string {
   if (!src || src.startsWith("data:")) return src
@@ -442,7 +458,7 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
           <div className="autocomplete">
             {matches.map((p) => (
               <button key={p.id} type="button" className="autocomplete__item" onMouseDown={(e) => { e.preventDefault(); onOpen(p); onQuery(""); setFocused(false) }}>
-                <img src={optimizedImageSrc(p.image, 64)} alt="" loading="lazy" decoding="async" width={32} height={32} />
+                <img src={productImageSrc(p.image, 64)} alt="" loading="lazy" decoding="async" width={32} height={32} onError={onProductImageError} />
                 <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
               </button>
             ))}
@@ -508,9 +524,31 @@ function NotificationCenter({ items, open, onClose, onRead, onReadAll, onDelete,
   onClear: () => void
   onOpen: (item: UserNotification) => void
 }) {
+  const panelRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (panelRef.current?.contains(target)) return
+      // The bell itself toggles the panel on click. If the outside handler
+      // closed it first, that click would immediately reopen it.
+      if (target.closest(".notification-bell")) return
+      onClose()
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    document.addEventListener("pointerdown", onPointerDown, true)
+    document.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true)
+      document.removeEventListener("keydown", onKeyDown)
+    }
+  }, [open, onClose])
   if (!open) return null
   return (
-    <aside className="notification-center" aria-label="Уведомления">
+    <aside ref={panelRef} className="notification-center" aria-label="Уведомления">
       <div className="notification-center__head">
         <strong>Уведомления</strong>
         <div className="notification-center__actions">
@@ -954,13 +992,14 @@ function AutoPickCarousel({
                 Добавляем →
               </div>
               <img
-                src={optimizedImageSrc(product.image, 480)}
+                src={productImageSrc(product.image, 480)}
                 alt=""
                 loading="lazy"
                 decoding="async"
                 width={480}
                 height={480}
                 draggable={false}
+                onError={onProductImageError}
               />
 
               {product.match && (
@@ -1262,7 +1301,7 @@ function GuestSelectScreen({ onPick, onScan, busy, error }: {
               onClick={() => onPick(item)}
               disabled={busy}
             >
-              <img src={optimizedImageSrc(mapApiProduct(item).image, 160)} alt="" loading="lazy" decoding="async" width={160} height={160} />
+              <img src={productImageSrc(mapApiProduct(item).image, 160)} alt="" loading="lazy" decoding="async" width={160} height={160} onError={onProductImageError} />
               <span>
                 <strong>{item.name}</strong>
                 <small>{[item.brand, item.catalog_category].filter(Boolean).join(" · ")}</small>
@@ -2035,7 +2074,17 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
             <button
               type="button"
               className="shelf-selection-delete"
-              onClick={() => { onDeleteBatch(Array.from(selected)); setSelectMode(false); setSelected(new Set()) }}
+              onClick={() => {
+                const ids = Array.from(selected)
+                if (!ids.length) return
+                const confirmed = window.confirm(
+                  `Убрать ${ids.length} ${ids.length === 1 ? "средство" : ids.length < 5 ? "средства" : "средств"} с полки? Индивидуальные отчёты сохранятся.`,
+                )
+                if (!confirmed) return
+                onDeleteBatch(ids)
+                setSelectMode(false)
+                setSelected(new Set())
+              }}
               disabled={selected.size === 0}
               aria-label={`Удалить выбранные средства (${selected.size})`}
               title="Удалить выбранные"
@@ -2566,7 +2615,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
                 <span className="manual-photo__label">Фото продукта (необязательно)</span>
                 {manualImage ? (
                   <div className="manual-photo__preview">
-                    <img src={manualImage} alt="Фото продукта" />
+                    <img src={manualImage} alt="Фото продукта" onError={onProductImageError} />
                     <div className="manual-photo__actions">
                       <button type="button" className="chip" onClick={() => manualImageRef.current?.click()} disabled={manualImageBusy}>Заменить</button>
                       <button type="button" className="chip" onClick={() => { setManualImage(""); setManualImageError("") }} disabled={manualImageBusy}>Удалить</button>
@@ -2610,7 +2659,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
         <div className="scan-ready panel">
           <p className="eyebrow">Продукт определён</p>
           <div className="scan-ready__row">
-            <img src={result.image} alt="" />
+            <img src={productImageSrc(result.image, 160)} alt="" onError={onProductImageError} />
             <div>
               <h3>{result.name}</h3>
               <p>{result.brand} · {result.category}</p>
@@ -2680,7 +2729,7 @@ function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
         <div className="rec-list">
           {want.map((p) => (
             <button key={p.id} type="button" className="rec" onClick={() => onOpen(p)}>
-              <img src={optimizedImageSrc(p.image, 160)} alt="" loading="lazy" decoding="async" width={160} height={160} />
+              <img src={productImageSrc(p.image, 160)} alt="" loading="lazy" decoding="async" width={160} height={160} onError={onProductImageError} />
               <span><strong>{p.name}</strong><small>{p.brand} · {p.category}</small></span>
               {p.match && <ScoreBadge score={p.match.score} verdict={p.match.verdict} recommendationStatus={p.match.recommendation_status} />}
             </button>
@@ -3331,6 +3380,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
 
   return (
     <>
+      <ProductJsonLd product={product} />
       <div className={`drawer-backdrop ${closing ? "drawer-backdrop--closing" : ""}`} onClick={close} />
       <aside ref={morphDrawerRef} className={`drawer ${closing ? "drawer--closing" : ""}`} role="dialog" aria-modal="true">
         <button type="button" className="drawer__close" onClick={close} aria-label="Закрыть"><Icon name="close" size={18} /></button>
@@ -4226,7 +4276,7 @@ function ShelfAddModal({
                   ) : list.map((p) => (
                     <div key={p.id} className="rec">
                       <button type="button" className="rec__main" onClick={() => onOpen(p)}>
-                        <img src={optimizedImageSrc(p.image, 160)} alt="" loading="lazy" decoding="async" width={160} height={160} />
+                        <img src={productImageSrc(p.image, 160)} alt="" loading="lazy" decoding="async" width={160} height={160} onError={onProductImageError} />
                         <span>
                           <strong>{p.name}</strong>
                           <small>{p.brand} · {p.category}</small>
@@ -5213,7 +5263,13 @@ export default function App() {
   }
 
   if (legalPath) {
-    return <LegalPage slug={legalPath} onNavigate={openLegal} />
+    const doc = LEGAL_DOCS[legalPath]
+    return (
+      <>
+        {doc && <WebPageJsonLd slug={legalPath} title={doc.title} description={doc.subtitle} />}
+        <LegalPage slug={legalPath} onNavigate={openLegal} />
+      </>
+    )
   }
 
   if (!authReady) {
