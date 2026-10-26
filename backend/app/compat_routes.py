@@ -20,6 +20,7 @@ from .database import (
     get_user_shelf,
 )
 from .compat_service import compatibility_cost
+from .plans import compatibility_set_limit
 from .evaluation.snapshot import profile_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -243,6 +244,15 @@ async def start_compatibility_task(
         set_row = compat_store.get_set(int(user["id"]), int(active["set_id"])) if active.get("set_id") else None
         return {"set": _public_set(set_row) if set_row else None, "task": _public_task(active), "reused": True}
 
+    set_limit = compatibility_set_limit(user.get("plan"))
+    if len(compat_store.list_sets(int(user["id"]))) >= set_limit:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"На тарифе {str(user.get('plan') or 'free').capitalize()} можно хранить "
+                f"до {set_limit} наборов. Удалите старый набор и повторите проверку."
+            ),
+        )
     cost = compatibility_cost(len(product_ids))
     _require_balance(int(user["id"]), cost)
     name = (payload.name or "").strip()[:120] or _default_set_name(product_ids)
@@ -409,6 +419,21 @@ async def read_notification(
 @notifications_router.post("/read-all")
 async def read_all_notifications(user: dict = Depends(get_current_user)) -> dict:
     return {"updated": compat_store.mark_all_notifications_read(int(user["id"]))}
+
+
+@notifications_router.delete("/{notification_id}")
+async def delete_notification(
+    notification_id: int,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    if not compat_store.delete_notification(int(user["id"]), int(notification_id)):
+        raise HTTPException(status_code=404, detail="Уведомление не найдено.")
+    return {"status": "ok", "deleted": 1}
+
+
+@notifications_router.delete("")
+async def delete_all_notifications(user: dict = Depends(get_current_user)) -> dict:
+    return {"status": "ok", "deleted": compat_store.delete_all_notifications(int(user["id"]))}
 
 
 def setup_compat_routes(app) -> None:

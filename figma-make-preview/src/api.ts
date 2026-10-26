@@ -625,7 +625,7 @@ export const api = {
 
   // ===== полка =====
   async shelf() {
-    return request<{ cabinets: ShelfCabinet[]; plan?: string; limit?: number; count?: number }>("/shelf")
+    return request<{ cabinets: ShelfCabinet[]; plan?: string; limit?: number; set_limit?: number; count?: number }>("/shelf")
   },
   async addToShelf(slug: string, category: string, cabinet: string, state = "using") {
     return request<{ status: string; duplicate?: boolean; item?: { id?: number; product_id?: number } }>("/shelf", {
@@ -1116,5 +1116,11 @@ export const compatApi = {
   },
   async readAllNotifications() {
     return request<{ updated: number }>("/v1/notifications/read-all", { method: "POST", body: "{}" })
+  },
+  async deleteNotification(id: number) {
+    return request<{ status: string; deleted?: number }>(`/v1/notifications/${id}`, { method: "DELETE" })
+  },
+  async clearNotifications() {
+    return request<{ status: string; deleted?: number }>("/v1/notifications", { method: "DELETE" })
   },
 }

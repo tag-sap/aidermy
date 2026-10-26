@@ -635,3 +635,31 @@ def mark_all_notifications_read(user_id: int) -> int:
         conn.close()
 
 
+def delete_notification(user_id: int, notification_id: int) -> bool:
+    ensure_schema()
+    conn = get_connection(AIDERMY_DB)
+    try:
+        cursor = conn.execute(
+            "DELETE FROM user_notifications WHERE id = ? AND user_id = ?",
+            (int(notification_id), int(user_id)),
+        )
+        conn.commit()
+        return bool(cursor.rowcount)
+    finally:
+        conn.close()
+
+
+def delete_all_notifications(user_id: int) -> int:
+    ensure_schema()
+    conn = get_connection(AIDERMY_DB)
+    try:
+        cursor = conn.execute(
+            "DELETE FROM user_notifications WHERE user_id = ?",
+            (int(user_id),),
+        )
+        conn.commit()
+        return int(cursor.rowcount or 0)
+    finally:
+        conn.close()
+
+

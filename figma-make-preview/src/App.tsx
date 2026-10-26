@@ -25,7 +25,7 @@ type IconName =
   | "home" | "shelf" | "scan" | "search" | "chart" | "user"
   | "arrow" | "chevron" | "close" | "check" | "plus" | "sparkle"
   | "drop" | "shield" | "file" | "bookmark" | "box" | "alert" | "camera" | "upload" | "back"
-  | "link" | "pencil" | "coins" | "crown" | "logout" | "lock" | "send" | "mail" | "credits" | "bell"
+  | "link" | "pencil" | "coins" | "crown" | "logout" | "lock" | "send" | "mail" | "credits" | "bell" | "trash"
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -60,6 +60,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     send: (<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7z" /></>),
     mail: (<><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m2 6 10 7 10-7" /></>),
     bell: (<><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>),
+    trash: (<><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6" /></>),
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -464,12 +465,14 @@ function NotificationBell({ unread, open, onToggle }: { unread: number; open: bo
   )
 }
 
-function NotificationCenter({ items, open, onClose, onRead, onReadAll, onOpen }: {
+function NotificationCenter({ items, open, onClose, onRead, onReadAll, onDelete, onClear, onOpen }: {
   items: UserNotification[]
   open: boolean
   onClose: () => void
   onRead: (id: number) => void
   onReadAll: () => void
+  onDelete: (id: number) => void
+  onClear: () => void
   onOpen: (item: UserNotification) => void
 }) {
   if (!open) return null
@@ -479,6 +482,7 @@ function NotificationCenter({ items, open, onClose, onRead, onReadAll, onOpen }:
         <strong>Уведомления</strong>
         <div className="notification-center__actions">
           {items.some((item) => !item.read_at) && <button type="button" onClick={onReadAll}>Прочитать все</button>}
+          {items.length > 0 && <button type="button" className="notification-center__clear" onClick={onClear}>Очистить все</button>}
           <button type="button" onClick={onClose} aria-label="Закрыть уведомления"><Icon name="close" size={16} /></button>
         </div>
       </div>
@@ -487,19 +491,29 @@ function NotificationCenter({ items, open, onClose, onRead, onReadAll, onOpen }:
       ) : (
         <div className="notification-center__list">
           {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`notification-item ${item.read_at ? "" : "is-unread"}`}
-              onClick={() => { onRead(item.id); onOpen(item) }}
-            >
-              <span className="notification-item__dot" aria-hidden="true" />
-              <span className="notification-item__copy">
-                <strong>{item.title}</strong>
-                <span>{item.body}</span>
-                {item.created_at && <small>{new Date(item.created_at).toLocaleString("ru-RU")}</small>}
-              </span>
-            </button>
+            <div key={item.id} className={`notification-item ${item.read_at ? "" : "is-unread"}`}>
+              <button
+                type="button"
+                className="notification-item__main"
+                onClick={() => { onRead(item.id); onOpen(item) }}
+              >
+                <span className="notification-item__dot" aria-hidden="true" />
+                <span className="notification-item__copy">
+                  <strong>{item.title}</strong>
+                  <span>{item.body}</span>
+                  {item.created_at && <small>{new Date(item.created_at).toLocaleString("ru-RU")}</small>}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="notification-item__delete"
+                onClick={() => onDelete(item.id)}
+                aria-label={`Удалить уведомление: ${item.title}`}
+                title="Удалить уведомление"
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -1430,11 +1444,86 @@ function CompatibilityReportView({ report, onRetry }: { report: CompatibilityRep
     </div>
   )
 }
-function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan = "free", balance, error = "", focusSetId, onFocusSetConsumed, onOpen, onAdd, onRemove, onClear, onDeleteBatch, onRefresh, onPricing, onTaskStarted }: {
-  items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; count?: number; plan?: Plan; balance?: number; error?: string;
+function CompatibilityReportDrawer({
+  set,
+  onClose,
+  onRetry,
+  onDelete,
+}: {
+  set: CompatibilitySetSummary
+  onClose: () => void
+  onRetry: () => void
+  onDelete: () => void
+}) {
+  useEffect(() => {
+    const previousBody = document.body.style.overflow
+    const previousHtml = document.documentElement.style.overflow
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    document.body.style.overflow = "hidden"
+    document.documentElement.style.overflow = "hidden"
+    window.addEventListener("keydown", onKey)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      document.body.style.overflow = previousBody
+      document.documentElement.style.overflow = previousHtml
+    }
+  }, [onClose])
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer compat-report-drawer" role="dialog" aria-modal="true" aria-label="Отчёт по набору">
+        <button type="button" className="drawer__close" onClick={onClose} aria-label="Закрыть отчёт">
+          <Icon name="close" size={18} />
+        </button>
+        <div className="drawer__scroll">
+          <header className="compat-report-drawer__head">
+            <button type="button" className="compat-report-drawer__back" onClick={onClose}>
+              <Icon name="back" size={15} /> К наборам
+            </button>
+            <p className="eyebrow">Проверенный набор</p>
+            <h2>{set.name}</h2>
+            <span className={`shelf-set-status shelf-set-status--${set.status}`}>{COMPAT_STATUS_LABEL[set.status] || set.status}</span>
+            <div className="compat-report-drawer__actions">
+              {set.status === "failed" && <Button variant="secondary" small onClick={onRetry}>Повторить</Button>}
+              {set.status === "completed" && <Button variant="secondary" small onClick={onRetry}>Проверить снова</Button>}
+              <Button variant="ghost" small onClick={onDelete}>Удалить набор</Button>
+            </div>
+          </header>
+          <div className="drawer__body compat-report-drawer__body">
+            {set.error && <p className="shelf-error" role="alert">{set.error}</p>}
+            {set.report ? (
+              <CompatibilityReportView report={set.report} onRetry={onRetry} />
+            ) : set.status === "failed" ? (
+              <div className="shelf-set-pending">
+                <div>
+                  <strong>Не удалось завершить проверку</strong>
+                  <p>{set.error || "Проверка не была завершена. Запустите её повторно."}</p>
+                  <Button variant="secondary" small onClick={onRetry}>Повторить</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="shelf-set-pending">
+                <img src="/loading.gif" alt="" />
+                <div>
+                  <strong>{COMPAT_STATUS_LABEL[set.status] || "Проверка выполняется"}</strong>
+                  <p>Проверяем индивидуальные результаты выбранных средств, затем рассчитаем совместимость. Можно закрыть окно — результат появится здесь и в уведомлениях.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+    </>
+  )
+}
+
+function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 5, count, error = "", focusSetId, onFocusSetConsumed, onOpen, onAdd, onRemove, onDeleteBatch, onRefresh, onTaskStarted }: {
+  items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; setLimit?: number; count?: number; error?: string;
   focusSetId?: number | null; onFocusSetConsumed?: () => void;
-  onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void; onClear: (cabinet: CabinetKey) => void;
-  onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void; onPricing?: () => void;
+  onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void;
+  onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void;
   onTaskStarted?: (task: CompatibilityTask) => void;
 }) {
   type ShelfTab = "items" | "sets"
@@ -1453,8 +1542,6 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
 
   const faceItems = items.filter((p) => p.state && p.cabinet === "face")
   const totalShelved = count ?? items.filter((p) => p.state).length
-  const planLabel = plan === "plus" ? "Plus" : plan === "pro" ? "Pro" : "Basic"
-  const remaining = Math.max(0, limit - totalShelved)
 
   const loadSets = async () => {
     setSetsLoading(true)
@@ -1468,6 +1555,12 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
       setSetsLoading(false)
     }
   }
+
+  useEffect(() => {
+    void loadSets()
+    // The set count is shown in the tab before the user visits «Наборы».
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (tab === "sets") void loadSets()
@@ -1609,88 +1702,51 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
     .filter((product): product is Product => Boolean(product))
   const compatCostLabel = compatCost == null ? "Стоимость уточняется" : `${compatCost} ${compatCost === 1 ? "балл" : compatCost < 5 ? "балла" : "баллов"}`
 
-  if (reportSet) {
-    return (
-      <div className="page shelf-page shelf-report-page">
-        <button type="button" className="shelf-set-detail__back" onClick={() => { setReportSet(null); setTab("sets") }}>
-          <Icon name="back" size={16} /> К наборам
-        </button>
-        <PageHeading
-          eyebrow="Проверенный набор"
-          title={reportSet.name}
-          action={(
-            <div className="shelf-set-detail__actions">
-              {reportSet.status === "failed" && <Button variant="secondary" small onClick={() => void retrySet(reportSet.id)}>Повторить</Button>}
-              {reportSet.status === "completed" && <Button variant="secondary" small onClick={() => void retrySet(reportSet.id)}>Проверить снова</Button>}
-              <Button variant="ghost" small onClick={() => void removeSet(reportSet.id)}>Удалить набор</Button>
-            </div>
-          )}
-        />
-        <span className={`shelf-set-status shelf-set-status--${reportSet.status}`}>{COMPAT_STATUS_LABEL[reportSet.status] || reportSet.status}</span>
-        {reportSet.error && <p className="shelf-error" role="alert">{reportSet.error}</p>}
-        {reportSet.report ? (
-          <CompatibilityReportView report={reportSet.report} onRetry={() => void retrySet(reportSet.id)} />
-        ) : reportSet.status === "failed" ? (
-          <div className="shelf-set-pending">
-            <div>
-              <strong>Не удалось завершить проверку</strong>
-              <p>{reportSet.error || "Проверка не была завершена. Запустите её повторно."}</p>
-              <Button variant="secondary" small onClick={() => void retrySet(reportSet.id)}>Повторить</Button>
-            </div>
-          </div>
-        ) : (
-          <div className="shelf-set-pending">
-            <img src="/loading.gif" alt="" />
-            <div>
-              <strong>{COMPAT_STATUS_LABEL[reportSet.status] || "Проверка выполняется"}</strong>
-              <p>Проверяем индивидуальные результаты выбранных средств, затем рассчитаем совместимость. Можно закрыть страницу — результат появится здесь и в уведомлениях.</p>
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
   return (
-    <div className={`page shelf-page ${compatSelected.size > 0 ? "shelf-page--with-cart" : ""}`}>
+    <div className="page shelf-page">
       <PageHeading eyebrow="Уход" title="Моя полка" />
       <section className="shelf-toolbar" aria-label="Управление полкой">
-        <div className="shelf-toolbar__actions">
-          {selectMode ? (
-            <>
-              <Button variant="ghost" onClick={() => { onDeleteBatch(Array.from(selected)); setSelectMode(false); setSelected(new Set()) }} disabled={selected.size === 0}>Удалить выбранные ({selected.size})</Button>
-              <Button variant="ghost" onClick={() => { setSelectMode(false); setSelected(new Set()) }}>Готово</Button>
-            </>
-          ) : (
-            <>
-              <Button icon="plus" onClick={onAdd}>Добавить средство</Button>
-              {faceItems.length > 0 && <button type="button" className="shelf-toolbar__link" onClick={() => setSelectMode(true)}>Выбрать</button>}
-              {faceItems.length > 0 && <button type="button" className="shelf-toolbar__link" onClick={() => onClear("face")}>Очистить</button>}
-            </>
-          )}
-        </div>
-        <div className="shelf-toolbar__meta">
-          <span className="shelf-toolbar__plan">Тариф <strong>{planLabel}</strong></span>
-          <span className="shelf-toolbar__count"><strong>{totalShelved}</strong> / {limit}</span>
-          <span className="shelf-toolbar__remaining">{remaining > 0 ? `осталось ${remaining}` : "лимит достигнут"}</span>
-          {onPricing && <button type="button" className="shelf-toolbar__pricing" onClick={onPricing}>Тарифы →</button>}
-        </div>
+        <Button icon="plus" onClick={onAdd} className="shelf-toolbar__add">Добавить средство</Button>
       </section>
 
       <nav className="shelf-tabs shelf-tabs--two" aria-label="Разделы полки">
         <button type="button" className={`shelf-tab ${tab === "items" ? "is-active" : ""}`} onClick={() => { setTab("items"); setSearch("") }}>
-          Средства<span>{faceItems.length}</span>
+          Средства ({totalShelved}/{limit})
         </button>
         <button type="button" className={`shelf-tab ${tab === "sets" ? "is-active" : ""}`} onClick={() => { setTab("sets"); setSearch("") }}>
-          Наборы<span>{sets.length}</span>
+          Наборы ({sets.length}/{setLimit})
         </button>
       </nav>
 
       {tab === "items" && (
-        <div className="shelf-search">
-          <Icon name="search" size={17} />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Найти средство…" aria-label="Найти средство" />
-          {search && <button type="button" onClick={() => setSearch("")} aria-label="Очистить поиск"><Icon name="close" size={15} /></button>}
+        <div className="shelf-search-row">
+          <div className="shelf-search">
+            <Icon name="search" size={17} />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Найти средство…" aria-label="Найти средство" />
+            {search && <button type="button" onClick={() => setSearch("")} aria-label="Очистить поиск"><Icon name="close" size={15} /></button>}
+          </div>
+          <button
+            type="button"
+            className={`shelf-selection-toggle ${selectMode ? "is-active" : ""}`}
+            onClick={() => { setSelectMode((value) => !value); setSelected(new Set()) }}
+            aria-label={selectMode ? "Отменить выделение" : "Выделить средства"}
+            title={selectMode ? "Отменить выделение" : "Выделить средства"}
+          >
+            <Icon name={selectMode ? "close" : "check"} size={16} />
+          </button>
+          {selectMode && (
+            <button
+              type="button"
+              className="shelf-selection-delete"
+              onClick={() => { onDeleteBatch(Array.from(selected)); setSelectMode(false); setSelected(new Set()) }}
+              disabled={selected.size === 0}
+              aria-label={`Удалить выбранные средства (${selected.size})`}
+              title="Удалить выбранные"
+            >
+              <Icon name="trash" size={16} />
+              {selected.size > 0 && <span>{selected.size}</span>}
+            </button>
+          )}
         </div>
       )}
 
@@ -1790,8 +1846,10 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
                         className={`shelf-list__collect ${compatSelected.has(p.id) ? "is-selected" : ""}`}
                         onClick={() => toggleCompat(p.id)}
                         aria-pressed={compatSelected.has(p.id)}
+                        aria-label={compatSelected.has(p.id) ? "Убрать из набора" : "Добавить в набор"}
+                        title={compatSelected.has(p.id) ? "Убрать из набора" : "Добавить в набор"}
                       >
-                        {compatSelected.has(p.id) ? "✓ В наборе" : "＋ В набор"}
+                        <Icon name={compatSelected.has(p.id) ? "check" : "plus"} size={15} />
                       </button>
                       <button type="button" className="shelf-list__remove" onClick={() => onRemove(p)} aria-label={`Убрать ${p.name} с полки`} title="Убрать с полки"><Icon name="close" size={15} /></button>
                     </div>
@@ -1827,13 +1885,26 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, count, plan
               ))}
             </div>
             <div className="compat-cart__foot">
-              <span>{compatSelected.size < 2 ? "Добавьте ещё одно средство" : `${compatCostLabel} · спишется после успешной проверки`}</span>
+              <span className="compat-cart__cost">
+                <Icon name="coins" size={15} />
+                <strong>{compatSelected.size < 2 ? "Добавьте ещё одно средство" : compatCostLabel}</strong>
+                {compatSelected.size >= 2 && <small>спишется после успешной проверки</small>}
+              </span>
               <Button variant="secondary" onClick={() => void startCompatibility()} disabled={compatSelected.size < 2 || compatBusy || compatCost == null}>
                 {compatBusy ? "Запускаем…" : "Проверить совместимость →"}
               </Button>
             </div>
           </div>
         </aside>
+      )}
+
+      {reportSet && (
+        <CompatibilityReportDrawer
+          set={reportSet}
+          onClose={() => { setReportSet(null); }}
+          onRetry={() => void retrySet(reportSet.id)}
+          onDelete={() => void removeSet(reportSet.id)}
+        />
       )}
 
     </div>
@@ -4060,7 +4131,7 @@ export default function App() {
   const lastNotificationIdRef = useRef(0)
   const [shelfLoading, setShelfLoading] = useState(false)
   const [shelfError, setShelfError] = useState("")
-  const [shelfMeta, setShelfMeta] = useState<{ plan: Plan; limit: number; count: number } | null>(null)
+  const [shelfMeta, setShelfMeta] = useState<{ plan: Plan; limit: number; setLimit: number; count: number } | null>(null)
   const [profileVersion, setProfileVersion] = useState(0)
   // Every account change gets a new epoch. A late response from the previous
   // session is ignored instead of repopulating the new user's cards.
@@ -4242,6 +4313,7 @@ export default function App() {
         setShelfMeta({
           plan: (res.plan === "plus" || res.plan === "pro" ? res.plan : "free") as Plan,
           limit: typeof res.limit === "number" ? res.limit : mapped.length,
+          setLimit: typeof res.set_limit === "number" ? res.set_limit : 5,
           count: typeof res.count === "number" ? res.count : mapped.length,
         })
         // Полка — источник истины для статуса «использую»: то, что с неё убрали
@@ -4480,6 +4552,19 @@ export default function App() {
     setNotifications((current) => current.map((item) => ({ ...item, read_at: item.read_at || stamp })))
     setNotificationUnread(0)
     try { await compatApi.readAllNotifications() } catch { /* polling reconciles */ }
+  }
+
+  const deleteNotification = async (id: number) => {
+    const removed = notifications.find((item) => item.id === id)
+    setNotifications((current) => current.filter((item) => item.id !== id))
+    if (removed && !removed.read_at) setNotificationUnread((value) => Math.max(0, value - 1))
+    try { await compatApi.deleteNotification(id) } catch { /* polling reconciles */ }
+  }
+
+  const clearNotifications = async () => {
+    setNotifications([])
+    setNotificationUnread(0)
+    try { await compatApi.clearNotifications() } catch { /* polling reconciles */ }
   }
 
   const handleNotificationOpen = (item: UserNotification) => {
@@ -4724,7 +4809,7 @@ export default function App() {
                 onRestart={resetGuestFlow}
               />
             )}
-            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} count={shelfMeta?.count} plan={shelfMeta?.plan ?? user.plan} balance={user.points} error={shelfError} focusSetId={shelfFocusSetId} onFocusSetConsumed={() => setShelfFocusSetId(null)} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onClear={(c) => setClearCabinet(c)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onPricing={() => setPricingOpen(true)} onTaskStarted={(task) => { setToast(task.status === "completed" ? "Проверка уже завершена" : "Проверка запущена — результат появится в уведомлениях") }} />}
+            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} setLimit={shelfMeta?.setLimit ?? 5} count={shelfMeta?.count} error={shelfError} focusSetId={shelfFocusSetId} onFocusSetConsumed={() => setShelfFocusSetId(null)} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onTaskStarted={(task) => { setToast(task.status === "completed" ? "Проверка уже завершена" : "Проверка запущена — результат появится в уведомлениях") }} />}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
             {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
             {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} enrichChecks={enrichCheckStatuses} />}
@@ -4734,7 +4819,7 @@ export default function App() {
         <SiteFooter onNavigate={openLegal} />
       </div>
       {user && <BottomNav page={page} onNavigate={navigate} />}
-      {user && <NotificationCenter items={notifications} open={notificationsOpen} onClose={() => setNotificationsOpen(false)} onRead={(id) => void markNotificationRead(id)} onReadAll={() => void markAllNotificationsRead()} onOpen={handleNotificationOpen} />}
+      {user && <NotificationCenter items={notifications} open={notificationsOpen} onClose={() => setNotificationsOpen(false)} onRead={(id) => void markNotificationRead(id)} onReadAll={() => void markAllNotificationsRead()} onDelete={(id) => void deleteNotification(id)} onClear={() => void clearNotifications()} onOpen={handleNotificationOpen} />}
       {open && <ProductDrawer key={open.id} product={open} morphOrigin={morphOrigin} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onCheckFinished={onCheckFinished} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}

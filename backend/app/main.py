@@ -1746,13 +1746,14 @@ async def get_shelf(current_user: dict = Depends(get_current_user)):
     except Exception:
         pass
 
-    from .plans import normalize_plan, shelf_limit
+    from .plans import normalize_plan, shelf_limit, compatibility_set_limit
 
     plan = normalize_plan(current_user.get("plan"))
     return {
         "cabinets": cabinets,
         "plan": plan,
         "limit": shelf_limit(plan),
+        "set_limit": compatibility_set_limit(plan),
         "count": len(shelf),
     }
 

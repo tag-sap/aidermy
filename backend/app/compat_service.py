@@ -7,12 +7,15 @@ engine. It does not introduce a second score engine or generate a fake score.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from . import compat_store
 from .database import get_product_by_id, get_user_profile_updated_at
 from .evaluation.snapshot import profile_fingerprint
+
+logger = logging.getLogger(__name__)
 
 
 class TaskContextChanged(RuntimeError):
@@ -106,6 +109,7 @@ def charge_compatibility_set(*, user_id: int, task_id: int, cost: int) -> bool:
         )
         return balance is not None
     except Exception:  # noqa: BLE001 - the worker must never publish a free report
+        logger.exception("[COMPAT] compatibility charge failed")
         return False
 
 

@@ -138,6 +138,22 @@ class CompatibilityApiTests(unittest.TestCase):
             self.app.dependency_overrides[get_current_user] = lambda: {"id": 2, "plan": "plus"}
             self.assertEqual(client.post(f"/api/v1/notifications/{notification['id']}/read").status_code, 404)
 
+    def test_notifications_can_be_deleted_one_by_one_and_all_at_once(self):
+        first = compat_store.create_notification(
+            user_id=1, event_key="delete-one", kind="compatibility_completed",
+            title="Первое", body="Отчёт", target_type="compatibility_set", target_id=1,
+        )
+        compat_store.create_notification(
+            user_id=1, event_key="delete-all", kind="compatibility_completed",
+            title="Второе", body="Отчёт", target_type="compatibility_set", target_id=2,
+        )
+        with self._client() as client:
+            self.assertEqual(client.delete(f"/api/v1/notifications/{first['id']}").status_code, 200)
+            self.assertEqual(len(client.get("/api/v1/notifications").json()["notifications"]), 1)
+            self.assertEqual(client.delete("/api/v1/notifications").status_code, 200)
+            self.assertEqual(client.get("/api/v1/notifications").json()["notifications"], [])
+            self.assertEqual(client.delete(f"/api/v1/notifications/{first['id']}").status_code, 404)
+
     def test_notifications_are_scoped_to_the_current_user(self):
         compat_store.create_notification(
             user_id=1, event_key="e1", kind="compatibility_completed",
