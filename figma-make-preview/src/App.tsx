@@ -234,6 +234,12 @@ function optimizedImageSrc(src: string, width: number): string {
       url.searchParams.set("auto", "format")
       return url.toString()
     }
+    if (url.hostname === "storage.yandexcloud.net") {
+      const parts = url.pathname.split("/").filter(Boolean)
+      if (parts.length > 2 && (parts[1] === "processed" || parts[1] === "product_source")) {
+        return `/api/images/thumb?path=${encodeURIComponent(parts.slice(1).join("/"))}&w=${width}`
+      }
+    }
   } catch {
     // Relative URLs and placeholders are used as-is.
   }
@@ -1742,9 +1748,9 @@ function CompatibilitySetCard({
   )
 }
 
-function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 5, count, error = "", initialTab = "items", onOpenReport, onOpen, onAdd, onRemove, onDeleteBatch, onRefresh, onTaskStarted }: {
+function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 5, count, error = "", initialTab = "items", profileVersion = 0, onOpenReport, onOpen, onAdd, onRemove, onDeleteBatch, onRefresh, onTaskStarted }: {
   items: Product[]; checkingIds: Set<number>; loading?: boolean; limit?: number; setLimit?: number; count?: number; error?: string;
-  initialTab?: "items" | "sets";
+  initialTab?: "items" | "sets"; profileVersion?: number;
   onOpenReport: (setId: number) => void;
   onOpen: (p: Product) => void; onAdd: () => void; onRemove: (p: Product) => void;
   onDeleteBatch: (ids: number[]) => void; onRefresh?: () => void;
@@ -1835,9 +1841,10 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
         })
     }, 120)
     return () => { alive = false; window.clearTimeout(timer) }
-    // Statuses intentionally refresh only when the shelf composition/status changes.
+    // Statuses intentionally refresh when the shelf composition/status or the
+    // user profile changes (a profile change makes individual results stale).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batchQuoteKey])
+  }, [batchQuoteKey, profileVersion])
 
   useEffect(() => {
     if (!batchSetId) return
@@ -5206,7 +5213,7 @@ export default function App() {
                 onRestart={resetGuestFlow}
               />
             )}
-            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} setLimit={shelfMeta?.setLimit ?? 5} count={shelfMeta?.count} error={shelfError} initialTab={shelfTabRequest} onOpenReport={(setId) => void openCompatibilityReport(setId)} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onTaskStarted={(task) => { setToast(task.status === "completed" ? "Проверка уже завершена" : "Проверка запущена — результат появится в уведомлениях") }} />}
+            {user && page === "shelf" && <ShelfPage items={shelfItems} loading={shelfLoading} limit={shelfMeta?.limit ?? PLANS.find((p) => p.key === user.plan)?.shelfLimit ?? 5} setLimit={shelfMeta?.setLimit ?? 5} count={shelfMeta?.count} error={shelfError} initialTab={shelfTabRequest} profileVersion={profileVersion} onOpenReport={(setId) => void openCompatibilityReport(setId)} checkingIds={checkingIds} onOpen={setOpen} onAdd={() => setAddModalOpen(true)} onRemove={(p) => setRemoveProduct(p)} onDeleteBatch={handleDeleteBatch} onRefresh={() => void loadShelf()} onTaskStarted={(task) => { setToast(task.status === "completed" ? "Проверка уже завершена" : "Проверка запущена — результат появится в уведомлениях") }} />}
             {user && page === "report" && (
               <CompatibilitySetReportPage
                 set={activeReportSet}

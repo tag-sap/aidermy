@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
+import os
+import tempfile
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -26,6 +31,7 @@ from .evaluation.snapshot import profile_fingerprint
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/compatibility", tags=["compatibility"])
 notifications_router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
+image_router = APIRouter(prefix="/api/images", tags=["images"])
 
 
 class ProfileRequest(BaseModel):
@@ -557,6 +563,61 @@ async def delete_all_notifications(user: dict = Depends(get_current_user)) -> di
     return {"status": "ok", "deleted": compat_store.delete_all_notifications(int(user["id"]))}
 
 
+@image_router.get("/thumb")
+async def product_thumb(path: str, w: int = 160):
+    """Serve a small cached preview for product images stored in our S3 bucket.
+
+    The browser should never download a full processed PNG for a 64px card.
+    The endpoint only accepts our own object prefixes (no arbitrary URL fetch),
+    and on any image-processing failure falls back to the original object.
+    """
+    clean = (path or "").strip().lstrip("/")
+    if (
+        not clean
+        or ".." in clean.split("/")
+        or not clean.startswith(("processed/", "product_source/"))
+    ):
+        raise HTTPException(status_code=404, detail="Изображение не найдено.")
+    width = max(64, min(int(w or 160), 640))
+    from .image_storage import S3_BUCKET
+
+    source = f"https://storage.yandexcloud.net/{S3_BUCKET}/{clean}"
+    try:
+        from PIL import Image
+    except Exception:
+        return RedirectResponse(source, status_code=307)
+
+    digest = hashlib.sha256(f"{clean}:{width}".encode("utf-8")).hexdigest()
+    cache_dir = os.path.join(tempfile.gettempdir(), "aidermy-thumbs")
+    cache_path = os.path.join(cache_dir, f"{width}-{digest}.webp")
+    if os.path.exists(cache_path):
+        return FileResponse(
+            cache_path,
+            media_type="image/webp",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            response = await client.get(source)
+            response.raise_for_status()
+        with Image.open(io.BytesIO(response.content)) as image:
+            image.thumbnail((width, width))
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGBA")
+            os.makedirs(cache_dir, exist_ok=True)
+            temporary = f"{cache_path}.{os.getpid()}.tmp"
+            image.save(temporary, "WEBP", quality=80, method=4)
+        os.replace(temporary, cache_path)
+        return FileResponse(
+            cache_path,
+            media_type="image/webp",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+    except Exception:
+        logger.exception("[IMAGE] thumbnail generation failed; serving original")
+        return RedirectResponse(source, status_code=307)
+
+
 def setup_compat_routes(app) -> None:
     """Register routes, initialize local tables and start the durable worker."""
     try:
@@ -565,4 +626,5 @@ def setup_compat_routes(app) -> None:
         logger.exception("[COMPAT] schema initialization failed")
     app.include_router(router)
     app.include_router(notifications_router)
+    app.include_router(image_router)
     app.router.on_startup.append(lambda: ensure_worker(app))

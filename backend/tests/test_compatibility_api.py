@@ -197,6 +197,33 @@ class CompatibilityApiTests(unittest.TestCase):
                 404,
             )
 
+    def test_retry_reuses_current_results_and_quotes_only_missing(self):
+        row = compat_store.create_set(
+            user_id=1,
+            name="Набор",
+            product_ids=[1, 2, 3],
+            profile={},
+            profile_updated_at="now",
+            context_key="retry",
+        )
+        with patch("app.compat_routes.get_user_shelf", return_value=[
+            {"product_id": 1, "cabinet": "face"},
+            {"product_id": 2, "cabinet": "face"},
+            {"product_id": 3, "cabinet": "face"},
+        ]), \
+                patch("app.compat_routes.get_product_by_id", side_effect=self._product), \
+                patch("app.compat_routes.get_user_profile_updated_at", return_value="now"), \
+                patch("app.compat_routes.get_balance", return_value={"balance": 10}), \
+                patch("app.compat_routes._missing_product_ids", new=AsyncMock(return_value=[3])):
+            with self._client() as client:
+                response = client.post(
+                    f"/api/v1/compatibility/sets/{row['id']}/retry",
+                    json={"profile": {}},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["cost"], 1)
+                self.assertEqual(response.json()["set"]["cost"], 1)
+
     def test_notification_can_be_marked_read_by_owner_only(self):
         notification = compat_store.create_notification(
             user_id=1, event_key="read-me", kind="compatibility_completed",
