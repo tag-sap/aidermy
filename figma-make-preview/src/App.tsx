@@ -416,14 +416,19 @@ function GlobalBar({ query, onQuery, user, onAuth, onPricing, onPoints, onLogout
 }) {
   const [focused, setFocused] = useState(false)
   const [matches, setMatches] = useState<Product[]>([])
+  const searchRequestRef = useRef(0)
   useEffect(() => {
     const q = query.trim()
-    if (!q) { setMatches([]); return }
+    const requestId = ++searchRequestRef.current
+    if (!q || q.length < 2) { setMatches([]); return }
     const t = window.setTimeout(async () => {
       try {
         const res = await api.catalog({ search: q, limit: 6 })
+        if (requestId !== searchRequestRef.current) return
         setMatches((res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт"))
-      } catch { setMatches([]) }
+      } catch {
+        if (requestId === searchRequestRef.current) setMatches([])
+      }
     }, 250)
     return () => window.clearTimeout(t)
   }, [query])
@@ -2188,6 +2193,7 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery, initialCatego
   const [fetched, setFetched] = useState<Product[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const searchRequestRef = useRef(0)
   useEffect(() => { setSearch(query) }, [query])
   useEffect(() => {
     if (!initialCategory) return
@@ -2205,15 +2211,22 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery, initialCatego
   }, [initialCategory])
   useEffect(() => {
     const q = search.trim()
+    const requestId = ++searchRequestRef.current
     if (!q) { setResults(null); setSearching(false); return }
+    if (q.length < 2) { setResults([]); setSearching(false); return }
     setSearching(true)
     const t = window.setTimeout(async () => {
       try {
         const res = await api.catalog({ search: q, limit: 200 })
+        if (requestId !== searchRequestRef.current) return
         const mapped = (res.products || []).map(mapApiProduct).filter((p) => p.name && p.name !== "Продукт")
-        setResults(await (enrichChecks ? enrichChecks(mapped) : Promise.resolve(mapped)))
-      } catch { setResults([]) }
-      setSearching(false)
+        const enriched = await (enrichChecks ? enrichChecks(mapped) : Promise.resolve(mapped))
+        // A slow response from an older query must never overwrite newer results.
+        if (requestId === searchRequestRef.current) setResults(enriched)
+      } catch {
+        if (requestId === searchRequestRef.current) setResults([])
+      }
+      if (requestId === searchRequestRef.current) setSearching(false)
     }, 250)
     return () => window.clearTimeout(t)
   }, [search, enrichChecks])
@@ -2945,10 +2958,10 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: 
     </div>
   )
 }
-function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onCheckFinished, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit, morphOrigin }: {
+function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onCheckFinished, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit, morphOrigin, initialReport = false }: {
   product: Product; user: User | null; onAuth: () => void; onPricing: () => void; onClose: () => void;
   onChecking: (id: number) => void; onChecked: (id: number, score: number | null, verdict: Verdict | null, recommendationStatus?: string, analysisId?: number) => void; onCheckFinished: (id: number) => void; onReported: (id: number, analysisId?: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string, category?: string) => void;
-  onAddToShelf: (p: Product) => Promise<boolean>; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void; morphOrigin?: HTMLElement | null
+  onAddToShelf: (p: Product) => Promise<boolean>; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void; morphOrigin?: HTMLElement | null; initialReport?: boolean
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
     product.match ? "match" : "idle"
@@ -3305,6 +3318,16 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
   const handleShowReport = () => {
     void showReport()
   }
+
+  const initialReportHandled = useRef(false)
+  useEffect(() => {
+    if (!initialReport || initialReportHandled.current) return
+    initialReportHandled.current = true
+    void showReport()
+    // The notification targets one specific product id. The report request is
+    // still performed by the existing owner-scoped analysis endpoint.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialReport])
 
   return (
     <>
@@ -4421,6 +4444,7 @@ export default function App() {
   const [activeReportSet, setActiveReportSet] = useState<CompatibilitySetSummary | null>(null)
   const [reportLoading, setReportLoading] = useState(false)
   const [reportError, setReportError] = useState("")
+  const [initialProductReportFor, setInitialProductReportFor] = useState<number | null>(null)
   const [profileVersion, setProfileVersion] = useState(0)
   // Every account change gets a new epoch. A late response from the previous
   // session is ignored instead of repopulating the new user's cards.
@@ -4993,14 +5017,16 @@ export default function App() {
       return
     }
     if (item.target_type === "product" && item.target_id != null) {
+      // Match strictly by the notification's product id. A title match can
+      // open a different variant or an unrelated product with the same name.
       const product = shelfItems.find((p) => p.id === item.target_id) || items.find((p) => p.id === item.target_id)
       if (product) {
-        setPage("shelf")
+        setInitialProductReportFor(product.id)
         setOpen(product)
       } else {
-        setPage("shelf")
+        setToast("Продукт из уведомления больше недоступен в каталоге")
       }
-      window.scrollTo({ top: 0 })
+      return
     }
   }
 
@@ -5256,7 +5282,7 @@ export default function App() {
       </div>
       {user && <BottomNav page={page} onNavigate={navigate} />}
       {user && <NotificationCenter items={notifications} open={notificationsOpen} onClose={() => setNotificationsOpen(false)} onRead={(id) => void markNotificationRead(id)} onReadAll={() => void markAllNotificationsRead()} onDelete={(id) => void deleteNotification(id)} onClear={() => void clearNotifications()} onOpen={handleNotificationOpen} />}
-      {open && <ProductDrawer key={open.id} product={open} morphOrigin={morphOrigin} user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => setOpen(null)} onChecking={onChecking} onChecked={onChecked} onCheckFinished={onCheckFinished} onReported={onReported} onOpen={setOpen} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
+      {open && <ProductDrawer key={open.id} product={open} morphOrigin={morphOrigin} user={user} initialReport={initialProductReportFor === open.id} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => { setInitialProductReportFor(null); setOpen(null) }} onChecking={onChecking} onChecked={onChecked} onCheckFinished={onCheckFinished} onReported={onReported} onOpen={(p) => { setInitialProductReportFor(null); setOpen(p) }} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
       {deleteOpen && <DeleteAccountModal onClose={() => setDeleteOpen(false)} onDeleted={handleAccountDeleted} />}

@@ -44,7 +44,9 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  /* `hidden` creates a scroll container on some mobile browsers and breaks
+     position: sticky. `clip` contains horizontal overflow without that effect. */
+  overflow-x: clip;
 }
 button, input, textarea { font: inherit; color: inherit; }
 /* Предотвращает auto-zoom iOS при фокусе на полях ввода (порог 16px). */
@@ -617,7 +619,14 @@ input, select, textarea,
   .workspace { margin-left: 0; }
   .sidebar { display: none; }
   .globalbar { display: none; }
-  .topbar { display: flex; }
+  .topbar {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    padding-bottom: 12px;
+  }
   .bottom-nav { display: grid; }
   .main-content { padding: 20px 18px calc(96px + env(safe-area-inset-bottom, 0px)); }
   .hscroll-arrow { display: none; }
