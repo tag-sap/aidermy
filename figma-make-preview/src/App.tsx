@@ -951,7 +951,7 @@ function AutoPickCarousel({
 function HomePage({ onNavigate, onOpen, onScan, user, items, shelfItems }: {
   onNavigate: (p: Page) => void; onOpen: (p: Product) => void; onScan: () => void; user: User | null; items: Product[]; shelfItems: Product[]
 }) {
-  const using = items.filter((p) => p.state === "using").slice(0, 4)
+  const using = (shelfItems.length ? shelfItems : items.filter((p) => p.state)).slice(0, 4)
   const recent = items
     .filter((p) => p.check?.status === "checked" || (!EVALUATION_V2_ENABLED && p.match))
     .slice(0, 6)
@@ -2307,7 +2307,7 @@ function CompatChart({ history }: { history: { step: number; label: string; shel
 }
 
 function ReportPage({ onOpen }: { onOpen: (p: Product) => void }) {
-  const want = products.filter((p) => p.state === "want").slice(0, 3)
+  const want = products.slice(0, 3)
   return (
     <div className="page">
       <PageHeading eyebrow="Сводка" title="Отчёт" lead="Быстрое понимание состояния вашей косметики." />
