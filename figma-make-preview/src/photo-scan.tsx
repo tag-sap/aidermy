@@ -112,6 +112,23 @@ function toProduct(
   }
 }
 
+function CameraGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true" focusable="false">
+      <path d="M4 8.5h3.2l1.4-2h6.8l1.4 2H20v10H4z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <circle cx="12" cy="13.2" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
+    </svg>
+  )
+}
+
+function CloseGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+      <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function PhotoTile({ image, index, busy, onView, onRemove, onMakePrimary }: {
   image: string
   index: number
@@ -126,7 +143,7 @@ function PhotoTile({ image, index, busy, onView, onRemove, onMakePrimary }: {
         <img src={image} alt={`Фото ${index + 1}`} />
         <span>{index === 0 ? "Лицевая" : `Кадр ${index + 1}`}</span>
       </button>
-      <button type="button" className="scan-photo-tile__remove" onClick={onRemove} disabled={busy} aria-label={`Удалить фото ${index + 1}`}>×</button>
+      <button type="button" className="scan-photo-tile__remove" onClick={onRemove} disabled={busy} aria-label={`Удалить фото ${index + 1}`}><CloseGlyph /></button>
       {index > 0 && (
         <button type="button" className="scan-photo-tile__primary" onClick={onMakePrimary} disabled={busy}>
           Сделать лицевой
@@ -161,8 +178,11 @@ export function PhotoScan({ guestToken, onContinue }: {
   const streamRef = useRef<MediaStream | null>(null)
 
   const skinType = getUserProfile().skinType || "Нормальная"
-  const canScan = images.length >= 2 && !busy
-  const canSave = Boolean(draft?.name?.trim()) && splitIngredients(draft?.ingredients || "").length >= 2 && !saving
+  // A front photo alone is enough to identify the product and run web search;
+  // a back photo is requested later only if the composition is missing.
+  const canScan = images.length >= 1 && !busy
+  const isExistingDraft = Boolean(draft?.id)
+  const canSave = Boolean(draft?.brand?.trim()) && Boolean(draft?.name?.trim()) && splitIngredients(draft?.ingredients || "").length >= 2 && !saving
 
   const resetResult = () => {
     setStatus("idle")
@@ -331,16 +351,31 @@ export function PhotoScan({ guestToken, onContinue }: {
     }
   }
 
-  const checkAndContinue = async (item: ScanProductPayload) => {
+  const checkAndContinue = async (item: ScanProductPayload, ingredientsOverride?: string) => {
     setChecking(true)
     setError("")
     try {
-      const check = await api.check({
-        product_name: productName(item.brand, item.name),
-        skin_type: skinType,
-        profile: buildProfile(),
-        guest_token: guestToken,
-      })
+      const ingredients = (ingredientsOverride ?? item.ingredients ?? "").trim()
+      const profile = buildProfile()
+      // New/edited cards must be checked against the exact composition the
+      // user sees and confirms, not only against a name lookup in the DB.
+      const check = splitIngredients(ingredients).length >= 2
+        ? await api.checkWithIngredients({
+            product_name: productName(item.brand, item.name),
+            brand: item.brand,
+            skin_type: skinType,
+            profile,
+            ingredients,
+            image_url: item.image_url || undefined,
+            guest_token: guestToken,
+          })
+        : await api.check({
+            product_name: productName(item.brand, item.name),
+            skin_type: skinType,
+            profile,
+            image_url: item.image_url || undefined,
+            guest_token: guestToken,
+          })
       onContinue(toProduct(item, check, images[0] || "", skinType))
     } catch (e) {
       setError(errorText(e, "Карточка сохранена, но проверить совместимость не удалось."))
@@ -378,6 +413,27 @@ export function PhotoScan({ guestToken, onContinue }: {
     setError("")
     try {
       const ingredients = splitIngredients(draft.ingredients)
+      // A card already present in the catalog must not be recreated or have
+      // its canonical composition overwritten by the editor.
+      if (isExistingDraft) {
+        await checkAndContinue(
+          {
+            id: draft.id ?? undefined,
+            slug: draft.slug,
+            brand: draft.brand || "",
+            name: draft.name || "",
+            image_url: draft.image_url,
+            ingredients: ingredients.join(", "),
+            volume: draft.volume || undefined,
+            variant: draft.variant || undefined,
+            barcode: draft.barcode || undefined,
+            ingredients_source: draft.ingredients_source,
+            source_url: draft.source_url,
+          },
+          ingredients.join(", "),
+        )
+        return
+      }
       const sourceType = draft.ingredients_source === "scraped" ? "retailer" : "scan"
       const created = await api.createProduct({
         brand: draft.brand || "",
@@ -394,7 +450,16 @@ export function PhotoScan({ guestToken, onContinue }: {
       })
       setReadyProduct(created.product)
       setStatus("ready")
-      await checkAndContinue(created.product)
+      await checkAndContinue(
+        {
+          ...created.product,
+          brand: draft.brand || created.product.brand,
+          name: draft.name || created.product.name,
+          ingredients: ingredients.join(", "),
+          volume: draft.volume || created.product.volume,
+        },
+        ingredients.join(", "),
+      )
     } catch (e) {
       setError(errorText(e, "Не удалось сохранить карточку продукта."))
     } finally {
@@ -443,7 +508,7 @@ export function PhotoScan({ guestToken, onContinue }: {
         <span className={`scan-photo-count ${images.length >= MAX_IMAGES ? "is-limit" : ""}`}>
           Выбрано: <strong>{images.length}</strong> / {MAX_IMAGES}
         </span>
-        {images.length < 2 && <small>Для проверки нужны минимум два кадра: лицевая сторона и состав.</small>}
+        {images.length === 1 && <small>Можно распознать по одной лицевой стороне. Если состав не найдётся, добавьте заднюю сторону или введите INCI вручную.</small>}
         {images.length >= MAX_IMAGES && <small>Достигнут лимит. Удалите лишний кадр, чтобы добавить новый.</small>}
       </div>
       <input ref={galleryRef} type="file" accept="image/*" multiple hidden onChange={(e) => { void handleFiles(e.target.files); e.target.value = "" }} />
@@ -460,7 +525,7 @@ export function PhotoScan({ guestToken, onContinue }: {
           <section className="camera-modal" role="dialog" aria-modal="true" aria-label="Съёмка упаковки">
             <header className="camera-modal__head">
               <div><strong>Съёмка упаковки</strong><small>{images.length} из {MAX_IMAGES} кадров</small></div>
-              <button type="button" className="camera-modal__close" onClick={closeCamera} aria-label="Закрыть камеру">×</button>
+              <button type="button" className="camera-modal__close" onClick={closeCamera} aria-label="Закрыть камеру"><CloseGlyph /></button>
             </header>
             {cameraError ? (
               <div className="camera-fallback">
@@ -474,7 +539,7 @@ export function PhotoScan({ guestToken, onContinue }: {
             ) : (
               <div className="camera-stage">
                 <video ref={videoRef} playsInline muted autoPlay aria-label="Изображение с камеры" />
-                <span className="camera-stage__hint">{cameraBusy ? "Открываем камеру…" : cameraReady ? "Совместите упаковку и нажмите «Снять»" : "Ожидаем камеру…"}</span>
+                <span className="camera-stage__hint">{cameraBusy ? "Открываем камеру…" : cameraReady ? "Совместите упаковку и нажмите на кнопку съёмки" : "Ожидаем камеру…"}</span>
               </div>
             )}
             {images.length > 0 && (
@@ -482,14 +547,14 @@ export function PhotoScan({ guestToken, onContinue }: {
                 {images.map((image, index) => (
                   <span className="camera-shot" key={`${index}-${image.slice(-20)}`}>
                     <img src={image} alt={`Кадр ${index + 1}`} />
-                    <button type="button" onClick={() => removeImage(index)} aria-label={`Удалить кадр ${index + 1}`}>×</button>
+                    <button type="button" onClick={() => removeImage(index)} aria-label={`Удалить кадр ${index + 1}`}><CloseGlyph /></button>
                   </span>
                 ))}
               </div>
             )}
             <footer className="camera-modal__foot">
-              <button type="button" className="camera-shutter" onClick={capturePhoto} disabled={!cameraReady || cameraBusy || images.length >= MAX_IMAGES} aria-label="Сделать снимок">Снять</button>
-              <button type="button" className="btn btn--secondary btn--small" onClick={closeCamera}>Готово · {images.length}</button>
+              <button type="button" className="camera-shutter" onClick={capturePhoto} disabled={!cameraReady || cameraBusy || images.length >= MAX_IMAGES} aria-label="Сделать снимок" title="Сделать снимок"><CameraGlyph /></button>
+              <button type="button" className="btn btn--secondary btn--small camera-modal__done" onClick={closeCamera}>Готово · {images.length}</button>
             </footer>
           </section>
         </div>
@@ -562,16 +627,29 @@ export function PhotoScan({ guestToken, onContinue }: {
             </p>
           )}
           {draft.source_url && <a className="guest-link" href={draft.source_url} target="_blank" rel="noreferrer">Источник карточки</a>}
+          {!isExistingDraft && (
+            <p className="scan-hint">*Заполните пустые поля бренда и названия — эти данные нужны для проверки.</p>
+          )}
           <div className="scan-form__row">
-            <label><span>Бренд</span><input value={draft.brand || ""} onChange={(e) => setDraft({ ...draft, brand: e.target.value })} /></label>
+            <label><span>Бренд *</span><input value={draft.brand || ""} placeholder="*заполните в этом поле" onChange={(e) => setDraft({ ...draft, brand: e.target.value })} /></label>
             <label><span>Объём</span><input value={draft.volume || ""} onChange={(e) => setDraft({ ...draft, volume: e.target.value })} /></label>
           </div>
-          <label className="scan-form__area"><span>Название *</span><input value={draft.name || ""} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-          <label className="scan-form__area"><span>Состав (INCI)</span><textarea rows={5} value={draft.ingredients} onChange={(e) => setDraft({ ...draft, ingredients: e.target.value })} /></label>
+          <label className="scan-form__area"><span>Название *</span><input value={draft.name || ""} placeholder="*заполните в этом поле" onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+          <label className="scan-form__area">
+            <span>Состав (INCI) {isExistingDraft ? "· из каталога" : ""}</span>
+            <textarea
+              rows={5}
+              value={draft.ingredients}
+              readOnly={isExistingDraft}
+              disabled={isExistingDraft}
+              onChange={(e) => setDraft({ ...draft, ingredients: e.target.value })}
+            />
+          </label>
+          {isExistingDraft && <p className="panel__note">Состав найденной карточки Aidermy защищён от редактирования.</p>}
           {draft.barcode && <p className="panel__note">Штрихкод: {draft.barcode}</p>}
           {draft.variant && <p className="panel__note">Вариант: {draft.variant}</p>}
           <p className="panel__note">Карточка не сохраняется, пока вы её не подтвердите. Состав с фото не считается проверенным.</p>
-          {!canSave && <p className="scan-warning">Для сохранения нужны название и как минимум два ингредиента.</p>}
+          {!canSave && <p className="scan-warning">Для сохранения нужны бренд, название и как минимум два ингредиента.</p>}
           {error && <p className="scan-error" role="alert">{error}</p>}
           <button type="button" className="btn btn--primary" onClick={() => void saveAndCheck()} disabled={!canSave}>
             {saving ? "Сохраняем…" : "Сохранить карточку и проверить"}
@@ -583,6 +661,9 @@ export function PhotoScan({ guestToken, onContinue }: {
       {(status === "error" || status === "not_found") && (
         <div className="scan-empty">
           <p className="scan-error" role="alert">{error || result?.message || "Не удалось распознать продукт."}</p>
+          <p className="panel__note">
+            Можно сфотографировать заднюю сторону с составом, выбрать способ «Ручной ввод» или «Вставить ссылку» выше.
+          </p>
           <div className="scan-ready__actions">
             <button type="button" className="btn btn--primary" onClick={resetResult}>Повторить</button>
             <button type="button" className="btn btn--ghost" onClick={() => { setStatus("idle"); setResult(null) }}>Заменить фото</button>

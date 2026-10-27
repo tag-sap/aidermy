@@ -104,9 +104,11 @@ class ProductScanRequest(BaseModel):
     back_images: List[str] = Field(default_factory=list, description="Фото задней стороны (одно или несколько)")
 
     @model_validator(mode="after")
-    def _require_back_image(self):
-        if not self.back_image and not self.back_images:
-            raise ValueError("Нужно хотя бы одно фото задней стороны с составом")
+    def _normalize_back_images(self):
+        # A front photo is enough to identify a product and start web search.
+        # Back photos are optional and are requested later if INCI is missing.
+        if self.back_image and self.back_image not in self.back_images:
+            self.back_images.insert(0, self.back_image)
         return self
 
 

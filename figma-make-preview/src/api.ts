@@ -50,6 +50,7 @@ export type ScanProductPayload = {
   ingredients?: string
   barcode?: string
   variant?: string
+  volume?: string
   ingredients_source?: string
   source_url?: string
   has_inci?: boolean

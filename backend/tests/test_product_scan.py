@@ -25,9 +25,9 @@ def test_multiple_back_images_are_valid():
     assert len(req.back_images) == 2
 
 
-def test_at_least_one_back_image_is_required():
-    with pytest.raises(ValidationError):
-        ProductScanRequest(front_image="data:image/jpeg;base64," + "a" * 20)
+def test_front_image_alone_is_valid():
+    req = ProductScanRequest(front_image="data:image/jpeg;base64," + "a" * 20)
+    assert req.back_images == []
 
 from app.product_scan import ProductScanError, scan_product_package
 
@@ -116,11 +116,38 @@ def test_multiple_back_photos_are_passed_to_existing_vision_pipeline():
     web_mock.assert_not_awaited()
 
 
-def test_both_photos_are_required():
+def test_front_only_scan_uses_existing_web_search_and_does_not_call_ocr():
+    web_product = {
+        "name": "Ac Collection Calming Foam Cleanser",
+        "brand": "COSRX",
+        "ingredients": "Water, Glycerin, Salicylic Acid",
+        "inci_reliable": True,
+        "source_url": "https://www.cosrx.com/products/ac-collection-calming-foam-cleanser",
+        "image_url": "https://example.invalid/cosrx.png",
+        "category": "Очищение",
+        "volume": "150 ml",
+    }
+    identify_mock = AsyncMock(return_value=IDENTIFIED)
+    compose_mock = AsyncMock(return_value=RECOGNITION)
+    with patch("app.product_scan.identify_product", new=identify_mock), \
+         patch("app.product_scan.recognize_composition", new=compose_mock), \
+         patch("app.product_scan.find_product_by_barcode", return_value=None), \
+         patch("app.product_scan.find_product_candidates", return_value=[]), \
+         patch("app.product_scan.web_search_product", new=AsyncMock(return_value=web_product)) as web_mock:
+        result = asyncio.run(scan_product_package("data:image/jpeg;base64,front", ""))
+
+    assert result["status"] == "needs_confirmation"
+    identify_mock.assert_awaited_once_with(["data:image/jpeg;base64,front"])
+    compose_mock.assert_not_awaited()
+    web_mock.assert_awaited_once()
+    assert result["draft"]["ingredients_source"] == "scraped"
+
+
+def test_front_photo_is_required_but_back_is_optional():
     with pytest.raises(ProductScanError):
         asyncio.run(scan_product_package("", "data:image/jpeg;base64,back"))
-    with pytest.raises(ProductScanError):
-        asyncio.run(scan_product_package("data:image/jpeg;base64,front", ""))
+    # Front-only scans are identified and sent to web search; they must not be
+    # rejected before that search. The test below exercises the complete path.
 
 
 def test_existing_product_with_reliable_inci_is_reused_without_web_search():

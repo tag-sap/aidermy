@@ -2702,9 +2702,18 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
             <label><span>Бренд</span><input value={brand} onChange={(e) => setBrand(e.target.value)} /></label>
             <label><span>Название</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
           </div>
-          <label className="scan-form__area"><span>Состав (INCI)</span><textarea value={inci} onChange={(e) => setInci(e.target.value)} rows={3} placeholder="Состав определится автоматически…" /></label>
+          <label className="scan-form__area">
+            <span>Состав (INCI) {method === "link" && inci.trim() ? "· из карточки" : ""}</span>
+            <textarea
+              value={inci}
+              onChange={(e) => setInci(e.target.value)}
+              rows={3}
+              readOnly={method === "link" && Boolean(inci.trim())}
+              placeholder="Состав определится автоматически…"
+            />
+          </label>
           <div className="scan-ready__actions">
-            <Button icon="sparkle" onClick={() => onContinue({ ...result, brand: brand.trim() || result.brand, name: name.trim() || result.name })}>Продолжить анализ</Button>
+            <Button icon="sparkle" onClick={() => onContinue({ ...result, brand: brand.trim() || result.brand, name: name.trim() || result.name, ingredients: inci.trim() || result.ingredients })}>Продолжить анализ</Button>
             <Button variant="ghost" onClick={() => setPhase("input")}>Не то — повторить</Button>
           </div>
         </div>

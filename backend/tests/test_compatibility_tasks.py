@@ -224,6 +224,28 @@ class CompatibilityTaskTests(unittest.TestCase):
         self.assertIn("Product 7", note["body"])
         self.assertIn("70/100", note["body"])
 
+    def test_numeric_partial_report_is_usable_without_waiting_for_every_gap(self):
+        from app.compat_service import get_or_analyze_product
+
+        class PartialReport(_Report):
+            def __init__(self):
+                super().__init__(70)
+                self.analysis = type("PartialAnalysis", (), {"is_final": False})()
+
+        class PartialService(_Service):
+            def analyze_product(self, product_id, **kwargs):
+                return PartialReport()
+
+        result = get_or_analyze_product(
+            PartialService(),
+            product_id=7,
+            profile={"skin_type": "dry"},
+            user_id=1,
+        )
+        self.assertIsInstance(result, PartialReport)
+        self.assertEqual(result.snapshot["total"], 70)
+
+
     def test_report_has_no_empty_sections_and_marks_data_limits(self):
         report = build_compatibility_report(
             set_name="Набор",

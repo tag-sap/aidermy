@@ -156,14 +156,10 @@ def get_or_analyze_product(
     saved = service.saved_report(
         product_id=int(product_id), profile=profile, user_id=int(user_id)
     )
-    if (
-        saved is not None
-        and product_score(saved) is not None
-        and (
-            getattr(saved, "is_final", False)
-            or getattr(getattr(saved, "analysis", None), "is_final", False)
-        )
-    ):
+    # A numeric saved score is usable even when secondary parameters remain
+    # unassessed. Newly created products only need brand/name/composition to
+    # get a score; gaps must not block the normal scan/save/check flow.
+    if saved is not None and product_score(saved) is not None:
         return saved
     report = service.analyze_product(
         int(product_id),
@@ -172,13 +168,6 @@ def get_or_analyze_product(
         allow_research=True,
         product_loader=product_loader,
     )
-    if not (
-        getattr(report, "is_final", False)
-        or getattr(getattr(report, "analysis", None), "is_final", False)
-    ):
-        raise TaskFailed(
-            "Не удалось получить итоговый результат: в доступных данных есть пробелы."
-        )
     if product_score(report) is None:
         raise TaskFailed(
             "Не удалось получить числовую индивидуальную оценку продукта. "

@@ -222,14 +222,7 @@ class CompatWorker:
                 report = service.saved_report(
                     product_id=int(product_id), profile=profile, user_id=user_id
                 )
-                if (
-                    report is None
-                    or product_score(report) is None
-                    or not (
-                        getattr(report, "is_final", False)
-                        or getattr(getattr(report, "analysis", None), "is_final", False)
-                    )
-                ):
+                if report is None or product_score(report) is None:
                     raise TaskFailed(
                         "Индивидуальная проверка завершилась без пригодного результата. "
                         "Повторите проверку набора."
@@ -367,14 +360,7 @@ class CompatWorker:
             saved = service.saved_report(
                 product_id=int(product_id), profile=profile, user_id=user_id
             )
-            if (
-                saved is not None
-                and product_score(saved) is not None
-                and (
-                    getattr(saved, "is_final", False)
-                    or getattr(getattr(saved, "analysis", None), "is_final", False)
-                )
-            ):
+            if saved is not None and product_score(saved) is not None:
                 report = saved
             else:
                 active_individual = compat_store.find_active_individual_task(

@@ -408,10 +408,11 @@ async def product_scan_endpoint(request: ProductScanRequest):
 
         back_images = list(getattr(request, "back_images", None) or [])
         back_image = getattr(request, "back_image", None)
-        if back_image:
+        if back_image and back_image not in back_images:
             back_images.insert(0, back_image)
-        if not back_images:
-            raise HTTPException(status_code=422, detail="Загрузите хотя бы одно фото задней стороны.")
+        # A front photo alone is a valid identification attempt. If the
+        # product/INCI cannot be found, the response asks for a back photo or
+        # manual/link input instead of rejecting the request up front.
         return await asyncio.wait_for(
             product_scan_module.scan_product_package(request.front_image, back_images),
             timeout=SCAN_TIMEOUT,

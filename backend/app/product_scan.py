@@ -110,19 +110,26 @@ async def scan_product_package(front_image: str, back_image: str | List[str]) ->
         back_images = [back_image] if back_image.strip() else []
     else:
         back_images = [str(item).strip() for item in (back_image or []) if str(item).strip()]
-    if not back_images:
-        raise ProductScanError("Загрузите фото задней стороны упаковки (состав INCI).")
 
     warnings: List[str] = []
 
-    # Обе стороны передаём в идентификацию: на задней может быть бренд/объём/
-    # штрихкод. INCI читаем отдельно только с задних сторон, чтобы не смешивать
-    # маркетинговый текст лицевой стороны с составом.
-    identified_result, composition_result = await asyncio.gather(
-        identify_product([front_image, *back_images]),
-        recognize_composition(back_images),
-        return_exceptions=True,
-    )
+    # A front photo is enough for identification/web search. Back photos are
+    # optional and only needed when the composition cannot be found elsewhere.
+    if back_images:
+        identified_result, composition_result = await asyncio.gather(
+            identify_product([front_image, *back_images]),
+            recognize_composition(back_images),
+            return_exceptions=True,
+        )
+    else:
+        identified_result = await identify_product([front_image])
+        composition_result = {
+            "is_inci": False,
+            "ingredients": [],
+            "raw_text": "",
+            "uncertain_items": [],
+            "overall_confidence": None,
+        }
 
     if isinstance(identified_result, Exception):
         # Ошибки конфигурации/недоступности Vision отдаём как 502, а не как
@@ -154,7 +161,12 @@ async def scan_product_package(front_image: str, back_image: str | List[str]) ->
 
     normalized = _recognized_ingredients(recognition)
     back_inci_reliable = len(normalized) >= 2 and bool(recognition.get("is_inci", True))
-    if not back_inci_reliable:
+    if not back_images:
+        warnings.append(
+            "Состав не снят. Найдите товар по лицевой стороне, затем добавьте фото задней "
+            "стороны, введите INCI вручную или вставьте ссылку на карточку."
+        )
+    elif not back_inci_reliable:
         warnings.append("Состав на задней фотографии не распознан надёжно.")
     elif (recognition.get("uncertain_items") or []) or (
         recognition.get("overall_confidence") is not None

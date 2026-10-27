@@ -51,9 +51,21 @@ class PhotoScanContractTests(unittest.TestCase):
     def test_all_selected_images_are_sent_to_existing_api(self):
         self.assertIn("front_image: images[0]", PHOTO)
         self.assertIn("back_images: images.slice(1)", PHOTO)
-        self.assertIn("Снять на камеру", PHOTO)
+        self.assertIn("images.length >= 1", PHOTO)
         self.assertIn("Выбрать из галереи", PHOTO)
         self.assertIn("Выбрать файлы", PHOTO)
+
+    def test_edited_new_card_is_checked_with_its_edited_inci(self):
+        self.assertIn("ingredientsOverride", PHOTO)
+        self.assertIn("checkWithIngredients", PHOTO)
+        self.assertIn("ingredients.join(\", \")", PHOTO)
+        self.assertIn("readOnly={isExistingDraft}", PHOTO)
+        self.assertIn("placeholder=\"*заполните в этом поле\"", PHOTO)
+
+    def test_camera_shutter_is_an_icon(self):
+        self.assertIn("<CameraGlyph />", PHOTO)
+        self.assertNotIn(">Снять</button>", PHOTO)
+        self.assertIn(".camera-modal__foot", CSS)
 
     def test_camera_and_viewer_have_mobile_safe_styles(self):
         for marker in (
