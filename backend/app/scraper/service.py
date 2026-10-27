@@ -60,6 +60,7 @@ SCRAPER_FETCH_TIMEOUT = 90.0
 # TTL (e.g. 300 seconds). Only successful results are cached.
 _IMPORT_CACHE: dict[str, tuple[float, ProductImportResult]] = {}
 _IMPORT_CACHE_LOCK = threading.Lock()
+_IMPORT_CACHE_MAX_ENTRIES = 256
 
 
 def _cache_ttl() -> float:
@@ -89,6 +90,9 @@ def _cache_put(url: str, result: ProductImportResult) -> None:
     if _cache_ttl() <= 0:
         return
     with _IMPORT_CACHE_LOCK:
+        if len(_IMPORT_CACHE) >= _IMPORT_CACHE_MAX_ENTRIES:
+            oldest = min(_IMPORT_CACHE, key=lambda key: _IMPORT_CACHE[key][0])
+            _IMPORT_CACHE.pop(oldest, None)
         _IMPORT_CACHE[url] = (time.monotonic(), copy.copy(result))
 
 
