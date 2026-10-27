@@ -669,7 +669,7 @@ export function PhotoScan({ guestToken, onContinue }: {
         <div className="scan-empty">
           <p className="scan-error" role="alert">{error || result?.message || "Не удалось распознать продукт."}</p>
           <p className="panel__note">
-            Можно сфотографировать заднюю сторону с составом, выбрать способ «Ручной ввод» или «Вставить ссылку» выше.
+            Можно сфотографировать заднюю сторону с составом или вернуться в «Выбрать способ» и открыть «Ручной ввод» либо «Вставить ссылку».
           </p>
           <div className="scan-ready__actions">
             <button type="button" className="btn btn--primary" onClick={resetResult}>Повторить</button>
