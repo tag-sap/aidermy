@@ -330,7 +330,9 @@ async def scan_product_package(front_image: str, back_image: str | List[str]) ->
             source_url = str(web_product.get("source_url") or "")
             warnings_for_draft = [
                 warning for warning in warnings
-                if "задней" not in warning and "Часть состава" not in warning
+                if "задней" not in warning
+                and "Часть состава" not in warning
+                and "Состав не снят" not in warning
             ]
         elif back_inci_reliable:
             ingredients = normalized

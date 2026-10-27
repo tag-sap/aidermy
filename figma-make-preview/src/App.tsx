@@ -2712,6 +2712,9 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
               placeholder="Состав определится автоматически…"
             />
           </label>
+          {method === "link" && inci.trim() && (
+            <p className="panel__note">Состав из карточки нельзя изменить здесь; для нового состава используйте ручной ввод.</p>
+          )}
           <div className="scan-ready__actions">
             <Button icon="sparkle" onClick={() => onContinue({ ...result, brand: brand.trim() || result.brand, name: name.trim() || result.name, ingredients: inci.trim() || result.ingredients })}>Продолжить анализ</Button>
             <Button variant="ghost" onClick={() => setPhase("input")}>Не то — повторить</Button>

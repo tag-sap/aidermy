@@ -588,6 +588,9 @@ export function PhotoScan({ guestToken, onContinue }: {
               {readyProduct.variant && <p className="panel__note">Вариант: {readyProduct.variant}</p>}
               {readyProduct.barcode && <p className="panel__note">Штрихкод: {readyProduct.barcode}</p>}
               <p className="panel__note">{sourceLabel(readyProduct.ingredients_source)}</p>
+              {readyProduct.ingredients_source === "local" && (
+                <p className="panel__note">Состав загружен из каталога Aidermy и не редактируется.</p>
+              )}
             </div>
           </div>
           <div className="scan-ready__actions">
