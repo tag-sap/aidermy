@@ -351,7 +351,11 @@ export function PhotoScan({ guestToken, onContinue }: {
 
   const chooseCandidate = (candidate: ScanCandidatePayload) => {
     if (candidate.has_inci !== false) {
-      void checkAndContinue(candidate)
+      // Selecting the right card is identification, not a compatibility check.
+      // The user starts the check explicitly from the ready screen.
+      setReadyProduct(candidate)
+      setStatus("ready")
+      setError("")
       return
     }
     setDraft((current) => ({

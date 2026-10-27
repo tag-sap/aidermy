@@ -2450,16 +2450,16 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
         const pageInci = (prod.ingredients_raw || "").trim()
         const hasInci = prod.has_inci === true || (prod.has_inci === undefined && pageInci.length > 0)
         setBrand(b); setName(n); setInci(pageInci)
-        if (!hasInci) {
-          // The page identified the product but did not publish a reliable
-          // composition. Never substitute a search result or invent an INCI.
-          setScanNotice("Товар распознан, но состав на странице не опубликован. Введите INCI вручную или сфотографируйте упаковку, чтобы получить оценку.")
-          setResult(buildResult(b, n, prod.image_url || "", prod.slug, "", undefined, typeof prod.id === "number" ? prod.id : undefined))
-          setPhase("ready")
-          return
-        }
-        const checkRes = await api.checkWithIngredients({ product_name: n, skin_type: skinType, profile, ingredients: pageInci, guest_token: guestToken })
-        setResult(buildResult(b, n, prod.image_url || "", prod.slug, pageInci, checkRes as { score?: number | null; verdict?: string; analysis_id?: number }, typeof prod.id === "number" ? prod.id : undefined))
+        // Importing/finding a card is not a compatibility check. Show the
+        // verified card data and run the analysis only after an explicit action.
+        setResult(buildResult(b, n, prod.image_url || "", prod.slug, pageInci, undefined, typeof prod.id === "number" ? prod.id : undefined))
+        setScanNotice(
+          hasInci
+            ? "Карточка импортирована. Проверьте состав и нажмите «Продолжить анализ» — совместимость ещё не проверялась."
+            : "Товар распознан, но состав на странице не опубликован. Введите INCI вручную или сфотографируйте упаковку.",
+        )
+        setPhase("ready")
+        return
       } else if (method === "photo") {
         const checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile, guest_token: guestToken })
         setResult(buildResult(brand.trim(), name.trim(), imageUrl || checkRes.image_url || "", slug || checkRes.slug, "", checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))

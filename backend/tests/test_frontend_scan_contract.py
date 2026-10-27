@@ -31,6 +31,13 @@ class UrlPreviewContractTests(unittest.TestCase):
         self.assertIn('setUrl("")', APP)
         self.assertIn("scan-link-input__clear", CSS)
 
+    def test_url_import_does_not_auto_run_compatibility(self):
+        self.assertIn("совместимость ещё не проверялась", APP)
+        self.assertNotIn(
+            "const checkRes = await api.checkWithIngredients({ product_name: n, skin_type: skinType, profile, ingredients: pageInci",
+            APP,
+        )
+
 
 class PhotoScanContractTests(unittest.TestCase):
     def test_camera_gallery_and_files_share_one_image_list(self):
