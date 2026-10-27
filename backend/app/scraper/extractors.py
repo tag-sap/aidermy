@@ -1,7 +1,7 @@
 import json
 import re
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 from .models import ProductImportResult
 
@@ -161,6 +161,63 @@ def _brand_from_domain(source_url: str) -> str | None:
     return None
 
 
+def _name_from_slug(source_url: str) -> str | None:
+    """Readable, explicitly-unconfirmed fallback from the product URL path."""
+    try:
+        path = urlparse(source_url).path
+    except ValueError:
+        return None
+    segment = next(
+        (part for part in reversed([p for p in path.split("/") if p]) if not part.isdigit()),
+        "",
+    )
+    if not segment:
+        return None
+    text = unquote(segment)
+    text = re.sub(r"^\d+[\-_]+", "", text)
+    text = re.sub(r"\.(?:html?|php|aspx)$", "", text, flags=re.I)
+    text = re.sub(r"[\-_]+", " ", text)
+    text = _text(text)
+    if not text or len(text) < 3 or len(text) > 180:
+        return None
+    return " ".join(
+        word[:1].upper() + word[1:] if word.islower() else word
+        for word in text.split()
+    )
+
+
+def _dom_image(page: Any, source_url: str, product_name: str | None) -> str | None:
+    """Best product-context <img>, including relative OpenCart paths."""
+    name_words = {
+        word.lower()
+        for word in re.findall(r"[a-zA-Zа-яА-Я0-9]{4,}", product_name or "")
+    }
+    candidates: list[tuple[int, str]] = []
+    for raw in page.css("img::attr(src)").getall() + page.css("img::attr(data-src)").getall():
+        value = _text(raw)
+        if not value or value.startswith("data:"):
+            continue
+        absolute = urljoin(source_url, value)
+        lowered = absolute.lower()
+        if any(
+            marker in lowered
+            for marker in ("logo", "sprite", "icon", "favicon", "placeholder", "loader", "yandex", "mail.ru")
+        ):
+            continue
+        score = 0
+        if any(word in lowered for word in name_words):
+            score += 3
+        if "/product" in lowered or "product/" in lowered:
+            score += 2
+        if re.search(r"\.(?:jpe?g|png|webp)(?:[?#]|$)", lowered):
+            score += 1
+        candidates.append((score, absolute))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][1] if candidates[0][0] > 0 else None
+
+
 def _safe_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -316,7 +373,9 @@ def extract_product(page: Any, source_url: str) -> ProductImportResult:
     brand = record.get("brand")
     brand = brand.get("name") if isinstance(brand, dict) else brand
     image = _first(record.get("image"))
-    image = urljoin(source_url, image) if image else None
+    if isinstance(image, dict):
+        image = image.get("url") or image.get("contentUrl")
+    source_image = urljoin(source_url, image) if image else None
     body_text = _text(" ".join(page.xpath("//body//text()").getall())) or ""
     if is_blocked_page(body_text) or is_blocked_page(_meta(page, "og:title")):
         raise ProductPageBlocked("Страница вернула проверку устройства/антибот-заглушку")
@@ -337,18 +396,35 @@ def extract_product(page: Any, source_url: str) -> ProductImportResult:
             ],
         )
     )
+    name_source = "structured" if name else None
+    if not name:
+        name = _name_from_slug(source_url)
+        name_source = "slug" if name else None
     description = _text(record.get("description")) or _meta(page, "og:description") or _dom_text(page, ['[itemprop="description"]', '[class*="description"]'])
-    image = image or _meta(page, "og:image")
-    if image:
-        image = urljoin(source_url, image)
+    source_image = source_image or _meta(page, "og:image")
+    if source_image:
+        source_image = urljoin(source_url, source_image)
+    image_source = "json_ld" if source_image else None
+    if not source_image:
+        source_image = _dom_image(page, source_url, name)
+        image_source = "dom" if source_image else None
     ingredients = _ingredients_from_jsonld(record) or _ingredient_text(page, body_text)
     volume_match = _VOLUME.search(body_text)
+    brand_value = (
+        _clean_brand(
+            _text(brand)
+            or _meta(page, "product:brand")
+            or _meta(page, "og:site_name")
+            or _dom_text(page, ['[text="Бренд"] [class*="__title"]', '[class*="brand"] [class*="__title"]', '[itemprop="brand"]', '[class*="brand"]', '[class*="бренд"]'])
+        )
+        or _brand_from_domain(source_url)
+    )
 
     return ProductImportResult(
         name=_clean_product_name(name),
-        brand=_clean_brand(_text(brand) or _meta(page, "product:brand") or _dom_text(page, ['[text="Бренд"] [class*="__title"]', '[class*="brand"] [class*="__title"]', '[itemprop="brand"]', '[class*="brand"]', '[class*="бренд"]'])) or _brand_from_domain(source_url),
+        brand=brand_value,
         manufacturer=_text(record.get("manufacturer")),
-        image_url=image,
+        image_url=source_image,
         price=_safe_float(offers.get("price") if isinstance(offers, dict) else None) or _safe_float(_meta(page, "product:price")),
         currency=_text(offers.get("priceCurrency") if isinstance(offers, dict) else None) or _meta(page, "product:price:currency"),
         volume=volume_match.group(0) if volume_match else None,
@@ -356,4 +432,7 @@ def extract_product(page: Any, source_url: str) -> ProductImportResult:
         description=description,
         ingredients_raw=ingredients,
         source_url=source_url,
+        name_source=name_source,
+        brand_source="structured" if brand_value else None,
+        image_source=image_source,
     )
