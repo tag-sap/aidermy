@@ -116,15 +116,29 @@ _CATALOG_CATEGORY_KEYWORDS = [
 
 
 def normalize_imported_category(raw_category: Optional[str], name: str) -> str:
-    """Приводит сырую категорию импорта к канонической категории каталога.
+    """Приводит сырую категорию импорта к канонической категории Aidermy.
 
-    Никогда не возвращает само название продукта как категорию: если категория
-    с сайта пустая или неоднозначная — определяем по названию, иначе «Другое».
+    The catalog/shelf UI uses the same taxonomy titles (for example «Маски»),
+    not retailer categories or the legacy six-value list. A name such as
+    «Экспресс-лифтинг маска» therefore becomes «Маски», never
+    «Специальный уход» merely because the retailer put it in a special section.
+    Unknown products return «Другое» and must be classified by the user.
     """
+    classification = classify_product({
+        "name": name or "",
+        "category": raw_category or "",
+    })
+    canonical = str(classification.get("canonical_category") or "").strip()
+    if classification.get("body_area") and canonical not in {"", "Другое"}:
+        return canonical
+    # Legacy fallback is intentionally limited to the known Aidermy title map;
+    # we do not turn a random retailer string into a new category.
     haystack = f"{raw_category or ''} {name or ''}".lower()
     for cat, keywords in _CATALOG_CATEGORY_KEYWORDS:
         if any(k in haystack for k in keywords):
-            return cat
+            # The legacy keyword list uses short titles ("Маска", "Крем");
+            # map them to the same canonical labels used by the shelf UI.
+            return canonical_subcategory("face", cat)
     return "Другое"
 
 

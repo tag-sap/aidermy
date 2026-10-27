@@ -68,6 +68,7 @@ export type ScanDraftPayload = {
   name?: string
   variant?: string | null
   type?: string | null
+  category?: string | null
   volume?: string | null
   barcode?: string | null
   ingredients: string
@@ -694,8 +695,11 @@ export const api = {
   },
 
   // ===== скан по ссылке =====
+  async brands(q = "") {
+    return request<{ brands: string[] }>(`/brands?q=${encodeURIComponent(q)}`)
+  },
   async importUrl(url: string) {
-    return request<{ success: boolean; product: { name?: string; brand?: string; image_url?: string; category?: string; ingredients_raw?: string; has_inci?: boolean; ingredients_source?: "page" | "database" | "missing"; composition_verified?: boolean; slug?: string; id?: number } }>("/products/import-url", {
+    return request<{ success: boolean; product: { name?: string; brand?: string; image_url?: string; category?: string; subcategory?: string; ingredients_raw?: string; has_inci?: boolean; ingredients_source?: "page" | "database" | "missing"; composition_verified?: boolean; slug?: string; id?: number; name_source?: string; brand_source?: string; image_source?: string } }>("/products/import-url", {
       method: "POST",
       body: JSON.stringify({ url }),
     })

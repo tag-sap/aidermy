@@ -273,6 +273,18 @@ def build_canonical(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     if not _non_empty(merged.get("brand")):
         merged["brand"] = _extract_brand_from_name(merged.get("name")) or a.get("brand") or b.get("brand")
 
+    def _managed_image(value: Any) -> bool:
+        text = str(value or "").lower()
+        return "storage.yandexcloud.net/" in text and "/processed/" in text
+
+    # A processed image in the Aidermy bucket is an existing canonical asset.
+    # Re-importing the same remote page must not replace it with the raw URL
+    # (and must especially not replace it with an unrelated image).
+    if _managed_image(a.get("image_url")) != _managed_image(b.get("image_url")):
+        merged["image_url"] = (
+            a.get("image_url") if _managed_image(a.get("image_url")) else b.get("image_url")
+        )
+
     # Подтверждённый состав из более приоритетного источника (official/verified)
     # не перезаписываем более длинным, но сомнительным INCI со сканера/OCR.
     a_pri = _field_priority(a, "ingredients")

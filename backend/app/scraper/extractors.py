@@ -140,6 +140,8 @@ _BRAND_DOMAINS: dict[str, str] = {
     "neutrogena.com": "Neutrogena",
     "olaplex.com": "Olaplex",
     "skinceuticals.com": "SkinCeuticals",
+    "angiopharm.com": "AngioPharm",
+    "angiofarm.ru": "AngioPharm",
 }
 
 

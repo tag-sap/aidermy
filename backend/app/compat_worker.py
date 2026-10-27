@@ -269,6 +269,10 @@ class CompatWorker:
             product_id=product_id,
             profile=_profile(task),
             user_id=user_id,
+            # The individual UI consumes the verdict/report contract, not a
+            # numeric legacy score. Compatibility sets still require a score and
+            # enforce it in their own branch.
+            require_score=False,
         )
         if charge:
             charge_saved_report(user_id=user_id, report=report, profile=_profile(task))

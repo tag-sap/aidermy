@@ -38,6 +38,26 @@ class UrlPreviewContractTests(unittest.TestCase):
             APP,
         )
 
+    def test_import_preview_requires_brand_name_inci_and_canonical_category(self):
+        self.assertIn("readyBrandMissing", APP)
+        self.assertIn("readyNameMissing", APP)
+        self.assertIn("readyInciMissing", APP)
+        self.assertIn("readyCategoryMissing", APP)
+        self.assertIn("canContinueReady", APP)
+        self.assertIn("Выберите категорию", APP)
+        self.assertNotIn('category: "Специальный уход"', APP)
+        self.assertIn("normalizeCategoryValue", APP)
+
+    def test_brand_autocomplete_uses_the_existing_directory(self):
+        self.assertIn("/brands?q=", (FRONTEND / "api.ts").read_text(encoding="utf-8"))
+        self.assertIn("brand-suggest", APP)
+        self.assertIn("api.brands", APP)
+
+    def test_import_does_not_fall_back_to_a_mock_product_image(self):
+        self.assertNotIn("products[6].image", APP)
+        self.assertIn("image: image || \"\"", APP)
+        self.assertIn("Фото отсутствует", MAPPING)
+
 
 class PhotoScanContractTests(unittest.TestCase):
     def test_camera_gallery_and_files_share_one_image_list(self):

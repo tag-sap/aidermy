@@ -243,7 +243,12 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
             "brand": capitalize_name(display_brand),
             "slug": product.get("slug") or slug,
             "image_url": product.get("image_url") or "",
-            "category": product.get("category") or "",
+            "category": (
+                product.get("subcategory")
+                if product.get("subcategory") not in {None, "", "Все товары категории"}
+                else product.get("category")
+            ) or "",
+            "subcategory": product.get("subcategory") or "",
             "ingredients": product.get("ingredients") or "",
             "url": product.get("url") or "",
             "barcode": product.get("barcode") or "",
@@ -281,9 +286,15 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
                     imported.brand = m.get("brand") or imported.brand
             except Exception:
                 pass
-        # Нормализуем категорию к канонической категории каталога (не храним сырую/название продукта).
+        # Нормализуем категорию к канонической категории Aidermy. Сырое
+        # значение retailer-сайта или «Специальный уход» не является решением
+        # о назначении продукта.
         from .shelf_service import normalize_imported_category
         imported.category = normalize_imported_category(imported.category, imported.name)
+        if imported.category == "Другое":
+            # Keep the preview honest: an unknown category is not a product
+            # category. The UI must ask the user to choose a canonical one.
+            imported.category = ""
         payload = imported.to_dict()
         payload["contributed_by"] = current_user.get("id") if current_user else None
         saved = upsert_imported_product(payload)
@@ -300,6 +311,15 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
             except Exception:
                 pass
         saved_ingredients = saved.get("ingredients") or ""
+        # `subcategory` is the canonical taxonomy title written by
+        # upsert_imported_product; the legacy `category` column may still say
+        # «Маска» for an old row. The preview must receive a valid category.
+        response_category = (
+            saved.get("subcategory")
+            or normalize_imported_category(saved.get("category") or "", saved.get("name") or "")
+        )
+        if response_category == "Другое":
+            response_category = ""
         product = {
             "name": saved.get("name"),
             "brand": saved.get("brand"),
@@ -308,7 +328,8 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
             "price": imported.price,
             "currency": imported.currency,
             "volume": imported.volume,
-            "category": saved.get("category"),
+            "category": response_category,
+            "subcategory": saved.get("subcategory") or "",
             "description": imported.description,
             "ingredients_raw": saved_ingredients,
             "has_inci": has_reliable_inci({"ingredients": saved_ingredients}),
@@ -324,6 +345,9 @@ async def import_product_from_url(request: ImportUrlRequest, current_user: dict 
             "source_url": saved.get("url"),
             "slug": saved.get("slug"),
             "id": saved.get("id"),
+            "name_source": imported.name_source,
+            "brand_source": imported.brand_source,
+            "image_source": imported.image_source,
         }
         return {"success": True, "product": product}
     except ProductImportError as exc:
@@ -594,12 +618,30 @@ async def create_product_endpoint(
                 normalized.append(canonical)
         ingredients_str = ", ".join(normalized)
 
+        # The UI contract requires brand, name and a real INCI list. Enforce it
+        # here as well: a client cannot bypass preview validation by calling the
+        # API directly.
+        if not brand:
+            raise HTTPException(status_code=422, detail="Укажите бренд продукта.")
+        if not name:
+            raise HTTPException(status_code=422, detail="Укажите название продукта.")
+        if len(normalized) < 2:
+            raise HTTPException(
+                status_code=422,
+                detail="Укажите корректный состав INCI — минимум два ингредиента.",
+            )
+
         # Регистрируем ингредиенты в Ingredient DB (идемпотентно, без дублей).
         if normalized:
             register_ingredients([{"raw": n, "normalized": n} for n in normalized])
 
         slug = (request.slug or "").strip()
-        category = (request.category or "").strip() or normalize_imported_category("", name)
+        category = normalize_imported_category(request.category or "", name)
+        if category == "Другое":
+            raise HTTPException(
+                status_code=422,
+                detail="Не удалось определить категорию. Выберите категорию из справочника Aidermy.",
+            )
 
         # Лицевое фото из единого сканирования сохраняем в постоянное хранилище.
         # При ошибке S3 карточку без фото не создаём и успех не выдаём.
@@ -634,6 +676,12 @@ async def create_product_endpoint(
             "source_type": (request.source_type or "").strip() or "manual",
         })
 
+        response_category = (
+            saved.get("subcategory")
+            or normalize_imported_category(saved.get("category") or "", saved.get("name") or "")
+        )
+        if response_category == "Другое":
+            response_category = ""
         return {
             "success": True,
             "product": {
@@ -642,7 +690,8 @@ async def create_product_endpoint(
                 "slug": saved.get("slug"),
                 "brand": saved.get("brand"),
                 "image_url": saved.get("image_url"),
-                "category": saved.get("category"),
+                "category": response_category,
+                "subcategory": saved.get("subcategory") or "",
                 "ingredients": saved.get("ingredients"),
                 "source_url": saved.get("url"),
                 "volume": saved.get("volume"),
@@ -740,10 +789,21 @@ async def legal_meta_endpoint():
 @app.get("/api/brands")
 async def get_brands(q: str = ""):
     data = await get_categories()
-    brands = list(data.get("brands") or [])
-    query = (q or "").strip().lower()
+    raw_brands = list(data.get("brands") or [])
+    query = " ".join((q or "").strip().lower().split())
     if query:
-        brands = [b for b in brands if query in str(b).lower()]
+        raw_brands = [b for b in raw_brands if query in " ".join(str(b).lower().split())]
+    # The catalog historically contains both Angiopharm and AngioPharm. The
+    # autocomplete must not offer case/spacing duplicates as separate brands.
+    brands: list[str] = []
+    seen: set[str] = set()
+    for brand in raw_brands:
+        text = " ".join(str(brand).split())
+        key = text.casefold()
+        if not text or key in seen:
+            continue
+        seen.add(key)
+        brands.append(text)
     return {"brands": brands[:30]}
 
 
@@ -2012,6 +2072,28 @@ async def add_to_shelf(request: ShelfAddRequest, current_user: dict = Depends(ge
             cabinet = "face"
         category = canonical_category(cabinet, request.category)
 
+    # Never persist a technical/unknown category. The catalog taxonomy is the
+    # source of truth; an empty value falls back to the product's natural
+    # category, which is also what the shelf UI displays.
+    if not category or category == "Другое":
+        natural_cabinet, natural_category = infer_cabinet_category(
+            (product.get("category") or product.get("subcategory") or ""),
+            product.get("name") or "",
+        )
+        if natural_category and natural_category != "Другое":
+            cabinet, category = natural_cabinet, natural_category
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail="Не удалось определить категорию продукта. Выберите категорию из справочника Aidermy.",
+            )
+    allowed = set((CABINET_BY_KEY.get(cabinet) or {}).get("categories") or [])
+    if allowed and category not in allowed:
+        raise HTTPException(
+            status_code=422,
+            detail="Категория не входит в справочник Aidermy. Выберите другую категорию.",
+        )
+
     ok, reason = is_product_compatible(product, cabinet, category)
     if not ok:
         raise HTTPException(status_code=422, detail=reason)
@@ -2627,11 +2709,38 @@ async def update_shelf_state(shelf_id: int, request: ShelfStateRequest, current_
 
 @app.patch("/api/shelf/{shelf_id}")
 async def update_shelf_product(shelf_id: int, request: ShelfUpdateRequest, current_user: dict = Depends(get_current_user)):
-    from .database import update_shelf_product_category
-    updated = update_shelf_product_category(current_user["id"], shelf_id, request.category)
+    from .database import (
+        get_product_by_id,
+        get_user_shelf,
+        update_shelf_product_category,
+    )
+    from .shelf_service import CABINET_BY_KEY, canonical_category, is_product_compatible
+
+    shelf_row = next(
+        (row for row in get_user_shelf(current_user["id"]) if int(row.get("id") or 0) == int(shelf_id)),
+        None,
+    )
+    if not shelf_row:
+        raise HTTPException(status_code=404, detail="Не найдено")
+    cabinet = str(shelf_row.get("cabinet") or "face").strip().lower()
+    if cabinet not in CABINET_BY_KEY:
+        cabinet = "face"
+    category = canonical_category(cabinet, request.category)
+    allowed = set((CABINET_BY_KEY.get(cabinet) or {}).get("categories") or [])
+    if not category or category == "Другое" or (allowed and category not in allowed):
+        raise HTTPException(
+            status_code=422,
+            detail="Категория не входит в справочник Aidermy. Выберите другую категорию.",
+        )
+    product = get_product_by_id(int(shelf_row.get("product_id") or 0))
+    if product:
+        ok, reason = is_product_compatible(product, cabinet, category)
+        if not ok:
+            raise HTTPException(status_code=422, detail=reason)
+    updated = update_shelf_product_category(current_user["id"], shelf_id, category)
     if not updated:
         raise HTTPException(status_code=404, detail="Не найдено")
-    return {"status": "ok"}
+    return {"status": "ok", "category": category}
 
 
 @app.delete("/api/shelf/{shelf_id}")

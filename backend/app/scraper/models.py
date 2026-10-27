@@ -15,6 +15,11 @@ class ProductImportResult:
     description: str | None = None
     ingredients_raw: str | None = None
     source_url: str | None = None
+    # Provenance of extracted fields. ``slug`` is deliberately marked as a
+    # fallback: it must not be presented as a confirmed product fact.
+    name_source: str | None = None
+    brand_source: str | None = None
+    image_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -42,4 +47,8 @@ class ProductImportResult:
         haystack = " ".join(filter(None, (self.name, self.description))).lower()
         if any(marker in haystack for marker in blocked_markers):
             return False
+        # A slug-derived name is intentionally marked as unconfirmed, but it is
+        # still enough to open the preview and ask the user for brand/INCI.
+        if self.name_source == "slug":
+            return True
         return bool(self.description or self.ingredients_raw or self.image_url)

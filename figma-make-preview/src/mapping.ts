@@ -2,8 +2,12 @@
 import type { ApiProduct, ShelfItem, EvaluationPreviewStatus } from "./api"
 import type { Product, CabinetKey, Verdict, Match, PersonalCheck } from "./data"
 
-function placeholderImage(id: number): string {
-  return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#f0f0f0"/><text x="100" y="105" font-size="30" text-anchor="middle" fill="#bbb">${id}</text></svg>`)}`
+function placeholderImage(_id?: number): string {
+  // A neutral, explicit empty state — never a stock photo or a number that can
+  // be mistaken for a product packshot.
+  return `data:image/svg+xml;utf8,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" rx="18" fill="#f1f2ef"/><rect x="54" y="62" width="92" height="70" rx="12" fill="none" stroke="#b8bcb2" stroke-width="4"/><circle cx="100" cy="92" r="14" fill="none" stroke="#b8bcb2" stroke-width="4"/><path d="M68 120l22-20 16 14 12-10 14 16" fill="none" stroke="#b8bcb2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><text x="100" y="158" font-family="sans-serif" font-size="12" text-anchor="middle" fill="#8d9389">Фото отсутствует</text></svg>',
+  )}`
 }
 
 export function inferCabinet(category?: string, name?: string): CabinetKey {
@@ -99,8 +103,10 @@ function toMatch(a: {
 
 export function mapApiProduct(api: ApiProduct): Product {
   const { brand, name } = splitProductName(api.name || "", api.brand)
-  const category = api.catalog_category || api.category || ""
-  const subcategory = api.catalog_subcategory || ""
+  // Internal taxonomy `subcategory` is canonical and often more precise than
+  // the legacy retailer `category` column (e.g. «Маски» vs «Маска»).
+  const category = api.catalog_category || api.subcategory || api.category || ""
+  const subcategory = api.catalog_subcategory || api.subcategory || ""
   return {
     id: api.id,
     brand,

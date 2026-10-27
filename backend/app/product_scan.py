@@ -22,6 +22,7 @@ from .product_identification import (
     web_search_product,
 )
 from .product_dedup import find_product_by_barcode
+from .shelf_service import normalize_imported_category
 from .vision_service import identify_product, recognized_normalized_list, recognize_composition
 
 
@@ -70,13 +71,23 @@ def _base_draft(
     slug: str = "",
     product_id: Optional[int] = None,
 ) -> Dict[str, Any]:
+    name = str(identified.get("product_name") or identified.get("name") or "").strip()
+    from .shelf_service import normalize_imported_category
+
+    category = normalize_imported_category(
+        str(identified.get("category") or identified.get("type") or ""),
+        name,
+    )
+    if category == "Другое":
+        category = ""
     return {
         "id": product_id,
         "slug": slug,
         "brand": str(identified.get("brand") or "").strip(),
-        "name": str(identified.get("product_name") or identified.get("name") or "").strip(),
+        "name": name,
         "variant": identified.get("variant"),
-        "type": identified.get("type") or identified.get("category"),
+        "type": category or None,
+        "category": category,
         "volume": identified.get("volume"),
         "barcode": identified.get("barcode"),
         "ingredients": _ingredients_text(ingredients),
@@ -275,7 +286,11 @@ async def scan_product_package(front_image: str, back_image: str | List[str]) ->
                     "name": candidate.get("name") or name,
                     "brand": candidate.get("brand") or brand,
                     "image_url": candidate.get("image_url") or "",
-                    "category": candidate.get("category") or "",
+                    "category": candidate.get("subcategory")
+                    or normalize_imported_category(
+                        candidate.get("category") or "", candidate.get("name") or ""
+                    ),
+                    "subcategory": candidate.get("subcategory") or "",
                     "ingredients": candidate.get("ingredients") or "",
                     "barcode": candidate.get("barcode") or "",
                     "variant": candidate.get("variant") or "",

@@ -245,6 +245,35 @@ class CompatibilityTaskTests(unittest.TestCase):
         self.assertIsInstance(result, PartialReport)
         self.assertEqual(result.snapshot["total"], 70)
 
+    def test_individual_verdict_report_does_not_require_a_numeric_score(self):
+        from app.compat_service import TaskFailed, get_or_analyze_product
+
+        class VerdictReport(_Report):
+            def __init__(self):
+                self.analysis = type("Analysis", (), {"is_final": False})()
+                self.snapshot = {"snapshot_id": "verdict-only", "total": None, "parameters": []}
+
+        class VerdictService(_Service):
+            def analyze_product(self, product_id, **kwargs):
+                return VerdictReport()
+
+        report = get_or_analyze_product(
+            VerdictService(),
+            product_id=7,
+            profile={"skin_type": "dry"},
+            user_id=1,
+            require_score=False,
+        )
+        self.assertIsInstance(report, VerdictReport)
+        with self.assertRaises(TaskFailed):
+            get_or_analyze_product(
+                VerdictService(),
+                product_id=7,
+                profile={"skin_type": "dry"},
+                user_id=1,
+                require_score=True,
+            )
+
 
     def test_report_has_no_empty_sections_and_marks_data_limits(self):
         report = build_compatibility_report(

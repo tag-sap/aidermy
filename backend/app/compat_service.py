@@ -151,15 +151,19 @@ def get_or_analyze_product(
     profile: dict,
     user_id: int,
     product_loader=None,
+    require_score: bool = True,
 ):
-    """Reuse a current saved report; otherwise run the existing analysis once."""
+    """Reuse a current saved report; otherwise run the existing analysis once.
+
+    Individual checks are verdict-first: a valid saved user report does not need
+    a numeric legacy score. Compatibility sets still require a numeric score to
+    calculate pairwise compatibility, so the worker passes ``require_score``
+    explicitly.
+    """
     saved = service.saved_report(
         product_id=int(product_id), profile=profile, user_id=int(user_id)
     )
-    # A numeric saved score is usable even when secondary parameters remain
-    # unassessed. Newly created products only need brand/name/composition to
-    # get a score; gaps must not block the normal scan/save/check flow.
-    if saved is not None and product_score(saved) is not None:
+    if saved is not None and (not require_score or product_score(saved) is not None):
         return saved
     report = service.analyze_product(
         int(product_id),
@@ -168,7 +172,7 @@ def get_or_analyze_product(
         allow_research=True,
         product_loader=product_loader,
     )
-    if product_score(report) is None:
+    if require_score and product_score(report) is None:
         raise TaskFailed(
             "Не удалось получить числовую индивидуальную оценку продукта. "
             "Повторите проверку позже; отчёт по набору не сформирован."

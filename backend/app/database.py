@@ -668,11 +668,31 @@ def upsert_imported_product(product: dict) -> dict:
         "currency": product.get("currency"),
         "incidecoder_url": product.get("incidecoder_url"),
         "contributed_by": product.get("contributed_by"),
-        "source_type": product.get("source_type"),
+        # URL imports often carry only source_url; preserve that provenance
+        # instead of silently reducing the card to "manual".
+        "source_type": product.get("source_type") or (
+            "url" if (product.get("source_url") or product.get("url")) else None
+        ),
         "slug": product.get("slug"),
     }
 
     result = find_or_create_canonical_product(payload)
+
+    # Existing rows may predate source_type (especially URL imports). Persist
+    # provenance explicitly so Evaluation can distinguish a user-supplied URL
+    # from an unverified catalog source.
+    if payload.get("source_type") and not result.get("source_type"):
+        try:
+            conn_source = get_connection(PRODUCTS_DB)
+            conn_source.execute(
+                "UPDATE products SET source_type = ? WHERE id = ? AND (source_type IS NULL OR source_type = '')",
+                (payload["source_type"], result.get("id")),
+            )
+            conn_source.commit()
+            conn_source.close()
+            result["source_type"] = payload["source_type"]
+        except Exception:
+            pass
 
     # Сразу резолвим таксономию каталога (category/subcategory), чтобы товар
     # попадал в фильтры без ожидания следующего бэкфилла на старте.

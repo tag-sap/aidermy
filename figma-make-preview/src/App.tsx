@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type SyntheticEvent } from "react"
+ import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type SyntheticEvent } from "react"
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
@@ -6,7 +6,7 @@ import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProdu
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { LEGAL_DOCS } from "./legal-content"
 import { CareSetsPage } from "./careSets"
-import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, resetUserProfile, getUserProfile, applyCheckStatuses } from "./mapping"
+import { mapApiProduct, mapShelfItem, mapRecommendation, mapVerdict, normalizeVerdict, buildProfile, setUserProfile, resetUserProfile, getUserProfile, applyCheckStatuses, inferCabinet } from "./mapping"
 import { PhotoScan } from "./photo-scan"
 import { ReportDetails } from "./report-details"
 import { readShelfCache, writeShelfCache, clearShelfCache, type ShelfMeta } from "./shelf-cache"
@@ -2381,6 +2381,50 @@ function highlightInci(raw: string, caution: string[]): React.ReactNode {
   })
 }
 
+function inciTokens(value: string): string[] {
+  return value
+    .replace(/;/g, ",")
+    .split(/[,\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+const CATEGORY_ALIASES: Record<string, string> = {
+  "маска": "Маски",
+  "маски": "Маски",
+  "очищение": "Очищение и демакияж",
+  "очищение и демакияж": "Очищение и демакияж",
+  "тонер": "Тонизирование",
+  "тонизирование": "Тонизирование",
+  "сыворотка": "Сыворотки",
+  "сыворотки": "Сыворотки",
+  "крем": "Кремы",
+  "кремы": "Кремы",
+  "увлажнение": "Увлажнение и питание",
+  "увлажнение и питание": "Увлажнение и питание",
+  "защита": "Специальный уход",
+  "spf": "Специальный уход",
+}
+
+function normalizeCategoryValue(raw: string, name: string): string {
+  const candidate = (raw || "").trim()
+  if (candidate && CATEGORY_ALIASES[candidate.toLowerCase()]) return CATEGORY_ALIASES[candidate.toLowerCase()]
+  if (candidate) {
+    const direct = CABINETS.flatMap((cabinet) => cabinet.categories).find(
+      (category) => category.toLowerCase() === candidate.toLowerCase(),
+    )
+    if (direct) return direct
+  }
+  const low = (name || "").toLowerCase()
+  if (/маск|mask/.test(low)) return "Маски"
+  if (/сыворот|serum|эссенц|essence/.test(low)) return "Сыворотки"
+  if (/тонер|тоник|toner/.test(low)) return "Тонизирование"
+  if (/крем|cream|эмульс|emulsion/.test(low)) return "Кремы"
+  if (/очищ|cleans|пенк|foam|гель для умывания/.test(low)) return "Очищение и демакияж"
+  if (/spf|солнц|защит|sunscreen/.test(low)) return "Специальный уход"
+  return ""
+}
+
 function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: Product) => void; initialMethod?: ScanMethod; guestToken?: string }) {
   const [method, setMethod] = useState<ScanMethod>(initialMethod ?? "photo")
   const [phase, setPhase] = useState<"input" | "recognizing" | "ready">("input")
@@ -2388,7 +2432,11 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
   const [brand, setBrand] = useState("")
   const [name, setName] = useState("")
   const [inci, setInci] = useState("")
+  const [category, setCategory] = useState("")
   const [url, setUrl] = useState("")
+  const [brandSuggestions, setBrandSuggestions] = useState<string[]>([])
+  const [brandSuggestOpen, setBrandSuggestOpen] = useState(false)
+  const brandSuggestTimer = useRef<number | null>(null)
   const [photoAdded, setPhotoAdded] = useState(false)
   const [inciPhotoAdded, setInciPhotoAdded] = useState(false)
   // Фото продукта при ручном добавлении (необязательное).
@@ -2400,6 +2448,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
   const [slug, setSlug] = useState<string | undefined>(undefined)
   const [imageUrl, setImageUrl] = useState("")
   const [busy, setBusy] = useState(false)
+  const [persisting, setPersisting] = useState(false)
   const [scanError, setScanError] = useState("")
   const [scanNotice, setScanNotice] = useState("")
 
@@ -2410,23 +2459,128 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
   ]
 
   const needManualFields = method === "inci" || method === "manual"
-  const canRun = busy ? false : method === "photo" ? photoAdded : method === "inci" ? brand.trim().length > 0 && name.trim().length > 0 && inciPhotoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inci.trim().length > 0
+  const canRun = busy ? false : method === "photo" ? photoAdded : method === "inci" ? brand.trim().length > 0 && name.trim().length > 0 && inciPhotoAdded : method === "link" ? url.trim().length > 0 : brand.trim().length > 0 && name.trim().length > 0 && inciTokens(inci).length >= 2
 
-  const buildResult = (b: string, n: string, image: string, productSlug: string | undefined, inci: string, res: { score?: number | null; verdict?: string; analysis_id?: number; recommendation_status?: string; negative_only_score?: number; } | undefined, productId?: number): Product => {
+  const readyCabinet = inferCabinet(category || name, name)
+  const categoryOptions = (CABINETS.find((item) => item.key === readyCabinet)?.categories ?? []).filter(Boolean)
+  const readyBrandMissing = !brand.trim()
+  const readyNameMissing = !name.trim()
+  const readyInciMissing = inciTokens(inci).length < 2
+  const readyCategoryMissing = !category.trim() || (categoryOptions.length > 0 && !categoryOptions.includes(category))
+  const canContinueReady = !busy && !readyBrandMissing && !readyNameMissing && !readyInciMissing && !readyCategoryMissing
+
+  const requestBrandSuggestions = (value: string) => {
+    setBrandSuggestOpen(true)
+    if (brandSuggestTimer.current != null) window.clearTimeout(brandSuggestTimer.current)
+    const query = value.trim()
+    if (query.length < 2) {
+      setBrandSuggestions([])
+      return
+    }
+    brandSuggestTimer.current = window.setTimeout(() => {
+      void api.brands(query)
+        .then((result) => setBrandSuggestions(Array.isArray(result.brands) ? result.brands : []))
+        .catch(() => setBrandSuggestions([]))
+    }, 180)
+  }
+
+  const chooseBrand = (value: string) => {
+    setBrand(value)
+    setBrandSuggestOpen(false)
+    setBrandSuggestions([])
+  }
+
+  const continueFromPreview = async () => {
+    if (!result) return
+    if (!canContinueReady) {
+      setScanError("Заполните бренд, название, состав INCI и выберите категорию.")
+      return
+    }
+    const finalCategory = normalizeCategoryValue(category, name)
+    let finalProduct: Product = {
+      ...result,
+      brand: brand.trim(),
+      name: name.trim(),
+      category: finalCategory,
+      cabinet: inferCabinet(finalCategory || name, name),
+      ingredients: inci.trim() || result.ingredients,
+      tags: finalCategory ? [finalCategory] : [],
+    }
+    const changed = method === "link" && (
+      finalProduct.brand !== result.brand
+      || finalProduct.name !== result.name
+      || finalProduct.ingredients !== result.ingredients
+      || finalProduct.category !== result.category
+    )
+    if (changed) {
+      setPersisting(true)
+      setScanError("")
+      try {
+        // Import saves the first available card immediately. If the user filled
+        // a missing brand/name or corrected INCI/category, persist those edits
+        // so the shelf and the next page load use the confirmed card.
+        const saved = await api.createProduct({
+          brand: finalProduct.brand,
+          name: finalProduct.name,
+          ingredients: inciTokens(finalProduct.ingredients || ""),
+          slug: result.slug,
+          source_url: extractUrl(url),
+          volume: undefined,
+          category: finalCategory,
+          source_type: "url",
+        })
+        const savedProduct = saved.product
+        finalProduct = {
+          ...finalProduct,
+          id: typeof savedProduct.id === "number" ? savedProduct.id : finalProduct.id,
+          slug: savedProduct.slug || finalProduct.slug,
+          brand: savedProduct.brand || finalProduct.brand,
+          name: savedProduct.name || finalProduct.name,
+          category: savedProduct.category
+            ? normalizeCategoryValue(savedProduct.category, savedProduct.name || finalProduct.name)
+            : finalProduct.category,
+          image: savedProduct.image_url || finalProduct.image,
+        }
+      } catch (error) {
+        setScanError(error instanceof Error ? error.message : "Не удалось сохранить исправленные данные карточки.")
+        setPersisting(false)
+        return
+      } finally {
+        setPersisting(false)
+      }
+    }
+    onContinue(finalProduct)
+  }
+
+  const buildResult = (
+    b: string,
+    n: string,
+    image: string,
+    productSlug: string | undefined,
+    inci: string,
+    res: { score?: number | null; verdict?: string; analysis_id?: number; recommendation_status?: string; negative_only_score?: number; } | undefined,
+    productId?: number,
+    productCategory = "",
+    productSubcategory = "",
+  ): Product => {
     const score = res?.score ?? null
     const recStatus = res?.recommendation_status
     const negOnly = res && typeof res.negative_only_score === "number" ? res.negative_only_score : null
     const verdict = recStatus === "Не рекомендовано" ? ("Не рекомендовано" as Verdict) : mapVerdict(score, res?.verdict)
     const displayScore = recStatus === "Не рекомендовано" && negOnly != null ? negOnly : score
     const aid = res && typeof res.analysis_id === "number" ? res.analysis_id : undefined
+    const resolvedCategory = normalizeCategoryValue(productCategory, n) || normalizeCategoryValue("", n)
     return {
       id: productId ?? 900 + Math.floor(Math.random() * 90),
-      brand: b || "Продукт",
-      name: n || "Продукт",
-      cabinet: "face",
-      category: "Специальный уход",
-      image: image || products[6].image,
-      tags: [],
+      brand: b,
+      name: n,
+      cabinet: inferCabinet(resolvedCategory || n, n),
+      category: resolvedCategory,
+      subcategory: productSubcategory || undefined,
+      // Never use a decorative stock/mock image for an imported card. An empty
+      // value is rendered as the explicit "нет фото" placeholder by ProductImage.
+      image: image || "",
+      tags: resolvedCategory ? [resolvedCategory] : [],
       state: "want",
       slug: productSlug,
       ingredients: inci || undefined,
@@ -2445,24 +2599,59 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
       if (method === "link") {
         const res = await api.importUrl(extractUrl(url))
         const prod = res.product || {}
-        const b = prod.brand || brand.trim()
-        const n = prod.name || name.trim()
+        // Never substitute a placeholder brand/name here: fields stay empty and
+        // the preview blocks continuation until the user fills them.
+        const b = (prod.brand || "").trim()
+        const n = (prod.name || "").trim()
         const pageInci = (prod.ingredients_raw || "").trim()
-        const hasInci = prod.has_inci === true || (prod.has_inci === undefined && pageInci.length > 0)
-        setBrand(b); setName(n); setInci(pageInci)
+        const hasInci = inciTokens(pageInci).length >= 2
+        const importedCategory = normalizeCategoryValue(prod.category || "", n)
+        setBrand(b)
+        setName(n)
+        setInci(pageInci)
+        setCategory(importedCategory)
         // Importing/finding a card is not a compatibility check. Show the
         // verified card data and run the analysis only after an explicit action.
-        setResult(buildResult(b, n, prod.image_url || "", prod.slug, pageInci, undefined, typeof prod.id === "number" ? prod.id : undefined))
+        setResult(buildResult(
+          b,
+          n,
+          prod.image_url || "",
+          prod.slug,
+          pageInci,
+          undefined,
+          typeof prod.id === "number" ? prod.id : undefined,
+          importedCategory,
+          prod.subcategory || "",
+        ))
+        const missing = [
+          !b ? "бренд" : "",
+          !n ? "название" : "",
+          !hasInci ? "состав INCI" : "",
+        ].filter(Boolean)
+        const slugNote = prod.name_source === "slug"
+          ? " Название восстановлено из ссылки — проверьте его перед продолжением."
+          : ""
         setScanNotice(
-          hasInci
-            ? "Карточка импортирована. Проверьте состав и нажмите «Продолжить анализ» — совместимость ещё не проверялась."
-            : "Товар распознан, но состав на странице не опубликован. Введите INCI вручную или сфотографируйте упаковку.",
+          missing.length
+            ? `Карточка импортирована. Заполните обязательные поля: ${missing.join(", ")}.${slugNote}`
+            : `Карточка импортирована. Проверьте данные и нажмите «Продолжить анализ» — совместимость ещё не проверялась.${slugNote}`,
         )
         setPhase("ready")
         return
       } else if (method === "photo") {
         const checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile, guest_token: guestToken })
-        setResult(buildResult(brand.trim(), name.trim(), imageUrl || checkRes.image_url || "", slug || checkRes.slug, "", checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
+        const photoCategory = normalizeCategoryValue("", name.trim())
+        setCategory(photoCategory)
+        setResult(buildResult(
+          brand.trim(),
+          name.trim(),
+          imageUrl || checkRes.image_url || "",
+          slug || checkRes.slug,
+          "",
+          checkRes as { score?: number | null; verdict?: string; analysis_id?: number },
+          undefined,
+          photoCategory,
+        ))
       } else {
         // inci / manual — анализируем распознанный/введённый состав; если состава
         // нет (не распознался) — проверяем по названию (бэкенд возьмёт INCI из БД).
@@ -2472,7 +2661,18 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
         } else {
           checkRes = await api.check({ product_name: name.trim(), skin_type: skinType, profile, image_url: manualImage || undefined, guest_token: guestToken })
         }
-        setResult(buildResult(brand.trim(), name.trim(), manualImage || "", checkRes.slug || "", inci.trim(), checkRes as { score?: number | null; verdict?: string; analysis_id?: number }))
+        const manualCategory = normalizeCategoryValue("", name.trim())
+        setCategory(manualCategory)
+        setResult(buildResult(
+          brand.trim(),
+          name.trim(),
+          manualImage || "",
+          checkRes.slug || "",
+          inci.trim(),
+          checkRes as { score?: number | null; verdict?: string; analysis_id?: number },
+          undefined,
+          manualCategory,
+        ))
       }
       setPhase("ready")
     } catch (e) {
@@ -2584,7 +2784,35 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
           {scanError && <p className="scan-error" role="alert">{scanError}</p>}
           {needManualFields && (
             <div className="scan-form__row">
-              <label><span>Бренд *</span><input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Например, COSRX" /></label>
+              <label>
+                <span>Бренд *</span>
+                <span className="brand-field">
+                  <input
+                    value={brand}
+                    onChange={(e) => {
+                      setBrand(e.target.value)
+                      requestBrandSuggestions(e.target.value)
+                    }}
+                    onFocus={() => requestBrandSuggestions(brand)}
+                    onBlur={() => window.setTimeout(() => setBrandSuggestOpen(false), 160)}
+                    placeholder="Начните вводить бренд"
+                    autoComplete="off"
+                    aria-expanded={brandSuggestOpen}
+                    aria-controls="brand-suggest-input"
+                  />
+                  {brandSuggestOpen && brandSuggestions.length > 0 && (
+                    <ul className="brand-suggest" id="brand-suggest-input" role="listbox">
+                      {brandSuggestions.map((suggestion) => (
+                        <li key={suggestion} role="option" aria-selected={suggestion === brand}>
+                          <button type="button" onMouseDown={(event) => { event.preventDefault(); chooseBrand(suggestion) }}>
+                            {suggestion}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </span>
+              </label>
               <label><span>Название *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Advanced Snail 96" /></label>
             </div>
           )}
@@ -2699,9 +2927,50 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
             </div>
           </div>
           <div className="scan-form__row scan-ready__edit">
-            <label><span>Бренд</span><input value={brand} onChange={(e) => setBrand(e.target.value)} /></label>
-            <label><span>Название</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
+            <label>
+              <span>Бренд *</span>
+              <span className="brand-field">
+                <input
+                  value={brand}
+                  onChange={(e) => {
+                    setBrand(e.target.value)
+                    requestBrandSuggestions(e.target.value)
+                  }}
+                  onFocus={() => requestBrandSuggestions(brand)}
+                  onBlur={() => window.setTimeout(() => setBrandSuggestOpen(false), 160)}
+                  placeholder="Начните вводить бренд"
+                  autoComplete="off"
+                  aria-expanded={brandSuggestOpen}
+                  aria-controls="brand-suggest-ready"
+                />
+                {brandSuggestOpen && brandSuggestions.length > 0 && (
+                  <ul className="brand-suggest" id="brand-suggest-ready" role="listbox">
+                    {brandSuggestions.map((suggestion) => (
+                      <li key={suggestion} role="option" aria-selected={suggestion === brand}>
+                        <button type="button" onMouseDown={(event) => { event.preventDefault(); chooseBrand(suggestion) }}>
+                          {suggestion}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </span>
+              {readyBrandMissing && <small className="scan-field-error">Укажите бренд — без него нельзя продолжить.</small>}
+            </label>
+            <label>
+              <span>Название *</span>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название продукта" />
+              {readyNameMissing && <small className="scan-field-error">Укажите название продукта.</small>}
+            </label>
           </div>
+          <label className="scan-form__area">
+            <span>Категория *</span>
+            <select value={category} onChange={(e) => setCategory(e.target.value)}>
+              <option value="">Выберите категорию</option>
+              {categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+            {readyCategoryMissing && <small className="scan-field-error">Выберите категорию из справочника Aidermy.</small>}
+          </label>
           <label className="scan-form__area">
             <span>Состав (INCI) {method === "link" && inci.trim() ? "· из карточки" : ""}</span>
             <textarea
@@ -2709,16 +2978,22 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
               onChange={(e) => setInci(e.target.value)}
               rows={3}
               readOnly={method === "link" && Boolean(inci.trim())}
-              placeholder="Состав определится автоматически…"
+              placeholder="Вставьте полный состав INCI…"
             />
+            {readyInciMissing && <small className="scan-field-error">Нужен состав минимум из двух ингредиентов.</small>}
           </label>
           {method === "link" && inci.trim() && (
             <p className="panel__note">Состав из карточки нельзя изменить здесь; для нового состава используйте ручной ввод.</p>
           )}
           <div className="scan-ready__actions">
-            <Button icon="sparkle" onClick={() => onContinue({ ...result, brand: brand.trim() || result.brand, name: name.trim() || result.name, ingredients: inci.trim() || result.ingredients })}>Продолжить анализ</Button>
+            <Button
+              icon="sparkle"
+              disabled={!canContinueReady || persisting}
+              onClick={() => void continueFromPreview()}
+            >{persisting ? "Сохраняем…" : "Продолжить анализ"}</Button>
             <Button variant="ghost" onClick={() => setPhase("input")}>Не то — повторить</Button>
           </div>
+          {!canContinueReady && <p className="scan-warning">Продолжить анализ можно только после заполнения обязательных полей.</p>}
         </div>
       )}
     </div>
@@ -3311,7 +3586,7 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
       } else {
         const inci = product.ingredients || ""
         if (inci.trim()) {
-          res = await api.checkWithIngredients({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile(), ingredients: inci })
+          res = await api.checkWithIngredients({ product_name: product.name, brand: product.brand, skin_type: getUserProfile().skinType, profile: buildProfile(), ingredients: inci })
         } else {
           res = await api.check({ product_name: product.name, skin_type: getUserProfile().skinType, profile: buildProfile() })
         }

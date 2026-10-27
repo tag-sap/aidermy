@@ -176,6 +176,10 @@ def assess_composition(
         "manual",
         "ocr",
         "user",
+        # A URL imported by the user is an explicit choice. Its composition is
+        # still labelled as user-confirmed, but it must be possible to run the
+        # requested analysis without manually creating a second card.
+        "url",
     }:
         return CompositionReadiness(
             usable=True,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { api, ApiError, type CheckResult, type ScanCandidatePayload, type ScanDraftPayload, type ScanProductPayload } from "./api"
-import type { Product } from "./data"
+import { CABINETS, type Product } from "./data"
 import { buildProfile, getUserProfile } from "./mapping"
 import { fileToResizedDataUrl } from "./image-utils"
 
@@ -88,7 +88,9 @@ function toProduct(
     brand: item.brand || "",
     name: item.name || "Продукт",
     cabinet: "face",
-    category: item.category || "Специальный уход",
+    // Do not invent a technical/fallback category. The backend/classification
+    // owns this value; an empty value is completed by the shelf validation.
+    category: item.category || "",
     image: item.image_url || frontImage,
     tags: item.category ? [item.category] : [],
     state: "want",
@@ -182,7 +184,8 @@ export function PhotoScan({ guestToken, onContinue }: {
   // a back photo is requested later only if the composition is missing.
   const canScan = images.length >= 1 && !busy
   const isExistingDraft = Boolean(draft?.id)
-  const canSave = Boolean(draft?.brand?.trim()) && Boolean(draft?.name?.trim()) && splitIngredients(draft?.ingredients || "").length >= 2 && !saving
+  const categoryOptions = Array.from(new Set(CABINETS.flatMap((cabinet) => cabinet.categories)))
+  const canSave = Boolean(draft?.brand?.trim()) && Boolean(draft?.name?.trim()) && Boolean(draft?.category?.trim()) && splitIngredients(draft?.ingredients || "").length >= 2 && !saving
 
   const resetResult = () => {
     setStatus("idle")
@@ -449,7 +452,7 @@ export function PhotoScan({ guestToken, onContinue }: {
         volume: draft.volume || undefined,
         variant: draft.variant || undefined,
         barcode: draft.barcode || undefined,
-        category: draft.type || undefined,
+        category: draft.category || draft.type || undefined,
         source_type: sourceType,
       })
       setReadyProduct(created.product)
@@ -643,6 +646,16 @@ export function PhotoScan({ guestToken, onContinue }: {
           </div>
           <label className="scan-form__area"><span>Название *</span><input value={draft.name || ""} placeholder="*заполните в этом поле" onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
           <label className="scan-form__area">
+            <span>Категория *</span>
+            <select
+              value={draft.category || ""}
+              onChange={(e) => setDraft({ ...draft, category: e.target.value, type: e.target.value })}
+            >
+              <option value="">Выберите категорию</option>
+              {categoryOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+          <label className="scan-form__area">
             <span>Состав (INCI) {isExistingDraft ? "· из каталога" : ""}</span>
             <textarea
               rows={5}
@@ -656,7 +669,7 @@ export function PhotoScan({ guestToken, onContinue }: {
           {draft.barcode && <p className="panel__note">Штрихкод: {draft.barcode}</p>}
           {draft.variant && <p className="panel__note">Вариант: {draft.variant}</p>}
           <p className="panel__note">Карточка не сохраняется, пока вы её не подтвердите. Состав с фото не считается проверенным.</p>
-          {!canSave && <p className="scan-warning">Для сохранения нужны бренд, название и как минимум два ингредиента.</p>}
+          {!canSave && <p className="scan-warning">Для сохранения нужны бренд, название, категория и как минимум два ингредиента.</p>}
           {error && <p className="scan-error" role="alert">{error}</p>}
           <button type="button" className="btn btn--primary" onClick={() => void saveAndCheck()} disabled={!canSave}>
             {saving ? "Сохраняем…" : "Сохранить карточку и проверить"}

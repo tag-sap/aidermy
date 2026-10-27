@@ -85,6 +85,22 @@ class CheckWithIngredientsRequest(BaseModel):
     # Гостевой контекст: обязателен для запроса без авторизации (одна проверка).
     guest_token: Optional[str] = None
 
+    @model_validator(mode="after")
+    def _require_identity_and_inci(self):
+        import re
+
+        if not (self.brand or "").strip():
+            raise ValueError("Укажите бренд продукта.")
+        if not (self.product_name or "").strip():
+            raise ValueError("Укажите название продукта.")
+        raw = (self.ingredients or "").replace(";", ",")
+        parts = [part.strip(" .;•") for part in raw.split(",") if part.strip(" .;•")]
+        if len(parts) < 2 or any(len(part) > 160 for part in parts):
+            raise ValueError("Укажите корректный состав INCI — минимум два ингредиента.")
+        if re.search(r"не\s+распознан|состав\s+не\s+указан|unknown|n/?a", raw, re.I):
+            raise ValueError("Состав не распознан. Введите INCI вручную.")
+        return self
+
 
 class ImportUrlRequest(BaseModel):
     url: str = Field(..., min_length=1, description="URL страницы товара")

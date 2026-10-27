@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -20,7 +20,12 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     BeautifulSoup = None  # type: ignore[assignment]
 
-from .extractors import UnsupportedPageFormat, _ingredients_from_jsonld, is_blocked_page
+from .extractors import (
+    UnsupportedPageFormat,
+    _brand_from_domain,
+    _ingredients_from_jsonld,
+    is_blocked_page,
+)
 from .models import ProductImportResult
 
 logger = logging.getLogger(__name__)
@@ -37,6 +42,150 @@ _SITE_TITLE_SUFFIX = re.compile(
     r"купить|каталог|gold apple|podrygka|wildberries|ozon)\s*$",
     re.I,
 )
+_NAME_NOISE = re.compile(
+    r"^(?:главная(?:\s+страница)?|каталог|корзина|избранное|сравнение|"
+    r"личный\s+кабинет|войти|войдите|зарегистрир|ваша\s+учетная|выход|"
+    r"регистрация|поиск|меню|доставка|оплата|о\s+компании|контакты|"
+    r"home|shop|cart|account|login|search|menu)\b",
+    re.I,
+)
+_PRODUCT_HINT = re.compile(
+    r"(?:маск|крем|сыворот|тонер|тоник|эмульс|гель|пенк|бальзам|лосьон|"
+    r"шампун|кондиционер|патч|пэд|скраб|пилинг|spf|масло|эссенц|ампул|"
+    r"cream|serum|toner|mask|gel|cleanser|balm|lotion|shampoo|conditioner|"
+    r"patch|pad|scrub|peel|oil|essence|ampoule)",
+    re.I,
+)
+_CATEGORY_TITLES = re.compile(
+    r"^(?:маски|патчи|пэды|кремы|сыворотки|очищение|тонизирование|"
+    r"уход\s+для\s+лица|уход\s+за\s+лицом|специальный\s+уход)$",
+    re.I,
+)
+_IMAGE_EXT = re.compile(r"\.(?:jpe?g|png|webp|avif)(?:[?#][^\s\"'<>]*)?$", re.I)
+_IMAGE_SKIP = re.compile(
+    r"(?:logo|sprite|favicon|icon|placeholder|loader|spinner|pixel|"
+    r"tracking|payment|visa|mastercard|telegram|vk|chat-bubble|yandex|"
+    r"mail\.ru)",
+    re.I,
+)
+
+
+def _name_from_slug(url: str) -> str | None:
+    """Human-readable fallback from a product URL path, not a confirmed fact."""
+    try:
+        path = urlparse(url).path
+    except ValueError:
+        return None
+    segment = next(
+        (part for part in reversed([p for p in path.split("/") if p]) if not part.isdigit()),
+        "",
+    )
+    if not segment:
+        return None
+    from urllib.parse import unquote
+
+    text = unquote(segment)
+    text = re.sub(r"^\d+[\-_]+", "", text)  # technical ID prefix: 896-
+    text = re.sub(r"\.(?:html?|php|aspx)$", "", text, flags=re.I)
+    text = re.sub(r"[\-_]+", " ", text)
+    text = _text(text)
+    if not text or len(text) < 3 or len(text) > 180:
+        return None
+    # A slug is lowercase/latin-transliterated; keep it recognizable but do not
+    # pretend it is the exact brand capitalization from the page.
+    words = [word[:1].upper() + word[1:] if word.islower() else word for word in text.split()]
+    return " ".join(words)
+
+
+def _name_candidate(value: str | None) -> str | None:
+    text = _clean_title(value)
+    if not text or len(text) < 3 or len(text) > 220:
+        return None
+    if _NAME_NOISE.search(text) or _CATEGORY_TITLES.fullmatch(text):
+        return None
+    if text.lower() in {"все товары", "подробнее", "купить", "добавить в корзину"}:
+        return None
+    return text
+
+
+def _heading_name(soup: Any) -> tuple[str | None, str | None]:
+    candidates: list[tuple[int, int, str]] = []
+    for index, node in enumerate(soup.select("h1, h2")):
+        text = _name_candidate(node.get_text(" ", strip=True))
+        if not text:
+            continue
+        score = 0
+        if _PRODUCT_HINT.search(text):
+            score += 4
+        if len(text) >= 8:
+            score += 2
+        if _CATEGORY_TITLES.fullmatch(text):
+            score -= 3
+        if text.count(" ") >= 1:
+            score += 1
+        candidates.append((score, -index, text))
+    if not candidates:
+        return None, None
+    candidates.sort(reverse=True)
+    return candidates[0][2], "heading"
+
+
+def _embedded_name(normalized_html: str) -> str | None:
+    patterns = (
+        r'"(?:productName|product_name|productTitle)"\s*:\s*"([^"\\]{3,220})"',
+        r'"product"\s*:\s*\{[^{}]{0,2500}?"name"\s*:\s*"([^"\\]{3,220})"',
+        r'"(?:name|title)"\s*:\s*"([^"\\]{3,220})"',
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, normalized_html, re.I | re.S):
+            value = _name_candidate(match.group(1))
+            if value and (
+                _PRODUCT_HINT.search(value)
+                or "productName" in pattern
+                or "product_name" in pattern
+            ):
+                return value
+    return None
+
+
+def _site_brand(soup: Any, url: str, title_values: list[str]) -> str | None:
+    for selector, attr in (
+        ('meta[property="og:site_name"]', "content"),
+        ('meta[name="application-name"]', "content"),
+        ('meta[name="product:brand"]', "content"),
+        ('meta[property="product:brand"]', "content"),
+    ):
+        node = soup.select_one(selector)
+        value = _brand(node.get(attr) if node else None)
+        if value:
+            return value
+    for title in title_values:
+        parts = re.split(r"\s+[|—–-]\s+", title, maxsplit=1)
+        if len(parts) == 2:
+            candidate = _brand(parts[0])
+            if candidate and len(candidate) <= 60 and not _PRODUCT_HINT.search(candidate):
+                return candidate
+    return _brand_from_domain(url)
+
+
+def _absolute_image(
+    value: str | None, url: str, *, require_extension: bool = True
+) -> str | None:
+    text = _text(value)
+    if not text or text.startswith("data:"):
+        return None
+    absolute = urljoin(url, text)
+    try:
+        parsed = urlparse(absolute)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    if _IMAGE_SKIP.search(absolute):
+        return None
+    if require_extension and not _IMAGE_EXT.search(parsed.path):
+        return None
+    return absolute
 
 
 def _text(value: Any) -> str | None:
@@ -91,13 +240,52 @@ def _inci_from_text(text: str) -> str | None:
         maxsplit=1,
         flags=re.I,
     )[0]
+    # Product pages often put a JavaScript/HTML fragment immediately after the
+    # INCI text (OpenCart/Angiopharm did: ``... <!-- $('#product-product'``).
+    # It is not an ingredient and must not become part of the composition hash.
+    candidate = re.split(r"<!--|<script\b|</?[a-z][^>]*>", candidate, maxsplit=1, flags=re.I)[0]
+    candidate = re.split(
+        r"\b(?:window\.|document\.|jQuery|\$\(|var\s+[A-Za-z_$]|function\s*\()",
+        candidate,
+        maxsplit=1,
+        flags=re.I,
+    )[0]
+    candidate = re.split(
+        r"\b(?:регион\s+доставки|доставка|оплата|каталог\s+товаров|"
+        r"личный\s+кабинет|о\s+компании|контакты|способы\s+оплаты)\b",
+        candidate,
+        maxsplit=1,
+        flags=re.I,
+    )[0]
     candidate = _text(candidate)
-    if not candidate or not _INCI_START.search(candidate):
+    if not candidate:
         return None
+    # The label may be a section heading followed by marketing copy before the
+    # actual list ("Состав ... АКМЕЛЛА ... AQUA, ..."). Start at the first INCI
+    # token instead of discarding the whole section.
+    start = _INCI_START.search(candidate)
+    if start:
+        candidate = candidate[start.start():]
     parts = [part.strip(" .;•") for part in candidate.split(",") if part.strip(" .;•")]
-    if len(parts) < 2 or any(len(part) > 120 for part in parts):
+    valid: list[str] = []
+    for part in parts:
+        if len(part) > 120 or any(
+            marker in part for marker in ("{", "}", '"', "\\", "<!--", "<")
+        ):
+            # A page footer/JS fragment starts here; keep the INCI prefix that
+            # was already recognised instead of dropping the whole composition.
+            break
+        valid.append(part)
+    if len(valid) < 2:
         return None
-    return ", ".join(parts[:120])
+    # OpenCart often leaves a close-button/quantity glyph after the last
+    # ingredient ("SODIUM PHOSPHATE X"). Strip a trailing standalone glyph.
+    valid[-1] = re.sub(r"\s+[A-Za-zА-Яа-я×x]$", "", valid[-1]).strip(" .;•")
+    if len(valid[-1]) < 2:
+        valid.pop()
+    if len(valid) < 2:
+        return None
+    return ", ".join(valid[:160])
 
 
 def _clean_title(value: str | None) -> str | None:
@@ -106,6 +294,15 @@ def _clean_title(value: str | None) -> str | None:
         return None
     title = title.replace("`", "").replace('"', "")
     title = _SITE_TITLE_SUFFIX.sub("", title).strip(" -—–|")
+    # OpenCart/retailer titles often read "Brand - купить Product in City".
+    title = re.sub(
+        r"^.{0,60}?\s[-—–]\s*(?:купить|заказать)\s+",
+        "",
+        title,
+        flags=re.I,
+    )
+    title = re.sub(r"^(?:купить|заказать)\s+", "", title, flags=re.I)
+    title = re.sub(r"\s+в\s+(?:москве|новосибирске|россии)\s*$", "", title, flags=re.I)
     return _text(title)
 
 
@@ -209,27 +406,83 @@ def _embedded_description(normalized_html: str) -> str | None:
     return _text(value)
 
 
-def _image_from_html(soup: Any, normalized_html: str, url: str) -> str | None:
-    candidates = [
-        _text(meta.get("content"))
-        for meta in soup.select('meta[property="og:image"], meta[name="twitter:image"]')
-    ]
-    candidates.extend(
-        _text(match.group(0)) for match in _IMAGE_URL.finditer(normalized_html)
+def _embedded_image(normalized_html: str, url: str) -> str | None:
+    """Read a product image from Next.js/RSC-like escaped JSON."""
+    patterns = (
+        r'"(?:imageUrl|image_url|imageURL)"\s*:\s*"([^"\\]{8,500})"',
+        r'"image"\s*:\s*"((?:https?:)?//[^"\\]{8,500})"',
     )
-    for value in candidates:
+    for pattern in patterns:
+        for match in re.finditer(pattern, normalized_html, re.I):
+            value = _absolute_image(match.group(1), url, require_extension=False)
+            if value:
+                return value
+    return None
+
+
+def _image_from_html(
+    soup: Any, normalized_html: str, url: str, product_name: str | None = None
+) -> tuple[str | None, str | None]:
+    """Choose a product image, preferring metadata and product-context DOM.
+
+    Relative OpenCart/retailer paths such as ``/image/catalog/products/AG20.jpg``
+    are valid product images. The old absolute-URL-only regex dropped them and
+    the UI then displayed a mock image.
+    """
+    candidates: list[tuple[int, str, str]] = []
+    for meta in soup.select(
+        'meta[property="og:image"], meta[property="og:image:url"], '
+        'meta[name="twitter:image"], meta[name="twitter:image:src"]'
+    ):
+        value = _absolute_image(meta.get("content"), url, require_extension=False)
+        if value:
+            candidates.append((10, value, "metadata"))
+
+    name_words = {
+        word.lower()
+        for word in re.findall(r"[a-zA-Zа-яА-Я0-9]{4,}", product_name or "")
+    }
+    for image in soup.select("img"):
+        attrs = " ".join(
+            str(image.get(key) or "")
+            for key in ("src", "data-src", "data-large_image", "data-original", "srcset", "alt", "title", "class")
+        )
+        raw = (
+            image.get("data-large_image")
+            or image.get("data-src")
+            or image.get("data-original")
+            or image.get("src")
+            or (str(image.get("srcset") or "").split(",")[0].strip().split(" ")[0])
+        )
+        value = _absolute_image(raw, url)
         if not value:
             continue
-        lowered = value.lower()
+        lowered = attrs.lower()
+        score = 0
+        if _PRODUCT_HINT.search(lowered):
+            score += 3
+        if any(word in lowered for word in name_words):
+            score += 3
+        if "product" in lowered:
+            score += 2
         if any(marker in lowered for marker in ("logo", "sprite", "icon", "favicon", "placeholder")):
-            continue
-        return urljoin(url, value)
-    return None
+            score -= 8
+        candidates.append((score, value, "dom"))
+
+    for match in _IMAGE_URL.finditer(normalized_html):
+        value = _absolute_image(match.group(0), url)
+        if value:
+            candidates.append((1, value, "html"))
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    if candidates and candidates[0][0] > 0:
+        return candidates[0][1], candidates[0][2]
+    return None, None
 
 
 def _title_candidates(soup: Any) -> list[str]:
     values: list[str] = []
-    for selector in ("h1", 'meta[property="og:title"]', "title"):
+    for selector in ('meta[property="og:title"]', 'meta[name="twitter:title"]', "title", "h1"):
         if selector.startswith("meta"):
             node = soup.select_one(selector)
             value = node.get("content") if node else None
@@ -264,19 +517,37 @@ def extract_html_product(html: str, url: str) -> ProductImportResult:
             _embedded_description(normalized_html),
         ])
     )
-    # A <title>/<h1> is often the only product name on a server-rendered page
-    # (many retailers do not emit JSON-LD). Prefer JSON-LD, then h1/title.
+    # Name provenance, in priority order. A slug is only a last-resort label and
+    # is explicitly marked as such in the result.
     title_values = _title_candidates(soup)
-    name = _text(record.get("name")) or (title_values[0] if title_values else None)
-    name = _clean_title(name)
+    heading_name, _ = _heading_name(soup)
+    name = _clean_title(_text(record.get("name")))
+    name_source = "json_ld" if name else None
+    if not name:
+        name = _embedded_name(normalized_html)
+        name_source = "embedded_json" if name else None
+    if not name:
+        name = heading_name or next(
+            (candidate for candidate in title_values if _name_candidate(candidate)),
+            None,
+        )
+        name_source = "heading" if name == heading_name else ("metadata" if name else None)
+    if not name:
+        name = _name_from_slug(url)
+        name_source = "slug" if name else None
 
     image = record.get("image")
     if isinstance(image, list):
         image = image[0] if image else None
-    image = _text(image)
-    if image and not str(image).startswith(("http://", "https://")):
-        image = urljoin(url, str(image))
-    image = image or _image_from_html(soup, normalized_html, url)
+    if isinstance(image, dict):
+        image = image.get("url") or image.get("contentUrl")
+    image = _absolute_image(str(image) if image else None, url, require_extension=False)
+    image_source = "json_ld" if image else None
+    if not image:
+        image = _embedded_image(normalized_html, url)
+        image_source = "embedded_json" if image else None
+    if not image:
+        image, image_source = _image_from_html(soup, normalized_html, url, name)
 
     inci = (
         _ingredients_from_jsonld(record)
@@ -288,13 +559,20 @@ def extract_html_product(html: str, url: str) -> ProductImportResult:
         _text(record.get("description"))
         or _embedded_description(normalized_html)
     )
+    brand = _brand(record.get("brand"))
+    brand_source = "json_ld" if brand else None
+    if not brand:
+        brand = _embedded_brand(normalized_html)
+        brand_source = "embedded_json" if brand else None
+    if not brand:
+        brand = _text(record.get("brandName"))
+        brand_source = "json_ld" if brand else None
+    if not brand:
+        brand = _site_brand(soup, url, title_values)
+        brand_source = "metadata" if brand else None
     return ProductImportResult(
         name=name,
-        brand=(
-            _brand(record.get("brand"))
-            or _embedded_brand(normalized_html)
-            or _text(record.get("brandName"))
-        ),
+        brand=brand,
         manufacturer=_text(record.get("manufacturer")),
         image_url=image,
         price=offers.get("price") if isinstance(offers.get("price"), (int, float)) else None,
@@ -304,6 +582,9 @@ def extract_html_product(html: str, url: str) -> ProductImportResult:
         description=description,
         ingredients_raw=inci,
         source_url=url,
+        name_source=name_source,
+        brand_source=brand_source,
+        image_source=image_source,
     )
 
 
