@@ -2554,7 +2554,7 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
   if (method === "photo" && picked) {
     return (
       <div className="page">
-        <PageHeading eyebrow="Проверка" title="Скан по фото" lead="Загрузите лицевую и заднюю стороны одного продукта — этого достаточно для карточки и проверки." />
+        <PageHeading eyebrow="Проверка" title="Скан по фото" lead="Достаточно лицевой стороны. Заднюю сторону с составом добавьте, если продукт не найдётся автоматически." />
         <section className="panel scan-form">
           <button type="button" className="scan-back" onClick={() => setPicked(false)}><Icon name="back" size={16} /> Выбрать способ</button>
           <PhotoScan guestToken={guestToken} onContinue={onContinue} />
