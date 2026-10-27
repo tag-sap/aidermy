@@ -26,7 +26,7 @@ export function fileToResizedDataUrl(file: File, maxDim = 2000): Promise<string>
           resolve(reader.result as string)
         }
       }
-      img.onerror = () => resolve(reader.result as string)
+      img.onerror = () => reject(new Error("Файл повреждён или не является поддерживаемым изображением"))
       img.src = reader.result as string
     }
     reader.onerror = () => reject(new Error("Не удалось прочитать файл"))

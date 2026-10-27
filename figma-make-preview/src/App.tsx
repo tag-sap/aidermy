@@ -318,7 +318,7 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
   const check = product.check
   const checked = check?.status === "checked"
   const stale = check?.status === "stale"
-  const legacyChecked = !EVALUATION_V2_ENABLED && product.match != null
+  const legacyChecked = !EVALUATION_V2_ENABLED && typeof product.match?.score === "number"
   return (
     <article className={`pcard ${selected ? "pcard--selected" : ""}`}>
       {onRemove && !onSelect && (
@@ -2606,19 +2606,37 @@ function ScanPage({ onContinue, initialMethod, guestToken }: { onContinue: (p: P
           {method === "link" && (
             <label className="scan-form__area">
               <span>Ссылка на продукт *</span>
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onPaste={(e) => {
-                  const raw = e.clipboardData.getData("text")
-                  const found = extractUrl(raw)
-                  if (found && found !== raw.trim()) {
-                    e.preventDefault()
-                    setUrl(found)
-                  }
-                }}
-                placeholder="Вставьте ссылку — лишний текст уберём автоматически"
-              />
+              <span className="scan-link-input">
+                <input
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  onPaste={(e) => {
+                    const raw = e.clipboardData.getData("text")
+                    const found = extractUrl(raw)
+                    if (found && found !== raw.trim()) {
+                      e.preventDefault()
+                      setUrl(found)
+                    }
+                  }}
+                  placeholder="Вставьте ссылку — лишний текст уберём автоматически"
+                />
+                {url && (
+                  <button
+                    type="button"
+                    className="scan-link-input__clear"
+                    onClick={() => {
+                      setUrl("")
+                      setScanError("")
+                      setScanNotice("")
+                    }}
+                    disabled={busy}
+                    aria-label="Очистить ссылку"
+                    title="Очистить ссылку"
+                  >
+                    <Icon name="close" size={16} />
+                  </button>
+                )}
+              </span>
             </label>
           )}
           {method === "manual" && (

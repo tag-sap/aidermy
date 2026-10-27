@@ -77,16 +77,12 @@ function toMatch(a: {
   recommendation_status?: string | null
 } | null | undefined): Match | undefined {
   if (!a) return undefined
-  const hasReport = Boolean(a.report?.trim())
-  if (
-    typeof a.score !== "number" &&
-    typeof a.id !== "number" &&
-    !hasReport &&
-    !a.phase1_status &&
-    !a.recommendation_status
-  ) return undefined
-
+  // A catalog row or an analysis id is not a completed compatibility result.
+  // Only a numeric saved score may produce a preview verdict; reports and
+  // blocked/insufficient states are shown by their own status components.
   const score = typeof a.score === "number" ? a.score : null
+  if (score == null) return undefined
+  const hasReport = Boolean(a.report?.trim())
   return {
     score,
     verdict: normalizeVerdict(a.verdict) || mapVerdict(score) || undefined,
@@ -125,15 +121,11 @@ export function mapApiProduct(api: ApiProduct): Product {
 
 export function mapShelfItem(item: ShelfItem): Product {
   const { brand, name } = splitProductName(item.name || "", item.brand)
-  const score = item.score ?? null
+  const score = typeof item.score === "number" ? item.score : null
   const hasReport = item.has_report === true
-  const match = (
-    score != null ||
-    hasReport ||
-    item.analysis_id != null ||
-    Boolean(item.phase1_status) ||
-    Boolean(item.recommendation_status)
-  ) ? {
+  // Being on a shelf (or having an analysis id) does not imply a completed
+  // personal check. Only a numeric score may render a verdict in the preview.
+  const match = score != null ? {
     score,
     verdict: normalizeVerdict(item.verdict) || mapVerdict(score) || undefined,
     report: undefined,

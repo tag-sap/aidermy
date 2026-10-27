@@ -430,6 +430,11 @@ input, select, textarea,
 .scan-form label span { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
 .scan-form input, .scan-form textarea { border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-size: 16px; outline: 0; min-width: 0; background: var(--surface); resize: vertical; }
 .scan-form input:focus, .scan-form textarea:focus { border-color: var(--border-strong); }
+.scan-link-input { position: relative; display: flex; min-width: 0; }
+.scan-link-input input { flex: 1; padding-right: 44px; }
+.scan-link-input__clear { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: var(--ink-faint); background: transparent; }
+.scan-link-input__clear:hover { background: var(--surface-2); color: var(--ink); }
+.scan-link-input__clear:disabled { opacity: .45; cursor: default; }
 .scan-dropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 30px 20px; border: 1.5px dashed var(--border-strong); border-radius: 14px; background: var(--surface-2); text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
 .scan-dropzone:hover { border-color: var(--good); }
 .scan-dropzone small { color: var(--ink-soft); font-size: 12px; max-width: 340px; }
@@ -3563,6 +3568,55 @@ select:focus-visible,
 /* Дополнительные фото состава */
 .scan-photo-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .scan-photo-add small { color: var(--ink-soft); font-size: 11px; line-height: 1.4; }
+.scan-photo-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.scan-photo-actions .btn { flex: 0 1 auto; }
+.scan-photo-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 10px; }
+.scan-photo-tile { position: relative; min-width: 0; border: 1px solid var(--border); border-radius: 13px; overflow: hidden; background: var(--surface-2); }
+.scan-photo-tile__view { display: block; width: 100%; aspect-ratio: 4 / 5; padding: 0; background: var(--surface-2); }
+.scan-photo-tile__view img { width: 100%; height: 100%; object-fit: cover; }
+.scan-photo-tile__view span { display: block; padding: 5px 7px; color: var(--ink-soft); font-size: 10.5px; text-align: left; }
+.scan-photo-tile__remove { position: absolute; top: 5px; right: 5px; width: 27px; height: 27px; border-radius: 50%; background: rgba(20,22,20,.7); color: #fff; font-size: 18px; line-height: 1; }
+.scan-photo-tile__primary { display: block; width: 100%; padding: 6px; border-top: 1px solid var(--border); color: var(--ink-soft); font-size: 10px; font-weight: 700; }
+.scan-photo-tile__primary:hover { color: var(--ink); background: var(--lime-soft); }
+.scan-photo-empty { display: grid; gap: 4px; padding: 18px; border: 1.5px dashed var(--border-strong); border-radius: 14px; background: var(--surface-2); text-align: center; }
+.scan-photo-empty strong { font-size: 13px; }
+.scan-photo-empty small { color: var(--ink-soft); font-size: 11.5px; line-height: 1.4; }
+.scan-photo-count { color: var(--ink-soft); font-size: 12px; }
+.scan-photo-count strong { color: var(--ink); }
+.scan-photo-count.is-limit { color: var(--bad); }
+
+/* Встроенная камера */
+.camera-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: calc(12px + env(safe-area-inset-top, 0px)) 12px calc(12px + env(safe-area-inset-bottom, 0px)); background: rgba(12, 14, 12, .72); backdrop-filter: blur(4px); }
+.camera-modal { width: min(720px, 100%); max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; overflow: hidden; border-radius: 20px; background: var(--paper); box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+.camera-modal__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.camera-modal__head div { display: flex; flex-direction: column; gap: 2px; }
+.camera-modal__head strong { font-size: 15px; }
+.camera-modal__head small { color: var(--ink-soft); font-size: 11.5px; }
+.camera-modal__close { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); color: var(--ink); font-size: 24px; line-height: 1; }
+.camera-stage { position: relative; flex: 1; min-height: 260px; background: #101210; overflow: hidden; }
+.camera-stage video { display: block; width: 100%; height: 100%; max-height: 56dvh; object-fit: contain; }
+.camera-stage__hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 6px 10px; border-radius: 999px; background: rgba(0,0,0,.55); color: #fff; font-size: 11.5px; text-align: center; white-space: nowrap; }
+.camera-shots { display: flex; gap: 8px; padding: 10px 14px; overflow-x: auto; border-top: 1px solid var(--border); }
+.camera-shot { position: relative; flex: 0 0 58px; height: 58px; border-radius: 9px; overflow: hidden; background: var(--surface-2); }
+.camera-shot img { width: 100%; height: 100%; object-fit: cover; }
+.camera-shot button { position: absolute; top: 2px; right: 2px; width: 21px; height: 21px; border-radius: 50%; background: rgba(0,0,0,.7); color: #fff; font-size: 15px; line-height: 1; }
+.camera-modal__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--border); }
+.camera-shutter { width: 60px; height: 60px; flex: 0 0 60px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 12px; font-weight: 800; touch-action: manipulation; }
+.camera-shutter:disabled { opacity: .45; }
+.camera-fallback { display: grid; gap: 12px; padding: 24px 18px; text-align: center; }
+.camera-fallback p { margin: 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.5; }
+.camera-fallback__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.scan-viewer-backdrop { position: fixed; inset: 0; z-index: 125; display: grid; place-items: center; padding: 16px; background: rgba(12, 14, 12, .8); }
+.scan-viewer { width: min(720px, 100%); max-height: 90dvh; display: flex; flex-direction: column; gap: 10px; padding: 10px; border-radius: 16px; background: var(--paper); }
+.scan-viewer img { width: 100%; min-height: 0; max-height: 72dvh; object-fit: contain; border-radius: 10px; background: #101210; }
+.scan-viewer__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+@media (max-width: 560px) {
+  .scan-photo-actions .btn { flex: 1 1 auto; }
+  .scan-photo-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+  .camera-backdrop { padding: 0; place-items: end center; }
+  .camera-modal { width: 100%; max-height: calc(100dvh - env(safe-area-inset-top, 0px)); border-radius: 20px 20px 0 0; }
+  .camera-stage video { max-height: 52dvh; }
+}
 
 /* Подробный отчёт */
 .report-details { display: grid; gap: 8px; margin-top: 4px; }

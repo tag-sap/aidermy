@@ -13,7 +13,9 @@ export type CachedShelf = {
   savedAt: number
 }
 
-const PREFIX = "aidermy:shelf:v1:"
+// v2 invalidates cached cards created by the old photo flow, which persisted
+// a placeholder ``match: {score: null}`` and could show a stale verdict.
+const PREFIX = "aidermy:shelf:v2:"
 const MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 function key(userId: number) {
@@ -31,6 +33,11 @@ export function readShelfCache(userId?: number | null): CachedShelf | null {
       window.sessionStorage.removeItem(key(userId))
       return null
     }
+    // Defensive migration for snapshots written by an older build.
+    value.items = value.items.map((item) => ({
+      ...item,
+      match: item.match && typeof item.match.score === "number" ? item.match : undefined,
+    }))
     return value
   } catch {
     return null

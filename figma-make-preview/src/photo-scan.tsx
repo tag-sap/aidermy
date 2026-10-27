@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { api, ApiError, type CheckResult, type ScanCandidatePayload, type ScanDraftPayload, type ScanProductPayload } from "./api"
 import type { Product } from "./data"
 import { buildProfile, getUserProfile } from "./mapping"
@@ -62,6 +62,20 @@ function errorText(error: unknown, fallback: string): string {
   return fallback
 }
 
+const MAX_IMAGES = 10
+const MAX_FILE_BYTES = 12 * 1024 * 1024
+const ACCEPTED_IMAGE = "image/jpeg,image/png,image/webp"
+
+function isSupportedImage(file: File): boolean {
+  if (/^image\/(jpeg|png|webp)$/i.test(file.type || "")) return true
+  // Some mobile browsers expose an empty MIME type for gallery files.
+  return /\.(jpe?g|png|webp)$/i.test(file.name || "")
+}
+
+function imageLimitMessage(): string {
+  return `Можно добавить не больше ${MAX_IMAGES} фото. Удалите лишний кадр, чтобы продолжить.`
+}
+
 function toProduct(
   item: ScanProductPayload,
   check: CheckResult | null,
@@ -82,7 +96,9 @@ function toProduct(
     ingredients: item.ingredients,
     barcode: item.barcode,
     variant: item.variant,
-    match: check
+    // A discovered/imported card is not a completed check. Do not create a
+    // placeholder Match: ScoreBadge would treat it as a legacy verdict.
+    match: check && score != null
       ? {
           score,
           verdict: check.verdict,
@@ -92,36 +108,29 @@ function toProduct(
           caution_ingredients: check.caution_ingredients,
           analysis_id: check.analysis_id,
         }
-      : { score: null },
+      : undefined,
   }
 }
 
-function PhotoSlot({ label, hint, image, busy, onPick, onRemove }: {
-  label: string
-  hint: string
+function PhotoTile({ image, index, busy, onView, onRemove, onMakePrimary }: {
   image: string
+  index: number
   busy: boolean
-  onPick: () => void
+  onView: () => void
   onRemove: () => void
+  onMakePrimary: () => void
 }) {
   return (
-    <div className={`scan-photo-slot ${image ? "scan-photo-slot--filled" : ""}`}>
-      <button type="button" className="scan-photo-slot__pick" onClick={onPick} disabled={busy}>
-        {image ? <img src={image} alt={label} /> : (
-          <>
-            <span className="scan-photo-slot__icon">+</span>
-            <strong>{label}</strong>
-            <small>{hint}</small>
-          </>
-        )}
+    <div className="scan-photo-tile">
+      <button type="button" className="scan-photo-tile__view" onClick={onView} disabled={busy} aria-label={`Открыть фото ${index + 1}`}>
+        <img src={image} alt={`Фото ${index + 1}`} />
+        <span>{index === 0 ? "Лицевая" : `Кадр ${index + 1}`}</span>
       </button>
-      {image && (
-        <>
-          <span className="scan-photo-slot__label">{label}</span>
-          <button type="button" className="scan-photo-slot__remove" onClick={onRemove} disabled={busy} aria-label={`Удалить: ${label}`}>
-            ×
-          </button>
-        </>
+      <button type="button" className="scan-photo-tile__remove" onClick={onRemove} disabled={busy} aria-label={`Удалить фото ${index + 1}`}>×</button>
+      {index > 0 && (
+        <button type="button" className="scan-photo-tile__primary" onClick={onMakePrimary} disabled={busy}>
+          Сделать лицевой
+        </button>
       )}
     </div>
   )
@@ -131,9 +140,12 @@ export function PhotoScan({ guestToken, onContinue }: {
   guestToken?: string
   onContinue: (product: Product) => void
 }) {
-  const [front, setFront] = useState("")
-  const [backs, setBacks] = useState<string[]>([])
-  const [backEditIndex, setBackEditIndex] = useState<number | null>(null)
+  const [images, setImages] = useState<string[]>([])
+  const [viewIndex, setViewIndex] = useState<number | null>(null)
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
+  const [cameraBusy, setCameraBusy] = useState(false)
+  const [cameraError, setCameraError] = useState("")
   const [status, setStatus] = useState<ScanStatus>("idle")
   const [result, setResult] = useState<ScanResponse | null>(null)
   const [draft, setDraft] = useState<ScanDraftPayload | null>(null)
@@ -142,12 +154,14 @@ export function PhotoScan({ guestToken, onContinue }: {
   const [saving, setSaving] = useState(false)
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState("")
-  const frontRef = useRef<HTMLInputElement | null>(null)
-  const backRef = useRef<HTMLInputElement | null>(null)
+  const galleryRef = useRef<HTMLInputElement | null>(null)
+  const filesRef = useRef<HTMLInputElement | null>(null)
+  const cameraFallbackRef = useRef<HTMLInputElement | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   const skinType = getUserProfile().skinType || "Нормальная"
-  const canScan = Boolean(front && backs.length > 0) && !busy
-  const MAX_BACK_PHOTOS = 6
+  const canScan = images.length >= 2 && !busy
   const canSave = Boolean(draft?.name?.trim()) && splitIngredients(draft?.ingredients || "").length >= 2 && !saving
 
   const resetResult = () => {
@@ -158,53 +172,132 @@ export function PhotoScan({ guestToken, onContinue }: {
     setError("")
   }
 
-  const handleFrontFile = async (file: File | undefined) => {
-    if (!file) return
-    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
-      setError("Поддерживаются JPEG, PNG или WebP.")
-      return
-    }
-    if (file.size > 12 * 1024 * 1024) {
-      setError("Файл больше 12 МБ. Сделайте фото меньшего размера.")
-      return
-    }
-    try {
-      setFront(await fileToResizedDataUrl(file, 2000))
-      resetResult()
-    } catch (e) {
-      setError(errorText(e, "Не удалось прочитать фото."))
-    }
+  const stopStream = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+    setCameraReady(false)
   }
 
-  const handleBackFile = async (file: File | undefined) => {
-    if (!file) return
-    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
-      setError("Поддерживаются JPEG, PNG или WebP.")
-      return
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
     }
-    if (file.size > 12 * 1024 * 1024) {
-      setError("Файл больше 12 МБ. Сделайте фото меньшего размера.")
-      return
-    }
+  }, [])
+
+  const closeCamera = () => {
+    stopStream()
+    setCameraOpen(false)
+    setCameraBusy(false)
+    setCameraError("")
+  }
+
+  const openCamera = async () => {
+    setCameraOpen(true)
+    setCameraError("")
+    setCameraBusy(true)
+    setCameraReady(false)
+    // Let React mount the video element before attaching the stream.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     try {
-      const dataUrl = await fileToResizedDataUrl(file, 2400)
-      setBacks((current) => {
-        if (backEditIndex == null) {
-          if (current.length >= MAX_BACK_PHOTOS) return current
-          return [...current, dataUrl]
-        }
-        return current.map((item, index) => (index === backEditIndex ? dataUrl : item))
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Браузер не поддерживает встроенную камеру")
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       })
-      setBackEditIndex(null)
-      resetResult()
+      streamRef.current = stream
+      const video = videoRef.current
+      if (!video) throw new Error("Не удалось показать камеру")
+      video.srcObject = stream
+      await video.play()
+      setCameraReady(true)
     } catch (e) {
-      setError(errorText(e, "Не удалось прочитать фото."))
+      stopStream()
+      setCameraError(
+        errorText(e, "Не удалось открыть камеру. Проверьте разрешение или выберите фото из галереи/файлов."),
+      )
+    } finally {
+      setCameraBusy(false)
     }
   }
 
-  const openBackPicker = (index: number | null) => {
-    setBackEditIndex(index)
-    backRef.current?.click()
+  const handleFiles = async (files: FileList | File[] | null) => {
+    const selected = Array.from(files || [])
+    if (!selected.length) return
+    const room = MAX_IMAGES - images.length
+    if (room <= 0) {
+      setError(imageLimitMessage())
+      return
+    }
+    if (selected.length > room) setError(imageLimitMessage())
+    const prepared: string[] = []
+    let invalid = ""
+    for (const file of selected.slice(0, room)) {
+      if (!isSupportedImage(file)) {
+        invalid = "Поддерживаются JPEG, PNG и WebP. PDF и другие документы не принимаются как фото."
+        continue
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        invalid = "Одно из изображений больше 12 МБ. Выберите файл меньшего размера."
+        continue
+      }
+      try {
+        prepared.push(await fileToResizedDataUrl(file, 2400))
+      } catch {
+        invalid = "Не удалось прочитать одно из изображений. Возможно, файл повреждён."
+      }
+    }
+    if (prepared.length) {
+      setImages((current) => [...current, ...prepared].slice(0, MAX_IMAGES))
+      resetResult()
+      setError("")
+    }
+    if (invalid) setError(invalid)
+  }
+
+  const removeImage = (index: number) => {
+    setImages((current) => current.filter((_, i) => i !== index))
+    setViewIndex(null)
+    resetResult()
+  }
+
+  const makePrimary = (index: number) => {
+    setImages((current) => {
+      if (index <= 0 || index >= current.length) return current
+      const next = [...current]
+      const [picked] = next.splice(index, 1)
+      return [picked, ...next]
+    })
+    setViewIndex(null)
+    resetResult()
+  }
+
+  const capturePhoto = () => {
+    if (images.length >= MAX_IMAGES) {
+      setError(imageLimitMessage())
+      return
+    }
+    const video = videoRef.current
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setError("Камера ещё не готова. Подождите мгновение и повторите.")
+      return
+    }
+    const scale = Math.min(1, 2400 / Math.max(video.videoWidth, video.videoHeight))
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.round(video.videoWidth * scale)
+    canvas.height = Math.round(video.videoHeight * scale)
+    const context = canvas.getContext("2d")
+    if (!context) {
+      setError("Не удалось сохранить кадр. Попробуйте загрузить фото из галереи.")
+      return
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    setImages((current) => [...current, canvas.toDataURL("image/jpeg", 0.9)].slice(0, MAX_IMAGES))
+    resetResult()
+    setCameraError("")
   }
 
   const scan = async () => {
@@ -216,7 +309,7 @@ export function PhotoScan({ guestToken, onContinue }: {
     setReadyProduct(null)
     setStatus("scanning")
     try {
-      const data = await api.scanProduct({ front_image: front, back_images: backs })
+      const data = await api.scanProduct({ front_image: images[0], back_images: images.slice(1) })
       setResult(data as ScanResponse)
       if (data.status === "ready" && data.product) {
         setReadyProduct(data.product)
@@ -248,7 +341,7 @@ export function PhotoScan({ guestToken, onContinue }: {
         profile: buildProfile(),
         guest_token: guestToken,
       })
-      onContinue(toProduct(item, check, front, skinType))
+      onContinue(toProduct(item, check, images[0] || "", skinType))
     } catch (e) {
       setError(errorText(e, "Карточка сохранена, но проверить совместимость не удалось."))
     } finally {
@@ -287,7 +380,7 @@ export function PhotoScan({ guestToken, onContinue }: {
         name: draft.name || "",
         ingredients,
         slug: draft.slug || "",
-        image_data_url: front,
+        image_data_url: images[0] || "",
         source_url: draft.source_url || undefined,
         volume: draft.volume || undefined,
         variant: draft.variant || undefined,
@@ -308,58 +401,114 @@ export function PhotoScan({ guestToken, onContinue }: {
 
   return (
     <div className="scan-form">
-      <div className="scan-photo-grid">
-        <PhotoSlot
-          label="Фото 1 — лицевая"
-          hint="Бренд, название, объём"
-          image={front}
-          busy={busy || saving || checking}
-          onPick={() => frontRef.current?.click()}
-          onRemove={() => { setFront(""); resetResult() }}
-        />
-        <PhotoSlot
-          label="Фото 2 — задняя"
-          hint="Состав INCI, штрихкод"
-          image={backs[0] || ""}
-          busy={busy || saving || checking}
-          onPick={() => openBackPicker(backs.length ? 0 : null)}
-          onRemove={() => { setBacks((current) => current.slice(1)); resetResult() }}
-        />
-        {backs.slice(1).map((image, index) => (
-          <PhotoSlot
-            key={`back-${index + 1}`}
-            label={`Доп. фото состава ${index + 1}`}
-            hint="Продолжение списка INCI"
-            image={image}
-            busy={busy || saving || checking}
-            onPick={() => openBackPicker(index + 1)}
-            onRemove={() => { setBacks((current) => current.filter((_, i) => i !== index + 1)); resetResult() }}
-          />
-        ))}
-      </div>
-      <div className="scan-photo-add">
-        <button type="button" className="btn btn--ghost btn--small" onClick={() => openBackPicker(null)} disabled={backs.length >= MAX_BACK_PHOTOS || busy}>
-          + Добавить ещё фото состава
+      <div className="scan-photo-actions">
+        <button type="button" className="btn btn--primary btn--small" onClick={() => void openCamera()} disabled={busy || saving || checking || images.length >= MAX_IMAGES}>
+          Снять на камеру
         </button>
-        <small>Можно до {MAX_BACK_PHOTOS} фото задней стороны. Это помогает, если состав не помещается на круглой банке или флаконе.</small>
+        <button type="button" className="btn btn--secondary btn--small" onClick={() => galleryRef.current?.click()} disabled={busy || saving || checking || images.length >= MAX_IMAGES}>
+          Выбрать из галереи
+        </button>
+        <button type="button" className="btn btn--ghost btn--small" onClick={() => filesRef.current?.click()} disabled={busy || saving || checking || images.length >= MAX_IMAGES}>
+          Выбрать файлы
+        </button>
       </div>
       <p className="panel__note">
-        Сфотографируйте лицевую сторону и состав на упаковке. Если весь состав не помещается в один кадр, добавьте несколько снимков задней стороны — так мы точнее прочитаем ингредиенты.
+        Снимите лицевую сторону, все стороны с составом и при необходимости штрихкод. Кадры можно добавлять по одному и в любом порядке.
       </p>
-      <input ref={frontRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(e) => { void handleFrontFile(e.target.files?.[0]); e.target.value = "" }} />
-      <input ref={backRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(e) => { void handleBackFile(e.target.files?.[0]); e.target.value = "" }} />
+      {images.length > 0 ? (
+        <div className="scan-photo-list">
+          {images.map((image, index) => (
+            <PhotoTile
+              key={`photo-${index}-${image.slice(-24)}`}
+              image={image}
+              index={index}
+              busy={busy || saving || checking}
+              onView={() => setViewIndex(index)}
+              onRemove={() => removeImage(index)}
+              onMakePrimary={() => makePrimary(index)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="scan-photo-empty">
+          <strong>Пока нет фотографий</strong>
+          <small>Можно снять на камеру, выбрать из галереи или открыть файлы. PDF не поддерживается.</small>
+        </div>
+      )}
+      <div className="scan-photo-add">
+        <span className={`scan-photo-count ${images.length >= MAX_IMAGES ? "is-limit" : ""}`}>
+          Выбрано: <strong>{images.length}</strong> / {MAX_IMAGES}
+        </span>
+        {images.length < 2 && <small>Для проверки нужны минимум два кадра: лицевая сторона и состав.</small>}
+        {images.length >= MAX_IMAGES && <small>Достигнут лимит. Удалите лишний кадр, чтобы добавить новый.</small>}
+      </div>
+      <input ref={galleryRef} type="file" accept="image/*" multiple hidden onChange={(e) => { void handleFiles(e.target.files); e.target.value = "" }} />
+      <input ref={filesRef} type="file" accept={ACCEPTED_IMAGE} multiple hidden onChange={(e) => { void handleFiles(e.target.files); e.target.value = "" }} />
+      <input ref={cameraFallbackRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { void handleFiles(e.target.files); closeCamera(); e.target.value = "" }} />
 
       <button type="button" className="btn btn--primary" onClick={() => void scan()} disabled={!canScan}>
         {busy ? "Распознаём упаковку и состав…" : "Распознать продукт"}
       </button>
-      {(!front || backs.length === 0) && !busy && <p className="panel__note">Загрузите лицевую сторону и хотя бы одно фото состава — без них распознавание не запускается.</p>}
       {error && status !== "error" && <p className="scan-error" role="alert">{error}</p>}
+
+      {cameraOpen && (
+        <div className="camera-backdrop" role="presentation">
+          <section className="camera-modal" role="dialog" aria-modal="true" aria-label="Съёмка упаковки">
+            <header className="camera-modal__head">
+              <div><strong>Съёмка упаковки</strong><small>{images.length} из {MAX_IMAGES} кадров</small></div>
+              <button type="button" className="camera-modal__close" onClick={closeCamera} aria-label="Закрыть камеру">×</button>
+            </header>
+            {cameraError ? (
+              <div className="camera-fallback">
+                <p>{cameraError}</p>
+                <div className="camera-fallback__actions">
+                  <button type="button" className="btn btn--secondary btn--small" onClick={() => { closeCamera(); galleryRef.current?.click() }}>Из галереи</button>
+                  <button type="button" className="btn btn--ghost btn--small" onClick={() => { closeCamera(); filesRef.current?.click() }}>Выбрать файлы</button>
+                  <button type="button" className="btn btn--ghost btn--small" onClick={() => cameraFallbackRef.current?.click()}>Системная камера</button>
+                </div>
+              </div>
+            ) : (
+              <div className="camera-stage">
+                <video ref={videoRef} playsInline muted autoPlay aria-label="Изображение с камеры" />
+                <span className="camera-stage__hint">{cameraBusy ? "Открываем камеру…" : cameraReady ? "Совместите упаковку и нажмите «Снять»" : "Ожидаем камеру…"}</span>
+              </div>
+            )}
+            {images.length > 0 && (
+              <div className="camera-shots">
+                {images.map((image, index) => (
+                  <span className="camera-shot" key={`${index}-${image.slice(-20)}`}>
+                    <img src={image} alt={`Кадр ${index + 1}`} />
+                    <button type="button" onClick={() => removeImage(index)} aria-label={`Удалить кадр ${index + 1}`}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <footer className="camera-modal__foot">
+              <button type="button" className="camera-shutter" onClick={capturePhoto} disabled={!cameraReady || cameraBusy || images.length >= MAX_IMAGES} aria-label="Сделать снимок">Снять</button>
+              <button type="button" className="btn btn--secondary btn--small" onClick={closeCamera}>Готово · {images.length}</button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {viewIndex != null && images[viewIndex] && (
+        <div className="scan-viewer-backdrop" onClick={() => setViewIndex(null)} role="presentation">
+          <div className="scan-viewer" onClick={(event) => event.stopPropagation()}>
+            <img src={images[viewIndex]} alt={`Фото ${viewIndex + 1}`} />
+            <div className="scan-viewer__actions">
+              <button type="button" className="btn btn--ghost btn--small" onClick={() => setViewIndex(null)}>Закрыть</button>
+              <button type="button" className="btn btn--secondary btn--small" onClick={() => removeImage(viewIndex)}>Удалить кадр</button>
+              <button type="button" className="btn btn--primary btn--small" onClick={() => makePrimary(viewIndex)} disabled={viewIndex === 0}>Сделать лицевой</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {status === "ready" && readyProduct && (
         <div className="panel scan-ready">
           <p className="eyebrow">Продукт определён</p>
           <div className="scan-ready__row">
-            <img src={readyProduct.image_url || front} alt="" />
+            <img src={readyProduct.image_url || images[0]} alt="" />
             <div>
               <h3>{readyProduct.name}</h3>
               <p>{[readyProduct.brand, readyProduct.category].filter(Boolean).join(" · ")}</p>

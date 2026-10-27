@@ -1,9 +1,12 @@
 import asyncio
+import copy
 import ipaddress
 import logging
 import os
 import socket
 import sys
+import threading
+import time
 from urllib.parse import urlparse
 
 import httpx
@@ -51,6 +54,66 @@ def resolve_browser_executable() -> str | None:
 # Общий таймаут на ОДИН fetcher (basic/dynamic/stealth). Гарантирует, что scraper
 # никогда не зависнет бесконечно на внешнем сайте (например, headless-браузер).
 SCRAPER_FETCH_TIMEOUT = 90.0
+
+# A short process-local cache prevents repeated URL imports from launching the
+# browser again. It is disabled by default; production can opt in with a small
+# TTL (e.g. 300 seconds). Only successful results are cached.
+_IMPORT_CACHE: dict[str, tuple[float, ProductImportResult]] = {}
+_IMPORT_CACHE_LOCK = threading.Lock()
+
+
+def _cache_ttl() -> float:
+    try:
+        return max(0.0, float((os.getenv("SCRAPER_IMPORT_CACHE_TTL") or "0").strip() or "0"))
+    except ValueError:
+        return 0.0
+
+
+def _cache_get(url: str) -> ProductImportResult | None:
+    ttl = _cache_ttl()
+    if ttl <= 0:
+        return None
+    now = time.monotonic()
+    with _IMPORT_CACHE_LOCK:
+        entry = _IMPORT_CACHE.get(url)
+        if not entry:
+            return None
+        timestamp, result = entry
+        if now - timestamp > ttl:
+            _IMPORT_CACHE.pop(url, None)
+            return None
+        return copy.copy(result)
+
+
+def _cache_put(url: str, result: ProductImportResult) -> None:
+    if _cache_ttl() <= 0:
+        return
+    with _IMPORT_CACHE_LOCK:
+        _IMPORT_CACHE[url] = (time.monotonic(), copy.copy(result))
+
+
+def clear_import_cache() -> None:
+    with _IMPORT_CACHE_LOCK:
+        _IMPORT_CACHE.clear()
+
+
+def _domain_matches(host: str, rules: str) -> bool:
+    host = (host or "").lower().rstrip(".")
+    for item in (rules or "").replace(";", ",").split(","):
+        domain = item.strip().lower().rstrip(".")
+        if domain and (host == domain or host.endswith("." + domain)):
+            return True
+    return False
+
+
+def _scrapper_enabled_for(host: str) -> bool:
+    from .scrapper_provider import configured
+
+    if not configured():
+        return False
+    if os.getenv("SCRAPPER_ALL_DOMAINS", "0").strip().lower() in {"1", "true", "yes"}:
+        return True
+    return _domain_matches(host, os.getenv("SCRAPPER_DOMAINS", "goldapple.ru"))
 
 # Ярлыки раскрывающихся блоков состава (таб/аккордеон/button/summary).
 _INGREDIENTS_ACCORDION_LABELS = (
@@ -242,16 +305,68 @@ def _try_extract(fetcher: str, url: str) -> ProductImportResult:
 
 async def import_product(url: str) -> ProductImportResult:
     source_url = validate_public_url(url)
-    logger.info("[SCRAPER] Import started")
+    cached = _cache_get(source_url)
+    if cached is not None:
+        logger.info("[SCRAPER] cache hit domain=%s", urlparse(source_url).hostname or "")
+        return cached
+    host = (urlparse(source_url).hostname or "").lower()
+    logger.info("[SCRAPER] Import started domain=%s", host)
     last_error: Exception | None = None
     best_result: ProductImportResult | None = None
     best_provider: str | None = None
     blocked_error: ProductImportError | None = None
     observed_errors: list[ProductImportError] = []
 
+    # Optional Scrapper (Playwright + Readability) is preferred only for the
+    # explicitly configured domains. It is a separate Docker service and is
+    # never required for the fast path.
+    if _scrapper_enabled_for(host):
+        try:
+            from .scrapper_provider import fetch_scrapper
+
+            result = await asyncio.wait_for(
+                fetch_scrapper(source_url),
+                timeout=float(os.getenv("SCRAPPER_TIMEOUT", "60")),
+            )
+            if result.has_product_data():
+                if result.ingredients_raw:
+                    logger.info("[SCRAPER] Ingredients found via scrapper")
+                    _cache_put(source_url, result)
+                    return result
+                best_result = result
+                best_provider = "scrapper"
+                logger.info("[SCRAPER] scrapper: no ingredients, trying next provider")
+        except asyncio.TimeoutError:
+            last_error = ProductImportError(
+                "Scrapper не успел загрузить страницу. Попробуйте позже.",
+                "scrapper timeout",
+                code="timeout",
+                status_code=504,
+                provider="scrapper",
+            )
+            observed_errors.append(last_error)
+        except httpx.HTTPStatusError as exc:
+            last_error = _error_for_status(exc.response.status_code, "scrapper")
+            observed_errors.append(last_error)
+        except Exception as exc:  # noqa: BLE001 - optional external service
+            last_error = ProductImportError(
+                "Scrapper недоступен, используется встроенный fallback.",
+                f"{type(exc).__name__}: {exc}",
+                code="provider_unavailable",
+                status_code=502,
+                provider="scrapper",
+            )
+            observed_errors.append(last_error)
+            logger.info("[SCRAPER] scrapper unavailable: %s", exc)
+
     # Free fast path: plain HTML first. It is opt-in so existing deployments
     # can keep the proven Scrapling order until the provider is enabled.
-    if os.getenv("SCRAPER_HTTPX_ENABLED", "0").strip().lower() in {"1", "true", "yes"}:
+    # Domains known to serve a challenge to plain HTTP clients skip this pass.
+    httpx_skip = os.getenv("SCRAPER_HTTPX_SKIP_DOMAINS", "goldapple.ru")
+    if (
+        os.getenv("SCRAPER_HTTPX_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+        and not _domain_matches(host, httpx_skip)
+    ):
         try:
             from .html_provider import fetch_http
 
@@ -262,6 +377,7 @@ async def import_product(url: str) -> ProductImportResult:
             if result.has_product_data():
                 if result.ingredients_raw:
                     logger.info("[SCRAPER] Ingredients found via httpx")
+                    _cache_put(source_url, result)
                     return result
                 best_result = result
                 best_provider = "httpx"
@@ -325,6 +441,7 @@ async def import_product(url: str) -> ProductImportResult:
             if result.has_product_data():
                 if result.ingredients_raw:
                     logger.info("[SCRAPER] Ingredients found via Crawl4AI")
+                    _cache_put(source_url, result)
                     return result
                 if best_result is None:
                     best_result = result
@@ -347,6 +464,7 @@ async def import_product(url: str) -> ProductImportResult:
                 if result.ingredients_raw:
                     logger.info("[SCRAPER] Ingredients found via %s", fetcher)
                     logger.info("[SCRAPER] Product normalized provider=%s", fetcher)
+                    _cache_put(source_url, result)
                     return result
                 logger.info("[SCRAPER] %s: no ingredients, trying next fetcher", fetcher)
         except asyncio.TimeoutError:
@@ -387,6 +505,7 @@ async def import_product(url: str) -> ProductImportResult:
             logger.info("[SCRAPER] %s unavailable: %s", fetcher.capitalize(), exc)
     if best_result is not None:
         logger.info("[SCRAPER] Product normalized provider=%s (no ingredients)", best_provider or "unknown")
+        _cache_put(source_url, best_result)
         return best_result
     candidates = ([blocked_error] if blocked_error is not None else []) + observed_errors
     # Prefer the most actionable classification. A missing headless browser
