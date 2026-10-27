@@ -244,11 +244,15 @@ async def get_product_detail(slug: str, current_user: dict = Depends(get_current
             "slug": product.get("slug") or slug,
             "image_url": product.get("image_url") or "",
             "category": (
-                product.get("subcategory")
-                if product.get("subcategory") not in {None, "", "Все товары категории"}
-                else product.get("category")
+                product.get("catalog_category")
+                or product.get("category")
+                or product.get("subcategory")
             ) or "",
-            "subcategory": product.get("subcategory") or "",
+            "subcategory": product.get("catalog_subcategory")
+            or product.get("subcategory")
+            or "",
+            "catalog_category": product.get("catalog_category") or "",
+            "catalog_subcategory": product.get("catalog_subcategory") or "",
             "ingredients": product.get("ingredients") or "",
             "url": product.get("url") or "",
             "barcode": product.get("barcode") or "",
