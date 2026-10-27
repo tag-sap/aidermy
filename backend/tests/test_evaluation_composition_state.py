@@ -54,6 +54,16 @@ class CompositionAssessmentTests(unittest.TestCase):
         self.assertFalse(state.auto_verify)
         self.assertEqual(state.action, "check_source")
 
+    def test_user_saved_scan_inci_is_usable_without_a_url(self):
+        state = assess_composition(
+            {"source_type": "scan"},
+            {"inci_raw": INCI, "source": "catalog"},
+            status="unverified",
+        )
+        self.assertTrue(state.usable)
+        self.assertTrue(state.auto_verify)
+        self.assertEqual(state.reason, "user_confirmed")
+
     def test_empty_and_single_token_inci_are_not_usable(self):
         missing = assess_composition({}, {"inci_raw": ""})
         single = assess_composition({}, {"inci_raw": "Aqua"})

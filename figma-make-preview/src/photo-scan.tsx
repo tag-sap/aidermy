@@ -434,7 +434,11 @@ export function PhotoScan({ guestToken, onContinue }: {
         )
         return
       }
-      const sourceType = draft.ingredients_source === "scraped" ? "retailer" : "scan"
+      // The user reviewed the draft and pressed "save and check", so this is a
+      // user-confirmed scan even when the text came from a web page. Marking it
+      // as a retailer import would make Evaluation demand a source URL that a
+      // newly created card does not have.
+      const sourceType = "scan"
       const created = await api.createProduct({
         brand: draft.brand || "",
         name: draft.name || "",

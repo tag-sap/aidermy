@@ -165,6 +165,30 @@ def assess_composition(
                 "по источнику, прежде чем оценивать продукт."
             ),
         )
+    # A user who scans or manually enters a product explicitly confirms the
+    # composition when pressing "save and check". Such a card may have no URL
+    # (the normal case for a newly added product), so requiring a retailer
+    # source would make the check impossible. This is a user confirmation, not
+    # an automatically trusted third-party source: the label stays visible in
+    # the report and the composition record is stamped accordingly.
+    if str(product.get("source_type") or "").strip().lower() in {
+        "scan",
+        "manual",
+        "ocr",
+        "user",
+    }:
+        return CompositionReadiness(
+            usable=True,
+            reason="user_confirmed",
+            action="none",
+            trust="user_confirmed",
+            source_host=host,
+            auto_verify=True,
+            message=(
+                "Состав введён или подтверждён пользователем. Он используется для "
+                "персональной проверки; при сомнении сверьте его с упаковкой."
+            ),
+        )
     if host:
         return CompositionReadiness(
             usable=True,
@@ -320,6 +344,7 @@ def load_product_knowledge(
             "catalog_category": str(product.get("catalog_category") or "").strip(),
             "catalog_subcategory": str(product.get("catalog_subcategory") or "").strip(),
             "description": str(product.get("description") or "").strip(),
+            "source_type": str(product.get("source_type") or "").strip().lower(),
             "has_reliable_inci": len(_inci_tokens(inci_raw)) >= 2,
         },
         composition=composition,
