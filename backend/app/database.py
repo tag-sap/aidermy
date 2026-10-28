@@ -1958,6 +1958,16 @@ def change_balance(user_id: int, delta: int, tx_type: str, note: str = "", idemp
         conn.close()
 
 
+def get_user_plan(user_id: int) -> str:
+    """Актуальный тариф пользователя (для лимитов полки и наборов)."""
+    conn = get_connection(AIDERMY_DB)
+    try:
+        row = conn.execute("SELECT plan FROM users WHERE id = ?", (int(user_id),)).fetchone()
+        return normalize_plan(row["plan"] if row else "free")
+    finally:
+        conn.close()
+
+
 def set_user_plan(user_id: int, plan: str) -> dict:
     """Change the plan and grant its monthly allowance once.
 

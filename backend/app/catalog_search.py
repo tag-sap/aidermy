@@ -171,6 +171,18 @@ def _score_row(
                 max((_ratio(token, other) for other in candidate_tokens), default=0.0)
                 for token in query_tokens
             ]
+            # Релевантность: почти все значимые токены должны подтвердиться
+            # (точное совпадение, вхождение или близкое написание — опечатки,
+            # транслит, раскладка). Иначе одно общее слово («barrier», «cream»)
+            # затягивает в выдачу посторонние продукты.
+            matched = sum(
+                1
+                for token, score in zip(query_tokens, token_scores)
+                if score >= 0.78 or token in candidate
+            )
+            needed = max(1, (3 * len(query_tokens) + 4) // 5)
+            if matched < needed:
+                continue
             # A one-word query is usually a brand. Compare it with individual
             # name tokens as well as the full title, otherwise a typo in
             # "celimx" is diluted by the long "celimax dual barrier ..." text.

@@ -22,9 +22,11 @@ from .compat_worker import ensure_worker
 from .database import (
     get_balance,
     get_product_by_id,
+    get_user_plan,
     get_user_profile_updated_at,
     get_user_shelf,
 )
+from .plans import PLAN_TITLES, compatibility_set_limit
 from .compat_service import compatibility_cost
 from .evaluation.snapshot import profile_fingerprint
 
@@ -36,6 +38,12 @@ image_router = APIRouter(prefix="/api/images", tags=["images"])
 # A valid image response for missing product photos. The frontend also has a
 # data-URI fallback, but direct API consumers must never receive broken JSON
 # from an image URL.
+# Превью товаров неизменяемы (ключ = путь + ширина), поэтому кэшируются надолго.
+_THUMB_CACHE_HEADERS = {
+    "Cache-Control": "public, max-age=31536000, immutable",
+}
+
+
 _IMAGE_PLACEHOLDER = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" '
     'viewBox="0 0 200 200" role="img" aria-label="Изображение недоступно">'
@@ -372,6 +380,18 @@ async def start_compatibility_task(
     else:
         cost = compatibility_cost(len(product_ids))
     _require_balance(int(user["id"]), cost)
+    # Лимит наборов по тарифу: набор — отдельная сохраняемая сущность, поэтому
+    # ограничение проверяется до создания новой записи.
+    plan = get_user_plan(int(user["id"]))
+    set_limit = compatibility_set_limit(plan)
+    if compat_store.count_sets(int(user["id"])) >= set_limit:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"На тарифе {PLAN_TITLES.get(plan, plan)} можно хранить до {set_limit} "
+                "набор(ов). Удалите старый набор или смените тариф."
+            ),
+        )
     name = (payload.name or "").strip()[:120] or _default_set_name(product_ids)
     set_row: dict | None = None
     try:
@@ -625,7 +645,9 @@ async def product_thumb(path: str = "", w: int = 160):
         return FileResponse(
             cache_path,
             media_type="image/webp",
-            headers={"Cache-Control": "public, max-age=86400"},
+            # Файл адресуется парой (path, width) и неизменяем: браузерная
+            # копия живёт год, повторные карточки не перезапрашивают превью.
+            headers=_THUMB_CACHE_HEADERS,
         )
     try:
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
@@ -642,7 +664,7 @@ async def product_thumb(path: str = "", w: int = 160):
         return FileResponse(
             cache_path,
             media_type="image/webp",
-            headers={"Cache-Control": "public, max-age=86400"},
+            headers=_THUMB_CACHE_HEADERS,
         )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code in {404, 410}:

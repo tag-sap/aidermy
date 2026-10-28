@@ -10,6 +10,7 @@ import logging
 import os
 import threading
 import time
+from datetime import datetime
 from typing import Any, Callable
 
 from . import compat_store
@@ -48,6 +49,11 @@ def _set_status(set_id: int | None, status: str, **fields: Any) -> None:
     compat_store.update_set(set_id, status=status, updated_at=_now(), **fields)
 
 
+def _notification_title(base: str) -> str:
+    """Заголовок уведомления без названий продуктов: что и когда проверяли."""
+    return f"{base} от {datetime.now().strftime('%d.%m.%Y, %H:%M')}"
+
+
 def _notify(
     *,
     user_id: int,
@@ -57,6 +63,7 @@ def _notify(
     body: str,
     target_type: str,
     target_id: int | None,
+    image_urls: list[str] | None = None,
 ) -> None:
     compat_store.create_notification(
         user_id=user_id,
@@ -66,6 +73,7 @@ def _notify(
         body=body,
         target_type=target_type,
         target_id=target_id,
+        image_urls=image_urls,
     )
 
 
@@ -291,22 +299,24 @@ class CompatWorker:
             updated_at=_now(),
             finished_at=_now(),
         )
-        product_name = " ".join(str(product.get("name") or "").split()) or "Продукт"
         score = product_score(report)
+        # Название продукта не дублируется в тексте: превью и подпись
+        # уведомления дают понять, что именно проверили.
         body = (
-            f"{product_name}: {score_text(score)}/100. "
+            f"Совместимость {score_text(score)}/100. "
             "Откройте карточку, чтобы посмотреть персональный отчёт."
             if score is not None
-            else f"{product_name}: отчёт готов. Откройте карточку, чтобы посмотреть результат."
+            else "Отчёт готов. Откройте карточку, чтобы посмотреть результат."
         )
         _notify(
             user_id=user_id,
             event_key=f"individual:{user_id}:{task.get('context_key') or task_id}:completed",
             kind="individual_completed",
-            title="Продукт проверен. Отчёт готов",
+            title=_notification_title("Проверка средства"),
             body=body,
             target_type="product",
             target_id=product_id,
+            image_urls=[str(product.get("image_url") or "")],
         )
 
     def _run_compatibility(self, task: dict, service) -> None:
@@ -460,14 +470,20 @@ class CompatWorker:
                 f"{score_text(report.get('score'))}/100 — "
                 f"{str(overall.get('verdict') or '').strip()}."
             ).strip()
+        set_images = [
+            str((item or {}).get("image") or "")
+            for item in (report.get("products") or [])
+            if str((item or {}).get("image") or "").strip()
+        ]
         _notify(
             user_id=user_id,
             event_key=f"compat:{int(set_id)}:{task_id}:completed",
             kind="compatibility_completed",
-            title="Совместимость проверена. Отчёт по набору готов",
+            title=_notification_title("Проверка набора"),
             body=notification_body or "Откройте вкладку «Наборы», чтобы посмотреть рекомендации.",
             target_type="compatibility_set",
             target_id=int(set_id),
+            image_urls=set_images[:4],
         )
 
         return True

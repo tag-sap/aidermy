@@ -624,6 +624,9 @@ export const api = {
   async product(slug: string) {
     return request<{ product: ApiProduct; score: number | null; analysis: unknown; on_shelf: unknown; community: unknown }>(`/products/${slug}`)
   },
+  async productById(id: number) {
+    return request<{ product: ApiProduct }>(`/products/by-id/${id}`)
+  },
 
   // ===== полка =====
   async shelf() {
@@ -1062,6 +1065,8 @@ export type UserNotification = {
   body: string
   target_type: string
   target_id: number | null
+  // Превью того, что проверяли: 1 картинка для средства, до 4 для набора.
+  image_urls?: string[]
   read_at?: string | null
   created_at?: string
 }
@@ -1080,12 +1085,6 @@ export const compatApi = {
     }>(
       "/v1/compatibility/tasks/compatibility",
       { method: "POST", body: JSON.stringify({ product_ids: productIds, profile, name, only_missing: onlyMissing }) },
-    )
-  },
-  async batchQuote(productIds: number[], profile: Record<string, unknown>) {
-    return request<CompatibilityBatchQuote>(
-      "/v1/compatibility/batch/quote",
-      { method: "POST", body: JSON.stringify({ product_ids: productIds, profile }) },
     )
   },
   async pricing(productCount: number) {

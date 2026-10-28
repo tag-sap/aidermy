@@ -177,6 +177,23 @@ async def get_products(q: str = ""):
     return {"products": products}
 
 
+@app.get("/api/products/by-id/{product_id}")
+async def get_product_by_id_endpoint(product_id: int, current_user: dict = Depends(get_current_user)):
+    """Карточка продукта по id — для уведомлений и истории проверок.
+
+    Уведомление хранит только id продукта; открывать отчёт нужно по нему, а не
+    по совпадению названия. Если продукта нет в загруженной странице каталога,
+    клиент получает его этим запросом.
+    """
+    from .database import get_product_by_id
+
+    product = get_product_by_id(int(product_id))
+    if not product:
+        raise HTTPException(status_code=404, detail="Продукт не найден")
+    product["composition_verified"] = bool(_verified_product_ids([int(product_id)]))
+    return {"product": product}
+
+
 @app.get("/api/products/{slug}")
 async def get_product_detail(slug: str, current_user: dict = Depends(get_current_user_optional)):
     from .database import get_product_by_slug, get_user_shelf

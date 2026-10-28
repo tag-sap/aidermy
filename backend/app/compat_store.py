@@ -7,6 +7,7 @@ the same tables through the SQL migration in ``backend/migrations``.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
@@ -52,6 +53,25 @@ def _row_dict(row) -> dict | None:
     if row is None:
         return None
     return dict(row) if not isinstance(row, dict) else row
+
+
+def _with_images(row: dict | None) -> dict | None:
+    """Разворачивает JSON-превью уведомления в список URL для клиента."""
+    if row is None:
+        return None
+    out = dict(row)
+    raw = out.get("image_urls")
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw) if raw.strip() else []
+        except (ValueError, TypeError):
+            parsed = []
+        out["image_urls"] = [str(item) for item in parsed if str(item or "").strip()]
+    elif isinstance(raw, list):
+        out["image_urls"] = [str(item) for item in raw if str(item or "").strip()]
+    else:
+        out["image_urls"] = []
+    return out
 
 
 def _json_fields(row: dict | None, fields: Iterable[str]) -> dict | None:
@@ -132,6 +152,7 @@ def ensure_schema() -> None:
                     body TEXT DEFAULT '',
                     target_type TEXT DEFAULT '',
                     target_id INTEGER,
+                    image_urls TEXT DEFAULT '',
                     read_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -155,6 +176,29 @@ def ensure_schema() -> None:
             )
             # Keep local SQLite databases created by the previous release
             # compatible without running a destructive rebuild.
+            notif_columns = {
+                str(row["name"])
+                for row in cursor.execute("PRAGMA table_info(user_notifications)").fetchall()
+            }
+            if "image_urls" not in notif_columns:
+                cursor.execute(
+                    "ALTER TABLE user_notifications ADD COLUMN image_urls TEXT DEFAULT ''"
+                )
+            # Production PostgreSQL: pg_adapter намеренно игнорирует DDL, поэтому
+            # аддитивную колонку добавляем отдельным идемпотентным запросом.
+            if os.getenv("SUPABASE_DATABASE_URL"):
+                try:
+                    from .postgres_connection import get_postgres_connection
+
+                    with get_postgres_connection() as pg_conn:
+                        with pg_conn.cursor() as pg_cursor:
+                            pg_cursor.execute(
+                                "ALTER TABLE IF EXISTS public.user_notifications "
+                                "ADD COLUMN IF NOT EXISTS image_urls TEXT DEFAULT ''"
+                            )
+                        pg_conn.commit()
+                except Exception as exc:  # noqa: BLE001 - не блокируем старт приложения
+                    print(f"[COMPAT] notification image migration failed: {exc!r}")
             for table in ("compatibility_sets", "compatibility_tasks"):
                 columns = {
                     str(row["name"])
@@ -234,6 +278,21 @@ def get_set_any(set_id: int) -> dict | None:
             "SELECT * FROM compatibility_sets WHERE id = ?", (int(set_id),)
         ).fetchone()
         return _json_fields(_row_dict(row), ("product_ids",))
+    finally:
+        conn.close()
+
+
+def count_sets(user_id: int) -> int:
+    """Сколько наборов сейчас хранится у пользователя (без удалённых)."""
+    ensure_schema()
+    conn = get_connection(AIDERMY_DB)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM compatibility_sets "
+            "WHERE user_id = ? AND deleted_at IS NULL",
+            (int(user_id),),
+        ).fetchone()
+        return int((row["n"] if row else 0) or 0)
     finally:
         conn.close()
 
@@ -571,15 +630,22 @@ def create_notification(
     body: str,
     target_type: str,
     target_id: int | None,
+    image_urls: list[str] | None = None,
 ) -> dict | None:
     ensure_schema()
     conn = get_connection(AIDERMY_DB)
+    clean_images = [
+        str(url).strip() for url in (image_urls or []) if str(url or "").strip()
+    ][:4]
     try:
         conn.execute(
             "INSERT OR IGNORE INTO user_notifications "
-            "(user_id, event_key, kind, title, body, target_type, target_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-            (int(user_id), event_key, kind, title, body, target_type, target_id),
+            "(user_id, event_key, kind, title, body, target_type, target_id, image_urls, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            (
+                int(user_id), event_key, kind, title, body, target_type, target_id,
+                _dump(clean_images),
+            ),
         )
         conn.commit()
         row = conn.execute(
@@ -600,7 +666,7 @@ def list_notifications(user_id: int, limit: int = 30) -> list[dict]:
             "ORDER BY created_at DESC, id DESC LIMIT ?",
             (int(user_id), max(1, min(int(limit), 100))),
         ).fetchall()
-        return [_row_dict(row) for row in rows]
+        return [_with_images(_row_dict(row)) for row in rows]
     finally:
         conn.close()
 

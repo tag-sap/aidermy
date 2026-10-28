@@ -2,7 +2,7 @@
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
-import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review, compatApi, type CompatibilityTask, type UserNotification, type CompatibilitySetSummary, type CompatibilityReport, type CompatibilityBatchQuote, type EvaluationPreviewStatus } from "./api"
+import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review, compatApi, type CompatibilityTask, type UserNotification, type CompatibilitySetSummary, type CompatibilityReport, type EvaluationPreviewStatus } from "./api"
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { LEGAL_DOCS } from "./legal-content"
 import { CareSetsPage } from "./careSets"
@@ -80,6 +80,19 @@ function toneOf(score: number | null, verdict: Verdict | null): "good" | "warn" 
   if (score == null) return "neutral"
   return score < 20 ? "bad" : score < 40 ? "warn" : score < 60 ? "neutral" : "good"
 }
+/** Единая семантическая окраска текста вердикта: зелёный/жёлтый/красный/нейтральный. */
+function verdictClass(verdict?: string | null, score?: number | null): string {
+  const tone = toneOf(score ?? null, (verdict as Verdict | null) ?? null)
+  return `verdict-text verdict-text--${tone}`
+}
+
+/** Статус фоновой проверки продукта: локальная или серверная задача. */
+function isCheckRunning(check?: { status?: string } | null, checking = false): boolean {
+  if (checking) return true
+  return check?.status === "running" || check?.status === "queued"
+}
+
+
 
 function Button({ children, onClick, variant = "primary", icon, small, className = "", disabled }: {
   children: ReactNode; onClick?: () => void; variant?: "primary" | "secondary" | "ghost"; icon?: IconName; small?: boolean; className?: string; disabled?: boolean
@@ -262,6 +275,7 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
   const check = product.check
   const checked = check?.status === "checked"
   const stale = check?.status === "stale"
+  const running = isCheckRunning(check, checking)
   const legacyChecked = !EVALUATION_V2_ENABLED && typeof product.match?.score === "number"
   return (
     <article className={`pcard ${selected ? "pcard--selected" : ""}`}>
@@ -280,6 +294,11 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
               <Icon name="check" size={11} /> Проверено
             </span>
           )}
+          {running && !checked && (
+            <span className="pcard__check-status pcard__check-status--running">
+              Проверяется<span className="loading-dots" aria-hidden="true"><i /><i /><i /></span>
+            </span>
+          )}
           {stale && (
             <span className="pcard__check-status pcard__check-status--stale">
               <Icon name="alert" size={11} /> Данные устарели
@@ -290,7 +309,7 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
           <p className="pcard__brand">{product.brand}</p>
           <ProductName name={product.name} />
           <p className="pcard__cat">{product.subcategory ? `${product.category} · ${product.subcategory}` : product.category}</p>
-          {checked && check?.verdict && <span className="pcard__check-verdict">{check.verdict}</span>}
+          {checked && check?.verdict && <span className={`pcard__check-verdict ${verdictClass(check.verdict, product.match?.score)}`}>{check.verdict}</span>}
         </div>
       </button>
       <div className="pcard__foot">
@@ -300,7 +319,7 @@ function ProductCard({ product, checking = false, onOpen, onRemove, onSelect, se
           <button type="button" className="pcard__check" onClick={onOpen}>
             <Icon name="sparkle" size={13} /> Обновить
           </button>
-        ) : checking ? (
+        ) : running ? (
           <span className="pcard__checking"><img src="/loading.gif" alt="" /> Проверяем…</span>
         ) : !legacyChecked ? (
           <button type="button" className="pcard__check" onClick={onOpen}>
@@ -458,6 +477,17 @@ function NotificationBell({ unread, open, onToggle }: { unread: number; open: bo
   )
 }
 
+/** Заголовок уведомления: что проверяли и когда, без названий продуктов. */
+function notificationLabel(item: UserNotification): string {
+  const base = item.target_type === "compatibility_set" ? "Проверка набора" : "Проверка средства"
+  const created = item.created_at ? new Date(item.created_at) : null
+  if (!created || Number.isNaN(created.getTime())) return base
+  const stamp = created.toLocaleString("ru-RU", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  })
+  return `${base} от ${stamp}`
+}
+
 function NotificationCenter({ items, open, onClose, onRead, onReadAll, onDelete, onClear, onOpen }: {
   items: UserNotification[]
   open: boolean
@@ -514,9 +544,16 @@ function NotificationCenter({ items, open, onClose, onRead, onReadAll, onDelete,
               >
                 <span className="notification-item__dot" aria-hidden="true" />
                 <span className="notification-item__copy">
-                  <strong>{item.title}</strong>
-                  <span>{item.body}</span>
-                  {item.created_at && <small>{new Date(item.created_at).toLocaleString("ru-RU")}</small>}
+                  <strong>{notificationLabel(item)}</strong>
+                  {!!item.image_urls?.length && (
+                    <span className="notification-item__media">
+                      {item.image_urls.slice(0, 3).map((src, index) => (
+                        <img key={`${item.id}-img-${index}`} src={optimizedImageSrc(src, 96)} alt="" loading="lazy" decoding="async" onError={onProductImageError} />
+                      ))}
+                      {item.image_urls.length > 3 && <span className="notification-item__media-more">+{item.image_urls.length - 3}</span>}
+                    </span>
+                  )}
+                  {item.body && <span>{item.body}</span>}
                 </span>
               </button>
               <button
@@ -1125,7 +1162,7 @@ function CompatibilityReportView({ report, onRetry }: { report: CompatibilityRep
                 <div className="compat-report__product-copy">
                   <strong>{product.name}</strong>
                   <small>{product.brand || "Уход"}</small>
-                  {product.score != null && <span className="compat-report__product-score">{product.score}% · {product.verdict}</span>}
+                  {product.score != null && <span className={`compat-report__product-score ${verdictClass(product.verdict, product.score)}`}>{product.score}% · {product.verdict}</span>}
                 </div>
               </article>
             ))}
@@ -1133,23 +1170,29 @@ function CompatibilityReportView({ report, onRetry }: { report: CompatibilityRep
         </section>
 
         <div className="compat-report__section-stack">
-          {sections.map(([key, title, sectionIcon, items]) => items && items.length > 0 ? (
-            <section key={key} className="evalv2__report-section">
-              <p className="evalv2__section-label">{title}</p>
-              <ul className="evalv2__verdicts compat-report__list">
-                {items.map((item, index) => (
-                  <li key={`${key}-${index}`} className="evalv2__verdict-row evalv2__verdict-row--neutral">
-                    <span className="evalv2__num" aria-hidden="true">{index + 1}.</span>
-                    <span className="evalv2__verdict-text">
-                      <strong>{clean(item.title)}</strong>
-                      <span>{clean(item.detail)}</span>
-                    </span>
-                    <span className="evalv2__status" aria-hidden="true"><VerdictIcon icon={sectionIcon} /></span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null)}
+          {sections.map(([key, title, sectionIcon, items]) => {
+            if (!items || items.length === 0) return null
+            // Цвет строки повторяет смысл секции: что оставить — зелёный,
+            // что изменить/осторожно — предупреждение, остальное — нейтрально.
+            const sectionTone = key === "keep" ? "positive" : key === "changes" || key === "cautions" ? "caution" : "neutral"
+            return (
+              <section key={key} className="evalv2__report-section">
+                <p className="evalv2__section-label">{title}</p>
+                <ul className="evalv2__verdicts compat-report__list">
+                  {items.map((item, index) => (
+                    <li key={`${key}-${index}`} className={`evalv2__verdict-row evalv2__verdict-row--${sectionTone}`}>
+                      <span className="evalv2__num" aria-hidden="true">{index + 1}.</span>
+                      <span className="evalv2__verdict-text">
+                        <strong className="evalv2__verdict-label">{clean(item.title)}</strong>
+                        <span>{clean(item.detail)}</span>
+                      </span>
+                      <span className="evalv2__status" aria-hidden="true"><VerdictIcon icon={sectionIcon} /></span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )
+          })}
         </div>
 
         {report.limitations.length > 0 && (
@@ -1416,7 +1459,7 @@ function CompatibilitySetCard({
           <span className={`shelf-set-status shelf-set-status--${set.status}`}>
             {active ? <>Проверяется<span className="loading-dots" aria-hidden="true"><i /><i /><i /></span></> : failed ? "Ошибка" : "Проверено"}
           </span>
-          {!active && !failed && verdict && <strong className="shelf-set-card__verdict">{verdict}</strong>}
+          {!active && !failed && verdict && <strong className={`shelf-set-card__verdict ${verdictClass(verdict, set.report_summary?.score ?? null)}`}>{verdict}</strong>}
           {renameError && <span className="shelf-set-card__rename-error">{renameError}</span>}
         </div>
       </div>
@@ -1444,17 +1487,11 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
   const [compatCost, setCompatCost] = useState<number | null>(null)
   const [compatBusy, setCompatBusy] = useState(false)
   const [compatMessage, setCompatMessage] = useState("")
-  const [batchQuote, setBatchQuote] = useState<CompatibilityBatchQuote | null>(null)
-  const [batchBusy, setBatchBusy] = useState(false)
-  const batchBusyRef = useRef(false)
-  const [batchMessage, setBatchMessage] = useState("")
-  const [batchSetId, setBatchSetId] = useState<number | null>(null)
   const [sets, setSets] = useState<CompatibilitySetSummary[]>([])
   const [setsLoading, setSetsLoading] = useState(false)
   const [setsError, setSetsError] = useState("")
 
   const faceItems = items.filter((p) => p.state && p.cabinet === "face")
-  const batchQuoteKey = faceItems.map((p) => `${p.id}:${p.check?.status || ""}`).join(",")
   const totalShelved = count ?? items.filter((p) => p.state).length
 
   const loadSets = async () => {
@@ -1503,50 +1540,7 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
     return () => { alive = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisibility) }
   }, [tab])
 
-  useEffect(() => {
-    if (faceItems.length < 2) {
-      setBatchQuote(null)
-      return
-    }
-    let alive = true
-    const ids = faceItems.map((p) => p.id)
-    const timer = window.setTimeout(() => {
-      compatApi.batchQuote(ids, buildProfile())
-        .then((quote) => { if (alive) setBatchQuote(quote) })
-        .catch(() => {
-          if (!alive) return
-          setBatchQuote(null)
-          setBatchMessage("Не удалось рассчитать стоимость пакетного анализа. Обновите полку.")
-        })
-    }, 120)
-    return () => { alive = false; window.clearTimeout(timer) }
-    // Statuses intentionally refresh when the shelf composition/status or the
-    // user profile changes (a profile change makes individual results stale).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batchQuoteKey, profileVersion])
 
-  useEffect(() => {
-    if (!batchSetId) return
-    let alive = true
-    const timer = window.setInterval(async () => {
-      if (document.hidden) return
-      try {
-        const result = await compatApi.set(batchSetId)
-        if (!alive) return
-        if (["completed", "failed", "cancelled"].includes(result.set.status)) {
-          setBatchSetId(null)
-          setBatchMessage(
-            result.set.status === "completed"
-              ? "Пакетный анализ завершён. Результаты на полке обновлены."
-              : "Пакетный анализ завершился с ошибкой. Откройте набор, чтобы повторить.",
-          )
-          onRefresh?.()
-          await loadSets()
-        }
-      } catch { /* keep the current state and retry on next tick */ }
-    }, 3000)
-    return () => { alive = false; window.clearInterval(timer) }
-  }, [batchSetId])
 
   useEffect(() => {
     if (compatSelected.size < 2) {
@@ -1577,6 +1571,10 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
     if (compatBusy) return
     const ids = Array.from(compatSelected)
     if (ids.length < 2) return
+    if (sets.length >= setLimit) {
+      setCompatMessage(`Достигнут лимит наборов тарифа (${setLimit}). Удалите старый набор, чтобы проверить новый.`)
+      return
+    }
     setCompatBusy(true)
     setCompatMessage("")
     try {
@@ -1599,41 +1597,6 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
     }
   }
 
-  const startBatch = async () => {
-    if (batchBusyRef.current) return
-    if (!batchQuote || faceItems.length < 2) return
-    if (!batchQuote.sufficient) {
-      setBatchMessage(
-        `Для пакетного анализа нужно ${batchQuote.cost} балл(ов), на балансе ${batchQuote.balance}. Пополните баланс.`,
-      )
-      return
-    }
-    batchBusyRef.current = true
-    setBatchBusy(true)
-    setBatchMessage("")
-    try {
-      const ids = faceItems.map((p) => p.id)
-      const result = await compatApi.startCompatibility(ids, buildProfile(), "Мой набор", true)
-      if (!result.set || result.cost === 0) {
-        setBatchMessage("Все результаты уже актуальны — платить и запускать анализ не нужно.")
-        return
-      }
-      setBatchSetId(result.set.id)
-      setTab("sets")
-      setBatchMessage(
-        result.reused
-          ? "Пакетный анализ уже выполняется. Открыли текущий набор."
-          : `Пакетный анализ запущен. Спишется ${result.cost ?? batchQuote.cost} балл(ов) после успешной проверки.`,
-      )
-      if (result.task) onTaskStarted?.(result.task)
-      await loadSets()
-    } catch (e) {
-      setBatchMessage(e instanceof Error ? e.message : "Не удалось запустить пакетный анализ.")
-    } finally {
-      batchBusyRef.current = false
-      setBatchBusy(false)
-    }
-  }
 
   const removeSet = async (setId: number) => {
     if (!window.confirm("Удалить набор? Продукты на полке и их индивидуальные проверки останутся.")) return
@@ -1651,6 +1614,17 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
     if (!query) return true
     return [product.name, product.brand, product.category, product.subcategory].filter(Boolean).join(" ").toLowerCase().includes(query)
   })
+  // Средства снова сгруппированы по категориям — как в прежней полке.
+  const grouped = useMemo(() => {
+    const map = new Map<string, Product[]>()
+    for (const product of visibleItems) {
+      const key = (product.category || "Другое").trim() || "Другое"
+      const bucket = map.get(key)
+      if (bucket) bucket.push(product)
+      else map.set(key, [product])
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "ru"))
+  }, [visibleItems])
   const selectedProducts = Array.from(compatSelected)
     .map((id) => faceItems.find((product) => product.id === id))
     .filter((product): product is Product => Boolean(product))
@@ -1662,18 +1636,6 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
       <section className="shelf-toolbar" aria-label="Управление полкой">
         <div className="shelf-toolbar__buttons">
           <Button icon="plus" onClick={onAdd} className="shelf-toolbar__add">Добавить средство</Button>
-          <button
-            type="button"
-            className="shelf-toolbar__batch"
-            onClick={() => void startBatch()}
-            disabled={faceItems.length < 2 || batchBusy || !batchQuote || batchQuote.missing_count === 0}
-            title={faceItems.length < 2 ? "Для пакетного анализа нужно минимум два средства ухода за лицом" : undefined}
-          >
-            <Icon name="sparkle" size={16} />
-            {batchBusy
-              ? "Пакетный анализ · запускаем…"
-              : `Пакетный анализ · ${batchQuote ? `${batchQuote.cost} ${batchQuote.cost === 1 ? "балл" : batchQuote.cost < 5 ? "балла" : "баллов"}` : "…"}`}
-          </button>
         </div>
       </section>
 
@@ -1764,7 +1726,10 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
       ) : (
         <div className="shelf-list">
           {loading && visibleItems.length === 0 && <p className="empty"><span className="spin" /> Загружаем полку…</p>}
-          {visibleItems.map((p) => (
+          {grouped.map(([category, groupItems]) => (
+            <section className="shelf-group" key={category} aria-label={category}>
+              <div className="shelf-group__head"><h3>{category}</h3><span>{groupItems.length}</span></div>
+              {groupItems.map((p) => (
                 <div className="shelf-list__row" key={p.id}>
                   {selectMode && (
                     <button
@@ -1784,12 +1749,12 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
                       {p.category && <span className="shelf-list__meta"><em>{p.category}</em></span>}
                     </span>
                     <span className="shelf-list__check" aria-live="polite">
-                      {checkingIds.has(p.id) ? (
-                        <span className="shelf-list__checking"><img src="/loading.gif" alt="" /> Проверяем…</span>
+                      {isCheckRunning(p.check, checkingIds.has(p.id)) ? (
+                        <span className="shelf-list__checking">Проверяется<span className="loading-dots" aria-hidden="true"><i /><i /><i /></span></span>
                       ) : p.check?.status === "checked" ? (
                         <>
                           <span className="shelf-list__check-badge">Проверено</span>
-                          {p.check.verdict && <span className="shelf-list__verdict">{p.check.verdict}</span>}
+                          {p.check.verdict && <span className={`shelf-list__verdict ${verdictClass(p.check.verdict, p.match?.score ?? null)}`}>{p.check.verdict}</span>}
                         </>
                       ) : p.check?.status === "stale" ? (
                         <span className="shelf-list__check-stale">Данные устарели</span>
@@ -1814,6 +1779,8 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
                     </div>
                   )}
                 </div>
+              ))}
+            </section>
           ))}
           {!loading && visibleItems.length === 0 && (
             <div className="shelf-empty">
@@ -1824,8 +1791,8 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
         </div>
       )}
 
-      {(compatMessage || batchMessage) && (
-        <p className="shelf-compat-message" role="status">{compatMessage || batchMessage}</p>
+      {compatMessage && (
+        <p className="shelf-compat-message" role="status">{compatMessage}</p>
       )}
       {compatSelected.size > 0 && (
         <aside className="compat-cart" aria-label="Набор для проверки совместимости">
@@ -1847,13 +1814,20 @@ function ShelfPage({ items, checkingIds, loading = false, limit = 5, setLimit = 
             </div>
             <div className="compat-cart__foot">
               <span className="compat-cart__cost">
-                <Icon name="coins" size={15} />
+                <Icon name="credits" size={15} />
                 <strong>{compatSelected.size < 2 ? "Добавьте ещё одно средство" : compatCostLabel}</strong>
                 {compatSelected.size >= 2 && <small>спишется после успешной проверки</small>}
               </span>
-              <Button variant="secondary" onClick={() => void startCompatibility()} disabled={compatSelected.size < 2 || compatBusy || compatCost == null}>
+              <Button
+                variant="secondary"
+                onClick={() => void startCompatibility()}
+                disabled={compatSelected.size < 2 || compatBusy || compatCost == null || sets.length >= setLimit}
+              >
                 {compatBusy ? "Запускаем…" : "Проверить совместимость →"}
               </Button>
+              {sets.length >= setLimit && (
+                <small className="compat-cart__limit">Лимит тарифа: {sets.length} из {setLimit} наборов. Удалите старый набор.</small>
+              )}
             </div>
           </div>
         </aside>
@@ -1874,8 +1848,16 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery, initialCatego
   const [fetched, setFetched] = useState<Product[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const [suggestOpen, setSuggestOpen] = useState(false)
   const searchRequestRef = useRef(0)
-  useEffect(() => { setSearch(query) }, [query])
+  // Внешний запрос (из карточки продукта) применяется один раз и НЕ затирает
+  // то, что пользователь ввёл в самой строке поиска каталога.
+  const appliedQueryRef = useRef(query)
+  useEffect(() => {
+    if (query === appliedQueryRef.current) return
+    appliedQueryRef.current = query
+    if (query.trim()) setSearch(query)
+  }, [query])
   useEffect(() => {
     if (!initialCategory) return
     const tax = FACE_TAXONOMY.find((item) => item.title === initialCategory)
@@ -1932,24 +1914,80 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery, initialCatego
   }, [])
   const activeTax = FACE_TAXONOMY.find((c) => c.title === cat) ?? null
   const subcats = activeTax ? ["Все", ...activeTax.subcategories] : ["Все"]
+  const queryText = search.trim()
+  const searchActive = queryText.length >= 2
   const list = useMemo(() => {
-    const base = fetched ?? results ?? items
-    const needle = search.trim().toLowerCase()
+    // При активном поиске список строится ТОЛЬКО из результатов поиска:
+    // локальная подфильтрация каталога показывала «правильные» карточки пару
+    // секунд, а затем её сменяла размытая выдача сервера.
+    const base = searchActive ? (results ?? []) : (fetched ?? items)
     return base.filter((p) => {
       if (cat !== "Все" && p.category !== cat) return false
       if (subcat !== "Все" && p.subcategory !== subcat) return false
-      if (!needle || results != null) return true
-      return [p.name, p.brand, p.category, p.subcategory, ...p.tags].join(" ").toLowerCase().includes(needle)
+      return true
     })
-  }, [fetched, items, results, search, cat, subcat])
+  }, [fetched, items, results, searchActive, cat, subcat])
+
+  // Автокомплит: только слова (бренды и названия), без карточек продуктов.
+  const suggestions = useMemo(() => {
+    if (!searchActive || !results) return []
+    const needle = queryText.toLowerCase()
+    const clean = (value: string) => (value || "").replace(/\s+/g, " ").trim()
+    const brands = new Map<string, string>()
+    const names = new Map<string, string>()
+    for (const product of results) {
+      const brand = clean(product.brand)
+      if (brand && brand.toLowerCase().includes(needle)) brands.set(brand.toLowerCase(), brand)
+      const name = clean(product.name)
+      if (name) names.set(name.toLowerCase(), name)
+    }
+    const rank = (value: string) => (value.toLowerCase().startsWith(needle) ? 0 : 1)
+    const pick = <T,>(items: T[], label: (v: T) => string, type: string) =>
+      items
+        .sort((a, b) => rank(label(a)) - rank(label(b)) || label(a).length - label(b).length)
+        .slice(0, 6)
+        .map((value) => ({ value: label(value), type }))
+    return [...pick([...brands.values()], (v) => v, "бренд"), ...pick([...names.values()], (v) => v, "название")]
+      .filter((item, index, all) => all.findIndex((other) => other.value.toLowerCase() === item.value.toLowerCase()) === index)
+      .slice(0, 7)
+  }, [results, searchActive, queryText])
 
   return (
     <div className="page">
       <PageHeading eyebrow="База продуктов" title="Каталог" lead="Проверяйте составы и находите продукты под особенности вашей кожи." />
-      <div className="search">
-        <Icon name="search" size={18} />
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Название, бренд или актив…" />
-        {search && <button type="button" onClick={() => setSearch("")} className="search__clear" aria-label="Очистить"><Icon name="close" size={15} /></button>}
+      <div className="catalog-search-wrap">
+        <div className="search">
+          <Icon name="search" size={18} />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setSuggestOpen(true) }}
+            onFocus={() => setSuggestOpen(true)}
+            onBlur={() => window.setTimeout(() => setSuggestOpen(false), 160)}
+            placeholder="Название, бренд или актив…"
+            autoComplete="off"
+            aria-expanded={suggestOpen && suggestions.length > 0}
+            aria-controls="catalog-suggest"
+          />
+          {search && <button type="button" onClick={() => { setSearch(""); setSuggestOpen(false) }} className="search__clear" aria-label="Очистить"><Icon name="close" size={15} /></button>}
+        </div>
+        {suggestOpen && suggestions.length > 0 && (
+          <div className="catalog-suggest" id="catalog-suggest" role="listbox" aria-label="Подсказки поиска">
+            {suggestions.map((suggestion) => (
+              <button
+                key={`${suggestion.type}-${suggestion.value}`}
+                type="button"
+                role="option"
+                aria-selected={suggestion.value === search}
+                className="catalog-suggest__item"
+                onMouseDown={(event) => { event.preventDefault(); setSearch(suggestion.value); setSuggestOpen(false) }}
+              >
+                <Icon name="search" size={14} />
+                <span>{suggestion.value}</span>
+                <small>{suggestion.type}</small>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="tabs">
         <button type="button" className={`tab ${cat === "Все" ? "tab--active" : ""}`} onClick={() => { setCat("Все"); setSubcat("Все") }}>Все</button>
@@ -1965,17 +2003,19 @@ function CatalogPage({ items, checkingIds, onOpen, query, onQuery, initialCatego
         </div>
       )}
       <div className="product-grid">
-        {loading && list.length === 0
+        {loading && !searchActive && list.length === 0
           ? Array.from({ length: 6 }, (_, index) => <ProductCardSkeleton key={`skeleton-${index}`} />)
           : list.map((p) => (
             <ProductCard key={p.id} product={p} checking={checkingIds.has(p.id)} onOpen={() => onOpen(p)} />
           ))}
       </div>
-      {loading && list.length === 0
-        ? <p className="empty">Загружаем каталог…</p>
-        : searching
-          ? <p className="empty">Ищем…</p>
-          : list.length === 0 && <p className="empty">Ничего не нашлось. Попробуйте другой запрос.</p>}
+      {(loading && !searchActive && list.length === 0) || searching
+        ? <p className="empty">Ищем…</p>
+        : list.length === 0 && (
+          <p className="empty">
+            {searchActive ? `По запросу «${queryText}» ничего не нашлось. Попробуйте другое название или бренд.` : "Каталог пуст."}
+          </p>
+        )}
       {scrolled && (
         <button type="button" className="to-top" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Наверх"><Icon name="chevron" size={18} /></button>
       )}
@@ -2122,6 +2162,19 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
     setBrandSuggestions([])
   }
 
+  // Возврат из предпоказа нового продукта к выбору способа сканирования.
+  const backToMethods = () => {
+    setPhase("input")
+    setPicked(false)
+    setResult(null)
+    setSlug(undefined)
+    setImageUrl("")
+    setScanError("")
+    setScanNotice("")
+    setPhotoAdded(false)
+    setInciPhotoAdded(false)
+  }
+
   const continueFromPreview = async () => {
     if (!result) return
     if (!canContinueReady) {
@@ -2144,7 +2197,11 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
       || finalProduct.ingredients !== result.ingredients
       || finalProduct.category !== result.category
     )
-    if (changed) {
+    // Новый продукт попадает в каталог ДО открытия карточки. Иначе анализ
+    // сохраняется, а продукта в БД нет — и фоновая проверка/уведомление позже
+    // сообщают «продукт больше недоступен в каталоге».
+    const needsPersist = method !== "link" || changed
+    if (needsPersist) {
       setPersisting(true)
       setScanError("")
       try {
@@ -2156,10 +2213,10 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
           name: finalProduct.name,
           ingredients: inciTokens(finalProduct.ingredients || ""),
           slug: result.slug,
-          source_url: extractUrl(url),
+          source_url: method === "link" ? extractUrl(url) : undefined,
           volume: undefined,
           category: finalCategory,
-          source_type: "url",
+          source_type: method === "link" ? "url" : "scan",
         })
         const savedProduct = saved.product
         finalProduct = {
@@ -2174,7 +2231,11 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
           image: savedProduct.image_url || finalProduct.image,
         }
       } catch (error) {
-        setScanError(error instanceof Error ? error.message : "Не удалось сохранить исправленные данные карточки.")
+        setScanError(
+          error instanceof Error && error.message
+            ? error.message
+            : "Не удалось сохранить карточку продукта в каталог. Попробуйте ещё раз.",
+        )
         setPersisting(false)
         return
       } finally {
@@ -2623,7 +2684,7 @@ function ScanPage({ onContinue, initialMethod }: { onContinue: (p: Product) => v
               disabled={!canContinueReady || persisting}
               onClick={() => void continueFromPreview()}
             >{persisting ? "Сохраняем…" : "Продолжить анализ"}</Button>
-            <Button variant="ghost" onClick={() => setPhase("input")}>Не то — повторить</Button>
+            <Button variant="ghost" onClick={backToMethods}>← Выбрать способ</Button>
           </div>
           {!canContinueReady && <p className="scan-warning">Продолжить анализ можно только после заполнения обязательных полей.</p>}
         </div>
@@ -2872,8 +2933,9 @@ function Questionnaire({ onDone }: { onDone: (p: { skinType: string; age?: strin
     </div>
   )
 }
-function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: {
+function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete, shelfItems = [], checkingIds, onOpenShelf }: {
   user: User | null; onAuth: () => void; onPricing: () => void; onLogout: () => void; onPoints: () => void; onDelete: () => void
+  shelfItems?: Product[]; checkingIds?: Set<number>; onOpenShelf?: () => void
 }) {
   const [quiz, setQuiz] = useState(false)
   const [skinType, setSkinType] = useState(getUserProfile().skinType)
@@ -2934,6 +2996,19 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: 
   const therapy = structuredList("therapy")
   const procedures = structuredList("procedures")
   const restrictions = structuredList("restrictions")
+  // Статусы проверок берутся из того же состояния полки, что и «Моя полка»:
+  // после только что завершённой проверки карточка не показывает устаревшее
+  // значение, а запущенная проверка видна как «Проверяется».
+  const shelfStats = useMemo(() => {
+    const stats = { checked: 0, running: 0, stale: 0, idle: 0 }
+    for (const item of shelfItems) {
+      if (isCheckRunning(item.check, checkingIds?.has(item.id) ?? false)) stats.running += 1
+      else if (item.check?.status === "checked") stats.checked += 1
+      else if (item.check?.status === "stale") stats.stale += 1
+      else stats.idle += 1
+    }
+    return stats
+  }, [shelfItems, checkingIds])
   return (
     <div className="page">
       <PageHeading eyebrow="Профиль" title="Профиль кожи" lead="На основе профиля рассчитывается совместимость каждого продукта."
@@ -2946,6 +3021,50 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete }: 
           <Button variant="ghost" icon="crown" onClick={onPricing}>Управлять подпиской</Button>
         </div>
       </div>
+
+      <section className="panel profile-checks">
+        <div className="profile-checks__head">
+          <div>
+            <p className="eyebrow">Проверки</p>
+            <h3 className="panel__h3">Статус средств на полке</h3>
+          </div>
+          {onOpenShelf && <Button variant="ghost" small onClick={onOpenShelf}>Открыть полку</Button>}
+        </div>
+        <div className="profile-checks__stats">
+          <span className="profile-checks__stat"><strong>{shelfStats.checked}</strong> проверено</span>
+          <span className={`profile-checks__stat ${shelfStats.running ? "profile-checks__stat--running" : ""}`}><strong>{shelfStats.running}</strong> проверяется</span>
+          <span className="profile-checks__stat"><strong>{shelfStats.stale}</strong> устарело</span>
+          <span className="profile-checks__stat"><strong>{shelfStats.idle}</strong> без проверки</span>
+        </div>
+        {shelfItems.length ? (
+          <ul className="profile-checks__list">
+            {shelfItems.slice(0, 4).map((item) => (
+              <li key={item.id}>
+                <ProductImage src={item.image} className="profile-checks__thumb" imgWidth={96} />
+                <span className="profile-checks__copy">
+                  <strong title={item.name}>{item.name}</strong>
+                  <small>{[item.brand, item.category].filter(Boolean).join(" · ")}</small>
+                </span>
+                {isCheckRunning(item.check, checkingIds?.has(item.id) ?? false) ? (
+                  <span className="profile-checks__status profile-checks__status--running">
+                    Проверяется<span className="loading-dots" aria-hidden="true"><i /><i /><i /></span>
+                  </span>
+                ) : item.check?.status === "checked" ? (
+                  <span className={`profile-checks__status ${verdictClass(item.check.verdict, item.match?.score ?? null)}`}>
+                    {item.check.verdict || "Проверено"}
+                  </span>
+                ) : item.check?.status === "stale" ? (
+                  <span className="profile-checks__status profile-checks__status--stale">Устарело</span>
+                ) : (
+                  <span className="profile-checks__status">Не проверено</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="panel__note">На полке пока нет средств.</p>
+        )}
+      </section>
       <div className="profile-grid">
         <section className="panel"><p className="eyebrow">Тип кожи</p><h3 className="panel__h3">{skinType}</h3></section>
         <section className="panel"><p className="eyebrow">Проблемы</p>{getUserProfile().concerns.length ? <div className="chips">{getUserProfile().concerns.map((g) => <span key={g} className="chip">{g}</span>)}</div> : <p className="panel__note">Не указаны</p>}</section>
@@ -4120,17 +4239,8 @@ function ShelfAddModal({
 
           {mode === "menu" && (
             <>
-              <button type="button" className="add-menu__auto" onClick={() => switchMode("auto")}>
-                <span className="add-menu__auto-icon">
-                  <Icon name="sparkle" size={22} />
-                </span>
-                <span>
-                  <strong>Автоподбор продукта</strong>
-                  <small>Подберём средства под вашу кожу и полку</small>
-                </span>
-                <Icon name="chevron" size={18} />
-              </button>
-
+              {/* Автоподбор временно скрыт: кнопка и переход в режим «auto»
+                  убраны до отдельного решения по продукту. */}
               <div className="add-menu__grid">
                 <button
                   type="button"
@@ -4421,6 +4531,9 @@ export default function App() {
   const [autoPickResults, setAutoPickResults] = useState<Product[] | null>(null)
   const [pointsOpen, setPointsOpen] = useState(false)
   const [scanMethod, setScanMethod] = useState<ScanMethod | null>(null)
+  // Новая сессия сканирования: после «Продолжить анализ» вкладка возвращается
+  // к выбору способа (продукт уже сохранён в каталог и открыт в карточке).
+  const [scanSession, setScanSession] = useState(0)
   const [authReady, setAuthReady] = useState(false)
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogCategory, setCatalogCategory] = useState("")
@@ -4446,6 +4559,9 @@ export default function App() {
   const shelfRequestRef = useRef<Promise<void> | null>(null)
   const shelfRequestIdRef = useRef(0)
   const statusRequestRef = useRef<Map<string, Promise<Record<string, EvaluationPreviewStatus>>>>(new Map())
+  // id → время завершения проверки. Пока серверный статус не догнал локальный,
+  // карточка не должна откатываться в «Не проверено»/«Устарело».
+  const recentChecksRef = useRef<Map<number, number>>(new Map())
 
   useEffect(() => {
     const refreshProfile = () => setProfileVersion((value) => value + 1)
@@ -4581,7 +4697,17 @@ export default function App() {
       const statuses = await pending
       if (epoch !== authEpochRef.current) return products
       if (!Object.keys(statuses).length) return products
-      return applyCheckStatuses(products, statuses)
+      const enriched = applyCheckStatuses(products, statuses)
+      // Только что проверенное средство не «стареет» из-за отставшего ответа:
+      // локальный статус держим 2 минуты, пока сервер его не подтвердит.
+      const now = Date.now()
+      return enriched.map((product) => {
+        const stamp = recentChecksRef.current.get(product.id)
+        if (!stamp || now - stamp > 120_000 || product.check?.status === "checked") return product
+        const local = products.find((item) => item.id === product.id)
+        if (local?.check?.status !== "checked") return product
+        return { ...product, check: local.check, match: local.match ?? product.match }
+      })
     } catch {
       // An unavailable status endpoint must not turn an unchecked card into a
       // checked one. Keep the cards neutral and let the drawer retry on open.
@@ -4857,11 +4983,23 @@ export default function App() {
     // Один и тот же результат проверки должен немедленно отражаться везде,
     // где показан продукт: каталог (items), полка (shelfItems) и открытая карточка (open).
     const applyMatch = (p: Product): Product => (p.id === id
-      ? { ...p, match: { ...(p.match ?? { score: null }), score, verdict: verdict ?? p.match?.verdict, recommendation_status: recommendationStatus ?? p.match?.recommendation_status, analysis_id: analysisId ?? p.match?.analysis_id } }
+      ? {
+          ...p,
+          match: { ...(p.match ?? { score: null }), score, verdict: verdict ?? p.match?.verdict, recommendation_status: recommendationStatus ?? p.match?.recommendation_status, analysis_id: analysisId ?? p.match?.analysis_id },
+          // Проверка только что завершилась: статус карточки, полки и профиля
+          // обновляется сразу, не дожидаясь повторной загрузки с сервера.
+          check: {
+            ...(p.check ?? {}),
+            status: "checked" as const,
+            verdict: (p.check?.verdict ?? verdict ?? undefined) || undefined,
+            checked_at: new Date().toISOString(),
+          },
+        }
       : p)
     setItems((cur) => cur.map(applyMatch))
     setShelfItems((cur) => cur.map(applyMatch))
     setOpen((o) => (o && o.id === id ? applyMatch(o) : o))
+    recentChecksRef.current.set(id, Date.now())
     setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
   }
   const onCheckFinished = (id: number) => setCheckingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
@@ -4943,9 +5081,17 @@ export default function App() {
       if (product) {
         setInitialProductReportFor(product.id)
         setOpen(product)
-      } else {
-        setToast("Продукт из уведомления больше недоступен в каталоге")
+        return
       }
+      // Продукта нет в загруженной странице каталога — догружаем его по id.
+      void api.productById(item.target_id)
+        .then((result) => {
+          if (!result?.product) throw new Error("empty")
+          const fetched = mapApiProduct(result.product)
+          setInitialProductReportFor(fetched.id)
+          setOpen(fetched)
+        })
+        .catch(() => setToast("Не удалось открыть продукт из уведомления"))
       return
     }
   }
@@ -5160,9 +5306,21 @@ export default function App() {
               />
             )}
             {user && page === "sets" && <CareSetsPage user={user} onAuth={() => setAuthModal("login")} />}
-            {user && page === "scan" && <ScanPage onContinue={setOpen} initialMethod={scanMethod ?? undefined} />}
+            {user && page === "scan" && (
+              <ScanPage
+                key={`scan-${scanSession}`}
+                initialMethod={scanMethod ?? undefined}
+                onContinue={(product) => {
+                  // Продукт сохранён в каталог в предпоказе. Сбрасываем вкладку
+                  // сканирования до выбора способа и открываем карточку.
+                  setScanSession((value) => value + 1)
+                  setScanMethod(null)
+                  setOpen(product)
+                }}
+              />
+            )}
             {user && page === "catalog" && <CatalogPage items={items} checkingIds={checkingIds} onOpen={setOpen} query={query} onQuery={setQuery} initialCategory={catalogCategory} loading={catalogLoading} enrichChecks={enrichCheckStatuses} />}
-            {user && page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} onDelete={() => setDeleteOpen(true)} />}
+            {user && page === "profile" && <ProfilePage user={user} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onLogout={handleLogout} onPoints={() => setPointsOpen(true)} onDelete={() => setDeleteOpen(true)} shelfItems={shelfItems} checkingIds={checkingIds} onOpenShelf={() => navigate("shelf")} />}
           </div>
         </main>
         <SiteFooter onNavigate={openLegal} />
@@ -5208,7 +5366,7 @@ export default function App() {
       )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
       {removeProduct && (
-        <div className="modal-backdrop" onClick={() => setRemoveProduct(null)}>
+        <div className="modal-backdrop modal-backdrop--confirm" onClick={() => setRemoveProduct(null)}>
           <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <button type="button" className="modal__close" onClick={() => setRemoveProduct(null)} aria-label="Закрыть"><Icon name="close" size={18} /></button>
             <div className="auth-modal">
@@ -5227,7 +5385,7 @@ export default function App() {
         </div>
       )}
       {clearCabinet && (
-        <div className="modal-backdrop" onClick={() => setClearCabinet(null)}>
+        <div className="modal-backdrop modal-backdrop--confirm" onClick={() => setClearCabinet(null)}>
           <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <button type="button" className="modal__close" onClick={() => setClearCabinet(null)} aria-label="Закрыть"><Icon name="close" size={18} /></button>
             <div className="auth-modal">
