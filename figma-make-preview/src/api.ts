@@ -624,6 +624,15 @@ export const api = {
   async product(slug: string) {
     return request<{ product: ApiProduct; score: number | null; analysis: unknown; on_shelf: unknown; community: unknown }>(`/products/${slug}`)
   },
+  async productAlternatives(productId: number) {
+    return request<AlternativesResponse>(`/products/${productId}/alternatives`, {
+      method: "POST",
+      body: "{}",
+    })
+  },
+  async productPrice(productId: number, refresh = false) {
+    return request<ProductPrice>(`/products/${productId}/price${refresh ? "?refresh=true" : ""}`)
+  },
   async productById(id: number) {
     return request<{ product: ApiProduct }>(`/products/by-id/${id}`)
   },
@@ -1054,6 +1063,53 @@ export type CompatibilityBatchQuote = {
   unit: string
   balance: number
   sufficient: boolean
+}
+
+export type ProductPrice = {
+  product_id: number
+  found: boolean
+  price: number | null
+  currency: string
+  volume: string
+  volume_ml: number | null
+  price_per_ml: number | null
+  source_url: string
+  source_title: string
+  checked_at: string
+}
+
+export type ProductAlternative = {
+  id: number
+  slug: string
+  brand: string
+  name: string
+  image_url: string
+  volume: string
+  category?: string
+  catalog_category?: string
+  similarity: number
+  reasons: string[]
+  differences: string[]
+  compatibility: {
+    score: number | null
+    verdict?: string | null
+    status?: string | null
+    recommendation_status?: string | null
+  }
+}
+
+export type AlternativesResponse = {
+  source: {
+    id: number
+    slug: string
+    brand: string
+    name: string
+    image_url: string
+    volume: string
+    catalog_category: string
+  } | null
+  items: ProductAlternative[]
+  reason: string
 }
 
 export type UserNotification = {

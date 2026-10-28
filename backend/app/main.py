@@ -194,6 +194,38 @@ async def get_product_by_id_endpoint(product_id: int, current_user: dict = Depen
     return {"product": product}
 
 
+@app.post("/api/products/{product_id}/alternatives")
+async def product_alternatives_endpoint(product_id: int, current_user: dict = Depends(get_current_user)):
+    """Похожие средства той же категории для колоды «Хочу альтернативу».
+
+    Подбор использует существующие механизмы: таксономию каталога, состав и
+    детерминированный Score Engine относительно профиля пользователя.
+    """
+    from .alternatives_service import find_alternatives
+
+    return await asyncio.to_thread(find_alternatives, current_user, int(product_id))
+
+
+@app.get("/api/products/{product_id}/price")
+async def product_price_endpoint(
+    product_id: int,
+    refresh: bool = False,
+    current_user: dict = Depends(get_current_user),
+):
+    """Минимальная достоверная цена продукта (или found=false).
+
+    Поиск идёт по существующей поисковой выдаче и разметке магазинов; результат
+    кэшируется на неделю вместе с источником и датой проверки.
+    """
+    from .database import get_product_by_id
+    from .price_service import lookup_price_locked
+
+    product = get_product_by_id(int(product_id))
+    if not product:
+        raise HTTPException(status_code=404, detail="Продукт не найден")
+    return await lookup_price_locked(product, force=bool(refresh))
+
+
 @app.get("/api/products/{slug}")
 async def get_product_detail(slug: str, current_user: dict = Depends(get_current_user_optional)):
     from .database import get_product_by_slug, get_user_shelf

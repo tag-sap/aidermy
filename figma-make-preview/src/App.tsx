@@ -2,7 +2,7 @@
 import loadingGif from "./assets/loading.gif"
 import fingerLeft from "./assets/autopick/Finger Left-r-s_iconoteka.svg"
 import fingerRight from "./assets/autopick/Finger Right-r-s_iconoteka.svg"
-import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review, compatApi, type CompatibilityTask, type UserNotification, type CompatibilitySetSummary, type CompatibilityReport, type EvaluationPreviewStatus } from "./api"
+import { api, ApiError, EVALUATION_V2_ENABLED, setToken, getToken, type ApiProduct, type ReportResult, type Review, compatApi, type CompatibilityTask, type UserNotification, type CompatibilitySetSummary, type CompatibilityReport, type EvaluationPreviewStatus, type ProductAlternative, type ProductPrice } from "./api"
 import { LegalPage, SiteFooter, legalDocFromPath } from "./legal"
 import { LEGAL_DOCS } from "./legal-content"
 import { CareSetsPage } from "./careSets"
@@ -635,10 +635,27 @@ function AutoPickCarousel({
   items,
   onOpen,
   onAdd,
+  renderBody,
+  showScore = true,
+  variant = "default",
+  emptyState,
+  onProgress,
+  skipHint = "← Пропускаем",
+  addHint = "Добавляем →",
 }: {
   items: Product[]
   onOpen: (p: Product, card?: HTMLElement) => void
   onAdd: (p: Product) => Promise<boolean> | boolean | void
+  // Колода переиспользуется для альтернатив: кастомное тело карточки, без
+  // процента совместимости как главного элемента и своё пустое состояние.
+  renderBody?: (p: Product) => ReactNode
+  showScore?: boolean
+  variant?: "default" | "alternatives"
+  emptyState?: ReactNode
+  onProgress?: (visibleIds: number[]) => void
+  // Подписи поверх карточки при перетаскивании.
+  skipHint?: string
+  addHint?: string
 }) {
   const [order, setOrder] = useState<number[]>(() =>
     items.map((_, index) => index)
@@ -668,6 +685,15 @@ function AutoPickCarousel({
   const total = items.length
 
   useEffect(() => {
+    if (!onProgress) return
+    const ids = order
+      .slice(0, 4)
+      .map((index) => items[index]?.id)
+      .filter((id): id is number => typeof id === "number")
+    onProgress(ids)
+  }, [order, items, onProgress])
+
+  useEffect(() => {
     setOrder((current) => {
       const valid = current.filter(
         (index) => index >= 0 && index < items.length
@@ -683,8 +709,8 @@ function AutoPickCarousel({
 
   if (total === 0 || order.length === 0) {
     return (
-      <div className="autopick-carousel">
-        <p>Вы просмотрели все товары в этой подборке.</p>
+      <div className={`autopick-carousel autopick-carousel--${variant}`}>
+        {emptyState ?? <p>Вы просмотрели все товары в этой подборке.</p>}
       </div>
     )
   }
@@ -849,7 +875,7 @@ function AutoPickCarousel({
 
   return (
     <div
-      className={`autopick-carousel ${
+      className={`autopick-carousel autopick-carousel--${variant} ${
         dragging
           ? "autopick-carousel--dragging"
           : ""
@@ -963,14 +989,14 @@ function AutoPickCarousel({
                 style={{ opacity: isFront && dragging && dragX < 0 ? Math.min(1, Math.abs(dragX) / 90) : 0 }}
                 aria-hidden="true"
               >
-                ← Пропускаем
+                {skipHint}
               </div>
               <div
                 className="autopick-carousel__swipe-hint autopick-carousel__swipe-hint--add"
                 style={{ opacity: isFront && dragging && dragX > 0 ? Math.min(1, dragX / 90) : 0 }}
                 aria-hidden="true"
               >
-                Добавляем →
+                {addHint}
               </div>
               <img
                 src={productImageSrc(product.image, 480)}
@@ -983,7 +1009,7 @@ function AutoPickCarousel({
                 onError={onProductImageError}
               />
 
-              {product.match && (
+              {showScore && product.match && (
                 <ScoreBadge
                   score={product.match.score}
                   verdict={product.match.verdict}
@@ -992,19 +1018,15 @@ function AutoPickCarousel({
               )}
             </div>
 
-            <div className="autopick-carousel__body">
-              <p className="autopick-carousel__brand">
-                {product.brand}
-              </p>
-
-              <h3>{product.name}</h3>
-
-              <p className="autopick-carousel__category">
-                {product.category}
-              </p>
-
-              
-            </div>
+            {renderBody ? (
+              renderBody(product)
+            ) : (
+              <div className="autopick-carousel__body">
+                <p className="autopick-carousel__brand">{product.brand}</p>
+                <h3>{product.name}</h3>
+                <p className="autopick-carousel__category">{product.category}</p>
+              </div>
+            )}
           </article>
         )
       })}
@@ -3077,10 +3099,12 @@ function ProfilePage({ user, onAuth, onPricing, onLogout, onPoints, onDelete, sh
     </div>
   )
 }
-function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onCheckFinished, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit, morphOrigin, initialReport = false }: {
+function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, onChecked, onCheckFinished, onReported, onOpen, onGoToCatalog, onAddToShelf, onRemove, onCategoryEdit, morphOrigin, initialReport = false, onAlternatives }: {
   product: Product; user: User | null; onAuth: () => void; onPricing: () => void; onClose: () => void;
   onChecking: (id: number) => void; onChecked: (id: number, score: number | null, verdict: Verdict | null, recommendationStatus?: string, analysisId?: number) => void; onCheckFinished: (id: number) => void; onReported: (id: number, analysisId?: number) => void; onOpen: (p: Product) => void; onGoToCatalog: (q: string, category?: string) => void;
   onAddToShelf: (p: Product) => Promise<boolean>; onRemove: (p: Product) => void; onCategoryEdit: (shelfId: number, category: string) => void; morphOrigin?: HTMLElement | null; initialReport?: boolean
+  // «Хочу альтернативу»: колода похожих средств в той же категории.
+  onAlternatives?: (p: Product) => void
 }) {
   const [phase, setPhase] = useState<"idle" | "checking" | "match" | "generating" | "report">(
     product.match ? "match" : "idle"
@@ -3619,7 +3643,17 @@ function ProductDrawer({ product, user, onAuth, onPricing, onClose, onChecking, 
           )}
         </div>
         
-<div className={showAnalysisExplainer ? "drawer__footer drawer__footer--hidden" : "drawer__footer"}>
+{onAlternatives && (
+          <div className="drawer__alternatives">
+            <Button variant="secondary" icon="sparkle" className="w-full" onClick={() => onAlternatives(product)}>
+              Хочу альтернативу
+            </Button>
+            <p className="drawer__alternatives-note">
+              Похожие средства в той же категории. Свайп вправо добавит вариант на полку.
+            </p>
+          </div>
+        )}
+        <div className={showAnalysisExplainer ? "drawer__footer drawer__footer--hidden" : "drawer__footer"}>
           <div className="drawer__footer-main">
             {product.shelf_id ? (
               <Button variant="ghost" onClick={() => onRemove(product)}>Убрать с полки</Button>
@@ -4428,6 +4462,248 @@ function AutoPickResultsOverlay({
 }
 
 
+const RUB = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 })
+
+function formatRub(value: number): string {
+  return `${RUB.format(Math.round(value))} ₽`
+}
+
+function volumeToMl(value: string): number | null {
+  const match = String(value || "").match(/(\d+(?:[.,]\d+)?)\s*(ml|мл|g|гр|г|oz)/i)
+  if (!match) return null
+  const amount = Number(match[1].replace(",", "."))
+  if (!Number.isFinite(amount) || amount <= 0) return null
+  return /oz/i.test(match[2]) ? amount * 29.5735 : amount
+}
+
+/** Разница в цене: сравниваем только сопоставимые объёмы (цена за мл). */
+function priceDifference(source: ProductPrice | null, alternative: ProductPrice | null) {
+  if (!source?.found || !alternative?.found) return null
+  if (source.price == null || alternative.price == null) return null
+  const sourceMl = source.volume_ml ?? volumeToMl(source.volume)
+  const alternativeMl = alternative.volume_ml ?? volumeToMl(alternative.volume)
+  if (sourceMl && alternativeMl) {
+    const sourcePerMl = source.price / sourceMl
+    const alternativePerMl = alternative.price / alternativeMl
+    return {
+      diff: Math.round((alternativePerMl - sourcePerMl) * alternativeMl),
+      percent: Math.round((alternativePerMl / sourcePerMl - 1) * 100),
+      comparable: true,
+    }
+  }
+  if (source.volume && source.volume === alternative.volume) {
+    return {
+      diff: Math.round(alternative.price - source.price),
+      percent: Math.round((alternative.price / source.price - 1) * 100),
+      comparable: true,
+    }
+  }
+  return { diff: null as number | null, percent: null as number | null, comparable: false }
+}
+
+function priceSourceLabel(price: ProductPrice | null): string {
+  if (!price?.found || !price.source_url) return ""
+  let host = price.source_url
+  try { host = new URL(price.source_url).hostname.replace(/^www\./, "") } catch { /* keep raw */ }
+  const checked = price.checked_at ? new Date(price.checked_at) : null
+  const stamp = checked && !Number.isNaN(checked.getTime())
+    ? checked.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" })
+    : ""
+  return stamp ? `${host} · проверено ${stamp}` : host
+}
+
+function AlternativeCardBody({ product, meta, price, sourcePrice }: {
+  product: Product
+  meta?: ProductAlternative
+  price?: ProductPrice | "loading"
+  sourcePrice?: ProductPrice | null
+}) {
+  const loading = price === "loading"
+  const resolved = price && price !== "loading" ? price : null
+  const delta = resolved ? priceDifference(sourcePrice ?? null, resolved) : null
+  const compatibility = meta?.compatibility
+  return (
+    <div className="alt-card">
+      <p className="alt-card__brand">{[product.brand, product.variant || ""].filter(Boolean).join(" · ")}</p>
+      <h3 className="alt-card__name">{product.name}</h3>
+      <div className="alt-card__price-row">
+        {loading ? (
+          <span className="alt-card__price-loading"><span className="spin spin--sm" aria-hidden="true" /> Ищем цену…</span>
+        ) : resolved?.found && resolved.price != null ? (
+          <>
+            <strong>от {formatRub(resolved.price)}</strong>
+            {resolved.volume && <small>· {resolved.volume}</small>}
+          </>
+        ) : (
+          <span className="alt-card__price-empty">Цена не найдена</span>
+        )}
+      </div>
+      {delta?.comparable && delta.diff != null && (
+        <p className={`alt-card__diff ${delta.diff < 0 ? "is-cheaper" : delta.diff > 0 ? "is-pricier" : ""}`}>
+          {delta.diff === 0
+            ? "Та же цена за сопоставимый объём"
+            : delta.diff < 0
+              ? `Дешевле на ${formatRub(Math.abs(delta.diff))} (${Math.abs(delta.percent ?? 0)}%)`
+              : `Дороже на ${formatRub(delta.diff)} (${delta.percent}%)`}
+        </p>
+      )}
+      {delta && !delta.comparable && (
+        <p className="alt-card__diff alt-card__diff--muted">Объёмы не сопоставимы — разницу не считаем</p>
+      )}
+      <dl className="alt-card__facts">
+        <div>
+          <dt>Почему похож</dt>
+          <dd>{(meta?.reasons || []).slice(0, 2).join(" · ")}</dd>
+        </div>
+        <div>
+          <dt>Что отличается</dt>
+          <dd>{(meta?.differences || []).slice(0, 2).join(" · ") || "Значимых отличий не найдено"}</dd>
+        </div>
+      </dl>
+      {compatibility?.score != null && (
+        <p className={`alt-card__compat ${verdictClass(compatibility.verdict, compatibility.score)}`}>
+          Совместимость с профилем: {compatibility.score}%
+          {compatibility.verdict ? ` · ${compatibility.verdict}` : ""}
+        </p>
+      )}
+      {priceSourceLabel(resolved) && <p className="alt-card__source">{priceSourceLabel(resolved)}</p>}
+    </div>
+  )
+}
+
+
+function alternativeToProduct(alt: ProductAlternative): Product {
+  const category = alt.catalog_category || alt.category || ""
+  return {
+    id: alt.id,
+    brand: alt.brand,
+    name: alt.name,
+    cabinet: inferCabinet(category, alt.name),
+    category,
+    image: alt.image_url || "",
+    tags: category ? [category] : [],
+    slug: alt.slug,
+    state: "want",
+  }
+}
+
+function AlternativesDeck({
+  sourceId,
+  sourceName,
+  items,
+  loading,
+  error,
+  onClose,
+  onAdd,
+  onOpen,
+  onRetry,
+}: {
+  sourceId?: number
+  sourceName: string
+  items: ProductAlternative[]
+  loading: boolean
+  error: string
+  onClose: () => void
+  onAdd: (p: Product) => Promise<boolean> | boolean | void
+  onOpen: (p: Product, card?: HTMLElement) => void
+  onRetry: () => void
+}) {
+  const [visible, setVisible] = useState(false)
+  const [prices, setPrices] = useState<Record<number, ProductPrice | "loading">>({})
+  const [sourcePrice, setSourcePrice] = useState<ProductPrice | null>(null)
+  const requestedRef = useRef<Set<number>>(new Set())
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setVisible(true))
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
+
+  // Цена исходного продукта нужна для корректной разницы. Один запрос на открытие.
+  useEffect(() => {
+    if (!sourceId) return
+    let alive = true
+    api.productPrice(sourceId)
+      .then((price) => { if (alive) setSourcePrice(price) })
+      .catch(() => { /* цена не найдена — разницу не показываем */ })
+    return () => { alive = false }
+  }, [sourceId])
+
+  // Цены грузятся лениво: только для тех карточек, что видны в колоде.
+  const ensurePrices = useCallback((ids: number[]) => {
+    // Не больше двух карточек за раз: сервер ищет цену последовательно.
+    for (const id of ids.slice(0, 2)) {
+      if (requestedRef.current.has(id)) continue
+      requestedRef.current.add(id)
+      setPrices((current) => ({ ...current, [id]: "loading" }))
+      void api.productPrice(id)
+        .then((price) => setPrices((current) => ({ ...current, [id]: price })))
+        .catch(() => setPrices((current) => ({
+          ...current,
+          [id]: { product_id: id, found: false, price: null, currency: "RUB", volume: "", volume_ml: null, price_per_ml: null, source_url: "", source_title: "", checked_at: "" } as ProductPrice,
+        })))
+    }
+  }, [])
+
+  const products = useMemo(() => items.map(alternativeToProduct), [items])
+  const metaById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
+
+  return (
+    <div className={`autopick-results ${visible ? "autopick-results--visible" : ""}`} onClick={onClose}>
+      <div className="autopick-results__backdrop" aria-hidden="true" />
+      <div className="autopick-results__mask" />
+      <div className="autopick-results__content" onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="autopick-results__close" onClick={onClose} aria-label="Закрыть альтернативы">
+          <Icon name="close" size={19} />
+        </button>
+
+        <div className="autopick-results__heading">
+          <h2>Хочу альтернативу</h2>
+          <p className="alternatives-deck__source">{sourceName}</p>
+          <div className="autopick-results__swipe" aria-label="Свайпайте карточки">
+            <span className="autopick-results__swipe-label autopick-results__swipe-label--skip">← Пропускаем</span>
+            <span className="autopick-results__swipe-label autopick-results__swipe-label--add">На полку →</span>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="alternatives-deck__status"><span className="spin spin--lg" /> Подбираем похожие средства…</div>
+        ) : error ? (
+          <div className="alternatives-deck__status">
+            <p>{error}</p>
+            <Button variant="secondary" onClick={onRetry}>Повторить подбор</Button>
+          </div>
+        ) : (
+          <AutoPickCarousel
+            variant="alternatives"
+            items={products}
+            showScore={false}
+            onProgress={ensurePrices}
+            onOpen={onOpen}
+            onAdd={onAdd}
+            skipHint="← Пропускаем"
+            addHint="На полку →"
+            renderBody={(product) => (
+              <AlternativeCardBody
+                product={product}
+                meta={metaById.get(product.id)}
+                price={prices[product.id]}
+                sourcePrice={sourcePrice}
+              />
+            )}
+            emptyState={(
+              <div className="alternatives-deck__status">
+                <p>Похожие средства закончились.</p>
+                <Button variant="secondary" onClick={onRetry}>Повторить подбор</Button>
+              </div>
+            )}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+
 function HelpModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -4529,6 +4805,10 @@ export default function App() {
   const [pricingOpen, setPricingOpen] = useState(false)
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [autoPickResults, setAutoPickResults] = useState<Product[] | null>(null)
+  // Колода «Хочу альтернативу»: исходный продукт и найденные похожие средства.
+  const [alternatives, setAlternatives] = useState<{ sourceId: number; sourceName: string; items: ProductAlternative[] } | null>(null)
+  const [alternativesLoading, setAlternativesLoading] = useState(false)
+  const [alternativesError, setAlternativesError] = useState("")
   const [pointsOpen, setPointsOpen] = useState(false)
   const [scanMethod, setScanMethod] = useState<ScanMethod | null>(null)
   // Новая сессия сканирования: после «Продолжить анализ» вкладка возвращается
@@ -5160,6 +5440,32 @@ export default function App() {
       setUser((u) => (u ? { ...u, plan: p } : u))
     }
   }
+  const loadAlternatives = (productId: number): Promise<void> => {
+    setAlternativesLoading(true)
+    setAlternativesError("")
+    return api.productAlternatives(productId)
+      .then((result) => {
+        setAlternatives((current) => ({
+          sourceId: productId,
+          sourceName: current?.sourceName || "",
+          items: result.items || [],
+        }))
+      })
+      .catch((error) => {
+        setAlternativesError(error instanceof Error && error.message ? error.message : "Не удалось подобрать альтернативы.")
+      })
+      .finally(() => setAlternativesLoading(false))
+  }
+
+  const openAlternatives = (p: Product) => {
+    if (!getToken()) { setAuthModal("login"); return }
+    const sourceName = [p.brand, p.name].filter(Boolean).join(" · ")
+    setInitialProductReportFor(null)
+    setOpen(null)
+    setAlternatives({ sourceId: p.id, sourceName, items: [] })
+    void loadAlternatives(p.id)
+  }
+
   const handleAddToShelf = async (p: Product): Promise<boolean> => {
     const id = p.id
     const shelfState: ProductState = p.state === "want" ? "want" : "using"
@@ -5327,7 +5633,7 @@ export default function App() {
       </div>
       {user && <BottomNav page={page} onNavigate={navigate} />}
       {user && <NotificationCenter items={notifications} open={notificationsOpen} onClose={() => setNotificationsOpen(false)} onRead={(id) => void markNotificationRead(id)} onReadAll={() => void markAllNotificationsRead()} onDelete={(id) => void deleteNotification(id)} onClear={() => void clearNotifications()} onOpen={handleNotificationOpen} />}
-      {open && <ProductDrawer key={open.id} product={open} morphOrigin={morphOrigin} user={user} initialReport={initialProductReportFor === open.id} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => { setInitialProductReportFor(null); setOpen(null) }} onChecking={onChecking} onChecked={onChecked} onCheckFinished={onCheckFinished} onReported={onReported} onOpen={(p) => { setInitialProductReportFor(null); setOpen(p) }} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} />}
+      {open && <ProductDrawer key={open.id} product={open} morphOrigin={morphOrigin} user={user} initialReport={initialProductReportFor === open.id} onAuth={() => setAuthModal("login")} onPricing={() => setPricingOpen(true)} onClose={() => { setInitialProductReportFor(null); setOpen(null) }} onChecking={onChecking} onChecked={onChecked} onCheckFinished={onCheckFinished} onReported={onReported} onOpen={(p) => { setInitialProductReportFor(null); setOpen(p) }} onGoToCatalog={goToCatalog} onAddToShelf={handleAddToShelf} onRemove={(p) => setRemoveProduct(p)} onCategoryEdit={handleCategoryEdit} onAlternatives={openAlternatives} />}
       {authModal && <AuthModal mode={authModal} onClose={() => setAuthModal(null)} onSuccess={handleLogin} onSwitch={setAuthModal} />}
       {pricingOpen && <PricingModal user={user} onClose={() => setPricingOpen(false)} onSelectPlan={handleSelectPlan} />}
       {deleteOpen && <DeleteAccountModal onClose={() => setDeleteOpen(false)} onDeleted={handleAccountDeleted} />}
@@ -5362,6 +5668,19 @@ export default function App() {
             setMorphOrigin(card ?? null)
             setOpen(p)
           }}
+        />
+      )}
+      {alternatives && (
+        <AlternativesDeck
+          sourceId={alternatives.sourceId}
+          sourceName={alternatives.sourceName}
+          items={alternatives.items}
+          loading={alternativesLoading}
+          error={alternativesError}
+          onClose={() => setAlternatives(null)}
+          onRetry={() => void loadAlternatives(alternatives.sourceId)}
+          onOpen={(p, card) => { setMorphOrigin(card ?? null); setOpen(p) }}
+          onAdd={handleAddToShelf}
         />
       )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
