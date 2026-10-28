@@ -128,7 +128,7 @@ export function GuestLanding({ onRegister, onLogin }: GuestLandingProps) {
         </button>
       </header>
 
-      <main>
+      <div className="landing-body">
         <section className="landing-hero" aria-labelledby="landing-hero-title">
           <div className="landing-hero__inner">
             <div className="landing-hero__copy">
@@ -182,7 +182,7 @@ export function GuestLanding({ onRegister, onLogin }: GuestLandingProps) {
             </div>
           </div>
         </section>
-      </main>
+      </div>
     </div>
   )
 }
