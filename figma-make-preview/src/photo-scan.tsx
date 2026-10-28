@@ -155,8 +155,7 @@ function PhotoTile({ image, index, busy, onView, onRemove, onMakePrimary }: {
   )
 }
 
-export function PhotoScan({ guestToken, onContinue }: {
-  guestToken?: string
+export function PhotoScan({ onContinue }: {
   onContinue: (product: Product) => void
 }) {
   const [images, setImages] = useState<string[]>([])
@@ -370,14 +369,12 @@ export function PhotoScan({ guestToken, onContinue }: {
             profile,
             ingredients,
             image_url: item.image_url || undefined,
-            guest_token: guestToken,
           })
         : await api.check({
             product_name: productName(item.brand, item.name),
             skin_type: skinType,
             profile,
             image_url: item.image_url || undefined,
-            guest_token: guestToken,
           })
       onContinue(toProduct(item, check, images[0] || "", skinType))
     } catch (e) {

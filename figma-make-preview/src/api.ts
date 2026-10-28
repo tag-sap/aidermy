@@ -750,25 +750,6 @@ export const api = {
   async compositionRecognize(payload: Record<string, unknown>) {
     return request("/composition/recognize", { method: "POST", body: JSON.stringify(payload) })
   },
-  // Гостевой сценарий: одна проверка одного средства за сеанс.
-  async guestSession(profile: Record<string, unknown>) {
-    return request<{ guest_token: string; expires_at: string; ttl_minutes: number }>("/guest/session", {
-      method: "POST",
-      body: JSON.stringify({ profile }),
-    })
-  },
-  async guestReport(guestToken: string) {
-    return request<ReportResult>("/guest/report", {
-      method: "POST",
-      body: JSON.stringify({ guest_token: guestToken }),
-    })
-  },
-  async guestClaim(guestToken: string) {
-    return request<{ status: string; analysis_id?: number; already_claimed: boolean }>("/guest/claim", {
-      method: "POST",
-      body: JSON.stringify({ guest_token: guestToken }),
-    })
-  },
   async check(payload: Record<string, unknown>) {
     return request<CheckResult>("/check", { method: "POST", body: JSON.stringify(payload) })
   },
